@@ -430,6 +430,7 @@ extension MessageManager {
             let currentPriority = self.archivePersistencePriorityByQueryId[queryId] ?? .background
             self.archivePersistencePriorityByQueryId[queryId] = max(currentPriority, priority)
             if inserted {
+                self.reconciledArchiveIngressExpectationsByQueryId.removeValue(forKey: queryId)
                 self.pendingPostPersistenceEffectsByQueryId
                     .removeValue(forKey: queryId)
                 self.postPersistenceEffectsHeldForTransportQueryIds
@@ -523,6 +524,32 @@ extension MessageManager {
         )
     }
 
+    internal func reconcileArchiveQueryBatchIngressExpectation(
+        queryId: String, expectedReceivedCount: Int
+    ) {
+        guard queryId.isNotEmpty else { return }
+        var shouldSchedulePump = false
+        self.archivePersistenceSchedulingLock.lock()
+        guard self.completedArchiveQueryBatchSummariesByQueryId[queryId] == nil else {
+            self.archivePersistenceSchedulingLock.unlock()
+            return
+        }
+        let expected = max(0, expectedReceivedCount)
+        self.reconciledArchiveIngressExpectationsByQueryId[queryId] = expected
+        if let request = self.sealedArchivePersistenceRequestsByQueryId[queryId] {
+            request.expectedReceivedCount = expected
+            request.isAwaitingIngress = false
+            if !self.isArchivePersistencePumpScheduled {
+                self.isArchivePersistencePumpScheduled = true
+                shouldSchedulePump = true
+            }
+        }
+        self.archivePersistenceSchedulingLock.unlock()
+        if shouldSchedulePump {
+            self.queue.async { [weak self] in self?.runArchivePersistencePumpTurn() }
+        }
+    }
+
     /// Releases the transport-ingress barrier after a real terminal cleanup.
     ///
     /// A raw MAM `<fin>` can reach the coordinator before all result envelopes
@@ -544,6 +571,7 @@ extension MessageManager {
             var didReleaseExpectation = false
             var shouldSchedulePump = false
             self.archivePersistenceSchedulingLock.lock()
+            self.reconciledArchiveIngressExpectationsByQueryId.removeValue(forKey: queryId)
             if let request =
                     self.sealedArchivePersistenceRequestsByQueryId[queryId] {
                 didReleaseExpectation = request.expectedReceivedCount != nil
@@ -592,6 +620,8 @@ extension MessageManager {
             queryID: queryId
         )
         self.archivePersistenceSchedulingLock.lock()
+        let exactExpectedCount = self.reconciledArchiveIngressExpectationsByQueryId[queryId]
+        let effectiveExpectedCount = exactExpectedCount ?? expectedReceivedCount
         if let summary = self.completedArchiveQueryBatchSummariesByQueryId[queryId] {
             completedSummary = summary
         } else {
@@ -601,7 +631,9 @@ extension MessageManager {
             if let request = self.sealedArchivePersistenceRequestsByQueryId[queryId] {
                 didJoin = true
                 request.priority = max(request.priority, effectivePriority)
-                if let expectedReceivedCount {
+                if let exactExpectedCount {
+                    request.expectedReceivedCount = exactExpectedCount
+                } else if let expectedReceivedCount {
                     request.expectedReceivedCount = max(
                         request.expectedReceivedCount ?? 0,
                         max(0, expectedReceivedCount)
@@ -619,7 +651,7 @@ extension MessageManager {
                     queryId: queryId,
                     sequence: self.archivePersistenceRequestSequence,
                     priority: effectivePriority,
-                    expectedReceivedCount: expectedReceivedCount.map { max(0, $0) },
+                    expectedReceivedCount: effectiveExpectedCount.map { max(0, $0) },
                     traceContext: traceContext,
                     completion: completion
                 )
@@ -719,6 +751,7 @@ extension MessageManager {
                 failedCount: summary.failed
             )
         }
+        self.reconciledArchiveIngressExpectationsByQueryId.removeValue(forKey: queryId)
         self.archivePersistencePriorityByQueryId.removeValue(forKey: queryId)
         self.completedArchiveQueryBatchSummariesByQueryId[queryId] = summary
         self.completedArchiveQueryBatchSummaryOrder.removeAll { $0 == queryId }
@@ -780,10 +813,16 @@ extension MessageManager {
         }
     }
 
-    private func parkArchivePersistenceRequestAwaitingIngress(queryId: String) {
+    private func parkArchivePersistenceRequestAwaitingIngress(queryId: String, receivedCount: Int) {
         self.archivePersistenceSchedulingLock.lock()
-        self.sealedArchivePersistenceRequestsByQueryId[queryId]?
-            .isAwaitingIngress = true
+        if let request = self.sealedArchivePersistenceRequestsByQueryId[queryId] {
+            // Authenticated control accounting can lower the budget after
+            // this pump's terminal check. Recheck before parking so its wake
+            // cannot be overwritten by an older expectation.
+            request.isAwaitingIngress = request.expectedReceivedCount.map {
+                receivedCount < $0
+            } ?? false
+        }
         self.archivePersistenceSchedulingLock.unlock()
     }
 
@@ -1031,7 +1070,8 @@ extension MessageManager {
             )
         } else if actualQueuedCount == 0 {
             self.parkArchivePersistenceRequestAwaitingIngress(
-                queryId: request.queryId
+                queryId: request.queryId,
+                receivedCount: summary.received
             )
             ChatArchiveDebugTrace.log(
                 "messageArchivePersistenceAwaitingIngress",

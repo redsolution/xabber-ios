@@ -93,7 +93,11 @@ final class OMEMO2NormativeReplayTests: XCTestCase {
         try exchangeReply(f)
         let regular = try content(f, body: "regular middle session")
         assertVerified(f.bob.prepareIncoming(regular))
-        try initiate(f.alice, to: f.bob, bundle: f.bobBundle)
+        // A subsequent initiation selects a still published OPK. N06 now
+        // erases the previously consumed private key after live ingress.
+        let currentBundle = try XCTUnwrap(f.bob.omemo2Storage).localBundle()
+        XCTAssertNotEqual(currentBundle.preKeys.first?.id, f.bobBundle.preKeys.first?.id)
+        try initiate(f.alice, to: f.bob, bundle: currentBundle)
         assertVerified(f.bob.prepareIncoming(try content(f, body: "new receive-only session")))
         assertDuplicateWithoutMutation(regular, f: f)
     }

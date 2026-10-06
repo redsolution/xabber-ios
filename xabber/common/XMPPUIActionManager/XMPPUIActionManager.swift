@@ -753,6 +753,8 @@ class XMPPUIActionManager: NSObject {
         mam.synchronizeArchiveCapabilities(
             from: AccountManager.shared.find(for: owner)?.mam
         )
+        mam.omemo2PreKeyCleanup = AccountManager.shared.find(for: owner)?.omemo.omemo2PreKeyCleanup
+        mam.omemo2CleanupMessages = messages
         messages.archiveQueryIdPersistenceResolver = { [weak mam] queryId in
             mam?.shouldPersistArchiveQueryId(queryId) ?? false
         }

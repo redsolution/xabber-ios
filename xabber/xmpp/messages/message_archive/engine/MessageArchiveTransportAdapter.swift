@@ -824,6 +824,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         if let token = tokens.2 {
             MessageArchiveRequestFailurePreparationDispatcher.unregister(token)
         }
+        account.mam.finishOMEMO2CleanupQuery(queryId: request.queryID)
         account.mam.abortDeferredCommit(queryId: request.queryID)
         finishSchedulerSlot()
         switch result {
@@ -1273,6 +1274,7 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
         if let token = tokens.1 {
             MessageArchiveRequestFailurePreparationDispatcher.unregister(token)
         }
+        account.mam.finishOMEMO2CleanupQuery(queryId: request.queryID)
         account.mam.abortDeferredCommit(queryId: request.queryID)
         account.mam.finishEngineSearchPage(queryId: request.queryID)
         finishSchedulerSlot()

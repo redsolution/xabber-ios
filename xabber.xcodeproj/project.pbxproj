@@ -1083,6 +1083,10 @@
 		BA072259FC964DFDA609C6EA /* OMEMO2NormativeReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB02EC4063C7497A9A736C20 /* OMEMO2NormativeReplayTests.swift */; };
 		E6511F64B4564B1394B66087 /* OMEMO2NormativeReplayHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE4A176B008F41B18A77499C /* OMEMO2NormativeReplayHistoryTests.swift */; };
 		0E01EF14DB97448DB6F165F8 /* OMEMO2NormativeKeyMaintenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1298BE6EFEA84CDE9216451E /* OMEMO2NormativeKeyMaintenanceTests.swift */; };
+		177648BD3B9C497295E0278D /* OMEMO2PreKeyCleanupCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B139902E8984CB8903F1F5C /* OMEMO2PreKeyCleanupCoordinator.swift */; };
+		962AA00D9B6D476BB79317B9 /* OMEMO2NormativePreKeyCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D8B250D00764B8886A4D113 /* OMEMO2NormativePreKeyCleanupTests.swift */; };
+		B62FEA079DD343DAB5D2E408 /* OMEMO2NormativeSyncCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A6FD32988D4D2CA89A83E1 /* OMEMO2NormativeSyncCleanupTests.swift */; };
+		6FAEC031F9B94A75A1D49072 /* OMEMO2NormativeCleanupRestartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D832F4C27D45F0836025DF /* OMEMO2NormativeCleanupRestartTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2204,6 +2208,10 @@
 		AB02EC4063C7497A9A736C20 /* OMEMO2NormativeReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeReplayTests.swift; sourceTree = "<group>"; };
 		FE4A176B008F41B18A77499C /* OMEMO2NormativeReplayHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeReplayHistoryTests.swift; sourceTree = "<group>"; };
 		1298BE6EFEA84CDE9216451E /* OMEMO2NormativeKeyMaintenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeKeyMaintenanceTests.swift; sourceTree = "<group>"; };
+		7B139902E8984CB8903F1F5C /* OMEMO2PreKeyCleanupCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2PreKeyCleanupCoordinator.swift; sourceTree = "<group>"; };
+		2D8B250D00764B8886A4D113 /* OMEMO2NormativePreKeyCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativePreKeyCleanupTests.swift; sourceTree = "<group>"; };
+		E7A6FD32988D4D2CA89A83E1 /* OMEMO2NormativeSyncCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeSyncCleanupTests.swift; sourceTree = "<group>"; };
+		B1D832F4C27D45F0836025DF /* OMEMO2NormativeCleanupRestartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeCleanupRestartTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -3741,6 +3749,7 @@
 			children = (
 				E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */,
 				728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */,
+				7B139902E8984CB8903F1F5C /* OMEMO2PreKeyCleanupCoordinator.swift */,
 				10E5A826ADAF46BE8AE15DDC /* OMEMO2ReplayProtection.swift */,
 				03CAD40C9C9B41A0B1C77A54 /* Omemo2IdentityRepresentation.swift */,
 				7267462FA257447D9AA4AADB /* OMEMO2BundleCodec.swift */,
@@ -4199,6 +4208,9 @@
 			isa = PBXGroup;
 			children = (
 				2FEF2FD659F74533ABDAC250 /* OMEMO2NormativeDevicesTests.swift */,
+				2D8B250D00764B8886A4D113 /* OMEMO2NormativePreKeyCleanupTests.swift */,
+				E7A6FD32988D4D2CA89A83E1 /* OMEMO2NormativeSyncCleanupTests.swift */,
+				B1D832F4C27D45F0836025DF /* OMEMO2NormativeCleanupRestartTests.swift */,
 				1298BE6EFEA84CDE9216451E /* OMEMO2NormativeKeyMaintenanceTests.swift */,
 				FE4A176B008F41B18A77499C /* OMEMO2NormativeReplayHistoryTests.swift */,
 				AB02EC4063C7497A9A736C20 /* OMEMO2NormativeReplayTests.swift */,
@@ -5667,6 +5679,7 @@
 				191531E8B9D041C59110EF5F /* XabberOMEMO2Storage.swift in Sources */,
 				F99DAB1A137A4868BAAEB4EF /* OMEMOReceive.swift in Sources */,
 				F03B93D75F2A40899C4A990F /* Omemo2PayloadCodec.swift in Sources */,
+				177648BD3B9C497295E0278D /* OMEMO2PreKeyCleanupCoordinator.swift in Sources */,
 				0982B6D37F8643D0B18AA032 /* OMEMO2ReplayProtection.swift in Sources */,
 				0D6AA888A363441881F0F3E5 /* Omemo2IdentityRepresentation.swift in Sources */,
 				6C2CD0F0B8454412BB1A517E /* OMEMO2BundleCodec.swift in Sources */,
@@ -6475,6 +6488,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				46C13EE7989D47BD9A666E8B /* OMEMO2NormativeDevicesTests.swift in Sources */,
+				962AA00D9B6D476BB79317B9 /* OMEMO2NormativePreKeyCleanupTests.swift in Sources */,
+				B62FEA079DD343DAB5D2E408 /* OMEMO2NormativeSyncCleanupTests.swift in Sources */,
+				6FAEC031F9B94A75A1D49072 /* OMEMO2NormativeCleanupRestartTests.swift in Sources */,
 				0E01EF14DB97448DB6F165F8 /* OMEMO2NormativeKeyMaintenanceTests.swift in Sources */,
 				E6511F64B4564B1394B66087 /* OMEMO2NormativeReplayHistoryTests.swift in Sources */,
 				BA072259FC964DFDA609C6EA /* OMEMO2NormativeReplayTests.swift in Sources */,

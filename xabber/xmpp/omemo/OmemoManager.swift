@@ -57,6 +57,23 @@ open class OmemoManager: AbstractXMPPManager {
     internal var isOmemoPrepared: Bool
     
     internal var omemo2Storage: XabberOMEMO2Storage?
+    private let omemo2CleanupInitializationLock = NSLock()
+    private var omemo2CleanupCoordinator: OMEMO2PreKeyCleanupCoordinator?
+    internal var omemo2PreKeyCleanup: OMEMO2PreKeyCleanupCoordinator {
+        omemo2CleanupInitializationLock.lock()
+        defer { omemo2CleanupInitializationLock.unlock() }
+        if let omemo2CleanupCoordinator { return omemo2CleanupCoordinator }
+        let coordinator = OMEMO2PreKeyCleanupCoordinator(
+            consumedIDs: { [weak self] in
+                guard let storage = self?.omemo2Storage else { return [] }
+                return try storage.consumedPreKeyIDs()
+            }, removeConsumed: { [weak self] ids in
+                guard let storage = self?.omemo2Storage else { throw OMEMO2StorageError.stateUnavailable }
+                try storage.removeConsumedPreKeys(ids: ids)
+            })
+        omemo2CleanupCoordinator = coordinator
+        return coordinator
+    }
     internal var omemo2ControlSender: ((XMPPMessage) -> Void)?
     internal var omemo2DeviceListRequests: [String: OMEMO2DeviceListRequest] = [:]
     internal var omemo2DeviceListRequester: ((String) -> Void)?
@@ -197,6 +214,9 @@ open class OmemoManager: AbstractXMPPManager {
             // lock. Preserve that order when registration finishes.
             omemo2MaintenanceLock.unlock()
             maintenanceLocked = false
+            if isOwnOMEMOEnabled, stream.isAuthenticated {
+                omemo2PreKeyCleanup.retryEligibleCleanup()
+            }
             self.flushOMEMO2Controls()
             AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
         } catch {
@@ -728,7 +748,10 @@ extension OmemoManager {
     }
 
     func prepareSyncConversations(_ query: DDXMLElement, serverContext: OMEMOReceiveServerContext = .unverified) -> [ClientSyncConversationValue] {
-        query.elements(forName: "conversation").map { prepareSyncConversation($0, serverContext: serverContext) }
+        let cleanup = omemo2PreKeyCleanup
+        let ingress = cleanup.beginIngress()
+        defer { cleanup.finishIngress(id: ingress) }
+        return query.elements(forName: "conversation").map { prepareSyncConversation($0, serverContext: serverContext) }
     }
 
     func prepareSyncConversation(

@@ -687,6 +687,8 @@ extension Account: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let omemoCleanup = self.omemo.omemo2PreKeyCleanup
+        let omemoIngress = omemoCleanup.beginIngress()
         let didObserveArchiveResult =
             self.mam.recordDeferredArchiveResultDelivery(message)
         var didRouteArchiveResultToPersistence = false
@@ -701,6 +703,7 @@ extension Account: XMPPStreamDelegate {
                         .recordDeferredArchiveControlConsumption(message)
                 }
             }
+            omemoCleanup.finishIngress(id: omemoIngress)
         }
         let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
             ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)

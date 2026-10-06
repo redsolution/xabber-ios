@@ -84,6 +84,8 @@ class XMPPBackgroundTask: NSObject {
         self.mam = MessageArchiveManager(withOwner: jid)
         self.messages = MessageManager(withOwner: jid, activeStream: false)
         super.init()
+        self.mam.omemo2PreKeyCleanup = AccountManager.shared.find(for: jid)?.omemo.omemo2PreKeyCleanup
+        self.mam.omemo2CleanupMessages = self.messages
         let mamFinalizationQueue = self.queue
         self.mam.pendingArchiveFailureFinalizationDispatcher = { work in
             mamFinalizationQueue.async(execute: work)

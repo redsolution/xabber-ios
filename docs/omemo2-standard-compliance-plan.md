@@ -102,6 +102,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N06
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n06-prekey-cleanup.md), focused36/36; affected561 сценарий с final replay9/9 после актуализации старого fixture.
+
 **Конечное удаление использованных private OPK.** Ограниченный старый OM2-11. Владелец: xmpp. Зависимости: N04/N05 для совместимых snapshots/key lifecycle.
 
 **Пробел:** `XabberOMEMO2Storage.finishCatchUp:385` вызывается только тестами. Used private OPK в production остаётся бессрочно. Empty reply при delayed cleanup уже сформирован и отправляется существующим control sender; это не новая control implementation task.
@@ -159,7 +161,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-N01 → N02 → N03 выполнены; следующая задача — **OM2-N06**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 → N04 → N05 → N06 выполнены; следующая задача — **OM2-N07**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 
@@ -177,3 +179,7 @@ Production/dependency/test код не менялся, build/test не запу�
 ## Результат N01 → N02 → N03
 
 Выполнено 2026-10-05. Финальный cached Debug Simulator gate351/351; app и push extension собраны. N03 следует фактическим QName/архивному поведению неизменённого сервера: protected SCE client content, server-owned archive routing и version timestamp при сохранённой creation date, включая sync snapshot/push. N01 restart lost-request follow-up и pre-existing push thumbnail QName repair оформлены отдельно. Trust exchange, plaintext markers/receipts, fallback body и hints остаются согласованными с указаниями пользователя. Live server interoperability не выполнялся; N04–N09 остаются открытыми.
+
+## Результат N04 → N05 → N06
+
+Выполнено2026-10-06. N04: confirmed replay proofs + event retention/migration, Cc775eb7, appc47ed79b,181/181 affected XCTest. N05: due SPK maintenance/grace + bounded current-bundle publication retries, app381336b6, final25/25 focused. N06: selective consumed OPK deletion after actual owner chain/query/ingress terminal, sync batch and authenticated restart, final36/36 task cases. Final affected30class gate561cases:560 passed; remaining N04 fixture relied on consumed OPK reuse outside catch-up, changed only that fixture to select current bundle, final replay9/9 passed. All tested regressions have a successful latest result; app/push built via cached simulator tests. Server unchanged; trust exchange/markers/receipts/fallback/hints preserved. Live interop remains unverified. N07–N09 remain open.

@@ -184,6 +184,7 @@ extension OmemoManager {
         guard isOwnOMEMOEnabled, isOmemoPrepared else { return }
         do {
             _ = try preparedOMEMO2Storage(forceMaintenance: force)
+            omemo2PreKeyCleanup.retryEligibleCleanup()
             retryOMEMO2BundlePublication(on: stream)
         } catch {
             DDLogDebug("OMEMO2 key maintenance could not be committed")
@@ -195,6 +196,7 @@ extension OmemoManager {
         omemo2MaintenanceLock.lock()
         defer { omemo2MaintenanceLock.unlock() }
         guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
+        storage.authenticatedReceiveDidCommit = { [weak self] in self?.omemo2PreKeyCleanup.authenticatedReceiveDidCommit() }
         var bundle: OMEMO2LocalBundle
         do { bundle = try storage.localBundle() }
         catch OMEMO2StorageError.stateUnavailable {

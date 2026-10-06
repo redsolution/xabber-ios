@@ -323,6 +323,8 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let omemoCleanup = AccountManager.shared.find(for: sender.myJID?.bare ?? jid)?.omemo.omemo2PreKeyCleanup
+        let omemoIngress = omemoCleanup?.beginIngress()
         let didObserveArchiveResult =
             self.mam.recordDeferredArchiveResultDelivery(message)
         var didRouteArchiveResultToPersistence = false
@@ -337,6 +339,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                         .recordDeferredArchiveControlConsumption(message)
                 }
             }
+            if let omemoIngress { omemoCleanup?.finishIngress(id: omemoIngress) }
         }
         let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
             ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)
@@ -500,6 +503,10 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             event: "tcp_disconnected",
             details: ["disconnectError": self.disconnectErrorDescription(error)],
             error: error
+        )
+        _ = self.mam.publishPendingArchiveRequestFailures(
+            streamKind: .background, reason: .requestStartFailed,
+            errorDescription: self.disconnectErrorDescription(error)
         )
         CredentialsManager.shared.getItem(for: jid).release(.authFailedRecoverable)
     }

@@ -531,6 +531,8 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let omemoCleanup = AccountManager.shared.find(for: sender.myJID?.bare ?? currentJid ?? "")?.omemo.omemo2PreKeyCleanup
+        let omemoIngress = omemoCleanup?.beginIngress()
         let archiveManager = self.mam
         let didObserveArchiveResult =
             archiveManager?.recordDeferredArchiveResultDelivery(message) ??
@@ -547,6 +549,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                         .recordDeferredArchiveControlConsumption(message)
                 }
             }
+            if let omemoIngress { omemoCleanup?.finishIngress(id: omemoIngress) }
         }
         let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
             ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)

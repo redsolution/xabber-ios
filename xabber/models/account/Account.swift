@@ -3382,6 +3382,8 @@ final class Account: NSObject {
     var roster: RosterManager
     var mam: MessageArchiveManager {
         didSet {
+            mam.omemo2PreKeyCleanup = omemo.omemo2PreKeyCleanup
+            mam.omemo2CleanupMessages = messages
             let finalizationQueue = queue
             mam.pendingArchiveFailureFinalizationDispatcher = { work in
                 finalizationQueue.async(execute: work)
@@ -3397,7 +3399,8 @@ final class Account: NSObject {
         owner: jid,
         repository: archiveCoverageRepository,
         transport: archiveTransportAdapter,
-        admissionProvider: canonicalGroupOpenAdmissionCoordinator
+        admissionProvider: canonicalGroupOpenAdmissionCoordinator,
+        preKeyCleanup: omemo.omemo2PreKeyCleanup
     )
     private let archiveEngineConnectionLock = NSLock()
     // Readiness callbacks are synchronous, but their bridge Tasks are not
@@ -3563,6 +3566,8 @@ final class Account: NSObject {
         self.abuse = XMPPAbuseManager(withOwner: self.jid)
         // start init NSObject
         super.init()
+        self.mam.omemo2PreKeyCleanup = self.omemo.omemo2PreKeyCleanup
+        self.mam.omemo2CleanupMessages = self.messages
         let mamFinalizationQueue = self.queue
         self.mam.pendingArchiveFailureFinalizationDispatcher = { work in
             mamFinalizationQueue.async(execute: work)

@@ -1111,6 +1111,21 @@ class MessageArchiveManager: AbstractXMPPManager {
         return requestedFrom < accountCreatedAt ? accountCreatedAt : requestedFrom
     }
 
+    internal var omemo2PreKeyCleanup: OMEMO2PreKeyCleanupCoordinator?
+    internal weak var omemo2CleanupMessages: MessageManager?
+    internal var omemo2CleanupTimeoutPolicy = OMEMO2CleanupTimeoutPolicy.production
+    private var omemo2CleanupQueries: [UUID: OMEMO2CleanupQueryLease] = [:]
+    private var omemo2CleanupCurrentQueryTokens: [String: UUID] = [:]
+    private struct OMEMO2CleanupContinuation {
+        let resume: () -> Void
+        let fail: () -> Void
+        let cancel: () -> Void
+    }
+    private var omemo2CleanupContinuations: [UUID: OMEMO2CleanupContinuation] = [:]
+    private var omemo2LegacyCatchUpChains: Set<UUID> = []
+    // Unlike archiveRequestLifecycleGeneration, this changes only on reset.
+    private var omemo2CleanupResetEpoch: UInt64 = 0
+
     struct MAMRequestItem: Equatable, Hashable {
         let jid: String?
         let messageId: String?
@@ -1127,6 +1142,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         let end: Date?
         let purpose: RequestPurpose
         let retainsSealedTransportProofUntilBarrier: Bool
+        var omemo2CatchUpChainID: UUID? = nil
+        var omemo2CleanupQueryToken: UUID? = nil
+        var omemo2CleanupResetEpoch: UInt64 = 0
     }
 
     struct DeferredArchiveTransportProof {
@@ -1883,6 +1901,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         callbacksQueue.remove(item)
         callbacksQueueLock.unlock()
 
+        abandonOMEMO2CleanupQuery(item: item)
         removeArchiveRequestStateAfterFailureLocked(queryId: item.elementId)
         if let taskQueryId = item.task.queryId,
            taskQueryId != item.elementId {
@@ -2509,12 +2528,14 @@ class MessageArchiveManager: AbstractXMPPManager {
                     rawComplete: complete,
                     serverResultCount: serverResultCount
                 )
-                if item.task.retainsSealedTransportProofUntilBarrier {
+                if item.task.retainsSealedTransportProofUntilBarrier || item.task.omemo2CleanupQueryToken != nil {
                     self.sealArchiveTransportProof(
                         queryId: queryId,
                         transportProof: transportProof
                     )
                 }
+                let waitsForCleanupContinuation = registerOMEMO2CleanupContinuation(item: item, stream: stream, nextPage: nextPage, shouldContinue: pageDisposition.shouldContinue)
+                self.beginOMEMO2CleanupPersistence(item: item, expected: max(0, deliveredResultCount - transportProof.intentionallyConsumedResultCount), closesChain: !pageDisposition.shouldContinue)
                 self.unregisterArchiveQueryId(queryId)
                 self.queryIds.remove(elementId)
                 self.notifyDidReceiveEndPage(
@@ -2528,14 +2549,16 @@ class MessageArchiveManager: AbstractXMPPManager {
                 )
                 if item.task.isContinues,
                    pageDisposition.shouldContinue {
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                        self.requestNextArchivePage(
-                            stream,
-                            task: item.task,
-                            nextPage: nextPage,
-                            requestCallbacks: item.requestCallbacks,
-                            callback: item.callback
-                        )
+                    if !waitsForCleanupContinuation {
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                            self.requestNextArchivePage(
+                                stream,
+                                task: item.task,
+                                nextPage: nextPage,
+                                requestCallbacks: item.requestCallbacks,
+                                callback: item.callback
+                            )
+                        }
                     }
                 } else {
                     self.completeCallback(item.callback)
@@ -2735,15 +2758,22 @@ class MessageArchiveManager: AbstractXMPPManager {
             return false
         }
 
+        let persistenceMessages = omemo2CleanupMessages ?? AccountManager.shared.find(for: owner)?.messages
         deferredArchiveCommitLock.lock()
-        guard var proof = deferredArchiveTransportProofsByQueryId[queryId] else {
+        let wasSealed = sealedArchiveTransportProofsByQueryId[queryId] != nil
+        guard var proof = deferredArchiveTransportProofsByQueryId[queryId] ?? sealedArchiveTransportProofsByQueryId[queryId] else {
             deferredArchiveCommitLock.unlock()
             return false
         }
         proof.recordIntentionalConsumption(
             resultId: result.attributeStringValue(forName: "id")
         )
-        deferredArchiveTransportProofsByQueryId[queryId] = proof
+        let expected = max(0, proof.deliveredResultCount - proof.intentionallyConsumedResultCount)
+        if wasSealed {
+            sealedArchiveTransportProofsByQueryId[queryId] = proof
+            persistenceIngressExpectationsByQueryId[queryId] = expected
+            persistenceMessages?.reconcileArchiveQueryBatchIngressExpectation(queryId: queryId, expectedReceivedCount: expected)
+        } else { deferredArchiveTransportProofsByQueryId[queryId] = proof }
         deferredArchiveCommitLock.unlock()
         return true
     }
@@ -2761,15 +2791,22 @@ class MessageArchiveManager: AbstractXMPPManager {
             return false
         }
 
+        let persistenceMessages = omemo2CleanupMessages ?? AccountManager.shared.find(for: owner)?.messages
         deferredArchiveCommitLock.lock()
-        guard var proof = deferredArchiveTransportProofsByQueryId[queryId] else {
+        let wasSealed = sealedArchiveTransportProofsByQueryId[queryId] != nil
+        guard var proof = deferredArchiveTransportProofsByQueryId[queryId] ?? sealedArchiveTransportProofsByQueryId[queryId] else {
             deferredArchiveCommitLock.unlock()
             return false
         }
         proof.recordPersistenceRouting(
             resultId: result.attributeStringValue(forName: "id")
         )
-        deferredArchiveTransportProofsByQueryId[queryId] = proof
+        let expected = max(0, proof.deliveredResultCount - proof.intentionallyConsumedResultCount)
+        if wasSealed {
+            sealedArchiveTransportProofsByQueryId[queryId] = proof
+            persistenceIngressExpectationsByQueryId[queryId] = expected
+            persistenceMessages?.reconcileArchiveQueryBatchIngressExpectation(queryId: queryId, expectedReceivedCount: expected)
+        } else { deferredArchiveTransportProofsByQueryId[queryId] = proof }
         deferredArchiveCommitLock.unlock()
         return true
     }
@@ -2863,7 +2900,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         unregisterFallbackEndPageCallbacks(queryId: queryId)
     }
 
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, retainSealedTransportProofUntilBarrier: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, retainSealedTransportProofUntilBarrier: Bool = false, omemo2CatchUpChainID: UUID? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         // `rsm-counter=1` performs a full SQL COUNT on Xabber Server. Normal
         // archive orchestration only needs the cheap page count and must never
@@ -2877,6 +2914,12 @@ class MessageArchiveManager: AbstractXMPPManager {
             requestedEnd: end
         )
         guard !dateConstraint.shouldSkipRequest else {
+            if let omemo2CatchUpChainID {
+                archiveRequestLifecycleLock.lock()
+                omemo2LegacyCatchUpChains.remove(omemo2CatchUpChainID)
+                archiveRequestLifecycleLock.unlock()
+                omemo2PreKeyCleanup?.finishCatchUp(id: omemo2CatchUpChainID)
+            }
             _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
                 owner: self.owner,
                 queryID: elementId,
@@ -2893,6 +2936,18 @@ class MessageArchiveManager: AbstractXMPPManager {
         archiveRequestLifecycleLock.lock()
         archiveRequestLifecycleGeneration &+= 1
         defer { archiveRequestLifecycleLock.unlock() }
+        let cleanupChainID: UUID?
+        if let omemo2CatchUpChainID { cleanupChainID = omemo2CatchUpChainID }
+        else if isContinues, let cleanup = omemo2PreKeyCleanup {
+            let id = UUID()
+            omemo2LegacyCatchUpChains.insert(id)
+            cleanup.beginCatchUp(id: id)
+            cleanupChainID = id
+        } else { cleanupChainID = nil }
+        let cleanupQuery = registerOMEMO2CleanupQuery(
+            queryId: elementId, chainID: cleanupChainID,
+            retainedByAdapter: retainSealedTransportProofUntilBarrier
+        )
         let effectiveStart = dateConstraint.start
         registerArchiveQueryId(elementId, purpose: purpose)
         let query = DDXMLElement(name: "query", xmlns: getPrimaryNamespace())
@@ -3015,7 +3070,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             end: end,
             purpose: purpose,
             retainsSealedTransportProofUntilBarrier:
-                retainSealedTransportProofUntilBarrier
+                retainSealedTransportProofUntilBarrier,
+            omemo2CatchUpChainID: cleanupChainID,
+            omemo2CleanupQueryToken: cleanupQuery?.token,
+            omemo2CleanupResetEpoch: omemo2CleanupResetEpoch
         )
         self.upsertCallbackQueueItem(
             CallbackQueueItem(
@@ -3069,6 +3127,13 @@ class MessageArchiveManager: AbstractXMPPManager {
             completeCallback(callback)
             return
         }
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        guard task.omemo2CleanupResetEpoch == omemo2CleanupResetEpoch,
+              task.omemo2CatchUpChainID.map({ omemo2LegacyCatchUpChains.contains($0) }) ?? true else {
+            completeCallback(callback)
+            return
+        }
         requestArchive(
             stream,
             jid: task.jid,
@@ -3086,6 +3151,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             tags: task.tags,
             retainSealedTransportProofUntilBarrier:
                 task.retainsSealedTransportProofUntilBarrier,
+            omemo2CatchUpChainID: task.omemo2CatchUpChainID,
             callback: callback,
             requestCallbacks: requestCallbacks
         )
@@ -3340,6 +3406,116 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
 
+
+    private func registerOMEMO2CleanupQuery(
+        queryId: String, chainID: UUID?, retainedByAdapter: Bool
+    ) -> OMEMO2CleanupQueryLease? {
+        guard let cleanup = omemo2PreKeyCleanup else { return nil }
+        // A reused legacy query ID needs a fresh MessageManager batch, not the
+        // completed summary of its preceding page.
+        omemo2CleanupMessages?.beginArchiveQueryBatch(queryId: queryId)
+        let dispatcher = pendingArchiveFailureFinalizationDispatcher
+        let lease = OMEMO2CleanupQueryLease(id: queryId, chainID: chainID,
+            cleanup: cleanup, messages: omemo2CleanupMessages,
+            policy: omemo2CleanupTimeoutPolicy) { [weak self] token, closesChain, successfulPersistence in
+            // The lease always hops asynchronously before calling us, even
+            // when a standalone/test manager uses the synchronous dispatcher.
+            dispatcher { [weak self] in
+                guard let self else { return }
+                self.archiveRequestLifecycleLock.lock()
+                self.omemo2CleanupQueries.removeValue(forKey: token)
+                let continuation = self.omemo2CleanupContinuations.removeValue(forKey: token)
+                if self.omemo2CleanupCurrentQueryTokens[queryId] == token {
+                    self.omemo2CleanupCurrentQueryTokens.removeValue(forKey: queryId)
+                    if !retainedByAdapter { self.abortDeferredCommit(queryId: queryId) }
+                }
+                if closesChain, let chainID { self.omemo2LegacyCatchUpChains.remove(chainID) }
+                self.archiveRequestLifecycleLock.unlock()
+                if successfulPersistence, !closesChain { continuation?.resume() }
+                else if !successfulPersistence { continuation?.fail() }
+            }
+        }
+        omemo2CleanupQueries[lease.token] = lease
+        omemo2CleanupCurrentQueryTokens[queryId] = lease.token
+        if !retainedByAdapter {
+            lease.armRequestTimeout { [weak self] completion in
+                dispatcher { [weak self] in
+                    self?.expireOMEMO2CleanupQuery(queryId: queryId, token: lease.token)
+                    completion()
+                }
+            }
+        }
+        return lease
+    }
+
+    private func registerOMEMO2CleanupContinuation(
+        item: CallbackQueueItem, stream: XMPPStream, nextPage: String?, shouldContinue: Bool
+    ) -> Bool {
+        guard item.task.isContinues, shouldContinue,
+              let token = item.task.omemo2CleanupQueryToken else { return false }
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        guard omemo2CleanupQueries[token] != nil else { return false }
+        omemo2CleanupContinuations[token] = OMEMO2CleanupContinuation(
+            resume: { [weak self] in
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.requestNextArchivePage(stream, task: item.task, nextPage: nextPage,
+                        requestCallbacks: item.requestCallbacks, callback: item.callback)
+                }
+            }, fail: { [weak self] in
+                guard let self else { return }
+                let event = MessageArchiveRequestFailureEvent(owner: self.owner,
+                    queryId: item.elementId, streamKind: Self.streamKind(for: stream),
+                    reason: .timeout, errorDescription: "Archive persistence timeout",
+                    pendingQueryCount: 1)
+                self.notifyDidFailRequest(item.requestCallbacks, event: event)
+                _ = MessageArchiveRequestFailureDispatcher.publish(event)
+                self.completeCallback(item.callback)
+            }, cancel: { [weak self] in self?.completeCallback(item.callback) }
+        )
+        return true
+    }
+
+    private func expireOMEMO2CleanupQuery(queryId: String, token: UUID) {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        guard let item = firstCallbackQueueItem(where: {
+            $0.elementId == queryId && $0.task.omemo2CleanupQueryToken == token
+        }) else { return }
+        let event = MessageArchiveRequestFailureEvent(owner: owner, queryId: queryId,
+            streamKind: .unknown, reason: .timeout, errorDescription: "Archive request timeout",
+            pendingQueryCount: 1)
+        _ = finishPendingArchiveRequestAfterFailure(queryId: queryId)
+        notifyDidFailRequest(item.requestCallbacks, event: event)
+        _ = MessageArchiveRequestFailureDispatcher.publish(event)
+    }
+
+    private func beginOMEMO2CleanupPersistence(item: CallbackQueueItem, expected: Int, closesChain: Bool) {
+        guard !item.task.retainsSealedTransportProofUntilBarrier,
+              let token = item.task.omemo2CleanupQueryToken else { return }
+        archiveRequestLifecycleLock.lock()
+        let lease = omemo2CleanupQueries[token]
+        archiveRequestLifecycleLock.unlock()
+        lease?.beginPersistence(expected: expected, closesChain: closesChain)
+    }
+
+    private func abandonOMEMO2CleanupQuery(item: CallbackQueueItem) {
+        guard !item.task.retainsSealedTransportProofUntilBarrier,
+              let token = item.task.omemo2CleanupQueryToken else { return }
+        archiveRequestLifecycleLock.lock()
+        let lease = omemo2CleanupQueries[token]
+        archiveRequestLifecycleLock.unlock()
+        lease?.beginPersistence(expected: nil, closesChain: true, abandoning: true)
+    }
+
+    internal func finishOMEMO2CleanupQuery(queryId: String) {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        guard let token = omemo2CleanupCurrentQueryTokens[queryId],
+              let lease = omemo2CleanupQueries[token] else { return }
+        lease.finish()
+    }
+
     internal func archiveRequestGenerationSnapshot() -> UInt64 {
         archiveRequestLifecycleLock.lock()
         defer { archiveRequestLifecycleLock.unlock() }
@@ -3361,9 +3537,16 @@ class MessageArchiveManager: AbstractXMPPManager {
         archiveRequestLifecycleLock.lock()
         defer { archiveRequestLifecycleLock.unlock() }
         archiveRequestLifecycleGeneration &+= 1
+        omemo2CleanupResetEpoch &+= 1
+        let abandonedChains = omemo2LegacyCatchUpChains
+        omemo2LegacyCatchUpChains.removeAll()
+        let abandonedContinuations = Array(omemo2CleanupContinuations.values)
+        omemo2CleanupContinuations.removeAll()
+        abandonedChains.forEach { omemo2PreKeyCleanup?.finishCatchUp(id: $0) }
         let pendingItems = self.drainCallbackQueueItems()
         let pendingCallbacks = pendingItems.compactMap(\.callback)
         pendingItems.forEach { item in
+            abandonOMEMO2CleanupQuery(item: item)
             _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
                 owner: self.owner,
                 queryID: item.task.queryId ?? item.elementId,
@@ -3393,5 +3576,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         // recursive lifecycle lock then lets it register without being erased
         // by the reset that triggered the callback.
         pendingCallbacks.forEach { $0() }
+        abandonedContinuations.forEach { $0.cancel() }
     }
 }

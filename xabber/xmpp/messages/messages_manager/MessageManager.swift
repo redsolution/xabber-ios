@@ -420,6 +420,7 @@ class MessageManager: AbstractXMPPManager {
     /// matching terminal event flushes the whole query in bounded chunks.
     internal var archiveQueryBatchIds: Set<String> = []
     internal let archivePersistenceSchedulingLock = NSLock()
+    internal var reconciledArchiveIngressExpectationsByQueryId: [String: Int] = [:]
     internal var archivePersistencePriorityByQueryId: [String: ArchivePersistencePriority] = [:]
     internal var sealedArchivePersistenceRequestsByQueryId: [String: ArchivePersistenceRequest] = [:]
     /// Immutable terminal summaries outlive mutable accumulator cleanup so a

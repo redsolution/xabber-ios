@@ -121,6 +121,13 @@ final class XabberOMEMO2Storage {
         var authenticatedReceiveFingerprints: [Data]? = nil
     }
 
+    /// Invoked only after a successful receive transaction released the owner lock.
+    private var receiveCommitCallback: (() -> Void)?
+    var authenticatedReceiveDidCommit: (() -> Void)? {
+        get { synchronized { receiveCommitCallback } }
+        set { synchronized { receiveCommitCallback = newValue } }
+    }
+
     let owner: String
     private let context: OMEMO2Context
     private let persistence: OMEMO2StatePersistence
@@ -270,7 +277,7 @@ final class XabberOMEMO2Storage {
                  previouslyAuthenticated: () -> Bool = { false },
                  updatingIdentity: (Data) throws -> Void = { _ in },
                  validating: (Data) throws -> Void = { _ in }) throws -> Data {
-        try synchronized {
+        let plaintext = try synchronized {
             var state = try requireState()
             let address = try checkedAddress(jid: jid, deviceID: deviceID)
             if let replayFingerprint {
@@ -370,6 +377,8 @@ final class XabberOMEMO2Storage {
             if replayFingerprint != nil, previouslyAuthenticated() { throw OMEMO2StorageError.authenticatedDuplicate }
             throw lastError
         }
+        authenticatedReceiveDidCommit?()
+        return plaintext
     }
 
     func sessionExists(jid: String, deviceID: Int) throws -> Bool {
@@ -417,6 +426,22 @@ final class XabberOMEMO2Storage {
     }
 
     func removeAllState() throws { try synchronized { try persistence.remove(owner: owner) } }
+
+    func consumedPreKeyIDs() throws -> Set<UInt32> {
+        try synchronized { Set(try requireState().preKeys.filter(\.consumed).map(\.id)) }
+    }
+
+    /// A caller supplies eligibility, but storage still enforces consumed-only
+    /// deletion. Known-EK snapshots and pending empty replies remain untouched.
+    func removeConsumedPreKeys(ids: Set<UInt32>) throws {
+        try synchronized {
+            var state = try requireState()
+            let oldCount = state.preKeys.count
+            state.preKeys.removeAll { $0.consumed && ids.contains($0.id) }
+            guard state.preKeys.count != oldCount else { return }
+            try save(state)
+        }
+    }
 
     /// Invoke only after archive catch-up completed. Session snapshots keep
     /// delayed packets with an already known EK decryptable without OPK reuse.

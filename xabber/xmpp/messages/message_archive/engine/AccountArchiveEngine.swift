@@ -131,6 +131,7 @@ actor AccountArchiveEngine {
         var shouldResumeAfterReconnect = false
     }
 
+    private let preKeyCleanup: OMEMO2PreKeyCleanupCoordinator?
     private let owner: String
     private let repository: ArchiveCoverageRepository
     private let transport: ArchiveTransport
@@ -175,8 +176,10 @@ actor AccountArchiveEngine {
         repository: ArchiveCoverageRepository,
         transport: ArchiveTransport,
         admissionProvider: ArchiveConversationAdmissionProviding,
+        preKeyCleanup: OMEMO2PreKeyCleanupCoordinator? = nil,
         retryClock: ArchiveRetryClock = .production
     ) {
+        self.preKeyCleanup = preKeyCleanup
         self.owner = owner
         self.repository = repository
         self.transport = transport
@@ -758,6 +761,7 @@ actor AccountArchiveEngine {
             intent: intent,
             requestIDs: [intent.id]
         )
+        preKeyCleanup?.beginCatchUp(id: execution.id)
         activeByDescriptor[descriptor] = execution
         publishActivity(for: intent.conversation)
         Task { [weak self] in
@@ -1736,6 +1740,7 @@ actor AccountArchiveEngine {
             execution: execution
         )
         activeByDescriptor.removeValue(forKey: descriptor)
+        preKeyCleanup?.finishCatchUp(id: execution.id)
         publishActivity(for: execution.intent.conversation)
     }
 
@@ -1743,6 +1748,7 @@ actor AccountArchiveEngine {
         let executions = activeByDescriptor
         activeByDescriptor.removeAll(keepingCapacity: true)
         for (descriptor, execution) in executions {
+            preKeyCleanup?.finishCatchUp(id: execution.id)
             publishBoundaryTerminal(
                 .cancelled,
                 descriptor: descriptor,
