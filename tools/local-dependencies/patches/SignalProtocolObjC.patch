@@ -13,10 +13,10 @@ index 2b46757..4de67be 100644
          return SG_ERR_NOMEM;
 diff --git a/Classes/OMEMO/OMEMO2.h b/Classes/OMEMO/OMEMO2.h
 new file mode 100644
-index 0000000..704235e
+index 0000000..c9d8576
 --- /dev/null
 +++ b/Classes/OMEMO/OMEMO2.h
-@@ -0,0 +1,112 @@
+@@ -0,0 +1,114 @@
 +#import <Foundation/Foundation.h>
 +
 +NS_ASSUME_NONNULL_BEGIN
@@ -113,6 +113,8 @@ index 0000000..704235e
 +@interface OMEMO2Session : NSObject
 +@property (nonatomic, readonly, getter=isKeyExchangePending) BOOL keyExchangePending;
 +@property (nonatomic, readonly) uint32_t sendCounter;
++/// Initiator's remote one-time pre-key ID, preserved after acknowledgement; zero for responders.
++@property (nonatomic, readonly) uint32_t remotePreKeyID;
 +@property (nonatomic, readonly) uint32_t receiveCounter;
 +@property (nonatomic, readonly) uint32_t previousCounter;
 +@property (nonatomic, readonly) NSUInteger skippedKeyCount;
@@ -131,10 +133,10 @@ index 0000000..704235e
 +NS_ASSUME_NONNULL_END
 diff --git a/Classes/OMEMO/OMEMO2.m b/Classes/OMEMO/OMEMO2.m
 new file mode 100644
-index 0000000..8bad2e3
+index 0000000..c990d92
 --- /dev/null
 +++ b/Classes/OMEMO/OMEMO2.m
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,300 @@
 +#import "OMEMO2.h"
 +#import "SignalCommonCryptoProvider.h"
 +#import "SignalError.h"
@@ -405,6 +407,7 @@ index 0000000..8bad2e3
 +- (void)dealloc { omemo_session_free(_nativeSession); }
 +- (BOOL)isKeyExchangePending { [_context.lock lock]; BOOL value = omemo_session_has_pending_key_exchange(_nativeSession) != 0; [_context.lock unlock]; return value; }
 +- (uint32_t)sendCounter { [_context.lock lock]; uint32_t value = omemo_session_get_send_counter(_nativeSession); [_context.lock unlock]; return value; }
++- (uint32_t)remotePreKeyID { [_context.lock lock]; uint32_t value = omemo_session_get_remote_pre_key_id(_nativeSession); [_context.lock unlock]; return value; }
 +- (uint32_t)receiveCounter { [_context.lock lock]; uint32_t value = omemo_session_get_receive_counter(_nativeSession); [_context.lock unlock]; return value; }
 +- (uint32_t)previousCounter { [_context.lock lock]; uint32_t value = omemo_session_get_previous_counter(_nativeSession); [_context.lock unlock]; return value; }
 +- (NSUInteger)skippedKeyCount { [_context.lock lock]; size_t value = omemo_session_get_skipped_count(_nativeSession); [_context.lock unlock]; return value; }
@@ -706,10 +709,10 @@ index 42a2839..f8749d3 100644
  		};
 diff --git a/Testing/SignalProtocolTests/OMEMO2Tests.m b/Testing/SignalProtocolTests/OMEMO2Tests.m
 new file mode 100644
-index 0000000..e9c7144
+index 0000000..967c29c
 --- /dev/null
 +++ b/Testing/SignalProtocolTests/OMEMO2Tests.m
-@@ -0,0 +1,240 @@
+@@ -0,0 +1,279 @@
 +#import <XCTest/XCTest.h>
 +@import SignalProtocolObjC;
 +
@@ -933,6 +936,45 @@ index 0000000..e9c7144
 +    OMEMO2Ciphertext *regular = [sender encryptData:content error:&error];
 +    XCTAssertFalse(regular.isKeyExchange);
 +    XCTAssertEqualObjects(content, [receiver decryptCiphertext:regular error:&error]);
++    XCTAssertNil(error);
++}
++
++- (void)testRemotePreKeyIDSurvivesAcknowledgementAndRestoredSessionsWithoutMutation {
++    NSError *error = nil;
++    OMEMO2Context *context = [[OMEMO2Context alloc] initWithError:&error];
++    OMEMO2IdentityKeyPair *alice = [context generateIdentityWithError:&error];
++    OMEMO2IdentityKeyPair *bob = [context generateIdentityWithError:&error];
++    OMEMO2KeyPair *signedKey = [context generateKeyPairWithError:&error];
++    OMEMO2KeyPair *oneTimeKey = [context generateKeyPairWithError:&error];
++    NSData *signature = [context signData:signedKey.publicKey identity:bob error:&error];
++    OMEMO2Bundle *bundle = [[OMEMO2Bundle alloc] initWithIdentityKey:bob.publicKey signedPreKey:signedKey.publicKey signedPreKeyID:7 signature:signature preKey:oneTimeKey.publicKey preKeyID:11 error:&error];
++    OMEMO2Session *sender = [context initiateSessionWithIdentity:alice bundle:bundle error:&error];
++    XCTAssertNotNil(sender);
++    NSData *pendingSnapshot = [sender serializedDataWithError:&error];
++    XCTAssertEqual(sender.remotePreKeyID, 11u);
++    XCTAssertTrue(sender.isKeyExchangePending);
++    XCTAssertEqualObjects([sender serializedDataWithError:&error], pendingSnapshot);
++    OMEMO2Session *restored = [context restoreSessionWithData:pendingSnapshot error:&error];
++    XCTAssertEqual(restored.remotePreKeyID, 11u);
++    XCTAssertTrue(restored.isKeyExchangePending);
++    OMEMO2Ciphertext *first = [sender encryptData:[self material:48 byte:0x47] error:&error];
++    NSData *plaintext = nil;
++    OMEMO2Session *receiver = [context acceptKeyExchange:first identity:bob signedPreKey:signedKey signedPreKeyID:7 preKey:oneTimeKey preKeyID:11 plaintext:&plaintext error:&error];
++    XCTAssertNotNil(receiver);
++    NSData *receiverSnapshot = [receiver serializedDataWithError:&error];
++    XCTAssertEqual(receiver.remotePreKeyID, 0u);
++    XCTAssertEqualObjects([receiver serializedDataWithError:&error], receiverSnapshot);
++    restored = [context restoreSessionWithData:receiverSnapshot error:&error];
++    XCTAssertEqual(restored.remotePreKeyID, 0u);
++    OMEMO2Ciphertext *reply = [receiver encryptData:[self material:32 byte:0] error:&error];
++    XCTAssertEqualObjects([sender decryptCiphertext:reply error:&error], [self material:32 byte:0]);
++    XCTAssertFalse(sender.isKeyExchangePending);
++    NSData *acknowledgedSnapshot = [sender serializedDataWithError:&error];
++    XCTAssertEqual(sender.remotePreKeyID, 11u);
++    XCTAssertEqualObjects([sender serializedDataWithError:&error], acknowledgedSnapshot);
++    restored = [context restoreSessionWithData:acknowledgedSnapshot error:&error];
++    XCTAssertEqual(restored.remotePreKeyID, 11u);
++    XCTAssertFalse(restored.isKeyExchangePending);
 +    XCTAssertNil(error);
 +}
 +

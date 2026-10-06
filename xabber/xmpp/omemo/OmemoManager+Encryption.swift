@@ -143,7 +143,7 @@ extension OmemoManager {
         message.addChild(metadata)
     }
 
-    private static let sessionQueue = DispatchQueue(label: "com.xabber.omemo.session.queue")
+    internal static let sessionQueue = DispatchQueue(label: "com.xabber.omemo.session.queue")
 
     /// The protected profile owns the device ID after migration. Missing or
     /// inaccessible state must not silently select a new device identity.
@@ -270,7 +270,13 @@ extension OmemoManager {
                 }
             }
             let storage = try ensureOMEMO2Prepared()
-            if try !storage.sessionExists(jid: jid, deviceID: deviceId) {
+            let generation = try storage.sessionReplacementGeneration(jid: jid, deviceID: deviceId)
+            if try storage.sessionReplacementNeedsFreshBundle(jid: jid, deviceID: deviceId) {
+                requestFreshOMEMO2Bundle(jid: jid, deviceID: deviceId, generation: generation, isRecovery: false)
+                throw OMEMO2StorageError.freshBundleRequired
+            }
+            let exists = try storage.sessionExists(jid: jid, deviceID: deviceId)
+            if generation != nil || !exists {
                 try createSession(jid: jid, deviceId: deviceId, storage: storage, requiresTrustedIdentity: requiresTrustedIdentity)
             }
             if requiresTrustedIdentity {
@@ -314,8 +320,19 @@ extension OmemoManager {
                 throw OmemoManagerError.noTrustedRecipientDevices
             }
         }
-        guard let preKey = bundle.preKeys.randomElement() else { throw OmemoManagerError.preKeyNotFound }
-        try storage.initiateSession(jid: jid, deviceID: deviceId, bundle: bundle.selectedBundle(preKeyID: preKey.id))
+        guard let preKey = try storage.availableOutgoingPreKeys(bundle: bundle, jid: jid, deviceID: deviceId).randomElement() else {
+            if let generation = try storage.sessionReplacementGeneration(jid: jid, deviceID: deviceId) {
+                requestFreshOMEMO2Bundle(jid: jid, deviceID: deviceId, generation: generation, isRecovery: false)
+            }
+            throw OmemoManagerError.preKeyNotFound
+        }
+        do {
+            try storage.initiateSession(jid: jid, deviceID: deviceId, bundle: bundle.selectedBundle(preKeyID: preKey.id))
+        } catch OMEMO2StorageError.freshBundleRequired {
+            requestFreshOMEMO2Bundle(jid: jid, deviceID: deviceId,
+                                   generation: try storage.sessionReplacementGeneration(jid: jid, deviceID: deviceId), isRecovery: false)
+            throw OMEMO2StorageError.freshBundleRequired
+        }
     }
 
     func encryptMessage(message: String, to jid: String) throws -> DDXMLElement? {
@@ -397,4 +414,160 @@ extension OmemoManager {
             }
         }
     }
+}
+
+struct OMEMO2FreshBundleRequest {
+    let id: String
+    let address: OMEMO2PeerAddress
+    let replacementGeneration: UUID?
+    let isRecovery: Bool
+    let startedAt: Date
+}
+
+extension OmemoManager {
+    /// Global manual replacement leaves identities, trust decisions and stored
+    /// history intact. A failed protected write leaves outgoing sessions usable.
+    internal func replaceOMEMO2Sessions() throws {
+        try Self.sessionQueue.sync {
+            guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
+            try storage.replaceOutgoingSessions()
+            for request in omemo2FreshBundleRequests.values { queryIds.remove(request.id) }
+            omemo2FreshBundleRequests.removeAll()
+            omemo2MissingSessionCandidates.removeAll()
+        }
+    }
+
+    /// Called only after strict non-KEX parsing and a storage missing-session
+    /// outcome. The second protected-state check also rejects receive-only and
+    /// manually replaced snapshots; decryption errors never reset them.
+    internal func recoverMissingOMEMO2Session(jid: String, deviceID: Int) {
+        Self.sessionQueue.sync {
+            do {
+                guard isOwnOMEMOEnabled, let storage = omemo2Storage,
+                      try storage.canRecoverMissingSession(jid: jid, deviceID: deviceID) else { return }
+                let time = omemo2MaintenanceNow()
+                discardExpiredMissingOMEMO2Candidates(at: time)
+                let address = OMEMO2PeerAddress(jid: jid, deviceID: deviceID)
+                let localID = try storage.localBundle().deviceID
+                guard !(jid == owner && deviceID == localID) else { return }
+                let realm = try WRealm.safe()
+                if OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: jid, deviceID: deviceID) {
+                    omemo2MissingSessionCandidates.removeValue(forKey: address)
+                    requestFreshOMEMO2Bundle(jid: jid, deviceID: deviceID, generation: nil, isRecovery: true)
+                } else {
+                    // The existing unknown-SID refresh precedes this missing
+                    // outcome. Wait for its accepted list, including when the
+                    // old cached list was known but did not contain this SID.
+                    if omemo2MissingSessionCandidates[address] == nil { omemo2MissingSessionCandidates[address] = time }
+                    if omemo2MissingSessionCandidates.count > 256,
+                       let oldest = omemo2MissingSessionCandidates.min(by: { $0.value < $1.value })?.key {
+                        omemo2MissingSessionCandidates.removeValue(forKey: oldest)
+                    }
+                }
+            } catch { DDLogDebug("OMEMO2 missing-session recovery could not be requested") }
+        }
+    }
+
+    private func discardExpiredMissingOMEMO2Candidates(at date: Date) {
+        omemo2MissingSessionCandidates = omemo2MissingSessionCandidates.filter {
+            (0..<Self.omemo2PublicationIQTimeout).contains(date.timeIntervalSince($0.value))
+        }
+    }
+
+    /// A verified PEP list/IQ can resume a strictly parsed missing-session
+    /// receive without a second packet. New device announcements alone have no
+    /// candidate and never eagerly build a session.
+    internal func resumeMissingOMEMO2Sessions(afterDeviceList jid: String) {
+        Self.sessionQueue.sync {
+            discardExpiredMissingOMEMO2Candidates(at: omemo2MaintenanceNow())
+            let candidates = omemo2MissingSessionCandidates.keys.filter { $0.jid == jid }
+            for address in candidates {
+                omemo2MissingSessionCandidates.removeValue(forKey: address)
+                do {
+                    guard isOwnOMEMOEnabled, let storage = omemo2Storage,
+                          try storage.canRecoverMissingSession(jid: address.jid, deviceID: address.deviceID) else { continue }
+                    let realm = try WRealm.safe()
+                    guard OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: address.jid, deviceID: address.deviceID) else { continue }
+                    requestFreshOMEMO2Bundle(jid: address.jid, deviceID: address.deviceID, generation: nil, isRecovery: true)
+                } catch { DDLogDebug("OMEMO2 missing-session list reconciliation could not be completed") }
+            }
+        }
+    }
+
+    /// Every request is tied to an owner, exact peer/device and reset generation.
+    /// A normal cached bundle or PEP headline is never sufficient to lift a reset.
+    private func requestFreshOMEMO2Bundle(jid: String, deviceID: Int, generation: UUID?, isRecovery: Bool) {
+        let address = OMEMO2PeerAddress(jid: jid, deviceID: deviceID)
+        let time = omemo2MaintenanceNow()
+        if let existing = omemo2FreshBundleRequests[address],
+           existing.replacementGeneration == generation, existing.isRecovery == isRecovery,
+           (0..<Self.omemo2PublicationIQTimeout).contains(time.timeIntervalSince(existing.startedAt)) { return }
+        if let previous = omemo2FreshBundleRequests[address] { queryIds.remove(previous.id) }
+        let id = UUID().uuidString
+        omemo2FreshBundleRequests[address] = OMEMO2FreshBundleRequest(
+            id: id, address: address, replacementGeneration: generation, isRecovery: isRecovery, startedAt: time)
+        queryIds.append(id)
+        if let requester = omemo2FreshBundleRequester {
+            requester(jid, deviceID, id)
+        } else {
+            AccountManager.shared.find(for: owner)?.action { [weak self] _, stream in
+                guard let self, stream.isAuthenticated, self.freshOMEMO2BundleRequestIsActive(id) else { return }
+                self.getContactBundle(stream, jid: jid, deviceId: deviceID, force: true, requestID: id)
+            }
+        }
+    }
+
+    private func freshOMEMO2BundleRequestIsActive(_ id: String) -> Bool {
+        Self.sessionQueue.sync { omemo2FreshBundleRequests.values.contains { $0.id == id } }
+    }
+
+    /// Matching IQs are handled synchronously before the general cache receiver.
+    /// Bundle signature/QNames, exact sender/device and protected generation are
+    /// checked before a freshly fetched bundle can permit an outgoing session.
+    internal func handleOMEMO2FreshBundleResponse(_ iq: XMPPIQ) -> Bool {
+        var flushRecovery = false
+        let handled = Self.sessionQueue.sync { () -> Bool in
+            guard let id = iq.elementID,
+                  let request = omemo2FreshBundleRequests.values.first(where: { $0.id == id }),
+                  iq.from?.bare == request.address.jid || (iq.from == nil && request.address.jid == owner),
+                  iq.iqType == .result || iq.iqType == .error else { return false }
+            defer {
+                omemo2FreshBundleRequests.removeValue(forKey: request.address)
+                queryIds.remove(id)
+            }
+            guard iq.iqType == .result,
+                  (0..<Self.omemo2PublicationIQTimeout).contains(omemo2MaintenanceNow().timeIntervalSince(request.startedAt)) else { return true }
+            do {
+                guard let pubsub = SCEReceivePolicy.children(of: iq, named: "pubsub", xmlns: "http://jabber.org/protocol/pubsub").omemo2Single,
+                      let items = SCEReceivePolicy.children(of: pubsub, named: "items", xmlns: "http://jabber.org/protocol/pubsub").omemo2Single,
+                      items.attributeStringValue(forName: "node") == Self.xmlns + ":bundles",
+                      let item = SCEReceivePolicy.children(of: items, named: "item", xmlns: "http://jabber.org/protocol/pubsub").omemo2Single,
+                      let storage = omemo2Storage else { return true }
+                let bundle = try OMEMO2BundleCodec.decode(item: item)
+                guard bundle.deviceID == request.address.deviceID else { return true }
+                if let generation = request.replacementGeneration {
+                    guard try storage.sessionReplacementGeneration(jid: request.address.jid, deviceID: request.address.deviceID) == generation else { return true }
+                    _ = try onContactBundleReceive(items: items, jid: request.address.jid)
+                    _ = try storage.authorizeSessionReplacement(jid: request.address.jid, deviceID: request.address.deviceID, generation: generation, bundle: bundle)
+                } else if request.isRecovery {
+                    guard isOwnOMEMOEnabled,
+                          try storage.canRecoverMissingSession(jid: request.address.jid, deviceID: request.address.deviceID) else { return true }
+                    let realm = try WRealm.safe()
+                    guard OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: request.address.jid, deviceID: request.address.deviceID) else { return true }
+                    _ = try onContactBundleReceive(items: items, jid: request.address.jid)
+                    guard let key = try storage.availableOutgoingPreKeys(bundle: bundle, jid: request.address.jid, deviceID: request.address.deviceID).randomElement() else { return true }
+                    try storage.initiateSession(jid: request.address.jid, deviceID: request.address.deviceID,
+                                                bundle: bundle.selectedBundle(preKeyID: key.id), initialControlNeeded: true)
+                    flushRecovery = true
+                }
+            } catch { DDLogDebug("OMEMO2 fresh bundle could not authorize a session") }
+            return true
+        }
+        if flushRecovery { flushOMEMO2Controls() }
+        return handled
+    }
+}
+
+private extension Array {
+    var omemo2Single: Element? { count == 1 ? first : nil }
 }

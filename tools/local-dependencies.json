@@ -20,7 +20,7 @@
       "url": "https://github.com/WhisperSystems/libsignal-protocol-c.git",
       "origin": "https://github.com/WhisperSystems/libsignal-protocol-c.git",
       "base_revision": "4a137eaf4eb4421949e2e1dde9f11ec7bc07b88f",
-      "prepared_revision": "c775eb7d6d82599b5b3fde27163536a878674ca1",
+      "prepared_revision": "29d4e8b66f7539c4731b8c05ebf6fcfa1e786937",
       "branch": "codex/ios-local-dependencies",
       "pods": [
         "SignalProtocolC"
@@ -35,7 +35,7 @@
       "url": "https://github.com/redsolution/SignalProtocol-ObjC.git",
       "origin": "https://github.com/redsolution/SignalProtocol-ObjC.git",
       "base_revision": "597bb713d9cadda855f150f6066c50521481213f",
-      "prepared_revision": "d142b4db2aab57d2686bce7f4c1298ca1a9322b9",
+      "prepared_revision": "664431049dfa43a43c6ca82e446c1e7332d6f9c8",
       "branch": "codex/ios-local-dependencies",
       "pods": [
         "SignalProtocolObjC"

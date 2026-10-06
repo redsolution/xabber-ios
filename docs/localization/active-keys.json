@@ -74,7 +74,7 @@
           "argumentCount": 0,
           "fallback": "Connection error",
           "formatSignature": [],
-          "line": 789,
+          "line": 790,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -824,7 +824,7 @@
           "argumentCount": 0,
           "fallback": "Server not found",
           "formatSignature": [],
-          "line": 4256,
+          "line": 4261,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -924,7 +924,7 @@
           "argumentCount": 0,
           "fallback": "Reconnecting",
           "formatSignature": [],
-          "line": 4293,
+          "line": 4298,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -2865,7 +2865,7 @@
           "argumentCount": 0,
           "fallback": "Review the devices connected to this account and manage their end-to-end encryption.",
           "formatSignature": [],
-          "line": 97,
+          "line": 98,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
           "surfaces": [
@@ -3539,7 +3539,7 @@
           "argumentCount": 0,
           "fallback": "Other devices",
           "formatSignature": [],
-          "line": 96,
+          "line": 97,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
           "surfaces": [
@@ -5280,7 +5280,7 @@
           "argumentCount": 0,
           "fallback": "Offline",
           "formatSignature": [],
-          "line": 4255,
+          "line": 4260,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -5294,7 +5294,7 @@
           "argumentCount": 0,
           "fallback": "Offline",
           "formatSignature": [],
-          "line": 4308,
+          "line": 4313,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -5308,7 +5308,7 @@
           "argumentCount": 0,
           "fallback": "Offline",
           "formatSignature": [],
-          "line": 4846,
+          "line": 4851,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -5322,7 +5322,7 @@
           "argumentCount": 0,
           "fallback": "Offline",
           "formatSignature": [],
-          "line": 5260,
+          "line": 5265,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -5804,7 +5804,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Incoming contact request",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -13449,7 +13449,8 @@
     },
     {
       "apis": [
-        "legacy"
+        "legacy",
+        "text"
       ],
       "callsites": [
         {
@@ -13929,6 +13930,20 @@
           "typeSafety": "typeUnchecked"
         },
         {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Cancel",
+          "formatSignature": [],
+          "line": 153,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        },
+        {
           "api": "legacy",
           "argumentCount": 0,
           "fallback": "Cancel",
@@ -14341,7 +14356,7 @@
           "argumentCount": 0,
           "fallback": "Can`t delete message: unexpected error",
           "formatSignature": [],
-          "line": 458,
+          "line": 486,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -14377,7 +14392,7 @@
           "argumentCount": 0,
           "fallback": "Can`t delete message:",
           "formatSignature": [],
-          "line": 382,
+          "line": 410,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -19292,7 +19307,7 @@
           "argumentCount": 0,
           "fallback": "Contact",
           "formatSignature": [],
-          "line": 400,
+          "line": 412,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -22097,9 +22112,95 @@
         {
           "api": "text",
           "argumentCount": 0,
+          "fallback": "Failed to decrypt",
+          "formatSignature": [],
+          "line": 335,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "projection",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Failed to decrypt"
+      },
+      "fallbacks": [
+        "Failed to decrypt"
+      ],
+      "formatSignature": [],
+      "key": "chat_list__preview__decrypt_failed",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Encrypted message",
+          "formatSignature": [],
+          "line": 336,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "projection",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Encrypted message",
+          "formatSignature": [],
+          "line": 94,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/messages/message/MessageForwardsInlineStorageItem.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "configureInline",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Encrypted message"
+      },
+      "fallbacks": [
+        "Encrypted message"
+      ],
+      "formatSignature": [],
+      "key": "chat_list__preview__encrypted_message",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
           "fallback": "Message",
           "formatSignature": [],
-          "line": 434,
+          "line": 446,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -22135,7 +22236,7 @@
           "argumentCount": 0,
           "fallback": "System message",
           "formatSignature": [],
-          "line": 429,
+          "line": 441,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -22203,7 +22304,7 @@
               "width": null
             }
           ],
-          "line": 700,
+          "line": 713,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -22282,7 +22383,7 @@
               "width": null
             }
           ],
-          "line": 700,
+          "line": 713,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -22329,7 +22430,7 @@
           "argumentCount": 0,
           "fallback": "Call",
           "formatSignature": [],
-          "line": 1519,
+          "line": 1524,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22401,7 +22502,7 @@
           "argumentCount": 0,
           "fallback": "Contact",
           "formatSignature": [],
-          "line": 1507,
+          "line": 1512,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22465,7 +22566,7 @@
           "argumentCount": 0,
           "fallback": "File",
           "formatSignature": [],
-          "line": 424,
+          "line": 436,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -22479,7 +22580,7 @@
           "argumentCount": 0,
           "fallback": "File",
           "formatSignature": [],
-          "line": 1494,
+          "line": 1499,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22523,7 +22624,7 @@
               "width": null
             }
           ],
-          "line": 1496,
+          "line": 1501,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22584,7 +22685,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Forwarded message",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -22655,7 +22756,7 @@
           "argumentCount": 0,
           "fallback": "Forwarded message",
           "formatSignature": [],
-          "line": 414,
+          "line": 426,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -22669,7 +22770,7 @@
           "argumentCount": 0,
           "fallback": "Forwarded message",
           "formatSignature": [],
-          "line": 1511,
+          "line": 1516,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22724,7 +22825,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Image",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -22753,7 +22854,7 @@
           "argumentCount": 0,
           "fallback": "Image",
           "formatSignature": [],
-          "line": 1476,
+          "line": 1481,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22799,7 +22900,7 @@
               "width": null
             }
           ],
-          "line": 1478,
+          "line": 1483,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22844,7 +22945,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Invitation to incognito group",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -22859,7 +22960,7 @@
           "argumentCount": 0,
           "fallback": "Invitation to incognito group",
           "formatSignature": [],
-          "line": 956,
+          "line": 1038,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23105,7 +23206,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Invitation to private chat",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23120,7 +23221,7 @@
           "argumentCount": 0,
           "fallback": "Invitation to private chat",
           "formatSignature": [],
-          "line": 961,
+          "line": 1043,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23160,7 +23261,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Invitation to public group",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23175,7 +23276,7 @@
           "argumentCount": 0,
           "fallback": "Invitation to public group",
           "formatSignature": [],
-          "line": 966,
+          "line": 1048,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23247,7 +23348,7 @@
               "width": null
             }
           ],
-          "line": 700,
+          "line": 713,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23270,7 +23371,7 @@
               "width": null
             }
           ],
-          "line": 419,
+          "line": 431,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -23292,7 +23393,7 @@
               "width": null
             }
           ],
-          "line": 1513,
+          "line": 1518,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23567,7 +23668,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Sticker",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23582,7 +23683,7 @@
           "argumentCount": 0,
           "fallback": "Sticker",
           "formatSignature": [],
-          "line": 405,
+          "line": 417,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
           "surfaces": [
@@ -23596,7 +23697,7 @@
           "argumentCount": 0,
           "fallback": "Sticker",
           "formatSignature": [],
-          "line": 1521,
+          "line": 1526,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23759,7 +23860,7 @@
           "domain": "pushLocalizationFacade",
           "fallback": "Video",
           "formatSignature": [],
-          "line": 698,
+          "line": 711,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23774,7 +23875,7 @@
           "argumentCount": 0,
           "fallback": "Video",
           "formatSignature": [],
-          "line": 1488,
+          "line": 1493,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23845,7 +23946,7 @@
               "width": null
             }
           ],
-          "line": 700,
+          "line": 713,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -23868,7 +23969,7 @@
               "width": null
             }
           ],
-          "line": 1490,
+          "line": 1495,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23914,7 +24015,7 @@
           "argumentCount": 0,
           "fallback": "Voice message",
           "formatSignature": [],
-          "line": 1482,
+          "line": 1487,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23983,7 +24084,7 @@
               "width": null
             }
           ],
-          "line": 700,
+          "line": 713,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -24006,7 +24107,7 @@
               "width": null
             }
           ],
-          "line": 1484,
+          "line": 1489,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24084,7 +24185,7 @@
               "width": null
             }
           ],
-          "line": 700,
+          "line": 713,
           "origin": "generatedPattern",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -24203,7 +24304,7 @@
           "argumentCount": 0,
           "fallback": "This message was not sent to one or more untrusted devices.",
           "formatSignature": [],
-          "line": 1042,
+          "line": 1047,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -32075,7 +32176,7 @@
               "width": null
             }
           ],
-          "line": 1116,
+          "line": 1140,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
           "surfaces": [
@@ -32119,7 +32220,7 @@
           "argumentCount": 0,
           "fallback": "SM session not found",
           "formatSignature": [],
-          "line": 1112,
+          "line": 1136,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
           "surfaces": [
@@ -45616,7 +45717,7 @@
           "argumentCount": 0,
           "fallback": "Editing",
           "formatSignature": [],
-          "line": 754,
+          "line": 756,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager+CommonSender.swift",
           "surfaces": [
@@ -45760,7 +45861,7 @@
           "argumentCount": 0,
           "fallback": "Encryption",
           "formatSignature": [],
-          "line": 135,
+          "line": 136,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
           "surfaces": [
@@ -45931,7 +46032,7 @@
           "argumentCount": 0,
           "fallback": "Error during password or resource update",
           "formatSignature": [],
-          "line": 5010,
+          "line": 5015,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/Account.swift",
           "surfaces": [
@@ -56484,7 +56585,7 @@
           "argumentCount": 0,
           "fallback": "Bad request",
           "formatSignature": [],
-          "line": 816,
+          "line": 817,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -56534,7 +56635,7 @@
           "argumentCount": 0,
           "fallback": "Conflict",
           "formatSignature": [],
-          "line": 815,
+          "line": 816,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -56570,7 +56671,7 @@
           "argumentCount": 0,
           "fallback": "Contact unavailable",
           "formatSignature": [],
-          "line": 812,
+          "line": 813,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -56606,7 +56707,7 @@
           "argumentCount": 0,
           "fallback": "Forbidden",
           "formatSignature": [],
-          "line": 813,
+          "line": 814,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -56951,7 +57052,7 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
-          "line": 810,
+          "line": 811,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -56965,7 +57066,7 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
-          "line": 829,
+          "line": 830,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57001,7 +57102,7 @@
           "argumentCount": 0,
           "fallback": "Internal server error",
           "formatSignature": [],
-          "line": 817,
+          "line": 818,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57037,7 +57138,7 @@
           "argumentCount": 0,
           "fallback": "JID mailformed",
           "formatSignature": [],
-          "line": 819,
+          "line": 820,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57073,7 +57174,7 @@
           "argumentCount": 0,
           "fallback": "Item not found",
           "formatSignature": [],
-          "line": 818,
+          "line": 819,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57104,6 +57205,20 @@
         "legacy"
       ],
       "callsites": [
+        {
+          "api": "legacy",
+          "argumentCount": 0,
+          "fallback": "Can`t find any OMEMO device",
+          "formatSignature": [],
+          "line": 574,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "editMessage",
+          "typeSafety": "typeUnchecked"
+        },
         {
           "api": "legacy",
           "argumentCount": 0,
@@ -57173,7 +57288,7 @@
           "argumentCount": 0,
           "fallback": "Remote server not found",
           "formatSignature": [],
-          "line": 826,
+          "line": 827,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57209,7 +57324,7 @@
           "argumentCount": 0,
           "fallback": "Subscription required",
           "formatSignature": [],
-          "line": 828,
+          "line": 829,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57245,7 +57360,7 @@
           "argumentCount": 0,
           "fallback": "Feature not implemented",
           "formatSignature": [],
-          "line": 814,
+          "line": 815,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57281,7 +57396,7 @@
           "argumentCount": 0,
           "fallback": "Policy violation",
           "formatSignature": [],
-          "line": 823,
+          "line": 824,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57317,7 +57432,7 @@
           "argumentCount": 0,
           "fallback": "Recipient unavailable",
           "formatSignature": [],
-          "line": 824,
+          "line": 825,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57353,7 +57468,7 @@
           "argumentCount": 0,
           "fallback": "Redirect",
           "formatSignature": [],
-          "line": 825,
+          "line": 826,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57389,7 +57504,7 @@
           "argumentCount": 0,
           "fallback": "Remote server timeout",
           "formatSignature": [],
-          "line": 827,
+          "line": 828,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57425,7 +57540,7 @@
           "argumentCount": 0,
           "fallback": "Not acceptable",
           "formatSignature": [],
-          "line": 820,
+          "line": 821,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57489,7 +57604,7 @@
           "argumentCount": 0,
           "fallback": "Not allowed",
           "formatSignature": [],
-          "line": 821,
+          "line": 822,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57525,7 +57640,7 @@
           "argumentCount": 0,
           "fallback": "Not authorized",
           "formatSignature": [],
-          "line": 822,
+          "line": 823,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -57743,7 +57858,7 @@
           "argumentCount": 0,
           "fallback": "message not found",
           "formatSignature": [],
-          "line": 371,
+          "line": 399,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -57779,7 +57894,21 @@
           "argumentCount": 0,
           "fallback": "Message was encrypted by OMEMO",
           "formatSignature": [],
-          "line": 373,
+          "line": 629,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "prepareEditedMessage",
+          "typeSafety": "typeUnchecked"
+        },
+        {
+          "api": "legacy",
+          "argumentCount": 0,
+          "fallback": "Message was encrypted by OMEMO",
+          "formatSignature": [],
+          "line": 371,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager+CommonSender.swift",
           "surfaces": [
@@ -57793,7 +57922,7 @@
           "argumentCount": 0,
           "fallback": "Message was encrypted by OMEMO",
           "formatSignature": [],
-          "line": 538,
+          "line": 584,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/trust_sharing/TrustSharingManager.swift",
           "surfaces": [
@@ -59542,7 +59671,7 @@
           "argumentCount": 0,
           "fallback": "not acceptable",
           "formatSignature": [],
-          "line": 368,
+          "line": 396,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -59578,7 +59707,7 @@
           "argumentCount": 0,
           "fallback": "not allowed",
           "formatSignature": [],
-          "line": 365,
+          "line": 393,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -61823,6 +61952,178 @@
         {
           "api": "text",
           "argumentCount": 0,
+          "fallback": "Replace encryption sessions",
+          "formatSignature": [],
+          "line": 93,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "update",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Replace encryption sessions",
+          "formatSignature": [],
+          "line": 149,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Replace encryption sessions",
+          "formatSignature": [],
+          "line": 154,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Replace encryption sessions"
+      },
+      "fallbacks": [
+        "Replace encryption sessions"
+      ],
+      "formatSignature": [],
+      "key": "omemo_sessions_replace",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Replace all encryption sessions for this account? Your fingerprint, trusted devices and message history will be kept.",
+          "formatSignature": [],
+          "line": 150,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Replace all encryption sessions for this account? Your fingerprint, trusted devices and message history will be kept."
+      },
+      "fallbacks": [
+        "Replace all encryption sessions for this account? Your fingerprint, trusted devices and message history will be kept."
+      ],
+      "formatSignature": [],
+      "key": "omemo_sessions_replace_confirmation",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Could not replace encryption sessions. Try again.",
+          "formatSignature": [],
+          "line": 254,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showSessionReplacementResult",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Could not replace encryption sessions. Try again."
+      },
+      "fallbacks": [
+        "Could not replace encryption sessions. Try again."
+      ],
+      "formatSignature": [],
+      "key": "omemo_sessions_replace_failed",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Encryption sessions replaced. They will be rebuilt when you send a message.",
+          "formatSignature": [],
+          "line": 253,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showSessionReplacementResult",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Encryption sessions replaced. They will be rebuilt when you send a message."
+      },
+      "fallbacks": [
+        "Encryption sessions replaced. They will be rebuilt when you send a message."
+      ],
+      "formatSignature": [],
+      "key": "omemo_sessions_replace_success",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
           "fallback": "Privacy settings",
           "formatSignature": [],
           "line": 100,
@@ -63067,7 +63368,7 @@
           "argumentCount": 0,
           "fallback": "New message",
           "formatSignature": [],
-          "line": 704,
+          "line": 717,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -63105,7 +63406,7 @@
           "argumentCount": 0,
           "fallback": "Location",
           "formatSignature": [],
-          "line": 1229,
+          "line": 1234,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -66267,7 +66568,7 @@
               "width": null
             }
           ],
-          "line": 1264,
+          "line": 1346,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -66313,7 +66614,7 @@
           "argumentCount": 0,
           "fallback": "Somebody",
           "formatSignature": [],
-          "line": 1260,
+          "line": 1342,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
           "surfaces": [
@@ -67152,7 +67453,7 @@
           "argumentCount": 0,
           "fallback": "This media was hidden after your report.",
           "formatSignature": [],
-          "line": 1037,
+          "line": 1042,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -67188,7 +67489,7 @@
           "argumentCount": 0,
           "fallback": "This message was hidden after your report.",
           "formatSignature": [],
-          "line": 1032,
+          "line": 1037,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -77613,7 +77914,7 @@
           "argumentCount": 0,
           "fallback": "Stream was disconnected",
           "formatSignature": [],
-          "line": 574,
+          "line": 575,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -79868,7 +80169,7 @@
           "argumentCount": 0,
           "fallback": "unexpected error",
           "formatSignature": [],
-          "line": 382,
+          "line": 410,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -83461,7 +83762,7 @@
           "argumentCount": 0,
           "fallback": "Local OMEMO identity key pair is unavailable",
           "formatSignature": [],
-          "line": 33,
+          "line": 34,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
           "surfaces": [
@@ -83497,7 +83798,7 @@
           "argumentCount": 0,
           "fallback": "Local OMEMO key material is unavailable",
           "formatSignature": [],
-          "line": 35,
+          "line": 36,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
           "surfaces": [
@@ -83516,6 +83817,42 @@
       ],
       "formatSignature": [],
       "key": "xabber_axolotl_storage__localized_error_description__local_omemo_key_material_is_unavailable",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Existing OMEMO2 state must be prepared without replacing legacy key material",
+          "formatSignature": [],
+          "line": 38,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "XabberAxolotlStorageError",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Existing OMEMO2 state must be prepared without replacing legacy key material"
+      },
+      "fallbacks": [
+        "Existing OMEMO2 state must be prepared without replacing legacy key material"
+      ],
+      "formatSignature": [],
+      "key": "xabber_axolotl_storage__localized_error_description__omemo2_state_requires_profile_storage",
       "origins": [
         "sourceLiteral"
       ],
@@ -93603,9 +93940,9 @@
   "schemaVersion": 1,
   "sourceLanguage": "en",
   "summary": {
-    "activeKeys": 1812,
+    "activeKeys": 1819,
     "activeWithoutEnglish": 0,
-    "catalogKeys": 3337,
+    "catalogKeys": 3344,
     "catalogOnlyKeys": 1525,
     "computedFallbacks": 12,
     "directLookups": 0,

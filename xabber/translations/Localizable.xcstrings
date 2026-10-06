@@ -85176,6 +85176,170 @@
         }
       }
     },
+    "omemo_sessions_replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال جلسات التشفير"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace encryption sessions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazar sesiones de cifrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer les sessions de chiffrement"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменить сеансы шифрования"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换加密会话"
+          }
+        }
+      }
+    },
+    "omemo_sessions_replace_confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استبدال جميع جلسات التشفير لهذا الحساب؟ ستُحفظ بصمة مفتاحك والأجهزة الموثوقة وسجل الرسائل."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace all encryption sessions for this account? Your fingerprint, trusted devices and message history will be kept."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Reemplazar todas las sesiones de cifrado de esta cuenta? Se conservarán tu huella, los dispositivos de confianza y el historial de mensajes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer toutes les sessions de chiffrement de ce compte ? Votre empreinte, vos appareils de confiance et votre historique seront conservés."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменить все сеансы шифрования этого аккаунта? Отпечаток ключа, доверенные устройства и история сообщений сохранятся."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要替换此账号的所有加密会话吗？密钥指纹、受信任的设备和消息记录将保留。"
+          }
+        }
+      }
+    },
+    "omemo_sessions_replace_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر استبدال جلسات التشفير. حاول مرة أخرى."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not replace encryption sessions. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron reemplazar las sesiones de cifrado. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de remplacer les sessions de chiffrement. Réessayez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось заменить сеансы шифрования. Попробуйте ещё раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法替换加密会话。请重试。"
+          }
+        }
+      }
+    },
+    "omemo_sessions_replace_success": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استبدال جلسات التشفير. ستُنشأ من جديد عند إرسال رسالة."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encryption sessions replaced. They will be rebuilt when you send a message."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se han reemplazado las sesiones de cifrado. Se crearán de nuevo cuando envíes un mensaje."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les sessions de chiffrement ont été remplacées. Elles seront recréées lors de l’envoi d’un message."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеансы шифрования заменены. Они будут созданы заново при отправке сообщения."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加密会话已替换。发送消息时将重新建立。"
+          }
+        }
+      }
+    },
     "onboarding__action__privacy_settings": {
       "comment": "Onboarding: button title.",
       "extractionState": "manual",
@@ -120915,6 +121079,129 @@
           "stringUnit": {
             "state": "translated",
             "value": "忘记"
+          }
+        }
+      }
+    },
+    "chat_list__preview__decrypt_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فك التشفير"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to decrypt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descifrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec du déchiffrement"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось расшифровать"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解密"
+          }
+        }
+      }
+    },
+    "chat_list__preview__encrypted_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسالة مشفّرة"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypted message"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje cifrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message chiffré"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зашифрованное сообщение"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加密消息"
+          }
+        }
+      }
+    },
+    "xabber_axolotl_storage__localized_error_description__omemo2_state_requires_profile_storage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب إعداد حالة OMEMO2 الحالية دون استبدال مفاتيح الإصدار السابق"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Existing OMEMO2 state must be prepared without replacing legacy key material"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es necesario preparar el estado OMEMO2 existente sin reemplazar el material de claves heredado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état OMEMO2 existant doit être préparé sans remplacer les clés héritées"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Существующее состояние OMEMO2 нужно подготовить без замены ключей прежнего профиля"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必须准备现有的 OMEMO2 状态，且不能替换旧版密钥材料"
           }
         }
       }

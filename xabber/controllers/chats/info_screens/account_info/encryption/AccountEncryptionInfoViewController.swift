@@ -89,7 +89,8 @@ class AccountEncryptionInfoViewController: SimpleBaseViewController {
                                                      title: " ",
                                                      value: "",
                                                      editable: false),
-                                          Datasource(.button, title: "Delete all other devices".localizeString(id: "account_delete_all_other_devices", arguments: []), editable: false)])
+                                          Datasource(.button, title: "Delete all other devices".localizeString(id: "account_delete_all_other_devices", arguments: []), editable: false),
+                                          Datasource(.button, title: L10n.text("omemo_sessions_replace", fallback: "Replace encryption sessions"), editable: false)])
         ]
         if !(devices?.isEmpty ?? true) {
             datasource.append(Datasource(.device,
@@ -141,13 +142,26 @@ class AccountEncryptionInfoViewController: SimpleBaseViewController {
 }
 
 extension AccountEncryptionInfoViewController: UITableViewDelegate {
-    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard isEncryptionEnabledObserver.value, indexPath.section == 0, indexPath.row == 2 else { return }
+        let alert = UIAlertController(
+            title: L10n.text("omemo_sessions_replace", fallback: "Replace encryption sessions"),
+            message: L10n.text("omemo_sessions_replace_confirmation", fallback: "Replace all encryption sessions for this account? Your fingerprint, trusted devices and message history will be kept."),
+            preferredStyle: .alert)
+        alert.view.accessibilityIdentifier = "omemo.sessions.replace.confirmation"
+        alert.addAction(UIAlertAction(title: L10n.text("cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("omemo_sessions_replace", fallback: "Replace encryption sessions"), style: .destructive) { [weak self] _ in
+            self?.replaceEncryptionSessions()
+        })
+        present(alert, animated: true)
+    }
 }
 
 extension AccountEncryptionInfoViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch section {
-        case 0: return 2
+        case 0: return datasource.first?.childs.count ?? 0
         case 1: return devices?.count ?? 0
         default: return 0
         }
@@ -190,6 +204,7 @@ extension AccountEncryptionInfoViewController: UITableViewDataSource {
                     return UITableViewCell(frame: .zero)
                 }
                 cell.configure(for: item.title, style: .danger)
+                cell.accessibilityIdentifier = indexPath.section == 0 && indexPath.row == 2 ? "omemo.sessions.replace" : nil
                 return cell
             }
         case .device:
@@ -218,6 +233,27 @@ extension AccountEncryptionInfoViewController: UITableViewDataSource {
 
 
 extension AccountEncryptionInfoViewController {
+    private func replaceEncryptionSessions() {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            showSessionReplacementResult(success: false)
+            return
+        }
+        account.action { [weak self] user, _ in
+            do {
+                try user.omemo.replaceOMEMO2Sessions()
+                DispatchQueue.main.async { self?.showSessionReplacementResult(success: true) }
+            } catch {
+                DispatchQueue.main.async { self?.showSessionReplacementResult(success: false) }
+            }
+        }
+    }
+
+    private func showSessionReplacementResult(success: Bool) {
+        let message = success
+            ? L10n.text("omemo_sessions_replace_success", fallback: "Encryption sessions replaced. They will be rebuilt when you send a message.")
+            : L10n.text("omemo_sessions_replace_failed", fallback: "Could not replace encryption sessions. Try again.")
+        view.makeToast(message)
+    }
     
     @objc
     internal func onEncryptionStateDidChange(_ sender: UISwitch) {

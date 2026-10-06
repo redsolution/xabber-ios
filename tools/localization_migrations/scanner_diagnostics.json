@@ -399,30 +399,6 @@
     },
     {
       "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
-      "sink": "isArchivedMessage",
-      "value": "urn:xmpp:mam:0",
-      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
-    },
-    {
-      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
-      "sink": "isArchivedMessage",
-      "value": "urn:xmpp:mam:1",
-      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
-    },
-    {
-      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
-      "sink": "isArchivedMessage",
-      "value": "urn:xmpp:mam:2",
-      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
-    },
-    {
-      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
-      "sink": "isArchivedMessage",
-      "value": "urn:xmpp:mam:3",
-      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
-    },
-    {
-      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
       "sink": "isForwardedMessage",
       "value": "urn:xmpp:forward:0",
       "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
@@ -528,6 +504,54 @@
       "sink": "isVoIPMessage",
       "value": "reject",
       "reason": "VoIP wire-protocol token or diagnostic body; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "message",
+      "value": "chat",
+      "reason": "XMPP stanza type passed to the empty OMEMO control builder; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
+      "sink": "body",
+      "value": "body",
+      "reason": "XML body local name used by the server rewrite codec serializer; stable protocol token, not displayed body text."
+    },
+    {
+      "path": "xabber/xmpp/messages/messages_manager/MessageManager+CommonSender.swift",
+      "sink": "message",
+      "value": "jabber:client",
+      "reason": "XMPP client namespace used to build the protected replacement stanza; stable wire URI, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/messages_manager/MessageManager+CommonSender.swift",
+      "sink": "message",
+      "value": "message",
+      "reason": "XML message local name used to build the protected replacement stanza; stable protocol token, not UI copy."
+    },
+    {
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "sink": "parseVisibleMessage",
+      "value": "jabber:client",
+      "reason": "XMPP client namespace used to select a forwarded message by expanded QName; stable protocol URI, not notification copy."
+    },
+    {
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "sink": "parseVisibleMessage",
+      "value": "urn:xmpp:forward:0",
+      "reason": "Forwarding namespace used to select a nested message by expanded QName; stable protocol URI, not notification copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageForwardsInlineStorageItem.swift",
+      "sink": "body",
+      "value": "body",
+      "reason": "XML body local name used to select qualified inline-forward content; stable protocol token, not displayed body text."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageForwardsInlineStorageItem.swift",
+      "sink": "body",
+      "value": "jabber:client",
+      "reason": "XMPP client namespace used to select qualified inline-forward body; stable protocol URI, not UI copy."
     }
   ]
 }

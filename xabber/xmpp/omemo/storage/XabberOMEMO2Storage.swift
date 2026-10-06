@@ -1,5 +1,6 @@
 import Foundation
 import SignalProtocolObjC
+import CryptoKit
 
 enum OMEMO2StorageError: Error {
     case stateUnavailable
@@ -12,6 +13,7 @@ enum OMEMO2StorageError: Error {
     case receiveOnlySession
     case persistenceFailed
     case authenticatedDuplicate
+    case freshBundleRequired
 }
 
 struct OMEMO2PublicPreKey: Equatable {
@@ -89,9 +91,17 @@ final class XabberOMEMO2Storage {
         let address: OMEMO2PeerAddress
         let ephemeralKey: Data
         var snapshot: Data
-        let receiveOnly: Bool
+        var receiveOnly: Bool
         let createdAt: Date
         var seenIncomingRatchets: [Data]
+        // Additive public metadata; existing snapshots decode without it.
+        var outgoingPreKey: Data? = nil
+    }
+
+    private struct SessionReplacement: Codable {
+        let address: OMEMO2PeerAddress
+        let generation: UUID
+        var allowedBundleDigests: [Data]?
     }
 
     private struct RetiredSignedPreKey: Codable {
@@ -119,6 +129,7 @@ final class XabberOMEMO2Storage {
         var controlsNeeded: Set<OMEMO2PeerAddress>
         // Optional for additive decoding of existing protected state version 1.
         var authenticatedReceiveFingerprints: [Data]? = nil
+        var sessionReplacements: [String: SessionReplacement]? = nil
     }
 
     /// Invoked only after a successful receive transaction released the owner lock.
@@ -233,17 +244,23 @@ final class XabberOMEMO2Storage {
 
     /// Always creates an outbound-capable session from a freshly selected peer
     /// bundle; already stored sessions remain available for delayed ciphertexts.
-    func initiateSession(jid: String, deviceID: Int, bundle: OMEMO2Bundle) throws {
+    func initiateSession(jid: String, deviceID: Int, bundle: OMEMO2Bundle, initialControlNeeded: Bool = false) throws {
         try synchronized {
             var state = try requireState()
             let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            if let replacement = state.sessionReplacements?[addressKey(address)],
+               replacement.allowedBundleDigests?.contains(Self.bundleDigest(bundle)) != true {
+                throw OMEMO2StorageError.freshBundleRequired
+            }
             let identity = try context.identity(withPrivateKey: state.identityPrivateKey)
             let session = try context.initiateSession(withIdentity: identity, bundle: bundle)
             let key = sessionKey(address, ephemeralKey: session.ephemeralKey)
             state.sessions[key] = StoredSession(address: address, ephemeralKey: session.ephemeralKey,
                                                 snapshot: try session.serializedData(), receiveOnly: false,
-                                                createdAt: now(), seenIncomingRatchets: [])
+                                                createdAt: now(), seenIncomingRatchets: [], outgoingPreKey: bundle.preKey)
             state.currentSessions[addressKey(address)] = key
+            state.sessionReplacements?.removeValue(forKey: addressKey(address))
+            if initialControlNeeded { state.controlsNeeded.insert(address) }
             pruneSessions(&state, address: address)
             try save(state)
         }
@@ -398,13 +415,130 @@ final class XabberOMEMO2Storage {
         }
     }
 
+    /// Explicit user action invalidates outgoing capability in one protected
+    /// transaction. Delayed authenticated ciphertext can still use old snapshots.
+    func replaceOutgoingSessions() throws {
+        try synchronized {
+            var state = try requireState()
+            let addresses = Set(state.sessions.values.map(\.address))
+                .union((state.sessionReplacements ?? [:]).values.map(\.address))
+            guard !addresses.isEmpty else { return }
+            let generation = UUID()
+            var replacements = state.sessionReplacements ?? [:]
+            for address in addresses {
+                replacements[addressKey(address)] = SessionReplacement(address: address, generation: generation, allowedBundleDigests: nil)
+            }
+            for key in Array(state.sessions.keys) { state.sessions[key]?.receiveOnly = true }
+            state.currentSessions.removeAll()
+            state.controlsNeeded.removeAll()
+            state.sessionReplacements = replacements
+            try save(state)
+        }
+    }
+
+    func sessionReplacementGeneration(jid: String, deviceID: Int) throws -> UUID? {
+        try synchronized {
+            let state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            return state.sessionReplacements?[addressKey(address)]?.generation
+        }
+    }
+
+    func sessionReplacementNeedsFreshBundle(jid: String, deviceID: Int) throws -> Bool {
+        try synchronized {
+            let state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            return state.sessionReplacements?[addressKey(address)].map { $0.allowedBundleDigests == nil } ?? false
+        }
+    }
+
+    /// A matching network fetch can authorize only the reset generation that
+    /// requested it. Cached/headline XML cannot create this protected evidence.
+    @discardableResult
+    func authorizeSessionReplacement(jid: String, deviceID: Int, generation: UUID, bundle: OMEMO2PublishedBundle) throws -> Bool {
+        try synchronized {
+            var state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            let key = addressKey(address)
+            guard var replacement = state.sessionReplacements?[key], replacement.generation == generation else { return false }
+            guard bundle.deviceID == address.deviceID else { throw OMEMO2StorageError.invalidDeviceID }
+            replacement.allowedBundleDigests = try bundle.preKeys.map { Self.bundleDigest(try bundle.selectedBundle(preKeyID: $0.id)) }
+            state.sessionReplacements?[key] = replacement
+            try save(state)
+            return true
+        }
+    }
+
+    /// Absence of a current outgoing pointer is not absence of a session:
+    /// archived and receive-only snapshots also prohibit automatic recovery.
+    func canRecoverMissingSession(jid: String, deviceID: Int) throws -> Bool {
+        try synchronized {
+            let state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            return state.sessionReplacements?[addressKey(address)] == nil && !state.sessions.values.contains { $0.address == address }
+        }
+    }
+
+    private static func bundleDigest(_ bundle: OMEMO2Bundle) -> Data {
+        var material = bundle.identityKey + bundle.signedPreKey + bundle.signature + bundle.preKey
+        for id in [bundle.signedPreKeyID, bundle.preKeyID] {
+            var bigEndian = id.bigEndian
+            withUnsafeBytes(of: &bigEndian) { material.append(contentsOf: $0) }
+        }
+        return Data(SHA256.hash(data: material))
+    }
+
+    /// One protected read and at most one provider restore per old snapshot.
+    /// Candidate selection never advances an archived ratchet to inspect its KEX.
+    func availableOutgoingPreKeys(bundle: OMEMO2PublishedBundle, jid: String, deviceID: Int) throws -> [OMEMO2PublicPreKey] {
+        try synchronized {
+            let state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            guard bundle.deviceID == deviceID else { throw OMEMO2StorageError.invalidDeviceID }
+            let peerIdentity = try Omemo2IdentityRepresentation.rawX25519(identityKey: bundle.identityKey)
+            var usedPublicKeys = Set<Data>()
+            var migratedUsedIDs = Set<UInt32>()
+            for stored in state.sessions.values where stored.address == address {
+                if let known = stored.outgoingPreKey {
+                    usedPublicKeys.insert(known)
+                } else {
+                    // Old aggregates lack public OPK metadata. Alice's remote
+                    // OPK ID survives ACK/restore; Bob returns zero. Match the
+                    // actual peer identity using its existing canonical curve
+                    // representation.
+                    do {
+                        let session = try context.restoreSession(with: stored.snapshot)
+                        if session.remotePreKeyID > 0,
+                           try Omemo2IdentityRepresentation.rawX25519(identityKey: session.remoteIdentityKey) == peerIdentity {
+                            migratedUsedIDs.insert(session.remotePreKeyID)
+                        }
+                    } catch {
+                        // An explicit reset must be able to replace a broken
+                        // archived provider snapshot. The blob remains stored;
+                        // initiation still enforces the correlated fresh-bundle
+                        // digest. Aggregate/current failures remain fatal.
+                        guard stored.receiveOnly,
+                              state.sessionReplacements?[addressKey(address)]?.allowedBundleDigests != nil else { throw error }
+                    }
+                }
+            }
+            return bundle.preKeys.filter { !usedPublicKeys.contains($0.publicKey) && !migratedUsedIDs.contains($0.id) }
+        }
+    }
+
+    /// Identity changes still revoke outgoing capability. During an explicit
+    /// replacement, retained old snapshots stay receive-only for delayed history.
     func deleteSessions(jid: String, deviceID: Int? = nil) throws {
         try synchronized {
             var state = try requireState()
             let addresses = Set(state.sessions.values.filter {
                 $0.address.jid == jid && (deviceID == nil || $0.address.deviceID == deviceID)
             }.map(\.address))
-            state.sessions = state.sessions.filter { !addresses.contains($0.value.address) }
+            let preserved = Set(addresses.filter { state.sessionReplacements?[addressKey($0)] != nil })
+            state.sessions = state.sessions.filter { !addresses.contains($0.value.address) || preserved.contains($0.value.address) }
+            for key in Array(state.sessions.keys) where preserved.contains(state.sessions[key]!.address) {
+                state.sessions[key]?.receiveOnly = true
+            }
             for address in addresses { state.currentSessions.removeValue(forKey: addressKey(address)) }
             state.controlsNeeded.subtract(addresses)
             try save(state)
@@ -547,12 +681,20 @@ final class XabberOMEMO2Storage {
               state.sessions.allSatisfy({ key, value in
                   value.ephemeralKey.count == 32 && value.seenIncomingRatchets.count <= 1000
                       && value.seenIncomingRatchets.allSatisfy { $0.count == 32 }
+                      && (value.outgoingPreKey == nil || value.outgoingPreKey?.count == 32)
                       && value.address.deviceID > 0 && value.address.deviceID <= Int(Int32.max)
                       && !value.address.jid.isEmpty && sessionKey(value.address, ephemeralKey: value.ephemeralKey) == key
               }),
               (state.authenticatedReceiveFingerprints ?? []).count <= Self.maximumAuthenticatedReceiveFingerprints,
               (state.authenticatedReceiveFingerprints ?? []).allSatisfy({ $0.count == 32 }),
               Set(state.authenticatedReceiveFingerprints ?? []).count == (state.authenticatedReceiveFingerprints ?? []).count,
+              (state.sessionReplacements ?? [:]).allSatisfy({ key, value in
+                  key == addressKey(value.address) && !value.address.jid.isEmpty
+                      && value.address.deviceID > 0 && value.address.deviceID <= Int(Int32.max)
+                      && (value.allowedBundleDigests == nil || (!(value.allowedBundleDigests ?? []).isEmpty
+                          && (value.allowedBundleDigests ?? []).count <= OMEMO2BundleCodec.maximumPreKeyCount
+                          && (value.allowedBundleDigests ?? []).allSatisfy { $0.count == 32 }))
+              }),
               state.currentSessions.allSatisfy({ address, session in
                   state.sessions[session].map { addressKey($0.address) == address && !$0.receiveOnly } ?? false
               }) else {

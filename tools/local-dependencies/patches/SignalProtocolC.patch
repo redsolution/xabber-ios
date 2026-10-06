@@ -513,10 +513,10 @@ index 0000000..b79d060
 +#endif
 diff --git a/src/omemo_session.c b/src/omemo_session.c
 new file mode 100644
-index 0000000..1440a20
+index 0000000..6628f98
 --- /dev/null
 +++ b/src/omemo_session.c
-@@ -0,0 +1,731 @@
+@@ -0,0 +1,732 @@
 +#include "omemo_session.h"
 +
 +#include <limits.h>
@@ -1240,6 +1240,7 @@ index 0000000..1440a20
 +uint32_t omemo_session_get_send_counter(const omemo_session *s) { return s ? s->ns : 0; }
 +uint32_t omemo_session_get_receive_counter(const omemo_session *s) { return s ? s->nr : 0; }
 +uint32_t omemo_session_get_previous_counter(const omemo_session *s) { return s ? s->pn : 0; }
++uint32_t omemo_session_get_remote_pre_key_id(const omemo_session *s) { return s && s->role == 1 ? s->pk_id : 0; }
 +size_t omemo_session_get_skipped_count(const omemo_session *s) { return s ? s->skipped_count : 0; }
 +int omemo_session_has_pending_key_exchange(const omemo_session *s) { return s && (s->flags & FLAG_PENDING); }
 +int omemo_session_get_ephemeral_key(const omemo_session *s, uint8_t key[32])
@@ -1250,10 +1251,10 @@ index 0000000..1440a20
 +{ if(!s || !key) return SG_ERR_INVAL; memcpy(key, s->ad + (s->role == 1 ? 32 : 0), 32); return SG_SUCCESS; }
 diff --git a/src/omemo_session.h b/src/omemo_session.h
 new file mode 100644
-index 0000000..0df0846
+index 0000000..1f20d0c
 --- /dev/null
 +++ b/src/omemo_session.h
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,85 @@
 +#ifndef OMEMO_SESSION_H
 +#define OMEMO_SESSION_H
 +
@@ -1326,6 +1327,9 @@ index 0000000..0df0846
 +uint32_t omemo_session_get_send_counter(const omemo_session *session);
 +uint32_t omemo_session_get_receive_counter(const omemo_session *session);
 +uint32_t omemo_session_get_previous_counter(const omemo_session *session);
++/* Initiator's remote one-time pre-key ID, retained after acknowledgement.
++ * Returns zero for responder and NULL sessions; does not mutate state. */
++uint32_t omemo_session_get_remote_pre_key_id(const omemo_session *session);
 +size_t omemo_session_get_skipped_count(const omemo_session *session);
 +int omemo_session_has_pending_key_exchange(const omemo_session *session);
 +int omemo_session_get_ephemeral_key(const omemo_session *session, uint8_t key[32]);
@@ -2125,10 +2129,10 @@ index 0000000..b7d48da
 +}
 diff --git a/tests/test_omemo_session.c b/tests/test_omemo_session.c
 new file mode 100644
-index 0000000..7a54cb6
+index 0000000..31b61e4
 --- /dev/null
 +++ b/tests/test_omemo_session.c
-@@ -0,0 +1,657 @@
+@@ -0,0 +1,721 @@
 +#ifdef NDEBUG
 +#undef NDEBUG
 +#endif
@@ -2771,8 +2775,72 @@ index 0000000..7a54cb6
 +    fixture_clear(&f);
 +}
 +
++/* The selected remote OPK ID is public session metadata. It remains useful
++ * after ACK and restoring old snapshots, without app-side snapshot parsing. */
++static void test_remote_pre_key_id_persistence(void)
++{
++    fixture f;
++    signal_buffer *first, *reply = NULL, *plain = NULL, *record, *before;
++    omemo_session *restored = NULL;
++    uint8_t zeros[32] = {0};
++    int is_kex;
++    fixture_create(&f);
++    assert(omemo_session_get_remote_pre_key_id(NULL) == 0);
++    assert(omemo_session_begin_alice(&f.alice, f.alice_ik, &f.bundle, f.context) == 0);
++    assert(omemo_session_has_pending_key_exchange(f.alice));
++    before = snapshot(f.alice);
++    assert(omemo_session_get_remote_pre_key_id(f.alice) == f.bundle.one_time_pre_key_id);
++    assert_unchanged(f.alice, before);
++    signal_buffer_bzero_free(before);
++
++    record = legacy_v1_snapshot(f.alice);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(omemo_session_has_pending_key_exchange(restored));
++    assert(omemo_session_get_remote_pre_key_id(restored) == f.bundle.one_time_pre_key_id);
++    omemo_session_free(restored); restored = NULL;
++    signal_buffer_bzero_free(record);
++
++    first = encrypt_test_message(f.alice, 1, &is_kex);
++    assert(is_kex == 1);
++    begin_bob(&f, first, 1);
++    before = snapshot(f.bob);
++    assert(omemo_session_get_remote_pre_key_id(f.bob) == 0);
++    assert_unchanged(f.bob, before);
++    signal_buffer_bzero_free(before);
++    record = snapshot(f.bob);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(omemo_session_get_remote_pre_key_id(restored) == 0);
++    omemo_session_free(restored); restored = NULL;
++    signal_buffer_bzero_free(record);
++
++    assert(omemo_session_encrypt(f.bob, &reply, &is_kex, zeros, sizeof(zeros)) == 0);
++    assert(is_kex == 0);
++    assert(omemo_session_decrypt(f.alice, &plain, signal_buffer_data(reply), signal_buffer_len(reply), 0) == 0);
++    check_plain(plain, 0, sizeof(zeros));
++    assert(!omemo_session_has_pending_key_exchange(f.alice));
++    before = snapshot(f.alice);
++    assert(omemo_session_get_remote_pre_key_id(f.alice) == f.bundle.one_time_pre_key_id);
++    assert_unchanged(f.alice, before);
++    signal_buffer_bzero_free(before);
++    record = snapshot(f.alice);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(!omemo_session_has_pending_key_exchange(restored));
++    assert(omemo_session_get_remote_pre_key_id(restored) == f.bundle.one_time_pre_key_id);
++    omemo_session_free(restored); restored = NULL;
++    signal_buffer_bzero_free(record);
++    record = legacy_v1_snapshot(f.alice);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(!omemo_session_has_pending_key_exchange(restored));
++    assert(omemo_session_get_remote_pre_key_id(restored) == f.bundle.one_time_pre_key_id);
++    omemo_session_free(restored);
++    signal_buffer_bzero_free(record);
++    signal_buffer_free(first); signal_buffer_free(reply);
++    fixture_clear(&f);
++}
++
 +int main(void)
 +{
++    test_remote_pre_key_id_persistence();
 +    test_independent_x3dh_ratchet_vector();
 +    test_lifecycle();
 +    test_failure_rollback();

@@ -154,6 +154,7 @@ extension OmemoManager {
                     roster?.encryptionUpdatedTS = Date().timeIntervalSince1970
                 }
             }
+            resumeMissingOMEMO2Sessions(afterDeviceList: jid)
             for id in decoded.ids {
                 AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactBundle(stream, jid: jid, deviceId: id, force: self.isRefreshRequest) }
             }

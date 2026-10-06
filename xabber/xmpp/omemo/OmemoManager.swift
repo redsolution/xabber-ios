@@ -75,6 +75,9 @@ open class OmemoManager: AbstractXMPPManager {
         return coordinator
     }
     internal var omemo2ControlSender: ((XMPPMessage) -> Void)?
+    internal var omemo2FreshBundleRequester: ((String, Int, String) -> Void)?
+    internal var omemo2FreshBundleRequests: [OMEMO2PeerAddress: OMEMO2FreshBundleRequest] = [:]
+    internal var omemo2MissingSessionCandidates: [OMEMO2PeerAddress: Date] = [:]
     internal var omemo2DeviceListRequests: [String: OMEMO2DeviceListRequest] = [:]
     internal var omemo2DeviceListRequester: ((String) -> Void)?
     internal var omemo2FreshDeviceIDGenerator: (() -> Int)?
@@ -291,6 +294,7 @@ open class OmemoManager: AbstractXMPPManager {
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
+        case handleOMEMO2FreshBundleResponse(iq): return true
         case onOMEMO2PublicationResult(iq): return true
         case onContactDeviceListErrorReceive(iq): return true
         case onContactDeviceListReceive(iq): return true
@@ -422,8 +426,8 @@ extension OmemoManager {
         }
     }
     
-    public func getContactBundle(_ xmppStream: XMPPStream, jid: String, deviceId: Int, force: Bool = false) {
-        let elementId = xmppStream.generateUUID
+    public func getContactBundle(_ xmppStream: XMPPStream, jid: String, deviceId: Int, force: Bool = false, requestID: String? = nil) {
+        let elementId = requestID ?? xmppStream.generateUUID
         if self.localStore.localDeviceId() == deviceId {
             self.myDeviceRequestElementId = elementId
         }
@@ -451,7 +455,7 @@ extension OmemoManager {
         let iq = XMPPIQ(iqType: .get, to: jid == owner ? nil : XMPPJID(string: jid), elementID: elementId, child: pubsub)
         xmppStream.send(iq)
 //        print(iq.prettyXMLString!)
-        self.queryIds.append(elementId)
+        if requestID == nil { self.queryIds.append(elementId) }
     }
     
     public final func onEncryptionUpdateReceiveHeadline(_ message: XMPPMessage) -> Bool {
@@ -573,6 +577,7 @@ extension OmemoManager {
     }
     
     public final func onContactBundleReceive(_ iq: XMPPIQ) -> Bool {
+        if handleOMEMO2FreshBundleResponse(iq) { return true }
         guard let elementId = iq.elementID,
               let from = iq.from?.bare,
               iq.from?.user != nil,
@@ -1108,6 +1113,9 @@ extension OmemoManager {
         let payloads = children(encrypted, "payload")
         guard payloads.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
         let payload = try payloads.first.map { try Omemo2PayloadCodec.decodeBase64($0.stringValue ?? "") }
+        if let payload, payload.isEmpty || !payload.count.isMultiple(of: 16) {
+            throw OmemoManagerError.invalidEncryptedPayload
+        }
         if data.first == 0x33 {
             // The old Signal v3 frame is unambiguous. Never try this path after
             // an OMEMO2 authentication error, or create an outgoing legacy session.
@@ -1142,6 +1150,9 @@ extension OmemoManager {
             }
         } catch OMEMO2StorageError.authenticatedDuplicate {
             return .duplicate
+        } catch OMEMO2StorageError.missingSession {
+            if !keyExchange { recoverMissingOMEMO2Session(jid: from, deviceID: sid) }
+            throw OMEMO2StorageError.missingSession
         }
         // Public identity projection has also succeeded before committing the
         // secret state. Receiving an identity never grants device trust.

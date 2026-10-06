@@ -118,6 +118,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N07
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n07-session-recovery.md), core37/37 +UI4/4, affected OMEMO290/290, final locale/UI9/9, C3/3; six pre-existing localization test failures recorded separately.
+
 **Ручная замена session и missing-session recovery.** Часть старого OM2-12. Владелец: xmpp/UI. Зависимости: N01/N04.
 
 **Пробел:** `deleteSessions:354` используется только при key change; пользовательской команды нет. `makeOMEMO2Control` требует session (`Encryption:316`), missing-session ingress возвращает failed.
@@ -161,7 +163,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-N01 → N02 → N03 → N04 → N05 → N06 выполнены; следующая задача — **OM2-N07**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 → N04 → N05 → N06 → N07 выполнены; следующая задача — **OM2-N08**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 
@@ -183,3 +185,8 @@ Production/dependency/test код не менялся, build/test не запу�
 ## Результат N04 → N05 → N06
 
 Выполнено2026-10-06. N04: confirmed replay proofs + event retention/migration, Cc775eb7, appc47ed79b,181/181 affected XCTest. N05: due SPK maintenance/grace + bounded current-bundle publication retries, app381336b6, final25/25 focused. N06: selective consumed OPK deletion after actual owner chain/query/ingress terminal, sync batch and authenticated restart, final36/36 task cases. Final affected30class gate561cases:560 passed; remaining N04 fixture relied on consumed OPK reuse outside catch-up, changed only that fixture to select current bundle, final replay9/9 passed. All tested regressions have a successful latest result; app/push built via cached simulator tests. Server unchanged; trust exchange/markers/receipts/fallback/hints preserved. Live interop remains unverified. N07–N09 remain open.
+
+
+## Результат N07
+
+Выполнено2026-10-06. Account-wide manual replacement/fresh-bundle digest gate, bounded missing-session recovery after authoritative devices refresh, receive-only history and v1 OPK migration сохранены. SignalC29d4e8b/ObjC6644310 дают readonly metadata, без изменения crypto/snapshot format. Core37+UI4 passed; affected OMEMO290/290 and final locale/UI9/9, C3/3. Общий localization gate имеет6 прежних test expectation/parser failures, записанных в report; все новые/отсутствовавшие активные OMEMO copy checks проходят. Server/trust exchange не меняются. N08/N09 остаются активными следующими задачами.
