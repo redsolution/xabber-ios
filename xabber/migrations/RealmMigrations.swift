@@ -28,7 +28,8 @@ enum XabberRealmSchema {
     /// MAM persistence proof can authorize UI. Schema 22 marks legacy Signal
     /// bundles and sessions before the separate OMEMO2 state is activated.
     /// Schema 23 separates authoritative PEP membership from historical trust.
-    static let current: UInt64 = 23
+    /// Schema 24 stores local authentication evidence beside received ciphertext.
+    static let current: UInt64 = 24
 }
 
 
@@ -433,6 +434,14 @@ func makeRealmMigrationConfiguration(
                 // Historical trusted rows cannot prove current PEP membership.
                 migration.enumerateObjects(ofType: SignalDeviceStorageItem.className()) { _, newObject in
                     newObject?["isInDeviceList"] = false
+                }
+            }
+            if oldSchemaVersion < 24,
+               migration.newSchema.objectSchema.contains(where: { $0.className == MessageStanzaStorageItem.className() }) {
+                // Legacy XML and success markers are not proof of a verified
+                // receive. Keep history untouched and start with no evidence.
+                migration.enumerateObjects(ofType: MessageStanzaStorageItem.className()) { _, newObject in
+                    newObject?["omemo2ReplayFingerprint"] = nil
                 }
             }
             if oldSchemaVersion < 22 {

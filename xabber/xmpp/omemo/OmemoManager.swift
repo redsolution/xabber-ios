@@ -851,7 +851,7 @@ extension OmemoManager {
     }
 
     /// Only recognized transport wrappers may supply an inner encrypted stanza.
-    private static func incomingPath(_ root: DDXMLElement, owner: String?) throws -> [DDXMLElement] {
+    internal static func incomingPath(_ root: DDXMLElement, owner: String?) throws -> [DDXMLElement] {
         var path = [root]
         var current = root
         for _ in 0..<3 {
@@ -1072,16 +1072,21 @@ extension OmemoManager {
             return .control
         }
         let ciphertext = try OMEMO2Ciphertext(data: data, keyExchange: keyExchange)
+        guard let replayFingerprint = OMEMO2ReplayProtection.fingerprint(for: message, owner: owner, localDeviceID: localID) else {
+            throw OmemoManagerError.invalidEncryptedPayload
+        }
         refreshDevicesForUnknownSender(jid: from, deviceID: sid)
         let previousSessionIdentity = try storage.sessionMetadata(jid: from, deviceID: sid)?.remoteIdentityKey
         var opened: Omemo2PayloadCodec.OpenedPayload?
         do {
-            _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, updatingIdentity: { identity in
+            _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, replayFingerprint: replayFingerprint, previouslyAuthenticated: {
+                OMEMO2ReplayProtection.hasVerifiedHistory(fingerprint: replayFingerprint, owner: self.owner)
+            }, updatingIdentity: { identity in
                 try self.updateAuthenticatedOMEMO2Identity(identity, jid: from, deviceID: sid, previousSessionIdentity: previousSessionIdentity)
             }) { plaintext in
                 opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime)
             }
-        } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
+        } catch OMEMO2StorageError.authenticatedDuplicate {
             return .duplicate
         }
         // Public identity projection has also succeeded before committing the

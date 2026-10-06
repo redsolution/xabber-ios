@@ -40,10 +40,10 @@ index 0000000..a3df946
 +
 +Point `SignalProtocolC` at this directory with CocoaPods `:path`.
 diff --git a/README.md b/README.md
-index f1c5474..55b5d9e 100644
+index f1c5474..adde2e7 100644
 --- a/README.md
 +++ b/README.md
-@@ -71,6 +71,65 @@ CMake toolchain files have been included from the following sources:
+@@ -71,6 +71,77 @@ CMake toolchain files have been included from the following sources:
  * [iOS](https://code.google.com/archive/p/ios-cmake)
  * [BlackBerry 10](https://github.com/blackberry/OGRE/blob/master/src/CMake/toolchain/blackberry.toolchain.cmake)
  
@@ -64,7 +64,10 @@ index f1c5474..55b5d9e 100644
 +  No legacy Signal version byte or MAC8 is inserted.
 +- Double Ratchet advances within repeated KEX packets with the same EK. An
 +  authenticated reply confirms the session. Failed operations leave state
-+  unchanged. Skipped keys use the XEP limit of 1000 with FIFO eviction.
++  unchanged. Skipped keys use the XEP limit of 1000 with FIFO eviction and a
++  local retention policy of 1000 subsequent accepted receive events. Sends,
++  failures and replay candidates do not age keys. The receive event that
++  creates a skipped key gives it age zero; its 1000th later receive erases it.
 +- `encrypt` accepts exactly a wrapped content key + MAC (48 bytes), or a
 +  32-byte all-zero empty control message. This API does not encrypt the outer
 +  stanza payload or implement PEP, trust, SCE or application ACK routing.
@@ -77,6 +80,15 @@ index f1c5474..55b5d9e 100644
 +passing every packet to `begin_bob` would recreate state. Snapshots have their
 +own profile magic/version and must never be parsed as legacy Signal records.
 +The caller supplies protected storage and rollback protection for snapshots.
++Local snapshots now serialize as version 2 with receive-event ages. Version 1
++imports preserve every key, ratchet counter, EK and pending state, giving
++retained keys a full new retention window. The local event epoch is rebased at
++`UINT64_MAX` without changing key ages. Rejection of application payload/SCE
++must discard its candidate snapshot, including event ages and key erasure.
++`SG_ERR_DUPLICATE_MESSAGE` reports a stale-counter candidate: once its MK has
++been consumed or erased, the C session cannot authenticate that ciphertext.
++Callers must prove an exact previously accepted packet before treating it as
++an authenticated duplicate.
 +
 +Parser/signature input caps of 1 MiB are local resource limits, not XEP limits.
 +Ed25519 verification additionally requires canonical encodings/scalars and
@@ -109,6 +121,11 @@ index f1c5474..55b5d9e 100644
  # Using libsignal-protocol-c
  
  ## Library initialization
+@@ -212,4 +283,3 @@ Copyright 2015-2016 Open Whisper Systems
+ Licensed under the GPLv3: http://www.gnu.org/licenses/gpl-3.0.html
+ 
+ Additional Permissions For Submission to Apple App Store: Provided that you are otherwise in compliance with the GPLv3 for each covered work you convey (including without limitation making the Corresponding Source available in compliance with Section 6 of the GPLv3), Open Whisper Systems also grants you the additional permission to convey through the Apple App Store non-source executable versions of the Program as incorporated into each applicable covered work as Executable Versions only under the Mozilla Public License version 2.0 (https://www.mozilla.org/en-US/MPL/2.0/).
+-
 diff --git a/SignalProtocolC.podspec.json b/SignalProtocolC.podspec.json
 new file mode 100644
 index 0000000..3fa0705
@@ -496,10 +513,10 @@ index 0000000..b79d060
 +#endif
 diff --git a/src/omemo_session.c b/src/omemo_session.c
 new file mode 100644
-index 0000000..2bdd9b9
+index 0000000..1440a20
 --- /dev/null
 +++ b/src/omemo_session.c
-@@ -0,0 +1,669 @@
+@@ -0,0 +1,731 @@
 +#include "omemo_session.h"
 +
 +#include <limits.h>
@@ -512,14 +529,22 @@ index 0000000..2bdd9b9
 +#include "signal_protocol.h"
 +#include "signal_protocol_internal.h"
 +
-+/* Private local persistence format v1. No Signal wire or storage parser can
++/* Private local persistence format. No Signal wire or storage parser can
 + * mistake this profile for a legacy session. Multi-byte integers are BE.
-+ * Header[12], counters[12], IDs[8], AD[64], EKpub[32], EKpriv[32],
++ * v1: Header[12], counters[12], IDs[8], AD[64], EKpub[32], EKpriv[32],
 + * DHpub[32], DHpriv[32], DHremote[32], root[32], send[32], receive[32],
-+ * skipped-count[4], followed by FIFO (DH[32], N[4], MK[32]) entries. */
++ * skipped-count[4], followed by FIFO (DH[32], N[4], MK[32]) entries.
++ * v2: The same prefix through skipped-count, receive-events[8], followed by
++ * FIFO (DH[32], N[4], MK[32], created-event[8]) entries. v1 imports preserve
++ * every key and initialize event ages to zero, without resetting the ratchet. */
 +static const uint8_t session_magic[8] = {'O','M','E','M','O','2','S',0};
-+#define SESSION_FIXED_LENGTH 356u
-+#define SESSION_SKIPPED_LENGTH 68u
++#define SESSION_V1_FIXED_LENGTH 356u
++#define SESSION_V1_SKIPPED_LENGTH 68u
++#define SESSION_FIXED_LENGTH 364u
++#define SESSION_SKIPPED_LENGTH 76u
++/* Local bounded retention policy: erase after this many subsequent accepted
++ * receive events. Independent of XEP's MAX_SKIP derivation/FIFO bound. */
++#define SESSION_SKIP_MAX_RECEIVE_EVENTS UINT64_C(1000)
 +#define FLAG_SEND 1u
 +#define FLAG_RECEIVE 2u
 +#define FLAG_REMOTE 4u
@@ -530,6 +555,7 @@ index 0000000..2bdd9b9
 +    uint8_t dh[32];
 +    uint32_t n;
 +    uint8_t mk[32];
++    uint64_t created_event;
 +} skipped_key;
 +
 +struct omemo_session {
@@ -540,6 +566,7 @@ index 0000000..2bdd9b9
 +    uint32_t ns, nr, pn, spk_id, pk_id;
 +    uint8_t ad[64], ek[32], ek_private[32], dhr[32];
 +    uint8_t root[32], cks[32], ckr[32];
++    uint64_t receive_events;
 +    size_t skipped_count;
 +    skipped_key skipped[OMEMO_SESSION_MAX_SKIP];
 +};
@@ -838,6 +865,30 @@ index 0000000..2bdd9b9
 +    signal_explicit_bzero(session->skipped + session->skipped_count, sizeof(skipped_key));
 +}
 +
++static void receive_events_rebase(omemo_session *session)
++{
++    size_t i;
++    if(session->receive_events != UINT64_MAX) return;
++    /* All retained ages are strictly below the policy bound. Changing the
++     * local epoch preserves those ages and makes room for the next event. */
++    for(i = 0; i < session->skipped_count; ++i) {
++        session->skipped[i].created_event = SESSION_SKIP_MAX_RECEIVE_EVENTS -
++                (session->receive_events - session->skipped[i].created_event);
++    }
++    session->receive_events = SESSION_SKIP_MAX_RECEIVE_EVENTS;
++}
++
++static void receive_event_commit(omemo_session *session)
++{
++    size_t i = 0;
++    session->receive_events++;
++    while(i < session->skipped_count) {
++        if(session->receive_events - session->skipped[i].created_event >= SESSION_SKIP_MAX_RECEIVE_EVENTS)
++            skipped_remove(session, i);
++        else ++i;
++    }
++}
++
 +static int skip_keys(omemo_session *session, uint32_t until, size_t *budget)
 +{
 +    uint64_t count = until > session->nr ? (uint64_t)until - session->nr : 0;
@@ -853,6 +904,9 @@ index 0000000..2bdd9b9
 +        memcpy(session->skipped[session->skipped_count].dh, session->dhr, 32);
 +        session->skipped[session->skipped_count].n = session->nr;
 +        memcpy(session->skipped[session->skipped_count].mk, mk, 32);
++        /* Age zero at the successful receive that creates this key. The whole
++         * candidate is discarded if that receive fails authentication. */
++        session->skipped[session->skipped_count].created_event = session->receive_events + 1;
 +        session->skipped_count++;
 +        session->nr++;
 +    }
@@ -908,6 +962,7 @@ index 0000000..2bdd9b9
 +    if(!message.ciphertext || message.n == UINT32_MAX) { result = SG_ERR_INVALID_MESSAGE; goto complete; }
 +    candidate = session_copy(session);
 +    if(!candidate) { result = SG_ERR_NOMEM; goto complete; }
++    receive_events_rebase(candidate);
 +    for(index = 0; index < candidate->skipped_count; ++index) {
 +        if(candidate->skipped[index].n == message.n && memcmp(candidate->skipped[index].dh, message.dh_pub, 32) == 0) {
 +            memcpy(mk, candidate->skipped[index].mk, 32);
@@ -929,6 +984,7 @@ index 0000000..2bdd9b9
 +    if(result >= 0) { candidate->nr++; result = authenticated_decrypt(candidate, output, auth, &message, mk); }
 +authenticated:
 +    if(result >= 0) {
++        receive_event_commit(candidate);
 +        candidate->flags &= (uint8_t)~FLAG_PENDING;
 +        /* Keep EK private until session deletion to satisfy XEP persistence;
 +         * only EK public is needed for matching delayed key exchanges. */
@@ -1021,6 +1077,18 @@ index 0000000..2bdd9b9
 +    return value;
 +}
 +
++static void put_u64(uint8_t **cursor, uint64_t value)
++{
++    put_u32(cursor, (uint32_t)(value >> 32));
++    put_u32(cursor, (uint32_t)value);
++}
++
++static uint64_t get_u64(const uint8_t **cursor)
++{
++    uint64_t high = get_u32(cursor);
++    return (high << 32) | get_u32(cursor);
++}
++
 +static void put_bytes(uint8_t **cursor, const uint8_t *source, size_t len)
 +{
 +    memcpy(*cursor, source, len); *cursor += len;
@@ -1048,7 +1116,7 @@ index 0000000..2bdd9b9
 +    if(!record) { result = SG_ERR_NOMEM; goto complete; }
 +    cursor = signal_buffer_data(record);
 +    put_bytes(&cursor, session_magic, sizeof(session_magic));
-+    *cursor++ = 1; *cursor++ = session->role; *cursor++ = session->flags; *cursor++ = 0;
++    *cursor++ = 2; *cursor++ = session->role; *cursor++ = session->flags; *cursor++ = 0;
 +    put_u32(&cursor, session->ns); put_u32(&cursor, session->nr); put_u32(&cursor, session->pn);
 +    put_u32(&cursor, session->spk_id); put_u32(&cursor, session->pk_id);
 +    put_bytes(&cursor, session->ad, 64); put_bytes(&cursor, session->ek, 32);
@@ -1056,9 +1124,11 @@ index 0000000..2bdd9b9
 +    put_bytes(&cursor, private_key, 32); put_bytes(&cursor, session->dhr, 32);
 +    put_bytes(&cursor, session->root, 32); put_bytes(&cursor, session->cks, 32); put_bytes(&cursor, session->ckr, 32);
 +    put_u32(&cursor, (uint32_t)session->skipped_count);
++    put_u64(&cursor, session->receive_events);
 +    for(i = 0; i < session->skipped_count; ++i) {
 +        put_bytes(&cursor, session->skipped[i].dh, 32); put_u32(&cursor, session->skipped[i].n);
 +        put_bytes(&cursor, session->skipped[i].mk, 32);
++        put_u64(&cursor, session->skipped[i].created_event);
 +    }
 +    *output = record; record = NULL;
 +complete:
@@ -1074,13 +1144,17 @@ index 0000000..2bdd9b9
 +    ec_private_key *private_key = NULL;
 +    uint8_t public_bytes[32] = {0}, private_bytes[32] = {0}, encoded[32] = {0};
 +    const uint8_t *cursor;
-+    size_t i, j, count;
++    size_t i, j, count, fixed_length, skipped_length;
++    uint8_t version;
 +    int result = SG_ERR_INVALID_MESSAGE;
 +    if(!output) return SG_ERR_INVAL;
 +    *output = NULL;
 +    if(!record || !context) return SG_ERR_INVAL;
-+    if(record_len < 9 || memcmp(record, session_magic, sizeof(session_magic)) != 0 || record[8] != 1) return SG_ERR_INVALID_VERSION;
-+    if(record_len < SESSION_FIXED_LENGTH || record_len > SESSION_FIXED_LENGTH + OMEMO_SESSION_MAX_SKIP * SESSION_SKIPPED_LENGTH) return SG_ERR_INVALID_MESSAGE;
++    if(record_len < 9 || memcmp(record, session_magic, sizeof(session_magic)) != 0 || (record[8] != 1 && record[8] != 2)) return SG_ERR_INVALID_VERSION;
++    version = record[8];
++    fixed_length = version == 1 ? SESSION_V1_FIXED_LENGTH : SESSION_FIXED_LENGTH;
++    skipped_length = version == 1 ? SESSION_V1_SKIPPED_LENGTH : SESSION_SKIPPED_LENGTH;
++    if(record_len < fixed_length || record_len > fixed_length + OMEMO_SESSION_MAX_SKIP * skipped_length) return SG_ERR_INVALID_MESSAGE;
 +    if((record[9] != 1 && record[9] != 2) || (record[10] & (uint8_t)~31u) || record[11]) return SG_ERR_INVALID_MESSAGE;
 +    session = calloc(1, sizeof(*session));
 +    if(!session) return SG_ERR_NOMEM;
@@ -1102,8 +1176,10 @@ index 0000000..2bdd9b9
 +    get_bytes(&cursor, session->dhr, 32); get_bytes(&cursor, session->root, 32);
 +    get_bytes(&cursor, session->cks, 32); get_bytes(&cursor, session->ckr, 32);
 +    count = get_u32(&cursor);
-+    if(count > OMEMO_SESSION_MAX_SKIP || record_len != SESSION_FIXED_LENGTH + count * SESSION_SKIPPED_LENGTH) goto complete;
++    if(count > OMEMO_SESSION_MAX_SKIP || record_len != fixed_length + count * skipped_length) goto complete;
++    if(version == 2) session->receive_events = get_u64(&cursor);
 +    if((session->flags & FLAG_PENDING) && count) goto complete;
++    if((session->flags & FLAG_PENDING) && session->receive_events) goto complete;
 +    if((private_bytes[0] & 7) || (private_bytes[31] & 0xc0) != 0x40) {
 +        result = SG_ERR_INVALID_KEY; goto complete;
 +    }
@@ -1139,8 +1215,11 @@ index 0000000..2bdd9b9
 +        get_bytes(&cursor, session->skipped[i].dh, 32);
 +        session->skipped[i].n = get_u32(&cursor);
 +        get_bytes(&cursor, session->skipped[i].mk, 32);
++        if(version == 2) session->skipped[i].created_event = get_u64(&cursor);
 +        if(session->skipped[i].n == UINT32_MAX ||
-+                (memcmp(session->skipped[i].dh, session->dhr, 32) == 0 && session->skipped[i].n >= session->nr)) {
++                (memcmp(session->skipped[i].dh, session->dhr, 32) == 0 && session->skipped[i].n >= session->nr) ||
++                session->skipped[i].created_event > session->receive_events ||
++                session->receive_events - session->skipped[i].created_event >= SESSION_SKIP_MAX_RECEIVE_EVENTS) {
 +            result = SG_ERR_INVALID_MESSAGE; goto complete;
 +        }
 +        for(j = 0; j < i; ++j) if(session->skipped[j].n == session->skipped[i].n &&
@@ -2046,10 +2125,10 @@ index 0000000..b7d48da
 +}
 diff --git a/tests/test_omemo_session.c b/tests/test_omemo_session.c
 new file mode 100644
-index 0000000..b20ddae
+index 0000000..7a54cb6
 --- /dev/null
 +++ b/tests/test_omemo_session.c
-@@ -0,0 +1,450 @@
+@@ -0,0 +1,657 @@
 +#ifdef NDEBUG
 +#undef NDEBUG
 +#endif
@@ -2254,6 +2333,7 @@ index 0000000..b20ddae
 +    omemo_session *restored = NULL;
 +    signal_buffer *record, *plain = NULL;
 +    uint8_t invalid32[32] = {1};
++    uint8_t snapshot_version;
 +    int kex;
 +    fixture_create(&f);
 +    f.bundle.one_time_pre_key_id = 0;
@@ -2273,12 +2353,13 @@ index 0000000..b20ddae
 +    assert(omemo_public_key_encode(f.bundle.one_time_pre_key, ec_key_pair_get_public(f.opk)) == 0);
 +    assert(omemo_session_begin_alice(&f.alice, f.alice_ik, &f.bundle, f.context) == 0);
 +    record = snapshot(f.alice);
++    snapshot_version = signal_buffer_data(record)[8];
 +    assert(omemo_session_encrypt(f.alice, &plain, &kex, invalid32, sizeof(invalid32)) == SG_ERR_INVAL);
 +    assert(plain == NULL); assert_unchanged(f.alice, record);
 +    assert(omemo_session_deserialize(&restored, (const uint8_t *)"legacy Signal protobuf", 22, f.context) == SG_ERR_INVALID_VERSION);
 +    signal_buffer_data(record)[8] = 99;
 +    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == SG_ERR_INVALID_VERSION);
-+    signal_buffer_data(record)[8] = 1;
++    signal_buffer_data(record)[8] = snapshot_version;
 +    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record) - 1, f.context) < 0);
 +    signal_buffer_data(record)[10] &= (uint8_t)~8u; /* No receiving chain, no pending KEX. */
 +    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == SG_ERR_INVALID_MESSAGE);
@@ -2488,6 +2569,208 @@ index 0000000..b20ddae
 +    signal_buffer_free(too_far); signal_buffer_free(last); fixture_clear(&f);
 +}
 +
++/* N04's local event policy is independent of the wire counter and of sends.
++ * A skipped key survives 999 later accepted receives and expires on the
++ * 1000th. The creation receive itself gives the key age zero. */
++static void test_skipped_key_event_retention(void)
++{
++    fixture f;
++    signal_buffer *delayed, *first, *message, *plain = NULL, *record, *bad = NULL;
++    omemo_session *candidate = NULL;
++    omemo_key_exchange exchange = {0};
++    int kex;
++    unsigned i;
++    fixture_create(&f);
++    assert(omemo_session_begin_alice(&f.alice, f.alice_ik, &f.bundle, f.context) == 0);
++    delayed = encrypt_test_message(f.alice, 0, &kex);
++    first = encrypt_test_message(f.alice, 1, &kex);
++    begin_bob(&f, first, 1);
++    for(i = 2; i <= 1000; ++i) {
++        message = encrypt_test_message(f.alice, i, &kex);
++        assert(omemo_session_decrypt(f.bob, &plain,
++                signal_buffer_data(message), signal_buffer_len(message), 1) == 0);
++        check_plain(plain, i, 48); plain = NULL;
++        signal_buffer_free(message);
++        if(i == 500) {
++            record = snapshot(f.bob);
++            assert(omemo_session_deserialize(&candidate, signal_buffer_data(record),
++                    signal_buffer_len(record), f.context) == 0);
++            omemo_session_free(f.bob); f.bob = candidate; candidate = NULL;
++            signal_buffer_bzero_free(record);
++        }
++    }
++    assert(omemo_session_get_skipped_count(f.bob) == 1);
++
++    /* At the expiry boundary, sends and failed/duplicate receives do not age
++     * the retained key. Authenticating on a discarded application clone does
++     * not commit either the event or its erasure to the original session. */
++    message = encrypt_test_message(f.bob, 99, &kex);
++    signal_buffer_free(message);
++    assert(omemo_session_get_skipped_count(f.bob) == 1);
++    message = encrypt_test_message(f.alice, 1001, &kex);
++    assert(omemo_key_exchange_decode(&exchange, signal_buffer_data(message), signal_buffer_len(message)) == 0);
++    exchange.message.mac[0] ^= 1;
++    assert(omemo_key_exchange_encode(&bad, &exchange) == 0);
++    record = snapshot(f.bob);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(bad), signal_buffer_len(bad), 1) == SG_ERR_INVALID_MAC);
++    assert(plain == NULL); assert_unchanged(f.bob, record);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(first), signal_buffer_len(first), 1) == SG_ERR_DUPLICATE_MESSAGE);
++    assert(plain == NULL); assert_unchanged(f.bob, record);
++    assert(omemo_session_deserialize(&candidate, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(omemo_session_decrypt(candidate, &plain, signal_buffer_data(message), signal_buffer_len(message), 1) == 0);
++    check_plain(plain, 1001, 48); plain = NULL;
++    assert(omemo_session_get_skipped_count(candidate) == 0);
++    omemo_session_free(candidate); candidate = NULL;
++    assert_unchanged(f.bob, record);
++    assert(omemo_session_deserialize(&candidate, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(omemo_session_decrypt(candidate, &plain, signal_buffer_data(delayed), signal_buffer_len(delayed), 1) == 0);
++    check_plain(plain, 0, 48); plain = NULL;
++    omemo_session_free(candidate); candidate = NULL;
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(message), signal_buffer_len(message), 1) == 0);
++    check_plain(plain, 1001, 48); plain = NULL;
++    assert(omemo_session_get_skipped_count(f.bob) == 0);
++    /* This remains a replay/stale candidate, not proof of authenticity. */
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(delayed), signal_buffer_len(delayed), 1) == SG_ERR_DUPLICATE_MESSAGE);
++    assert(plain == NULL);
++    signal_buffer_free(delayed); signal_buffer_free(first); signal_buffer_free(message);
++    signal_buffer_free(bad); signal_buffer_bzero_free(record);
++    omemo_key_exchange_clear(&exchange); fixture_clear(&f);
++}
++
++static uint32_t read_be_u32(const uint8_t *bytes)
++{
++    return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
++            ((uint32_t)bytes[2] << 8) | bytes[3];
++}
++
++static uint64_t read_be_u64(const uint8_t *bytes)
++{
++    return ((uint64_t)read_be_u32(bytes) << 32) | read_be_u32(bytes + 4);
++}
++
++static void write_be_u64(uint8_t *bytes, uint64_t value)
++{
++    unsigned i;
++    for(i = 0; i < 8; ++i) bytes[i] = (uint8_t)(value >> (56 - i * 8));
++}
++
++/* Materialize the exact old local format, including retained MK bytes. No
++ * deserialize/serialize implementation is used to manufacture this fixture. */
++static signal_buffer *legacy_v1_snapshot(const omemo_session *session)
++{
++    signal_buffer *current = snapshot(session), *legacy;
++    const uint8_t *bytes = signal_buffer_const_data(current);
++    size_t count = read_be_u32(bytes + 352), i;
++    if(bytes[8] == 1) return current;
++    assert(bytes[8] == 2 && signal_buffer_len(current) == 364 + count * 76);
++    legacy = signal_buffer_alloc(356 + count * 68);
++    assert(legacy);
++    memcpy(signal_buffer_data(legacy), bytes, 356);
++    signal_buffer_data(legacy)[8] = 1;
++    for(i = 0; i < count; ++i) memcpy(signal_buffer_data(legacy) + 356 + i * 68,
++            bytes + 364 + i * 76, 68);
++    signal_buffer_bzero_free(current);
++    return legacy;
++}
++
++static void test_skipped_key_snapshot_migration(void)
++{
++    fixture f;
++    signal_buffer *messages[3], *record, *upgraded, *plain = NULL, *next;
++    omemo_session *restored = NULL;
++    uint8_t ek[32], restored_ek[32];
++    int kex;
++    unsigned i;
++    fixture_create(&f);
++    assert(omemo_session_begin_alice(&f.alice, f.alice_ik, &f.bundle, f.context) == 0);
++    for(i = 0; i < 3; ++i) messages[i] = encrypt_test_message(f.alice, i, &kex);
++    begin_bob(&f, messages[2], 2);
++    record = legacy_v1_snapshot(f.bob);
++    assert(signal_buffer_len(record) == 356 + 2 * 68 && signal_buffer_data(record)[8] == 1);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(omemo_session_get_receive_counter(restored) == 3);
++    assert(omemo_session_get_skipped_count(restored) == 2);
++    upgraded = snapshot(restored);
++    assert(signal_buffer_data(upgraded)[8] == 2);
++    assert(signal_buffer_len(upgraded) == 364 + 2 * 76);
++    assert(read_be_u64(signal_buffer_data(upgraded) + 356) == 0);
++    assert(read_be_u64(signal_buffer_data(upgraded) + 364 + 68) == 0);
++    assert(read_be_u64(signal_buffer_data(upgraded) + 364 + 76 + 68) == 0);
++    omemo_session_free(f.bob); f.bob = restored; restored = NULL;
++    signal_buffer_bzero_free(record); signal_buffer_bzero_free(upgraded);
++
++    record = legacy_v1_snapshot(f.alice);
++    assert(omemo_session_get_ephemeral_key(f.alice, ek) == 0);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    assert(omemo_session_has_pending_key_exchange(restored));
++    assert(omemo_session_get_send_counter(restored) == 3);
++    assert(omemo_session_get_ephemeral_key(restored, restored_ek) == 0 && memcmp(ek, restored_ek, 32) == 0);
++    omemo_session_free(f.alice); f.alice = restored; restored = NULL;
++    next = encrypt_test_message(f.alice, 3, &kex);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(next), signal_buffer_len(next), 1) == 0);
++    check_plain(plain, 3, 48); plain = NULL;
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(messages[0]), signal_buffer_len(messages[0]), 1) == 0);
++    check_plain(plain, 0, 48); plain = NULL;
++    signal_buffer_free(next);
++    for(i = 4; i <= 1000; ++i) {
++        next = encrypt_test_message(f.alice, i, &kex);
++        assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(next), signal_buffer_len(next), 1) == 0);
++        check_plain(plain, i, 48); plain = NULL;
++        signal_buffer_free(next);
++    }
++    assert(omemo_session_get_skipped_count(f.bob) == 1); /* Full v1 grace: 999 events. */
++    next = encrypt_test_message(f.alice, 1001, &kex);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(next), signal_buffer_len(next), 1) == 0);
++    check_plain(plain, 1001, 48); plain = NULL;
++    assert(omemo_session_get_skipped_count(f.bob) == 0);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(messages[1]), signal_buffer_len(messages[1]), 1) == SG_ERR_DUPLICATE_MESSAGE);
++    assert(plain == NULL);
++    signal_buffer_bzero_free(record); signal_buffer_free(next);
++    for(i = 0; i < 3; ++i) signal_buffer_free(messages[i]);
++    fixture_clear(&f);
++}
++
++static void test_skipped_key_event_snapshot_validation(void)
++{
++    fixture f;
++    signal_buffer *delayed, *message, *record, *plain = NULL;
++    omemo_session *restored = NULL;
++    int kex;
++    fixture_create(&f);
++    assert(omemo_session_begin_alice(&f.alice, f.alice_ik, &f.bundle, f.context) == 0);
++    delayed = encrypt_test_message(f.alice, 0, &kex);
++    message = encrypt_test_message(f.alice, 1, &kex);
++    begin_bob(&f, message, 1);
++    record = snapshot(f.bob);
++    assert(signal_buffer_data(record)[8] == 2);
++    assert(read_be_u64(signal_buffer_data(record) + 356) == 1);
++    assert(read_be_u64(signal_buffer_data(record) + 364 + 68) == 1);
++    write_be_u64(signal_buffer_data(record) + 364 + 68, 2);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == SG_ERR_INVALID_MESSAGE);
++    write_be_u64(signal_buffer_data(record) + 364 + 68, 0);
++    write_be_u64(signal_buffer_data(record) + 356, 1000);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == SG_ERR_INVALID_MESSAGE);
++
++    /* Near UINT64_MAX, preserve relative ages instead of wrapping or pinning
++     * keys forever. A successful decrypt rebases the local event epoch. */
++    write_be_u64(signal_buffer_data(record) + 356, UINT64_MAX);
++    write_be_u64(signal_buffer_data(record) + 364 + 68, UINT64_MAX - 998);
++    assert(omemo_session_deserialize(&restored, signal_buffer_data(record), signal_buffer_len(record), f.context) == 0);
++    omemo_session_free(f.bob); f.bob = restored; restored = NULL;
++    signal_buffer_free(message); message = encrypt_test_message(f.alice, 2, &kex);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(message), signal_buffer_len(message), 1) == 0);
++    check_plain(plain, 2, 48); plain = NULL;
++    assert(omemo_session_get_skipped_count(f.bob) == 1);
++    signal_buffer_free(message); message = encrypt_test_message(f.alice, 3, &kex);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(message), signal_buffer_len(message), 1) == 0);
++    check_plain(plain, 3, 48); plain = NULL;
++    assert(omemo_session_get_skipped_count(f.bob) == 0);
++    assert(omemo_session_decrypt(f.bob, &plain, signal_buffer_data(delayed), signal_buffer_len(delayed), 1) == SG_ERR_DUPLICATE_MESSAGE);
++    assert(plain == NULL);
++    signal_buffer_free(delayed); signal_buffer_free(message); signal_buffer_bzero_free(record);
++    fixture_clear(&f);
++}
++
 +int main(void)
 +{
 +    test_independent_x3dh_ratchet_vector();
@@ -2497,6 +2780,9 @@ index 0000000..b20ddae
 +    test_provider_failure_rollback();
 +    test_bundle_and_profile_guards();
 +    test_skip_limit_fifo();
++    test_skipped_key_event_retention();
++    test_skipped_key_snapshot_migration();
++    test_skipped_key_event_snapshot_validation();
 +    puts("OMEMO2 session tests passed");
 +    return 0;
 +}

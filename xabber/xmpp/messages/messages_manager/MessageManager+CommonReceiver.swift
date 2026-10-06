@@ -2215,7 +2215,9 @@ extension MessageManager {
 
         let sideEffects = message.applyMessagePersistence(in: realm, silentNotifications: silentNotifications)
 
-        if sideEffects?.shouldStoreStanza == true {
+        if sideEffects?.shouldStoreStanza == true ||
+            message.incomingEncryption == .authenticatedSCE(profile: .omemo2) {
+            // Existing rows also acquire proof after their first verified replay.
             message.storeStanza(in: realm)
         }
         MessageStorageItem.persistPendingMediaAttachments(
@@ -2364,6 +2366,7 @@ extension MessageManager {
         batch.messages.forEach { message in
             do {
                 let messageStartedAt = Date()
+                message.prepareIncomingReplayFingerprint()
                 let realm = try WRealm.safe()
                 var sideEffects: MessageStorageItem.SaveSideEffects?
                 var outcome: ArchivePersistenceOutcomeItem?
@@ -2473,6 +2476,9 @@ extension MessageManager {
             var notificationPayloads: [MessageStorageItem.SaveNotificationPayload] = []
             var outcomes: [ArchivePersistenceOutcomeItem] = []
 
+            // Resolve the actual recipient outside Realm writes to preserve
+            // storage-owner-lock -> Realm ordering used by decrypt.
+            batch.messages.forEach { $0.prepareIncomingReplayFingerprint() }
             try self.archiveBatchSaveFailureInjector?()
             let realmWriteStartedAt = Date()
             try realm.write {

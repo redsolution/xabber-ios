@@ -72,6 +72,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N04
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n04-replay-retention.md), focused+affected181/181 XCTest; C c775eb7, snapshot v2/v1 migration.
+
 **Подтверждённые повторы и skipped-key retention.** Ограниченный старый OM2-07. Владелец: xmpp. Зависимости: нет; можно параллельно N01.
 
 **Пробел:** C `omemo_session.c:417–427` old-DH replay может завершаться MAC failure; `:424` объявляет duplicate по счётчику до MAC. Swift candidate loop `XabberOMEMO2Storage.swift:319–333` теряет duplicate. FIFO/MAX_SKIP уже есть, но skipped keys без возрастной/event policy могут сохраняться бессрочно (`omemo_session.c:13–31,339–357,636–649`).
@@ -155,7 +157,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-N01 → N02 → N03 выполнены; следующая задача — **OM2-N04**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 выполнены; следующая задача — **OM2-N05**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 

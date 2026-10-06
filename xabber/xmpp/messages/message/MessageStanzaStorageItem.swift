@@ -32,6 +32,9 @@ class MessageStanzaStorageItem: Object {
     @objc dynamic var messageId: String = ""
     @objc dynamic var stanza: String = ""
     @objc dynamic var timestamp: Date = Date()
+    /// Local evidence produced only by the authenticated OMEMO2 receive path.
+    /// Neither stored ciphertext nor a network XML marker can create it.
+    @objc dynamic var omemo2ReplayFingerprint: Data? = nil
     
     func set(_ Id: String, for owner: String, with stanza: String, at date: Date, primary: String) {
         self.primary = [primary, "_stanza"].joined()

@@ -1008,6 +1008,7 @@ class MessageStorageItem: Object {
         return [
             "originalStanza",
             "incomingEncryption",
+            "incomingReplayFingerprint",
             "forceUnreadState",
             "isInvite",
             "shouldPersistArchiveQueryId",
@@ -1020,6 +1021,8 @@ class MessageStorageItem: Object {
     
     var originalStanza: XMPPMessage? = nil
     var incomingEncryption: MessageEncryptionProvenance = .plaintext
+    /// Prepared before opening a Realm write, preserving storage lock order.
+    var incomingReplayFingerprint: Data? = nil
 
     var unreadCounterBucket: UnreadCounterBucket {
         get {
@@ -1570,20 +1573,33 @@ class MessageStorageItem: Object {
         }
     }
     
+    func prepareIncomingReplayFingerprint() {
+        guard let realm = try? WRealm.safe(), !realm.isInWriteTransaction else { return }
+        incomingReplayFingerprint = nil
+        guard incomingEncryption == .authenticatedSCE(profile: .omemo2),
+              let stanza = originalStanza,
+              let storage = AccountManager.shared.find(for: owner)?.omemo.omemo2Storage,
+              let bundle = try? storage.localBundle() else { return }
+        incomingReplayFingerprint = OMEMO2ReplayProtection.fingerprint(
+            for: stanza,
+            owner: owner,
+            localDeviceID: bundle.deviceID
+        )
+    }
+
     func storeStanza() {
-        guard let stanza = originalStanza,
+        guard originalStanza != nil,
             primary.isNotEmpty else {
                 return
         }
-        let instance = MessageStanzaStorageItem()
-        instance.set(messageId, for: owner, with: stanza.xmlString, at: date, primary: self.primary)
         do {
             let realm = try  WRealm.safe()
+            if !realm.isInWriteTransaction { prepareIncomingReplayFingerprint() }
             if realm.isInWriteTransaction {
-                realm.add(instance, update: .modified)
+                storeStanza(in: realm)
             } else {
                 try realm.write {
-                    realm.add(instance, update: .modified)
+                    storeStanza(in: realm)
                 }
             }
         } catch {
@@ -1598,6 +1614,14 @@ class MessageStorageItem: Object {
         }
         let instance = MessageStanzaStorageItem()
         instance.set(messageId, for: owner, with: stanza.xmlString, at: date, primary: self.primary)
+        instance.omemo2ReplayFingerprint = realm.object(
+            ofType: MessageStanzaStorageItem.self,
+            forPrimaryKey: instance.primary
+        )?.omemo2ReplayFingerprint
+        if incomingEncryption == .authenticatedSCE(profile: .omemo2),
+           let fingerprint = incomingReplayFingerprint {
+            instance.omemo2ReplayFingerprint = fingerprint
+        }
         realm.add(instance, update: .modified)
     }
     
@@ -2365,6 +2389,7 @@ class MessageStorageItem: Object {
     public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
         do {
             let realm = try  WRealm.safe()
+            if !realm.isInWriteTransaction { prepareIncomingReplayFingerprint() }
             var sideEffects: SaveSideEffects?
             let shouldCommitHere = commitTransaction || !realm.isInWriteTransaction
             let pendingMediaAttachments = pendingMediaAttachmentsIncludingInlineForwards()

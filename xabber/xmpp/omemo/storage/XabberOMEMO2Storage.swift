@@ -11,6 +11,7 @@ enum OMEMO2StorageError: Error {
     case missingSession
     case receiveOnlySession
     case persistenceFailed
+    case authenticatedDuplicate
 }
 
 struct OMEMO2PublicPreKey: Equatable {
@@ -74,6 +75,7 @@ final class XabberOMEMO2Storage {
     static let stateVersion = 1
     static let signedPreKeyRotationInterval: TimeInterval = 7 * 24 * 60 * 60
     static let maximumSessionsPerPeer = 64
+    static let maximumAuthenticatedReceiveFingerprints = 4096
     private static var ownerLocks: [String: NSRecursiveLock] = [:]
     private static let locksLock = NSLock()
 
@@ -115,6 +117,8 @@ final class XabberOMEMO2Storage {
         var sessions: [String: StoredSession]
         var currentSessions: [String: String]
         var controlsNeeded: Set<OMEMO2PeerAddress>
+        // Optional for additive decoding of existing protected state version 1.
+        var authenticatedReceiveFingerprints: [Data]? = nil
     }
 
     let owner: String
@@ -249,17 +253,30 @@ final class XabberOMEMO2Storage {
     /// outbound-capable KEX updates the current identity projection; delayed
     /// archived and receive-only sessions cannot change current device trust.
     func decrypt(_ ciphertext: OMEMO2Ciphertext, jid: String, deviceID: Int,
+                 replayFingerprint: Data? = nil,
+                 previouslyAuthenticated: () -> Bool = { false },
                  updatingIdentity: (Data) throws -> Void = { _ in },
                  validating: (Data) throws -> Void = { _ in }) throws -> Data {
         try synchronized {
             var state = try requireState()
             let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            if let replayFingerprint {
+                guard replayFingerprint.count == 32 else { throw OMEMO2StorageError.invalidState }
+                if state.authenticatedReceiveFingerprints?.contains(replayFingerprint) == true {
+                    throw OMEMO2StorageError.authenticatedDuplicate
+                }
+            }
             if ciphertext.isKeyExchange {
                 guard let ephemeralKey = ciphertext.ephemeralKey else { throw OMEMO2StorageError.invalidState }
                 let key = sessionKey(address, ephemeralKey: ephemeralKey)
                 if var stored = state.sessions[key] {
                     let session = try context.restoreSession(with: stored.snapshot)
-                    let plaintext = try session.decryptCiphertext(ciphertext)
+                    let plaintext: Data
+                    do { plaintext = try session.decryptCiphertext(ciphertext) }
+                    catch {
+                        if replayFingerprint != nil, previouslyAuthenticated() { throw OMEMO2StorageError.authenticatedDuplicate }
+                        throw error
+                    }
                     try validating(plaintext)
                     if !stored.receiveOnly, state.currentSessions[addressKey(address)] == key {
                         try updatingIdentity(session.remoteIdentityKey)
@@ -270,11 +287,16 @@ final class XabberOMEMO2Storage {
                     if !stored.receiveOnly, state.currentSessions[addressKey(address)] == key {
                         state.controlsNeeded.insert(address)
                     }
+                    recordAuthenticatedReceive(replayFingerprint, state: &state)
                     try save(state)
                     return plaintext
                 }
                 guard let preKeyIndex = state.preKeys.firstIndex(where: { $0.id == ciphertext.preKeyID }) else {
+                    if replayFingerprint != nil, previouslyAuthenticated() { throw OMEMO2StorageError.authenticatedDuplicate }
                     throw OMEMO2StorageError.missingPreKey
+                }
+                if state.preKeys[preKeyIndex].consumed, replayFingerprint != nil, previouslyAuthenticated() {
+                    throw OMEMO2StorageError.authenticatedDuplicate
                 }
                 let signedPreKeyPrivate: Data
                 if ciphertext.signedPreKeyID == state.signedPreKeyID {
@@ -305,6 +327,7 @@ final class XabberOMEMO2Storage {
                     state.controlsNeeded.insert(address)
                 }
                 pruneSessions(&state, address: address)
+                recordAuthenticatedReceive(replayFingerprint, state: &state)
                 try save(state)
                 return plaintext
             }
@@ -327,9 +350,11 @@ final class XabberOMEMO2Storage {
                 stored.snapshot = try session.serializedData()
                 observeIncoming(ciphertext, stored: &stored, state: &state)
                 state.sessions[key] = stored
+                recordAuthenticatedReceive(replayFingerprint, state: &state)
                 try save(state)
                 return plaintext
             }
+            if replayFingerprint != nil, previouslyAuthenticated() { throw OMEMO2StorageError.authenticatedDuplicate }
             throw lastError
         }
     }
@@ -410,6 +435,16 @@ final class XabberOMEMO2Storage {
         return true
     }
 
+    private func recordAuthenticatedReceive(_ fingerprint: Data?, state: inout State) {
+        guard let fingerprint else { return }
+        var fingerprints = state.authenticatedReceiveFingerprints ?? []
+        fingerprints.append(fingerprint)
+        if fingerprints.count > Self.maximumAuthenticatedReceiveFingerprints {
+            fingerprints.removeFirst(fingerprints.count - Self.maximumAuthenticatedReceiveFingerprints)
+        }
+        state.authenticatedReceiveFingerprints = fingerprints
+    }
+
     private func observeIncoming(_ ciphertext: OMEMO2Ciphertext, stored: inout StoredSession, state: inout State) {
         guard !stored.seenIncomingRatchets.contains(ciphertext.ratchetKey) else { return }
         stored.seenIncomingRatchets.append(ciphertext.ratchetKey)
@@ -477,6 +512,9 @@ final class XabberOMEMO2Storage {
                       && value.address.deviceID > 0 && value.address.deviceID <= Int(Int32.max)
                       && !value.address.jid.isEmpty && sessionKey(value.address, ephemeralKey: value.ephemeralKey) == key
               }),
+              (state.authenticatedReceiveFingerprints ?? []).count <= Self.maximumAuthenticatedReceiveFingerprints,
+              (state.authenticatedReceiveFingerprints ?? []).allSatisfy({ $0.count == 32 }),
+              Set(state.authenticatedReceiveFingerprints ?? []).count == (state.authenticatedReceiveFingerprints ?? []).count,
               state.currentSessions.allSatisfy({ address, session in
                   state.sessions[session].map { addressKey($0.address) == address && !$0.receiveOnly } ?? false
               }) else {
