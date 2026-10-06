@@ -230,6 +230,19 @@ extension OmemoManager {
 
     /// A public projection can be rebuilt from the protected aggregate. It
     /// cannot create or replace secret identity/prekey material.
+    internal func reconcileLocalOMEMO2Metadata() {
+        omemo2MaintenanceLock.lock()
+        defer { omemo2MaintenanceLock.unlock() }
+        guard let storage = omemo2Storage, storage.owner == owner else { return }
+        do {
+            try bindLocalOMEMO2Metadata(storage.localBundle())
+        } catch OMEMO2StorageError.stateUnavailable {
+            // Fresh registration has not committed an identity yet.
+        } catch {
+            DDLogDebug("OMEMO2 own device projection will be retried")
+        }
+    }
+
     private func bindLocalOMEMO2Metadata(_ bundle: OMEMO2LocalBundle) throws {
         let realm = try WRealm.safe()
         let primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: owner, deviceId: bundle.deviceID)
@@ -240,8 +253,19 @@ extension OmemoManager {
             identity.identityKey != bundle.identityKey.base64EncodedString() ||
             identity.signedPreKey != bundle.signedPreKey.base64EncodedString() ||
             identity.signedPreKeyId != Int(bundle.signedPreKeyID) || device.fingerprint != fingerprint
-        guard changed else { return }
+        let currentUID = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.deviceUuid
+        let currentDevice: DeviceStorageItem? = currentUID.flatMap { uid in
+            guard !uid.isEmpty else { return nil }
+            return realm.object(ofType: DeviceStorageItem.self,
+                                forPrimaryKey: DeviceStorageItem.genPrimary(uid: uid, owner: owner))
+        }
+        let bindingChanged = currentDevice.map { $0.omemoDeviceId != bundle.deviceID } ?? false
+        guard changed || bindingChanged else { return }
         try realm.write {
+            if bindingChanged { currentDevice?.omemoDeviceId = bundle.deviceID }
+            // Repairing a local session association is independent of key
+            // publication and cannot manufacture PEP device-list membership.
+            guard changed else { return }
             if identity.realm == nil {
                 identity.owner = owner; identity.jid = owner; identity.deviceId = bundle.deviceID; identity.primary = primary
             }
@@ -257,7 +281,7 @@ extension OmemoManager {
             device.fingerprint = fingerprint; device.state = .trusted; device.isPublicated = false
             realm.add(identity, update: .modified); realm.add(device, update: .modified)
         }
-        shouldPublicate = true
+        if changed { shouldPublicate = true }
     }
 
     func doubleUnratched(_ encrypted: String, jid: String, deviceId: Int, keyExchange: Bool) throws -> Data {

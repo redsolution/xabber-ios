@@ -273,6 +273,9 @@ open class OmemoManager: AbstractXMPPManager {
     }
     
     internal func checkInfo() {
+        // XMPP session registration and OMEMO SID creation may complete in
+        // either order, and a server list may omit the current omemo-id.
+        reconcileLocalOMEMO2Metadata()
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.omemo.getContactBundle(stream, jid: self.owner, deviceId: self.localStore.localDeviceId())
         })
@@ -320,6 +323,12 @@ open class OmemoManager: AbstractXMPPManager {
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
+        let request = iq.elementID.flatMap { bundleRequest($0) }
+        let node = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?
+            .element(forName: "items")?.attributeStringValue(forName: "node")
+        if node == NodeType.bundle.rawValue || request != nil {
+            logOMEMO2BundleStanza(iq, jid: request?.jid ?? iq.from?.bare ?? owner, source: "received")
+        }
         switch true {
         case handleOMEMO2FreshBundleResponse(iq): return true
         case onOMEMO2PublicationResult(iq): return true
@@ -691,6 +700,7 @@ extension OmemoManager {
               items.attributeStringValue(forName: "node") == NodeType.bundle.rawValue else {
                   return false
               }
+        logOMEMO2BundleStanza(message, jid: from, source: "headline")
         guard let item = items.element(forName: "item") else {
             return false
         }
@@ -827,6 +837,15 @@ extension OmemoManager {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in user.devices.requestList(stream) }
         }
         return true
+    }
+
+    /// Print the original complete stanza before codec validation or projection.
+    internal func logOMEMO2BundleStanza(_ stanza: DDXMLElement, jid: String, source: String) {
+        let record = OMEMO2BundleDiagnostics.record(stanza: stanza, jid: jid)
+        DDLogDebug("OMEMO_BUNDLE source=\(source) \(record.summary)")
+        if let xml = record.rawXML {
+            DDLogDebug("OMEMO_BUNDLE_XML source=\(source) \(record.summary) xml=\(xml)")
+        }
     }
 
     func prepareSyncConversations(_ query: DDXMLElement, serverContext: OMEMOReceiveServerContext = .unverified) -> [ClientSyncConversationValue] {
