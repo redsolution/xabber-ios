@@ -44,6 +44,9 @@ open class OmemoManager: AbstractXMPPManager {
     static let xmlns: String = "urn:xmpp:omemo:2"
     static let signalPreKeysMaxVal: UInt32 = 16777215
     static let signedPreKeyRotationPeriod: TimeInterval = 604800
+    static let omemo2MaintenanceCheckInterval: TimeInterval = 60
+    static let omemo2PublicationRetryInterval: TimeInterval = 60
+    static let omemo2PublicationIQTimeout: TimeInterval = 120
     
 //    public var deviceId: UInt32!
     
@@ -61,8 +64,19 @@ open class OmemoManager: AbstractXMPPManager {
     internal weak var omemo2RegistrationStream: XMPPStream?
     internal var omemo2FreshRegistrationPending = false
     internal var omemo2BundlePublications: [String: Data] = [:]
+    internal var omemo2BundlePublicationStartedAt: [String: Date] = [:]
     internal var omemo2PublicationReconfigured = false
     internal var omemo2BundleConfigurationRequestID: String?
+    internal var omemo2BundleConfigurationStartedAt: Date?
+    internal var omemo2PublicationRetryAt: Date?
+    internal var omemo2MaintenanceNow: () -> Date = Date.init
+    internal var omemo2LastMaintenanceAt: Date?
+    internal let omemo2MaintenanceLock = NSRecursiveLock()
+    internal weak var omemo2MaintenancePublicationStream: XMPPStream?
+    internal var omemo2MaintenanceScheduler: ((TimeInterval, DispatchWorkItem) -> Void)?
+    internal var omemo2MaintenanceWorkItem: DispatchWorkItem?
+    internal var omemo2MaintenanceWorkDeadline: Date?
+    internal var omemo2MaintenanceWorkID: UUID?
 
     internal var localStore: XabberAxolotlStorage
     internal var signalStorage: SignalStorage
@@ -127,6 +141,9 @@ open class OmemoManager: AbstractXMPPManager {
     }
     
     public final func configureLocal(_ stream: XMPPStream, for deviceId: Int) {
+        omemo2MaintenanceLock.lock()
+        var maintenanceLocked = true
+        defer { if maintenanceLocked { omemo2MaintenanceLock.unlock() } }
         do {
             guard try existingOMEMO2DeviceID() != nil else {
                 beginOMEMO2Registration(stream)
@@ -155,7 +172,7 @@ open class OmemoManager: AbstractXMPPManager {
                 }
                 try self.localStore.create(for: deviceId, context: self.signalContext)
             }
-            _ = try self.ensureOMEMO2Prepared()
+            _ = try self.ensureOMEMO2Prepared(attemptPublication: false)
             // Rebuild a missing shared SID mirror from the committed profile,
             // including restart after fresh preparation. Existing values remain.
             if CredentialsManager.shared.getDeviceId(for: owner) == nil {
@@ -163,9 +180,23 @@ open class OmemoManager: AbstractXMPPManager {
             }
             self.isOmemoPrepared = true
             self.omemo2PublicationReconfigured = false
+            for requestID in self.omemo2BundlePublications.keys { self.queryIds.remove(requestID) }
             self.omemo2BundlePublications.removeAll()
+            self.omemo2BundlePublicationStartedAt.removeAll()
+            if let requestID = self.omemo2BundleConfigurationRequestID { self.queryIds.remove(requestID) }
+            self.omemo2BundleConfigurationRequestID = nil
+            self.omemo2BundleConfigurationStartedAt = nil
+            self.omemo2PublicationRetryAt = nil
+            self.omemo2MaintenanceWorkItem?.cancel()
+            self.omemo2MaintenanceWorkItem = nil
+            self.omemo2MaintenanceWorkDeadline = nil
+            self.omemo2MaintenanceWorkID = nil
             self.shouldPublicate = true
             self.updateMyDevice(stream)
+            // Control preparation enters sessionQueue before acquiring this
+            // lock. Preserve that order when registration finishes.
+            omemo2MaintenanceLock.unlock()
+            maintenanceLocked = false
             self.flushOMEMO2Controls()
             AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
         } catch {
@@ -1092,11 +1123,12 @@ extension OmemoManager {
         // Public identity projection has also succeeded before committing the
         // secret state. Receiving an identity never grants device trust.
         if keyExchange {
+            omemo2MaintenanceLock.lock()
             _ = try? storage.replenishPreKeys()
             shouldPublicate = true
+            omemo2MaintenanceLock.unlock()
             AccountManager.shared.find(for: owner)?.action { _, stream in
-                do { try self.sendOwnDeviceBundle(stream, createNode: false) }
-                catch { self.shouldPublicate = true }
+                self.retryOMEMO2BundlePublication(on: stream)
             }
         }
         flushOMEMO2Controls()

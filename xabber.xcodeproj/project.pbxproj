@@ -1082,6 +1082,7 @@
 		0982B6D37F8643D0B18AA032 /* OMEMO2ReplayProtection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E5A826ADAF46BE8AE15DDC /* OMEMO2ReplayProtection.swift */; };
 		BA072259FC964DFDA609C6EA /* OMEMO2NormativeReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB02EC4063C7497A9A736C20 /* OMEMO2NormativeReplayTests.swift */; };
 		E6511F64B4564B1394B66087 /* OMEMO2NormativeReplayHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE4A176B008F41B18A77499C /* OMEMO2NormativeReplayHistoryTests.swift */; };
+		0E01EF14DB97448DB6F165F8 /* OMEMO2NormativeKeyMaintenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1298BE6EFEA84CDE9216451E /* OMEMO2NormativeKeyMaintenanceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2202,6 +2203,7 @@
 		10E5A826ADAF46BE8AE15DDC /* OMEMO2ReplayProtection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2ReplayProtection.swift; sourceTree = "<group>"; };
 		AB02EC4063C7497A9A736C20 /* OMEMO2NormativeReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeReplayTests.swift; sourceTree = "<group>"; };
 		FE4A176B008F41B18A77499C /* OMEMO2NormativeReplayHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeReplayHistoryTests.swift; sourceTree = "<group>"; };
+		1298BE6EFEA84CDE9216451E /* OMEMO2NormativeKeyMaintenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeKeyMaintenanceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4197,6 +4199,7 @@
 			isa = PBXGroup;
 			children = (
 				2FEF2FD659F74533ABDAC250 /* OMEMO2NormativeDevicesTests.swift */,
+				1298BE6EFEA84CDE9216451E /* OMEMO2NormativeKeyMaintenanceTests.swift */,
 				FE4A176B008F41B18A77499C /* OMEMO2NormativeReplayHistoryTests.swift */,
 				AB02EC4063C7497A9A736C20 /* OMEMO2NormativeReplayTests.swift */,
 				F3E71774D2374304BDF5F458 /* OMEMO2NormativeEditTests.swift */,
@@ -6472,6 +6475,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				46C13EE7989D47BD9A666E8B /* OMEMO2NormativeDevicesTests.swift in Sources */,
+				0E01EF14DB97448DB6F165F8 /* OMEMO2NormativeKeyMaintenanceTests.swift in Sources */,
 				E6511F64B4564B1394B66087 /* OMEMO2NormativeReplayHistoryTests.swift in Sources */,
 				BA072259FC964DFDA609C6EA /* OMEMO2NormativeReplayTests.swift in Sources */,
 				90D3B083C759442898F3B422 /* OMEMO2NormativeEditTests.swift in Sources */,

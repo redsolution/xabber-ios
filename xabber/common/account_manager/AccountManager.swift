@@ -1489,6 +1489,9 @@ public class AccountManager: NSObject {
     final func prepareForForeground() {
         self.users.forEach {
             $0.connectionResilience.setForegroundActive(true)
+            $0.action { account, stream in
+                account.omemo.performOMEMO2KeyMaintenance(stream, force: true)
+            }
         }
         load()
     }

@@ -171,9 +171,31 @@ extension OmemoManager {
     }
 
     @discardableResult
-    internal func ensureOMEMO2Prepared() throws -> XabberOMEMO2Storage {
+    internal func ensureOMEMO2Prepared(attemptPublication: Bool = true) throws -> XabberOMEMO2Storage {
+        let storage = try preparedOMEMO2Storage(forceMaintenance: false)
+        if attemptPublication { retryOMEMO2BundlePublication() }
+        return storage
+    }
+
+    /// Existing authentication, foreground and crypto boundaries share this
+    /// operation. Failure leaves protected keys intact and is retried by later
+    /// activity; publication failures also have a bounded owner-queue retry.
+    internal func performOMEMO2KeyMaintenance(_ stream: XMPPStream? = nil, force: Bool = false) {
+        guard isOwnOMEMOEnabled, isOmemoPrepared else { return }
+        do {
+            _ = try preparedOMEMO2Storage(forceMaintenance: force)
+            retryOMEMO2BundlePublication(on: stream)
+        } catch {
+            DDLogDebug("OMEMO2 key maintenance could not be committed")
+            retryOMEMO2BundlePublication(on: stream)
+        }
+    }
+
+    private func preparedOMEMO2Storage(forceMaintenance: Bool) throws -> XabberOMEMO2Storage {
+        omemo2MaintenanceLock.lock()
+        defer { omemo2MaintenanceLock.unlock() }
         guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
-        let bundle: OMEMO2LocalBundle
+        var bundle: OMEMO2LocalBundle
         do { bundle = try storage.localBundle() }
         catch OMEMO2StorageError.stateUnavailable {
             let realm = try WRealm.safe()
@@ -184,8 +206,17 @@ extension OmemoManager {
             }
             bundle = try storage.prepare(deviceID: localStore.localDeviceId())
         }
+        let time = omemo2MaintenanceNow()
+        let elapsed = omemo2LastMaintenanceAt.map { time.timeIntervalSince($0) }
+        let checkDue = forceMaintenance || elapsed == nil || elapsed! < 0 || elapsed! >= Self.omemo2MaintenanceCheckInterval
+        if checkDue {
+            if try storage.maintainKeysIfDue() {
+                bundle = try storage.localBundle()
+            }
+        }
         try localStore.bindExistingDevice(deviceID: bundle.deviceID)
         try bindLocalOMEMO2Metadata(bundle)
+        if checkDue { omemo2LastMaintenanceAt = time }
         return storage
     }
 

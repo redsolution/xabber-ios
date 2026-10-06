@@ -88,6 +88,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N05
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n05-key-maintenance.md), final25/25; combined119/119, registration review40/40.
+
 **Работающая периодическая ротация SPK.** Рекомендательная часть старого OM2-10. Владелец: xmpp. Зависимость: N02 для общего publication lifecycle.
 
 **Пробел:** rotation/grace существуют (`Storage:394–410`), но due check только в `prepare` (`:150`); обычный `ensureOMEMO2Prepared` читает `localBundle` (`Encryption:169–184`). Длительное соединение не обеспечивает ротацию. Обычная publication error оставляет флаг без ближайшей повторной попытки.
@@ -157,7 +159,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-N01 → N02 → N03 выполнены; следующая задача — **OM2-N05**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 выполнены; следующая задача — **OM2-N06**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 

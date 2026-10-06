@@ -193,6 +193,19 @@ final class XabberOMEMO2Storage {
         try synchronized { try bundle(requireState()) }
     }
 
+    /// Activity can maintain an already registered profile without creating a
+    /// new identity or session. The rotation and expired grace-key removal are
+    /// committed together; a failed save leaves the old aggregate authoritative.
+    @discardableResult
+    func maintainKeysIfDue() throws -> Bool {
+        try synchronized {
+            var state = try requireState()
+            guard try rotateSignedPreKeyIfDue(&state) else { return false }
+            try save(state)
+            return true
+        }
+    }
+
     func identity() throws -> OMEMO2IdentityKeyPair {
         try synchronized { try context.identity(withPrivateKey: requireState().identityPrivateKey) }
     }
