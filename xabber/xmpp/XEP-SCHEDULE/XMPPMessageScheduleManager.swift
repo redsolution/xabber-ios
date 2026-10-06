@@ -23,6 +23,13 @@ import RealmSwift
 import XMPPFramework
 
 class XMPPMessageScheduleManager: AbstractXMPPManager {
+    internal var omemo2OptOutStorage: XabberOMEMO2Storage?
+    internal func outgoingIQWasBlocked(_ iq: XMPPIQ) {
+        guard let id = iq.elementID, queryIds.contains(id),
+              !SCEReceivePolicy.children(of: iq, named: "schedule", xmlns: Self.namespace).isEmpty else { return }
+        queryIds.remove(id)
+        if case .schedule(_, let callback) = takeRequest(for: id)?.kind { callback?(.failure(.sendRejected)) }
+    }
     static let namespace = "https://xabber.com/protocol/schedule"
     static let metadataKey = "schedule"
     private static let settingsNodeKey = "node"
@@ -165,6 +172,10 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         payload: XMPPMessage,
         callback: ScheduleCallback? = nil
     ) -> String? {
+        guard OMEMO2OptOutPolicy.allowsMessage(owner: owner, jid: conversation, storage: omemo2OptOutStorage) else {
+            callback?(.failure(.sendRejected))
+            return nil
+        }
         guard isAvailable else {
             callback?(.failure(.unavailable))
             return nil
@@ -473,14 +484,25 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
 
     @discardableResult
     private func sendTracked(_ iq: XMPPIQ, on stream: XMPPStream, request: Request) -> String? {
+        guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner, storage: omemo2OptOutStorage) else {
+            if case .schedule(_, let callback) = request.kind { callback?(.failure(.sendRejected)) }
+            return nil
+        }
         guard let elementId = iq.elementID else { return nil }
         queryIds.insert(elementId)
         trackedRequests.insert(request)
         let result = sendPrimaryAware(iq, on: stream, replayPolicy: .notReplayable)
-        if case .rejected = result {
+        let rejected: Bool
+        switch result {
+        case .rejected, .blockedByOptOut: rejected = true
+        case .sent, .queued: rejected = false
+        }
+        if rejected {
             queryIds.remove(elementId)
-            trackedRequests.remove(request)
-            switch request.kind {
+            // The final stream filter may already have consumed this owned
+            // request. Deliver the rejection callback at most once.
+            guard let rejectedRequest = takeRequest(for: elementId) else { return nil }
+            switch rejectedRequest.kind {
             case .schedule(_, let callback):
                 callback?(.failure(.sendRejected))
             case .list(_, let callback):

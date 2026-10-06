@@ -880,8 +880,15 @@ extension OmemoManager {
             guard let bare = path.last, SCEReceivePolicy.hasOMEMO2(bare) else { return .notEncrypted(copy) }
             do {
                 let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner, serverContext: timestampAuthority)
-                switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime) {
+                switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime, optOutContext: context) {
                 case .content(let opened, let profile):
+                    let contentElements = opened.content.children?.compactMap { $0 as? DDXMLElement } ?? []
+                    let hasOptOut = contentElements.contains { SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) }
+                    let onlyOptOut = contentElements.allSatisfy {
+                        SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) ||
+                        SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
+                    }
+                    if profile == .omemo2, hasOptOut, onlyOptOut { return .consumed(.control) }
                     Self.reconstruct(path, content: opened.content, owner: owner, serverContext: timestampAuthority)
                     return .verified(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), .authenticatedSCE(profile: profile))
                 case .control: return .consumed(.control)
@@ -1086,7 +1093,8 @@ extension OmemoManager {
 
     private func decryptIncoming(
         _ message: XMPPMessage,
-        originalSendingTime: OMEMOOriginalSendingTime?
+        originalSendingTime: OMEMOOriginalSendingTime?,
+        optOutContext: OMEMOReceiveContext? = nil
     ) throws -> DecryptedIncoming {
         guard let from = message.from?.bare else { throw OmemoManagerError.invalidEncryptedPayload }
         let encryptedElements = message.children?.compactMap { $0 as? DDXMLElement }.filter { $0.localName == "encrypted" && $0.uri == Self.xmlns } ?? []
@@ -1145,6 +1153,20 @@ extension OmemoManager {
                 OMEMO2ReplayProtection.hasVerifiedHistory(fingerprint: replayFingerprint, owner: self.owner)
             }, updatingIdentity: { identity in
                 try self.updateAuthenticatedOMEMO2Identity(identity, jid: from, deviceID: sid, previousSessionIdentity: previousSessionIdentity)
+            }, recordingOptOut: {
+                guard let opened, let context = optOutContext, from != self.owner, message.type != "groupchat",
+                      let request = SCEReceivePolicy.children(of: opened.content, named: "opt-out", xmlns: Self.xmlns).first else { return nil }
+                let protectedDate = try SCEReceivePolicy.children(of: opened.envelope, named: "time", xmlns: "urn:xmpp:sce:1")
+                    .first?.attributeStringValue(forName: "stamp").map { try Omemo2PayloadCodec.timestamp($0) }
+                let reason = SCEReceivePolicy.children(of: request, named: "reason", xmlns: Self.xmlns)
+                    .first?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let historical: Bool
+                switch context {
+                case .archive, .carbon, .syncPreview: historical = true
+                case .live, .push, .modify: historical = false
+                }
+                return OMEMO2OptOutRequest(jid: from, fingerprint: replayFingerprint, protectedDate: protectedDate,
+                                          reason: reason, historical: historical)
             }) { plaintext in
                 opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime)
             }
@@ -1156,6 +1178,8 @@ extension OmemoManager {
         }
         // Public identity projection has also succeeded before committing the
         // secret state. Receiving an identity never grants device trust.
+        do { try OMEMO2OptOutPolicy.mirror(storage, in: WRealm.safe()) }
+        catch { DDLogDebug("OMEMO2 opt-out projection will be retried") }
         if keyExchange {
             omemo2MaintenanceLock.lock()
             _ = try? storage.replenishPreKeys()

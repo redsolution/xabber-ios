@@ -86,6 +86,7 @@ extension XMPPActionManager: XMPPStreamDelegate {
     }
     
     func xmppStreamDidAuthenticate(_ sender: XMPPStream) {
+        guard sender === self.stream, let owner = sender.myJID?.bare ?? jid else { return }
         self.logConnectionDiagnostics(
             event: "authentication_succeeded",
             details: [
@@ -94,6 +95,14 @@ extension XMPPActionManager: XMPPStreamDelegate {
             ]
         )
         stanzaQueue.forEach {
+            guard OMEMO2OptOutPolicy.allowsOutgoing($0, owner: owner) else {
+                if let message = $0 as? XMPPMessage {
+                    AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(message)
+                } else if let iq = $0 as? XMPPIQ {
+                    AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(iq)
+                }
+                return
+            }
             self.logConnectionDiagnostics(
                 event: "stanza_send",
                 details: ["element": $0.name ?? "unknown"],
@@ -103,13 +112,31 @@ extension XMPPActionManager: XMPPStreamDelegate {
         }
         self.logConnectionDiagnostics(event: "disconnect_requested", details: ["reason": "queuedStanzasSent"])
         sender.disconnectAfterSending()
-        sender.myJID = nil
-        self.jid = nil
+        // Keep the stream-bound owner until asynchronous willSend callbacks
+        // finish. Credentials are cleared as soon as the queue is submitted.
         self.password = nil
         self.stanzaQueue = []
         self.endBackgroundUpdateTask()
 //        self.stream.removeDelegate(self)
 //        self.stream = XMPPStream()
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
+        guard sender === self.stream, let owner = sender.myJID?.bare ?? jid else { return nil }
+        guard OMEMO2OptOutPolicy.allowsOutgoing(message, owner: owner) else {
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(message)
+            return nil
+        }
+        return message
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
+        guard sender === self.stream, let owner = sender.myJID?.bare ?? jid else { return nil }
+        guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner) else {
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(iq)
+            return nil
+        }
+        return iq
     }
 
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
@@ -153,6 +180,9 @@ extension XMPPActionManager: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
+        if sender === self.stream, let owner = sender.myJID?.bare ?? jid {
+            AccountManager.shared.find(for: owner)?.sendCoordinator.localSendDidTransmit(message: message)
+        }
         self.logConnectionDiagnostics(
             event: "stanza_send_message",
             details: [
@@ -219,6 +249,9 @@ extension XMPPActionManager: XMPPStreamDelegate {
             event: "tcp_disconnected",
             error: error
         )
+        guard sender === self.stream, sender.myJID?.bare == jid else { return }
+        sender.myJID = nil
+        jid = nil
     }
 
     func xmppStream(_ sender: XMPPStream, willSecureWithSettings settings: NSMutableDictionary) {

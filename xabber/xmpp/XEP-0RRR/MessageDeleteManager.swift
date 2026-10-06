@@ -24,6 +24,12 @@ import RealmSwift
 import CryptoSwift
 
 class MessageDeleteManager: AbstractXMPPManager {
+    internal var omemo2OptOutStorage: XabberOMEMO2Storage?
+    internal func outgoingIQWasBlocked(_ iq: XMPPIQ) {
+        guard let id = iq.elementID,
+              !SCEReceivePolicy.children(of: iq, named: "replace", xmlns: Self.namespace).isEmpty else { return }
+        queryIds.remove(id)
+    }
     
     internal class Item: Hashable {
         
@@ -564,6 +570,7 @@ class MessageDeleteManager: AbstractXMPPManager {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 guard instance.owner == owner, instance.archivedId.isNotEmpty else { return }
+                guard OMEMO2OptOutPolicy.allowsMessage(owner: owner, jid: instance.opponent, storage: omemo2OptOutStorage) else { return }
                 let replacement: XMPPMessage
                 do {
                     replacement = try prepareEditedMessage(editedMessage, for: instance)
@@ -588,8 +595,9 @@ class MessageDeleteManager: AbstractXMPPManager {
                 let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: replace)
                 iq.addAttribute(withName: "to", stringValue: instance.groupchatMetadata != nil ? instance.opponent : owner)
                 iq.addAttribute(withName: "from", stringValue: owner)
-                xmppStream.send(iq)
+                guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner, storage: omemo2OptOutStorage) else { return }
                 queryIds.insert(elementId)
+                xmppStream.send(iq)
             }
         } catch {
             DDLogDebug("MessageDeleteManager: \(#function). Cant get message for key \(primary). \(error.localizedDescription)")

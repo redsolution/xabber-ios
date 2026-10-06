@@ -134,6 +134,8 @@ SHOULD recovery: только при доказанном отсутствии s
 
 ## OM2-N08
 
+**Статус:** выполнено 2026-10-06; [реализация и проверка](omemo2-n08-opt-out.md). Защищённый pending, ранние и конечные send gates, подтверждение пользователя и сохранение draft/ratchets реализованы.
+
 **Проверенный opt-out и запрет отправки до решения.** Часть старого OM2-12. Владелец: xmpp/business/UI. Зависимости: N01/N03/N04 (общие sender paths и подтверждённые повторы).
 
 **Пробел:** opt-out receive/state отсутствует; send availability учитывает trust, без pending opt-out gate.
@@ -163,7 +165,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-N01 → N02 → N03 → N04 → N05 → N06 → N07 выполнены; следующая задача — **OM2-N08**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 → N04 → N05 → N06 → N07 → N08 выполнены; следующая задача — **OM2-N09**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 
@@ -190,3 +192,8 @@ Production/dependency/test код не менялся, build/test не запу�
 ## Результат N07
 
 Выполнено2026-10-06. Account-wide manual replacement/fresh-bundle digest gate, bounded missing-session recovery after authoritative devices refresh, receive-only history and v1 OPK migration сохранены. SignalC29d4e8b/ObjC6644310 дают readonly metadata, без изменения crypto/snapshot format. Core37+UI4 passed; affected OMEMO290/290 and final locale/UI9/9, C3/3. Общий localization gate имеет6 прежних test expectation/parser failures, записанных в report; все новые/отсутствовавшие активные OMEMO copy checks проходят. Server/trust exchange не меняются. N08/N09 остаются активными следующими задачами.
+
+
+## N08 completion — 2026-10-06
+
+Verified opt-out сохраняется атомарно с ratchet; source permission блокирует все actual peer messages до явного решения, включая early/deferred sender и final stream/IQ paths. Queue retry/tracker cleanup нейтральный, composer сохраняет draft; plaintext новые сообщения используют обычный серверный chat route, encrypted history остаётся. Affected392:390 passed, два UI fixture исправлены; последний UI/composer50/50, все новые N08 tests имеют успешный последний результат. App/push built. Server/trust exchange не меняются; plaintext markers/receipts, fallback/hints сохранены. N09 следующая.

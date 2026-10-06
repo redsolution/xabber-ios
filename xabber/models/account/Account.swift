@@ -2047,6 +2047,7 @@ final class AccountSendCoordinator {
         let owner: String
         let isSendReady: () -> Bool
         let sendReadinessSnapshot: () -> AccountSendReadinessSnapshot?
+        let allowsMessage: (String) -> Bool
         let decorateMessage: (XMPPMessage, Bool, Bool) -> XMPPMessage
         let sendMessage: (XMPPMessage) -> Void
         let updatePendingOutgoingCount: (Int) -> Void
@@ -2059,6 +2060,7 @@ final class AccountSendCoordinator {
             owner: String,
             isSendReady: @escaping () -> Bool,
             sendReadinessSnapshot: @escaping () -> AccountSendReadinessSnapshot? = { nil },
+            allowsMessage: ((String) -> Bool)? = nil,
             decorateMessage: @escaping (XMPPMessage, Bool, Bool) -> XMPPMessage,
             sendMessage: @escaping (XMPPMessage) -> Void,
             updatePendingOutgoingCount: @escaping (Int) -> Void = { _ in },
@@ -2072,6 +2074,9 @@ final class AccountSendCoordinator {
             self.owner = owner
             self.isSendReady = isSendReady
             self.sendReadinessSnapshot = sendReadinessSnapshot
+            self.allowsMessage = allowsMessage ?? { jid in
+                OMEMO2OptOutPolicy.allowsMessage(owner: owner, jid: jid)
+            }
             self.decorateMessage = decorateMessage
             self.sendMessage = sendMessage
             self.updatePendingOutgoingCount = updatePendingOutgoingCount
@@ -2097,9 +2102,22 @@ final class AccountSendCoordinator {
         let cancellable: AccountConnectionResilienceCancellable
     }
 
+    /// Only exists between reservation and didSend/final filtering. This is
+    /// bookkeeping for the existing queue, not a persisted retry journal.
+    private struct UntransmittedReservation {
+        let originId: String
+        let attemptCount: Int
+        let previousAttemptCount: Int
+        let previousLastAttemptAt: Date?
+        let previousLastError: String?
+        var stanzaIdentity: ObjectIdentifier? = nil
+    }
+
     private let environment: Environment
     private let receiptTimeoutLock = DispatchQueue(label: "com.xabber.account.send-coordinator.receipt-timeout-lock")
     private var receiptTimeouts: [String: ReceiptTimeoutRegistration] = [:]
+    private let reservationLock = NSLock()
+    private var untransmittedReservations: [String: UntransmittedReservation] = [:]
 
     init(environment: Environment) {
         self.environment = environment
@@ -2114,6 +2132,10 @@ final class AccountSendCoordinator {
                 },
                 sendReadinessSnapshot: { [weak account] in
                     account?.sendReadiness.snapshot
+                },
+                allowsMessage: { [weak account] jid in
+                    guard let account else { return false }
+                    return OMEMO2OptOutPolicy.allowsMessage(owner: account.jid, jid: jid, storage: account.omemo.omemo2Storage)
                 },
                 decorateMessage: { [weak account] message, retry, missRetryElement in
                     guard let account else { return message }
@@ -2131,6 +2153,10 @@ final class AccountSendCoordinator {
                         message,
                         replayPolicy: .durableRegularMessage(originId: originId)
                     )
+                    if case .blockedByOptOut = result {
+                        _ = account.sendCoordinator.localSendBlocked(message: message)
+                        return
+                    }
                     if case .rejected(let violation) = result {
                         let error = NSError(
                             domain: "AccountPrimaryStreamStanzaTracker",
@@ -2179,6 +2205,7 @@ final class AccountSendCoordinator {
             }
             result.queuePrimaries.forEach {
                 cancelReceiptTimeout(queuePrimary: $0)
+                removeUntransmittedReservation(queuePrimary: $0)
             }
             notifyPendingOutgoingCount()
             drainNextReadyMessage(conversationJid: result.conversationJid, conversationType: result.conversationType)
@@ -2373,6 +2400,7 @@ final class AccountSendCoordinator {
             }
             completed.forEach {
                 cancelReceiptTimeout(queuePrimary: $0.primary)
+                removeUntransmittedReservation(queuePrimary: $0.primary)
             }
             try realm.write {
                 realm.delete(completed)
@@ -2407,6 +2435,7 @@ final class AccountSendCoordinator {
             }
             failed.forEach {
                 cancelReceiptTimeout(queuePrimary: $0.primary)
+                removeUntransmittedReservation(queuePrimary: $0.primary)
             }
             try realm.write {
                 failed.forEach { item in
@@ -2432,6 +2461,77 @@ final class AccountSendCoordinator {
     }
 
     @discardableResult
+    func localSendBlocked(message: XMPPMessage) -> Bool {
+        guard let originId = message.elementID, let target = message.to?.bare else { return false }
+        do {
+            let realm = try WRealm.safe()
+            if let item = realm.objects(OutgoingMessageQueueItem.self)
+                .filter("owner == %@ AND originId == %@ AND state_ == %@", environment.owner, originId,
+                        OutgoingMessageQueueItem.State.awaitingReceipt.rawValue).first,
+               XMPPJID(string: item.conversationJid)?.bare == target {
+                reservationLock.lock()
+                let reservation = untransmittedReservations[item.primary]
+                reservationLock.unlock()
+                guard let reservation, reservation.attemptCount == item.attemptCount,
+                      reservation.stanzaIdentity == ObjectIdentifier(message) else { return false }
+                try realm.write {
+                    item.state = .queued
+                    item.attemptCount = reservation.previousAttemptCount
+                    item.lastAttemptAt = reservation.previousLastAttemptAt
+                    item.lastError = reservation.previousLastError
+                }
+                cancelReceiptTimeout(queuePrimary: item.primary)
+                removeUntransmittedReservation(queuePrimary: item.primary)
+                notifyPendingOutgoingCount()
+                environment.log("account_send_coordinator_message_suspended_opt_out", queueDiagnostics(["originId": originId]))
+                return true
+            }
+            // The encrypted path has no durable queue. Retain its content and
+            // make this genuinely untransmitted bubble retryable locally.
+            guard let bubble = realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND messageId == %@ AND outgoing == true AND state_ == %@",
+                        environment.owner, originId, MessageStorageItem.MessageSendingState.sending.rawValue).first,
+                  bubble.conversationType.isEncrypted,
+                  XMPPJID(string: bubble.opponent)?.bare == target else { return false }
+            try realm.write {
+                bubble.state = .error
+                bubble.messageErrorCode = "omemo-opt-out-pending"
+                bubble.messageError = L10n.text("omemo_opt_out_review", fallback: "Review encryption request")
+                realm.object(ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: LastChatsStorageItem.genPrimary(jid: bubble.opponent, owner: bubble.owner,
+                                                                 conversationType: bubble.conversationType))?.hasErrorInChat = true
+            }
+            environment.log("account_send_coordinator_nonqueued_message_blocked_opt_out", queueDiagnostics(["originId": originId]))
+            return true
+        } catch {
+            DDLogDebug("AccountSendCoordinator: localSendBlocked failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func localSendDidTransmit(message: XMPPMessage) {
+        guard let originId = message.elementID else { return }
+        let identity = ObjectIdentifier(message)
+        reservationLock.lock()
+        untransmittedReservations = untransmittedReservations.filter {
+            $0.value.originId != originId || $0.value.stanzaIdentity != identity
+        }
+        reservationLock.unlock()
+    }
+
+    private func bindUntransmittedReservation(queuePrimary: String, message: XMPPMessage) {
+        reservationLock.lock()
+        untransmittedReservations[queuePrimary]?.stanzaIdentity = ObjectIdentifier(message)
+        reservationLock.unlock()
+    }
+
+    private func removeUntransmittedReservation(queuePrimary: String) {
+        reservationLock.lock()
+        untransmittedReservations.removeValue(forKey: queuePrimary)
+        reservationLock.unlock()
+    }
+
+    @discardableResult
     func localSendFailed(message: XMPPMessage, error: Error) -> Bool {
         guard let originId = message.elementID else {
             return false
@@ -2450,6 +2550,7 @@ final class AccountSendCoordinator {
                 return false
             }
             cancelReceiptTimeout(queuePrimary: item.primary)
+            removeUntransmittedReservation(queuePrimary: item.primary)
             try realm.write {
                 item.state = .queued
                 item.lastError = error.localizedDescription
@@ -2515,6 +2616,7 @@ final class AccountSendCoordinator {
             )
             return
         }
+        guard environment.allowsMessage(conversationJid) else { return }
         guard let candidate = reserveNextCandidate(conversationJid: conversationJid, conversationType: conversationType) else {
             return
         }
@@ -2533,6 +2635,11 @@ final class AccountSendCoordinator {
             candidate.replayRequired,
             candidate.missRetryElement
         )
+        bindUntransmittedReservation(queuePrimary: candidate.queuePrimary, message: decorated)
+        guard environment.allowsMessage(conversationJid) else {
+            _ = localSendBlocked(message: decorated)
+            return
+        }
         scheduleReceiptTimeout(
             queuePrimary: candidate.queuePrimary,
             originId: candidate.originId,
@@ -2591,12 +2698,18 @@ final class AccountSendCoordinator {
                 missRetryElement: messageMissesRetryElementOnResend(item, realm: realm),
                 attemptCount: item.attemptCount + 1
             )
+            let reservation = UntransmittedReservation(originId: item.originId, attemptCount: candidate.attemptCount,
+                previousAttemptCount: item.attemptCount, previousLastAttemptAt: item.lastAttemptAt,
+                previousLastError: item.lastError)
             try realm.write {
                 item.state = .awaitingReceipt
                 item.attemptCount += 1
                 item.lastAttemptAt = environment.now()
                 item.lastError = nil
             }
+            reservationLock.lock()
+            untransmittedReservations[item.primary] = reservation
+            reservationLock.unlock()
             notifyPendingOutgoingCount()
             return candidate
         } catch {
@@ -2641,6 +2754,7 @@ final class AccountSendCoordinator {
                 return
             }
             cancelReceiptTimeout(queuePrimary: item.primary)
+            removeUntransmittedReservation(queuePrimary: item.primary)
             try realm.write {
                 item.state = .terminalFailed
                 item.lastError = error
@@ -2672,6 +2786,7 @@ final class AccountSendCoordinator {
                 }
                 if message.archivedId.isNotEmpty || [.sended, .deliver, .read, .error].contains(message.state) {
                     cancelReceiptTimeout(queuePrimary: item.primary)
+                    removeUntransmittedReservation(queuePrimary: item.primary)
                     realm.delete(item)
                 }
             }
@@ -2761,6 +2876,7 @@ final class AccountSendCoordinator {
         guard consumeReceiptTimeout(queuePrimary: queuePrimary, attemptCount: attemptCount, timeoutId: timeoutId) else {
             return
         }
+        removeUntransmittedReservation(queuePrimary: queuePrimary)
         do {
             let realm = try WRealm.safe()
             guard let item = realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: queuePrimary),
@@ -3644,6 +3760,10 @@ final class Account: NSObject {
         _ stanza: XMPPElement,
         replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
     ) -> PrimaryStreamSendResult {
+        guard OMEMO2OptOutPolicy.allowsOutgoing(stanza, owner: jid, storage: omemo.omemo2Storage) else {
+            outgoingStanzaWasBlocked(stanza)
+            return .blockedByOptOut(stanzaId: stanza.elementID ?? "")
+        }
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
         if shouldTrackPrimaryStreamStanza {
@@ -3676,6 +3796,10 @@ final class Account: NSObject {
         _ stanza: XMPPElement,
         replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
     ) -> Bool {
+        guard OMEMO2OptOutPolicy.allowsOutgoing(stanza, owner: jid, storage: omemo.omemo2Storage) else {
+            outgoingStanzaWasBlocked(stanza)
+            return false
+        }
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
         guard shouldTrackPrimaryStreamStanza else { return true }
 
@@ -3694,6 +3818,10 @@ final class Account: NSObject {
     }
 
     func notePrimaryStreamStanzaDidSend(_ stanza: XMPPElement) {
+        primaryStreamStanzaTracker.noteDidSend(id: stanza.elementID)
+        if let message = stanza as? XMPPMessage {
+            sendCoordinator.localSendDidTransmit(message: message)
+        }
         guard let tracked = primaryStreamStanzaTracker.trackedStanza(stanzaId: stanza.elementID) else { return }
         if tracked.replayPolicy.requiresOutboundHealthConfirmation {
             connectionResilience.noteOutboundApplicationStanza(id: stanza.elementID)
@@ -3726,6 +3854,19 @@ final class Account: NSObject {
 
     func notePrimaryStreamStanzaDidFailToSend(_ stanza: XMPPElement) {
         _ = primaryStreamStanzaTracker.noteSendFailed(id: stanza.elementID)
+    }
+
+    /// XMPPFramework deliberately emits no didFail callback when willSend
+    /// returns nil. Release only our untransmitted bookkeeping explicitly.
+    func outgoingStanzaWasBlocked(_ stanza: XMPPElement) {
+        _ = primaryStreamStanzaTracker.noteSendFiltered(id: stanza.elementID)
+        if let message = stanza as? XMPPMessage {
+            _ = sendCoordinator.localSendBlocked(message: message)
+        } else if let iq = stanza as? XMPPIQ {
+            messageSchedule.outgoingIQWasBlocked(iq)
+            msgDeleteManager.outgoingIQWasBlocked(iq)
+        }
+        logConnectionDiagnostics(event: "application_stanza_blocked_pending_opt_out", details: ["id": stanza.elementID ?? "none"])
     }
 
     func snapshotTrackedPrimaryStanzas() -> [PrimaryStreamTrackedStanza] {

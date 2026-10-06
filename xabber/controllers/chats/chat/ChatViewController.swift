@@ -2823,6 +2823,10 @@ class ChatViewController: MessagesViewController {
     var blockInputFieldByTimeSignature: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
     var isTimeSignatureBlockingPanelopen: Bool = false
     var isTrustedDevicesBlockingPanelopen: Bool = false
+    internal var omemoOptOutDecisionExecutor: ((OMEMO2OptOutPolicy.Decision, @escaping (Result<Void, Error>) -> Void) -> Void)?
+    internal var isOMEMO2OptOutDecisionInFlight = false
+    internal var omemoComposerSendAdmissionExecutor: ((ComposerMessagePayload, [String], @escaping (String) -> Void) -> Void)?
+    internal var isComposerSendAdmissionInFlight = false
 // burn
     var selectedAfterburnId: Int = 0
 // panel
@@ -3705,6 +3709,11 @@ class ChatViewController: MessagesViewController {
     internal func beginSendToLocalRowSignpost() {
         self.pendingSendToLocalRowSignpost?.end()
         self.pendingSendToLocalRowSignpost = ChatPerformanceSignposts.begin(.sendToLocalRow)
+    }
+
+    internal func cancelSendToLocalRowSignpost() {
+        self.pendingSendToLocalRowSignpost?.end()
+        self.pendingSendToLocalRowSignpost = nil
     }
 
     internal func finishSendToLocalRowSignpostIfNeeded(

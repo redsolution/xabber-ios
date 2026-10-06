@@ -140,6 +140,7 @@ enum PrimaryStreamSendResult: Equatable {
     case sent(stanzaId: String)
     case queued(stanzaId: String)
     case rejected(PrimaryStreamTrackingLimitViolation)
+    case blockedByOptOut(stanzaId: String)
 }
 
 final class AccountPrimaryStreamBootstrapSendGate {
@@ -736,6 +737,7 @@ final class AccountPrimaryStreamStanzaTracker {
     private let queue = DispatchQueue(label: "com.xabber.account.primary-stream-stanza-tracker")
 
     private var trackedById: [String: PrimaryStreamTrackedStanza] = [:]
+    private var transmittedIds: Set<String> = []
     private var orderedIds: [String] = []
     private var retainedXMLBytes = 0
     private var nextGeneration: UInt64 = 0
@@ -836,6 +838,26 @@ final class AccountPrimaryStreamStanzaTracker {
                 scheduleTimeoutLocked()
             }
             return removed
+        }
+    }
+
+    @discardableResult
+    func noteSendFiltered(id: String?) -> PrimaryStreamTrackedStanza? {
+        guard let id else { return nil }
+        return queue.sync {
+            // An earlier transmitted attempt can share the retry's XML ID.
+            // Its real outstanding ACK must survive a local retry filter.
+            guard !transmittedIds.contains(id) else { return nil }
+            let removed = removeLocked(id: id)
+            if removed != nil { scheduleTimeoutLocked() }
+            return removed
+        }
+    }
+
+    func noteDidSend(id: String?) {
+        guard let id else { return }
+        queue.sync {
+            if trackedById[id] != nil { transmittedIds.insert(id) }
         }
     }
 
@@ -943,12 +965,14 @@ final class AccountPrimaryStreamStanzaTracker {
             return nil
         }
         orderedIds.removeAll { $0 == id }
+        transmittedIds.remove(id)
         retainedXMLBytes = max(0, retainedXMLBytes - removed.retainedXMLByteCount)
         return removed
     }
 
     private func removeAllLocked() {
         trackedById.removeAll()
+        transmittedIds.removeAll()
         orderedIds.removeAll()
         retainedXMLBytes = 0
         timeout?.cancel()

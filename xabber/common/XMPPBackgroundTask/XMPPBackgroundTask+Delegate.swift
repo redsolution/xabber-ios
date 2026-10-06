@@ -422,7 +422,28 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         }
     }
 
+    func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
+        guard sender === self.stream else { return nil }
+        let owner = sender.myJID?.bare ?? jid
+        guard OMEMO2OptOutPolicy.allowsOutgoing(message, owner: owner) else {
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(message)
+            return nil
+        }
+        return message
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
+        guard sender === self.stream else { return nil }
+        let owner = sender.myJID?.bare ?? jid
+        guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner) else {
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(iq)
+            return nil
+        }
+        return iq
+    }
+
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
+        AccountManager.shared.find(for: sender.myJID?.bare ?? jid)?.sendCoordinator.localSendDidTransmit(message: message)
         self.logConnectionDiagnostics(
             event: "stanza_send_message",
             details: [

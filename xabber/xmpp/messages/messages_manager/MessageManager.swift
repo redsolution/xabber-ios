@@ -120,6 +120,9 @@ enum SavedMessageStatePolicy {
 }
 
 class MessageManager: AbstractXMPPManager {
+    /// Optional explicit protected source for isolated fixtures. Production
+    /// resolves the account's existing OMEMO storage when this is nil.
+    internal var omemo2OptOutStorage: XabberOMEMO2Storage?
 
     internal final class ArchivePersistenceRequest {
         let queryId: String

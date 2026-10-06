@@ -25,6 +25,7 @@ protocol XabberInputBarDelegate: AnyObject {
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat)
     func onCheckDevices()
     func onCheckContactDevices()
+    func onReviewOMEMO2OptOut()
     func onUpdateSignature()
     func onIdentityVerification()
     func onTextDidChange(to text: String?)
@@ -41,6 +42,7 @@ protocol XabberInputBarDelegate: AnyObject {
 }
 
 extension XabberInputBarDelegate {
+    func onReviewOMEMO2OptOut() {}
     func composerTextViewDidBeginEditing(_ textView: InputTextView) {}
     func composerTextViewDidEndEditing(_ textView: InputTextView) {}
 }
@@ -2202,6 +2204,7 @@ class ModernXabberInputView: UIView {
         case checkDevices
         case checkOwnDevices
         case checkContactDevices
+        case pendingOptOut
         case skeleton
         case selection
         case search
@@ -2827,7 +2830,7 @@ class ModernXabberInputView: UIView {
         case .record, .recordAndPlay:
             actionView = self.recordButton
         case .identityVerification, .updateSignature, .checkDevices, .checkOwnDevices,
-             .checkContactDevices, .skeleton, .selection, .search:
+             .checkContactDevices, .pendingOptOut, .skeleton, .selection, .search:
             return nil
         }
         guard actionView.superview != nil,
@@ -2975,7 +2978,7 @@ class ModernXabberInputView: UIView {
         case .record, .recordAndPlay:
             shouldLayoutRecord = true
         case .identityVerification, .updateSignature, .checkDevices, .checkOwnDevices,
-             .checkContactDevices, .skeleton, .selection, .search:
+             .checkContactDevices, .pendingOptOut, .skeleton, .selection, .search:
             shouldLayoutRecord = false
         }
         let shouldTrailToTimer = !self.timerButton.isHidden && shouldLayoutRecord
@@ -3222,7 +3225,26 @@ class ModernXabberInputView: UIView {
         if state != .normal {
             self.hideMentionSuggestions()
         }
+        if state != .pendingOptOut {
+            self.stateButton.accessibilityIdentifier = nil
+            self.stateButton.isEnabled = true
+        }
         switch state {
+            case .pendingOptOut:
+                self.state = state
+                self.attachButton.isHidden = true
+                self.textField.isHidden = true
+                self.timerButton.isHidden = true
+                self.recordButton.isHidden = true
+                self.sendButton.isHidden = true
+                self.stateButton.isHidden = false
+                self.selectionPanel.isHidden = true
+                self.recordPanel.isHidden = true
+                self.recordAndPlayPanel.isHidden = true
+                self.searchPanel.isHidden = true
+                self.stateButton.accessibilityIdentifier = "omemo.optout.review"
+                self.stateButton.setTitle(L10n.text("omemo_opt_out_review", fallback: "Review encryption request"), for: .normal)
+                self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .normal:
                 self.state = state
                 self.attachButton.isHidden =    false
@@ -4740,7 +4762,7 @@ class ModernXabberInputView: UIView {
             return self.currentComposerActionMode == .record
         case .record, .recordAndPlay:
             return true
-        case .identityVerification, .updateSignature, .checkDevices, .checkOwnDevices, .checkContactDevices, .skeleton, .selection, .search:
+        case .identityVerification, .updateSignature, .checkDevices, .checkOwnDevices, .checkContactDevices, .pendingOptOut, .skeleton, .selection, .search:
             return false
         }
     }
@@ -5022,6 +5044,8 @@ class ModernXabberInputView: UIView {
     @objc
     private func onStateButtonTouchUp(_ sender: UIButton) {
         switch state {
+            case .pendingOptOut:
+                self.delegate?.onReviewOMEMO2OptOut()
             case .updateSignature:
                 self.delegate?.onUpdateSignature()
             case .checkDevices, .checkOwnDevices:

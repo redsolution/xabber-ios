@@ -523,6 +523,10 @@ extension ChatViewController: XabberInputBarDelegate {
         vc.owner = self.owner
         showModal(vc, parent: self)
     }
+
+    func onReviewOMEMO2OptOut() {
+        presentOMEMO2OptOutDecisionPrompt()
+    }
     
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
         let wasNearBottom = self.isNearBottom()
@@ -959,62 +963,112 @@ extension ChatViewController: XabberInputBarDelegate {
         func sendMessage(_ payload: ComposerMessagePayload) {
             if self.recordedReferenceObject != nil {
                 self.onSendButtonTouchUpInsideWhenAudioWasRecorded()
-            } else {
+            } else if let editedMessage = editMessageId.value, editedMessage.isNotEmpty {
                 self.xabberInputView.clearComposer()
                 self.xabberInputView.textViewDidChange()
-                let forwarded: [String] = self.attachedMessagesIds.value
                 self.draftMessageText.accept(nil)
-                if let editedMessage = editMessageId.value,
-                    editedMessage.isNotEmpty {
-                    let primary = editedMessage
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                        user.messages.editSimpleMessage(
-                            payload.body,
-                            primary: primary,
-                            references: payload.references,
-                            groupMentionIntent: payload.groupMentionIntent,
-                            groupMentionSenderRole: payload.groupMentionSenderRole,
-                            groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
-                        )
-                    })
-                } else {
-                    self.beginSendToLocalRowSignpost()
-                    self.requestOutgoingAutoScrollAfterDatasourceUpdate()
-                    FeedbackManager.shared.generate(feedback: .success)
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                        _ = user.messages.sendSimpleMessage(
-                            payload.body,
-                            to: self.jid,
-                            forwarded: forwarded,
-                            conversationType: self.conversationType,
-                            references: payload.references,
-                            groupMentionIntent: payload.groupMentionIntent,
-                            groupMentionSenderRole: payload.groupMentionSenderRole,
-                            groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
-                        )
-                    })
+                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
+                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
+                    user.messages.editSimpleMessage(
+                        payload.body,
+                        primary: editedMessage,
+                        references: payload.references,
+                        groupMentionIntent: payload.groupMentionIntent,
+                        groupMentionSenderRole: payload.groupMentionSenderRole,
+                        groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
+                    )
+                })
+                self.clearAttachments()
+                self.unreadMessagePositionId = nil
+            } else {
+                self.sendComposerMessageAwaitingAdmission(payload)
+            }
+        }
+        if showSkeletonObserver.value || self.isComposerSendAdmissionInFlight {
+            return
+        }
+
+        let availability = self.currentOmemoSendAvailability()
+        guard availability.canSend else {
+            self.onUpdateOmemoSendAvailability(availability)
+            return
+        }
+        sendMessage(payload)
+    }
+
+    private func sendComposerMessageAwaitingAdmission(_ payload: ComposerMessagePayload) {
+        let owner = self.owner
+        let jid = self.jid
+        let conversationType = self.conversationType
+        let composer = NSAttributedString(attributedString: self.xabberInputView.textField.attributedText ?? NSAttributedString())
+        let draft = self.draftMessageText.value
+        let forwarded = self.attachedMessagesIds.value
+        let forwardedIDs = self.forwardedIds.value
+        let editedMessage = self.editMessageId.value
+        let recordingSession = self.activeAudioRecordingSessionID
+        self.isComposerSendAdmissionInFlight = true
+        self.beginSendToLocalRowSignpost()
+        self.requestOutgoingAutoScrollAfterDatasourceUpdate()
+        let autoScrollRequest = self.pendingOutgoingAutoScrollRequest
+
+        let completion: (String) -> Void = { [weak self] messageID in
+            let applyAdmission = {
+                guard let self else { return }
+                self.isComposerSendAdmissionInFlight = false
+                guard self.owner == owner, self.jid == jid,
+                      self.conversationType == conversationType else { return }
+                guard messageID.isNotEmpty else {
+                    if let autoScrollRequest,
+                       self.pendingOutgoingAutoScrollRequest?.id == autoScrollRequest.id {
+                        self.pendingOutgoingAutoScrollRequest = nil
+                        self.cancelSendToLocalRowSignpost()
+                    }
+                    self.refreshOmemoSendAvailability()
+                    return
                 }
+                FeedbackManager.shared.generate(feedback: .success)
+                let currentComposer = self.xabberInputView.textField.attributedText ?? NSAttributedString()
+                guard currentComposer.isEqual(to: composer),
+                      self.draftMessageText.value == draft,
+                      self.attachedMessagesIds.value == forwarded,
+                      self.forwardedIds.value == forwardedIDs,
+                      self.editMessageId.value == editedMessage,
+                      self.activeAudioRecordingSessionID == recordingSession,
+                      self.recordedReferenceObject == nil else { return }
+                self.xabberInputView.clearComposer()
+                self.xabberInputView.textViewDidChange()
+                self.draftMessageText.accept(nil)
                 self.clearAttachments()
                 self.unreadMessagePositionId = nil
             }
+            if Thread.isMainThread { applyAdmission() }
+            else { DispatchQueue.main.async(execute: applyAdmission) }
         }
-        if showSkeletonObserver.value {
+        if let executor = self.omemoComposerSendAdmissionExecutor {
+            executor(payload, forwarded, completion)
             return
         }
-        
-        if self.conversationType.isEncrypted {
-            let availability = self.currentOmemoSendAvailability()
-            guard availability.canSend else {
-                self.onUpdateOmemoSendAvailability(availability)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            completion("")
+            return
+        }
+        account.action { user, _ in
+            guard OMEMO2OptOutPolicy.allowsMessage(owner: owner, jid: jid, storage: user.omemo.omemo2Storage) else {
+                completion("")
                 return
             }
-            sendMessage(payload)
-        } else {
-            sendMessage(payload)
+            user.messages.readLastMessage(jid: jid, conversationType: conversationType)
+            let messageID = user.messages.sendSimpleMessage(
+                payload.body,
+                to: jid,
+                forwarded: forwarded,
+                conversationType: conversationType,
+                references: payload.references,
+                groupMentionIntent: payload.groupMentionIntent,
+                groupMentionSenderRole: payload.groupMentionSenderRole,
+                groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
+            )
+            completion(messageID)
         }
-        
-        
     }
 }

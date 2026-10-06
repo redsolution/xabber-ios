@@ -60,12 +60,13 @@ struct OmemoSendAvailabilityPolicy {
         case canSendWithUntrustedContactDeviceWarning
         case blockedByOwnUntrustedDevices
         case blockedByNoTrustedContactDevices
+        case blockedByPendingOptOut
 
         var canSend: Bool {
             switch self {
             case .canSend, .canSendWithUntrustedContactDeviceWarning:
                 return true
-            case .blockedByOwnUntrustedDevices, .blockedByNoTrustedContactDevices:
+            case .blockedByOwnUntrustedDevices, .blockedByNoTrustedContactDevices, .blockedByPendingOptOut:
                 return false
             }
         }
@@ -104,6 +105,9 @@ struct OmemoSendAvailabilityPolicy {
         conversationType: ClientSynchronizationManager.ConversationType,
         realm: Realm
     ) -> Availability {
+        if OMEMO2OptOutPolicy.projectedDecision(owner: owner, jid: jid, realm: realm) == .pending {
+            return .blockedByPendingOptOut
+        }
         guard conversationType.isEncrypted else { return .canSend }
         guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true,
               OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)?.isKnown == true else {
@@ -218,6 +222,8 @@ extension OmemoManager {
         }
         try localStore.bindExistingDevice(deviceID: bundle.deviceID)
         try bindLocalOMEMO2Metadata(bundle)
+        do { try OMEMO2OptOutPolicy.mirror(storage, in: WRealm.safe()) }
+        catch { DDLogDebug("OMEMO2 opt-out projection will be retried") }
         if checkDue { omemo2LastMaintenanceAt = time }
         return storage
     }
@@ -262,6 +268,7 @@ extension OmemoManager {
 
     func doubleRatchet(hmac: Data, jid: String, deviceId: Int) throws -> DDXMLElement {
         try OmemoManager.sessionQueue.sync {
+            try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
             let requiresTrustedIdentity = hmac != Data(repeating: 0, count: 32)
             if requiresTrustedIdentity {
                 let realm = try WRealm.safe()
@@ -336,6 +343,7 @@ extension OmemoManager {
     }
 
     func encryptMessage(message: String, to jid: String) throws -> DDXMLElement? {
+        try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
         let storage = try ensureOMEMO2Prepared()
         let localID = try storage.localBundle().deviceID
         let realm = try WRealm.safe()
@@ -378,6 +386,7 @@ extension OmemoManager {
     /// Protocol acknowledgements target exactly the sender's device. They never
     /// contain user content and can also confirm an untrusted identity.
     internal func makeOMEMO2Control(jid: String, deviceID: Int) throws -> XMPPMessage {
+        try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
         let storage = try ensureOMEMO2Prepared()
         guard let metadata = try storage.sessionMetadata(jid: jid, deviceID: deviceID), !metadata.receiveOnly else {
             throw OMEMO2StorageError.receiveOnlySession

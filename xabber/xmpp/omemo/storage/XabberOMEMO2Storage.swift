@@ -14,6 +14,7 @@ enum OMEMO2StorageError: Error {
     case persistenceFailed
     case authenticatedDuplicate
     case freshBundleRequired
+    case pendingOptOut
 }
 
 struct OMEMO2PublicPreKey: Equatable {
@@ -130,6 +131,8 @@ final class XabberOMEMO2Storage {
         // Optional for additive decoding of existing protected state version 1.
         var authenticatedReceiveFingerprints: [Data]? = nil
         var sessionReplacements: [String: SessionReplacement]? = nil
+        // Additive to protected version 1. Realm only mirrors these decisions.
+        var optOutDecisions: [String: OMEMO2OptOutRecord]? = nil
     }
 
     /// Invoked only after a successful receive transaction released the owner lock.
@@ -247,6 +250,7 @@ final class XabberOMEMO2Storage {
     func initiateSession(jid: String, deviceID: Int, bundle: OMEMO2Bundle, initialControlNeeded: Bool = false) throws {
         try synchronized {
             var state = try requireState()
+            try requireOptOutAllowsSend(jid: jid, state: state)
             let address = try checkedAddress(jid: jid, deviceID: deviceID)
             if let replacement = state.sessionReplacements?[addressKey(address)],
                replacement.allowedBundleDigests?.contains(Self.bundleDigest(bundle)) != true {
@@ -270,6 +274,7 @@ final class XabberOMEMO2Storage {
     func encrypt(_ data: Data, jid: String, deviceID: Int) throws -> OMEMO2Ciphertext {
         try synchronized {
             var state = try requireState()
+            try requireOptOutAllowsSend(jid: jid, state: state)
             let address = try checkedAddress(jid: jid, deviceID: deviceID)
             guard let key = state.currentSessions[addressKey(address)], var stored = state.sessions[key] else {
                 throw OMEMO2StorageError.missingSession
@@ -293,6 +298,7 @@ final class XabberOMEMO2Storage {
                  replayFingerprint: Data? = nil,
                  previouslyAuthenticated: () -> Bool = { false },
                  updatingIdentity: (Data) throws -> Void = { _ in },
+                 recordingOptOut: () throws -> OMEMO2OptOutRequest? = { nil },
                  validating: (Data) throws -> Void = { _ in }) throws -> Data {
         let plaintext = try synchronized {
             var state = try requireState()
@@ -324,6 +330,7 @@ final class XabberOMEMO2Storage {
                     if !stored.receiveOnly, state.currentSessions[addressKey(address)] == key {
                         state.controlsNeeded.insert(address)
                     }
+                    try recordOptOut(recordingOptOut(), state: &state)
                     recordAuthenticatedReceive(replayFingerprint, state: &state)
                     try save(state)
                     return plaintext
@@ -364,6 +371,7 @@ final class XabberOMEMO2Storage {
                     state.controlsNeeded.insert(address)
                 }
                 pruneSessions(&state, address: address)
+                try recordOptOut(recordingOptOut(), state: &state)
                 recordAuthenticatedReceive(replayFingerprint, state: &state)
                 try save(state)
                 return plaintext
@@ -387,6 +395,7 @@ final class XabberOMEMO2Storage {
                 stored.snapshot = try session.serializedData()
                 observeIncoming(ciphertext, stored: &stored, state: &state)
                 state.sessions[key] = stored
+                try recordOptOut(recordingOptOut(), state: &state)
                 recordAuthenticatedReceive(replayFingerprint, state: &state)
                 try save(state)
                 return plaintext
@@ -396,6 +405,64 @@ final class XabberOMEMO2Storage {
         }
         authenticatedReceiveDidCommit?()
         return plaintext
+    }
+
+    func optOutDecision(jid: String) throws -> OMEMO2OptOutPolicy.Decision {
+        try synchronized {
+            let peer = try OMEMO2OptOutPolicy.bareJID(jid)
+            return try loadState()?.optOutDecisions?[peer]?.decision ?? .none
+        }
+    }
+
+    func optOutRecords() throws -> [OMEMO2OptOutRecord] {
+        try synchronized { Array((try loadState()?.optOutDecisions ?? [:]).values) }
+    }
+
+    func resolveOptOut(jid: String, decision: OMEMO2OptOutPolicy.Decision, at date: Date) throws {
+        try synchronized {
+            let peer = try OMEMO2OptOutPolicy.bareJID(jid)
+            guard decision == .plaintext || decision == .omemo, date.timeIntervalSince1970.isFinite else {
+                throw OMEMO2StorageError.invalidState
+            }
+            var state = try requireState()
+            guard var record = state.optOutDecisions?[peer] else { throw OMEMO2StorageError.invalidState }
+            record.decision = decision
+            record.resolvedWatermark = [date, record.protectedRequestDate, record.resolvedWatermark].compactMap { $0 }.max()
+            record.updatedAt = date
+            state.optOutDecisions?[peer] = record
+            try save(state)
+        }
+    }
+
+    private func requireOptOutAllowsSend(jid: String, state: State) throws {
+        let peer = try OMEMO2OptOutPolicy.bareJID(jid)
+        if peer != owner, state.optOutDecisions?[peer]?.decision == .pending {
+            throw OMEMO2StorageError.pendingOptOut
+        }
+    }
+
+    /// Called only after crypto, SCE and existing identity checks succeeded.
+    /// This changes the same local aggregate as the ratchet, before one save.
+    private func recordOptOut(_ request: OMEMO2OptOutRequest?, state: inout State) throws {
+        guard let request else { return }
+        let peer = try OMEMO2OptOutPolicy.bareJID(request.jid)
+        guard peer != owner, peer == request.jid, request.fingerprint.count == 32,
+              request.protectedDate?.timeIntervalSince1970.isFinite != false else {
+            throw OMEMO2StorageError.invalidState
+        }
+        let old = state.optOutDecisions?[peer]
+        if old?.requestFingerprint == request.fingerprint { return }
+        if let watermark = old?.resolvedWatermark {
+            if let date = request.protectedDate, date <= watermark { return }
+            if request.protectedDate == nil, request.historical { return }
+        }
+        if old?.decision == .pending, let previous = old?.protectedRequestDate,
+           let date = request.protectedDate, date <= previous { return }
+        var decisions = state.optOutDecisions ?? [:]
+        decisions[peer] = OMEMO2OptOutRecord(jid: peer, decision: .pending,
+            requestFingerprint: request.fingerprint, protectedRequestDate: request.protectedDate,
+            reason: request.reason, resolvedWatermark: old?.resolvedWatermark, updatedAt: now())
+        state.optOutDecisions = decisions
     }
 
     func sessionExists(jid: String, deviceID: Int) throws -> Bool {
@@ -694,6 +761,14 @@ final class XabberOMEMO2Storage {
                       && (value.allowedBundleDigests == nil || (!(value.allowedBundleDigests ?? []).isEmpty
                           && (value.allowedBundleDigests ?? []).count <= OMEMO2BundleCodec.maximumPreKeyCount
                           && (value.allowedBundleDigests ?? []).allSatisfy { $0.count == 32 }))
+              }),
+              (state.optOutDecisions ?? [:]).allSatisfy({ key, value in
+                  key == value.jid && key != owner && (try? OMEMO2OptOutPolicy.bareJID(key)) == key
+                      && value.decision != .none && value.requestFingerprint.count == 32
+                      && value.protectedRequestDate?.timeIntervalSince1970.isFinite != false
+                      && value.resolvedWatermark?.timeIntervalSince1970.isFinite != false
+                      && value.updatedAt.timeIntervalSince1970.isFinite
+                      && (value.decision == .pending || value.resolvedWatermark != nil)
               }),
               state.currentSessions.allSatisfy({ address, session in
                   state.sessions[session].map { addressKey($0.address) == address && !$0.receiveOnly } ?? false

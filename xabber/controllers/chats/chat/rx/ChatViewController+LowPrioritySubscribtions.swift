@@ -75,7 +75,7 @@ extension ChatViewController {
     }
 
     private func baseOmemoAvailabilityForSendButton() -> OmemoSendAvailabilityPolicy.Availability {
-        self.conversationType.isEncrypted ? self.currentOmemoSendAvailability() : .canSend
+        self.currentOmemoSendAvailability()
     }
 
     internal func applyBaseSendButtonReadiness(
@@ -677,6 +677,15 @@ extension ChatViewController {
         Observable
             .collection(from: realm.objects(OMEMO2DeviceListStorageItem.self)
                 .filter("owner == %@ AND jid IN %@", self.owner, [self.owner, self.jid]))
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] _ in
+                self?.refreshOmemoSendAvailability()
+            }).disposed(by: self.bag)
+
+        Observable
+            .collection(from: realm.objects(OMEMO2OptOutStorageItem.self)
+                .filter("owner == %@ AND jid == %@", self.owner, self.jid))
             .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { [weak self] _ in

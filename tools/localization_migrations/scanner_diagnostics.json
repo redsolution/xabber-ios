@@ -552,6 +552,12 @@
       "sink": "body",
       "value": "jabber:client",
       "reason": "XMPP client namespace used to select qualified inline-forward body; stable protocol URI, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManager.swift",
+      "sink": "reason",
+      "value": "reason",
+      "reason": "OMEMO2 opt-out reason XML local name used for expanded QName selection; stable wire token, not displayed UI copy."
     }
   ]
 }

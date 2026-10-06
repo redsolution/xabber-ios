@@ -226,7 +226,7 @@ final class OMEMO2NormativeReplayHistoryTests: XCTestCase {
 
         let migrated = try Realm(configuration: configuration)
 
-        XCTAssertEqual(XabberRealmSchema.current, 24)
+        XCTAssertGreaterThanOrEqual(XabberRealmSchema.current, 24)
         let row = try XCTUnwrap(migrated.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: "message_stanza"))
         XCTAssertEqual(row.stanza, xml)
         XCTAssertEqual(row.owner, "owner@example.test")

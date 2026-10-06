@@ -1360,7 +1360,21 @@ extension VoIPCall: XMPPStreamDelegate {
         if self.state == .ended {
             return nil
         }
+        guard sender === self.stream else { return nil }
+        guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner) else {
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(iq)
+            return nil
+        }
         return iq
+    }
+
+    func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
+        guard sender === self.stream else { return nil }
+        guard OMEMO2OptOutPolicy.allowsOutgoing(message, owner: owner) else {
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(message)
+            return nil
+        }
+        return message
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
@@ -1380,6 +1394,7 @@ extension VoIPCall: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
+        AccountManager.shared.find(for: owner)?.sendCoordinator.localSendDidTransmit(message: message)
 //        print("VoIP:Message:SEND: \(message.prettyXMLString ?? "")")
         self.logConnectionDiagnostics(
             event: "stanza_send_message",

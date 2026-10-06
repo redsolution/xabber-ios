@@ -330,10 +330,16 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         self.didReceiveError(error)
     }
     
-//    func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
-//        print("UI SEND: \(iq.prettyXMLString ?? "")")
-//        return iq
-//    }
+    func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
+        guard self.isCurrentStream(sender, callback: "willSendIQ"),
+              let owner = sender.myJID?.bare ?? currentJid else { return nil }
+        guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner) else {
+            retract?.outgoingIQWasBlocked(iq)
+            AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(iq)
+            return nil
+        }
+        return iq
+    }
     
     func xmppStream(_ sender: XMPPStream, willReceive iq: XMPPIQ) -> XMPPIQ? {
 //        print("WILL REC IQ: \(iq.prettyXMLString ?? "")")
@@ -498,12 +504,21 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
     
     func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
         guard self.isCurrentStream(sender, callback: "willSendMessage") else { return nil }
-//        print("UI STREAM WILL SEND MESSAGE \(message.prettyXMLString!)")
+        guard let owner = sender.myJID?.bare ?? currentJid,
+              OMEMO2OptOutPolicy.allowsOutgoing(message, owner: owner) else {
+            if let owner = sender.myJID?.bare ?? currentJid {
+                AccountManager.shared.find(for: owner)?.outgoingStanzaWasBlocked(message)
+            }
+            return nil
+        }
         return message
     }
 
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
         guard self.isCurrentStream(sender, callback: "didSendMessage") else { return }
+        if let owner = sender.myJID?.bare ?? currentJid {
+            AccountManager.shared.find(for: owner)?.sendCoordinator.localSendDidTransmit(message: message)
+        }
         self.logConnectionDiagnostics(
             event: "stanza_send_message",
             details: [

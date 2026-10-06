@@ -29,7 +29,9 @@ enum XabberRealmSchema {
     /// bundles and sessions before the separate OMEMO2 state is activated.
     /// Schema 23 separates authoritative PEP membership from historical trust.
     /// Schema 24 stores local authentication evidence beside received ciphertext.
-    static let current: UInt64 = 24
+    /// Schema 25 adds an account/peer opt-out presentation table. Only the
+    /// protected owner aggregate can authorize sends; no history is migrated.
+    static let current: UInt64 = 25
 }
 
 

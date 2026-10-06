@@ -1089,6 +1089,11 @@
 		6FAEC031F9B94A75A1D49072 /* OMEMO2NormativeCleanupRestartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D832F4C27D45F0836025DF /* OMEMO2NormativeCleanupRestartTests.swift */; };
 		A20570FB398C4680A82A1085 /* OMEMO2NormativeSessionRecoveryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA861FC46034D8C8869054C /* OMEMO2NormativeSessionRecoveryUITests.swift */; };
 		D25D14D2C0ED44FC9A941027 /* OMEMO2NormativeSessionRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F285EC70B24E4D30BEF119A1 /* OMEMO2NormativeSessionRecoveryTests.swift */; };
+		74211A4BCB734A50980A6F1E /* OMEMO2OptOutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D2BF45B6C914E73875FD412 /* OMEMO2OptOutPolicy.swift */; };
+		C58724DD1F614D518C3F1FBE /* OMEMO2NormativeOptOutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED9EE79A2B4E4A87889D23AE /* OMEMO2NormativeOptOutTests.swift */; };
+		3AAA995EAC4C41E782BFE5C3 /* OMEMO2NormativeOptOutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA0D5AC84294ADBA0695CBD /* OMEMO2NormativeOptOutUITests.swift */; };
+		1F961A1808D746B296E3C917 /* OMEMO2NormativeOptOutLocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F547CB5AFB504B0AA989AD1F /* OMEMO2NormativeOptOutLocalizationTests.swift */; };
+		437D2F892E1542B78EC33553 /* OMEMO2NormativeOptOutTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEA791D4B9B464CB1A05D78 /* OMEMO2NormativeOptOutTransportTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2216,6 +2221,11 @@
 		B1D832F4C27D45F0836025DF /* OMEMO2NormativeCleanupRestartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeCleanupRestartTests.swift; sourceTree = "<group>"; };
 		EFA861FC46034D8C8869054C /* OMEMO2NormativeSessionRecoveryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeSessionRecoveryUITests.swift; sourceTree = "<group>"; };
 		F285EC70B24E4D30BEF119A1 /* OMEMO2NormativeSessionRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeSessionRecoveryTests.swift; sourceTree = "<group>"; };
+		9D2BF45B6C914E73875FD412 /* OMEMO2OptOutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2OptOutPolicy.swift; sourceTree = "<group>"; };
+		ED9EE79A2B4E4A87889D23AE /* OMEMO2NormativeOptOutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeOptOutTests.swift; sourceTree = "<group>"; };
+		0CA0D5AC84294ADBA0695CBD /* OMEMO2NormativeOptOutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeOptOutUITests.swift; sourceTree = "<group>"; };
+		F547CB5AFB504B0AA989AD1F /* OMEMO2NormativeOptOutLocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeOptOutLocalizationTests.swift; sourceTree = "<group>"; };
+		7AEA791D4B9B464CB1A05D78 /* OMEMO2NormativeOptOutTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeOptOutTransportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -3751,6 +3761,7 @@
 		6695786227A1317A00A6C4AB /* omemo */ = {
 			isa = PBXGroup;
 			children = (
+				9D2BF45B6C914E73875FD412 /* OMEMO2OptOutPolicy.swift */,
 				E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */,
 				728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */,
 				7B139902E8984CB8903F1F5C /* OMEMO2PreKeyCleanupCoordinator.swift */,
@@ -4211,6 +4222,10 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				7AEA791D4B9B464CB1A05D78 /* OMEMO2NormativeOptOutTransportTests.swift */,
+				F547CB5AFB504B0AA989AD1F /* OMEMO2NormativeOptOutLocalizationTests.swift */,
+				0CA0D5AC84294ADBA0695CBD /* OMEMO2NormativeOptOutUITests.swift */,
+				ED9EE79A2B4E4A87889D23AE /* OMEMO2NormativeOptOutTests.swift */,
 				2FEF2FD659F74533ABDAC250 /* OMEMO2NormativeDevicesTests.swift */,
 				2D8B250D00764B8886A4D113 /* OMEMO2NormativePreKeyCleanupTests.swift */,
 				E7A6FD32988D4D2CA89A83E1 /* OMEMO2NormativeSyncCleanupTests.swift */,
@@ -5682,6 +5697,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				74211A4BCB734A50980A6F1E /* OMEMO2OptOutPolicy.swift in Sources */,
 				191531E8B9D041C59110EF5F /* XabberOMEMO2Storage.swift in Sources */,
 				F99DAB1A137A4868BAAEB4EF /* OMEMOReceive.swift in Sources */,
 				F03B93D75F2A40899C4A990F /* Omemo2PayloadCodec.swift in Sources */,
@@ -6493,6 +6509,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				437D2F892E1542B78EC33553 /* OMEMO2NormativeOptOutTransportTests.swift in Sources */,
+				1F961A1808D746B296E3C917 /* OMEMO2NormativeOptOutLocalizationTests.swift in Sources */,
+				3AAA995EAC4C41E782BFE5C3 /* OMEMO2NormativeOptOutUITests.swift in Sources */,
+				C58724DD1F614D518C3F1FBE /* OMEMO2NormativeOptOutTests.swift in Sources */,
 				46C13EE7989D47BD9A666E8B /* OMEMO2NormativeDevicesTests.swift in Sources */,
 				962AA00D9B6D476BB79317B9 /* OMEMO2NormativePreKeyCleanupTests.swift in Sources */,
 				B62FEA079DD343DAB5D2E408 /* OMEMO2NormativeSyncCleanupTests.swift in Sources */,

@@ -139,6 +139,13 @@ extension ChatViewController {
 
     internal func onUpdateOmemoSendAvailability(_ availability: OmemoSendAvailabilityPolicy.Availability) {
         switch availability {
+        case .blockedByPendingOptOut:
+            if !self.isTimeSignatureBlockingPanelopen {
+                self.cancelActiveAudioRecordingForLifecycle()
+                self.xabberInputView.changeState(to: .pendingOptOut)
+                self.xabberInputView.stateButton.isEnabled = !self.isOMEMO2OptOutDecisionInFlight
+                self.isTrustedDevicesBlockingPanelopen = true
+            }
         case .blockedByOwnUntrustedDevices:
             showTrustedDevicesBlockingPanel(state: .checkOwnDevices)
         case .blockedByNoTrustedContactDevices:
@@ -163,6 +170,102 @@ extension ChatViewController {
         self.titleLabel.sizeToFit()
         self.titleLabel.layoutIfNeeded()
     }
+
+    internal func presentOMEMO2OptOutDecisionPrompt() {
+        guard !isOMEMO2OptOutDecisionInFlight, presentedViewController == nil else { return }
+        do {
+            let realm = try WRealm.safe()
+            guard OMEMO2OptOutPolicy.projectedDecision(owner: owner, jid: jid, realm: realm) == .pending else { return }
+            var explanation = L10n.text("omemo_opt_out_explanation", fallback: "Your contact has requested to stop encryption. Continue without encryption or keep encrypted messages?")
+            if let reason = realm.object(ofType: OMEMO2OptOutStorageItem.self,
+                forPrimaryKey: OMEMO2OptOutStorageItem.genPrimary(owner: owner, jid: jid))?.reason,
+               !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                explanation += "\n\n" + reason
+            }
+            let prompt = UIAlertController(
+                title: L10n.text("omemo_opt_out_title", fallback: "Contact requests unencrypted messages"),
+                message: explanation,
+                preferredStyle: .alert
+            )
+            prompt.view.accessibilityIdentifier = "omemo.optout.confirmation"
+            prompt.addAction(UIAlertAction(title: L10n.text("cancel", fallback: "Cancel"), style: .cancel))
+            prompt.addAction(UIAlertAction(title: L10n.text("omemo_opt_out_keep", fallback: "Keep encryption"), style: .default) { [weak self] _ in
+                self?.performOMEMO2OptOutDecision(.omemo)
+            })
+            prompt.addAction(UIAlertAction(title: L10n.text("omemo_opt_out_plaintext", fallback: "Continue unencrypted"), style: .destructive) { [weak self] _ in
+                self?.performOMEMO2OptOutDecision(.plaintext)
+            })
+            present(prompt, animated: true)
+        } catch {
+            showOMEMO2OptOutDecisionFailure()
+        }
+    }
+
+    internal func performOMEMO2OptOutDecision(_ decision: OMEMO2OptOutPolicy.Decision) {
+        guard decision == .plaintext || decision == .omemo, !isOMEMO2OptOutDecisionInFlight else { return }
+        do {
+            guard OMEMO2OptOutPolicy.projectedDecision(owner: owner, jid: jid, realm: try WRealm.safe()) == .pending else { return }
+        } catch {
+            showOMEMO2OptOutDecisionFailure()
+            return
+        }
+        let capturedOwner = owner
+        let capturedPeer = jid
+        isOMEMO2OptOutDecisionInFlight = true
+        xabberInputView.stateButton.isEnabled = false
+        let completion: (Result<Void, Error>) -> Void = { [weak self] result in
+            let apply = { [weak self] in
+                guard let self else { return }
+                self.isOMEMO2OptOutDecisionInFlight = false
+                guard self.owner == capturedOwner, self.jid == capturedPeer else { return }
+                self.xabberInputView.stateButton.isEnabled = true
+                self.refreshOmemoSendAvailability()
+                switch result {
+                case .failure:
+                    self.showOMEMO2OptOutDecisionFailure()
+                case .success:
+                    self.routeAfterOMEMO2OptOutDecision(decision)
+                }
+            }
+            if Thread.isMainThread { apply() }
+            else { DispatchQueue.main.async(execute: apply) }
+        }
+        if let execute = omemoOptOutDecisionExecutor {
+            execute(decision, completion)
+            return
+        }
+        guard let account = AccountManager.shared.find(for: capturedOwner) else {
+            completion(.failure(OMEMO2StorageError.stateUnavailable))
+            return
+        }
+        account.action { user, _ in
+            do {
+                try OMEMO2OptOutPolicy.resolve(owner: capturedOwner, jid: capturedPeer,
+                    decision: decision, at: Date(), realm: try WRealm.safe(), storage: user.omemo.omemo2Storage)
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func routeAfterOMEMO2OptOutDecision(_ decision: OMEMO2OptOutPolicy.Decision) {
+        let type: ClientSynchronizationManager.ConversationType = decision == .plaintext ? .regular : .omemo
+        guard conversationType != type,
+              let navigation = navigationController,
+              navigation.topViewController === self else { return }
+        let route = InfoCardChatSearchRouting.route(owner: owner, jid: jid, conversationType: type)
+        let next = InfoCardChatSearchRouting.makeChatViewController(for: route, configure: nil)
+        if let root = navigation.viewControllers.first, root !== self {
+            navigation.setViewControllers([root, next], animated: true)
+        } else {
+            navigation.setViewControllers([next], animated: true)
+        }
+    }
+
+    private func showOMEMO2OptOutDecisionFailure() {
+        showToast(error: L10n.text("omemo_opt_out_failed", fallback: "Could not save your encryption choice. Try again."))
+    }
     
     private func showTrustedDevicesBlockingPanel(state: ModernXabberInputView.InputBarState) {
 //        if UIDevice.needBottomOffset {
@@ -186,6 +289,7 @@ extension ChatViewController {
             if self.xabberInputView.state == .checkDevices ||
                 self.xabberInputView.state == .checkOwnDevices ||
                 self.xabberInputView.state == .checkContactDevices ||
+                self.xabberInputView.state == .pendingOptOut ||
                 self.xabberInputView.state == .identityVerification {
                 self.xabberInputView.changeState(to: .normal)
             }

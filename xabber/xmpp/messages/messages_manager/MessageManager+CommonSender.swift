@@ -182,6 +182,7 @@ extension MessageManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                guard optOutAllowsOutgoing(to: instance.opponent) else { return }
                 let requiresMediaUpload = Self.retryRequiresMediaUpload(instance)
                 if requiresMediaUpload {
                     let localOnlyUploadedReferences = instance.references.filter {
@@ -233,6 +234,7 @@ extension MessageManager {
             guard let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
                 return
             }
+            guard optOutAllowsOutgoing(to: item.opponent) else { return }
             if let groupMentionIntent {
                 let persistMentionAuthorization = {
                     item.groupMentionIntent = groupMentionIntent
@@ -500,6 +502,10 @@ extension MessageManager {
             let deferredMessageId = item.messageId
             let deferredConversationType = item.conversationType.rawValue
             AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
+                guard self.optOutAllowsOutgoing(to: conversationJID) else {
+                    user.outgoingStanzaWasBlocked(stanza)
+                    return
+                }
                 stanza.addChild(user.chatMarkers.child)
                 let stanzaToSend = user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend)
                 if conversationType.isEncrypted {
@@ -516,6 +522,10 @@ extension MessageManager {
                     return
                 }
                 user.action { _, stream in
+                    guard self.optOutAllowsOutgoing(to: conversationJID) else {
+                        user.outgoingStanzaWasBlocked(stanzaToSend)
+                        return
+                    }
                     if stream === user.xmppStream {
                         user.sendPrimaryStanza(stanzaToSend, replayPolicy: .notReplayable)
                     } else {
@@ -731,6 +741,7 @@ extension MessageManager {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                guard optOutAllowsOutgoing(to: instance.opponent) else { return }
                 let stanzaId = instance.archivedId
                 let conversationType = instance.conversationType
                 let original = Self.originalMessageForEdit(instance, in: realm)
@@ -871,6 +882,7 @@ extension MessageManager {
         groupMentionSenderRole: GroupMemberRole? = nil,
         groupMentionAllCapabilityGranted: Bool = false
     ) -> String {
+        guard optOutAllowsOutgoing(to: jid) else { return "" }
         let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
@@ -956,6 +968,7 @@ extension MessageManager {
     }
     
     public func sendSystemMessage(_ body: String, attachments: [MessageReferenceStorageItem], to jid: String, childs: [DDXMLElement] = [], conversationType: ClientSynchronizationManager.ConversationType) {
+        guard optOutAllowsOutgoing(to: jid) else { return }
         do {
             let realm = try  WRealm.safe()
             let conversationJID = Self.canonicalOutgoingConversationJID(for: jid, conversationType: conversationType)
@@ -1004,6 +1017,7 @@ extension MessageManager {
         body: String,
         legacyBody captionLegacyBody: String
     ) -> String? {
+        guard optOutAllowsOutgoing(to: jid) else { return nil }
         if attachments.isEmpty { return nil }
         do {
             let realm = try  WRealm.safe()
@@ -1097,6 +1111,7 @@ extension MessageManager {
         do {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                guard optOutAllowsOutgoing(to: instance.opponent) else { return }
                 let opponent = instance.opponent
                 let conversationType = instance.conversationType
                 let referenceCount = instance.references.count
@@ -1135,10 +1150,20 @@ extension MessageManager {
         }
 
         account.unsafeAction({ user, stream in
+            guard let realm = try? WRealm.safe(),
+                  let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else { return }
+            guard self.optOutAllowsOutgoing(to: instance.opponent) else {
+                self.suspendDeferredUploadForOptOut(primary: primary)
+                return
+            }
             user.cloudStorage.getFileData(message: primary, successCallback: {
                 do {
                     let realm = try  WRealm.safe()
                     if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                        guard self.optOutAllowsOutgoing(to: instance.opponent) else {
+                            self.suspendDeferredUploadForOptOut(primary: primary)
+                            return
+                        }
                         let conversationType = instance.conversationType
                         let uploadedReferenceCount = instance.references.filter("isUploaded == true").count
                         let referenceCount = instance.references.count
@@ -1192,5 +1217,24 @@ extension MessageManager {
                 }
             })
         })
+    }
+
+    private func optOutAllowsOutgoing(to jid: String) -> Bool {
+        OMEMO2OptOutPolicy.allowsMessage(owner: owner, jid: jid, storage: omemo2OptOutStorage)
+    }
+
+    internal func suspendDeferredUploadForOptOut(primary: String) {
+        do {
+            let realm = try WRealm.safe()
+            guard let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+                  item.owner == owner, item.outgoing, item.state == .uploading else { return }
+            try realm.write {
+                item.state = .error
+                item.messageErrorCode = "omemo-opt-out-pending"
+                item.messageError = L10n.text("omemo_opt_out_review", fallback: "Review encryption request")
+            }
+            // Already uploaded references remain usable by an explicit retry.
+            LastChats.updateErrorState(for: item.opponent, owner: owner, conversationType: item.conversationType)
+        } catch { DDLogDebug("Deferred OMEMO2 upload could not be suspended locally") }
     }
 }
