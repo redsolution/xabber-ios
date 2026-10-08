@@ -1118,6 +1118,10 @@
 		D931D58E20C90B0122D7B145 /* ForwardRewritePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAE94D4D9EB2572CD2F6D3D /* ForwardRewritePersistenceTests.swift */; };
 		605F6B2BA90A72CF372FBACD /* ForwardOwnMediaProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F26A47E2025E4684A826DB /* ForwardOwnMediaProjectionTests.swift */; };
 		9479E613E47543EA8323BBB9 /* ForwardReceiveRouteIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC28D2981CC4986A47223F6 /* ForwardReceiveRouteIntegrationTests.swift */; };
+		ED65A50A17E63274739DBEA8 /* ForwardInfoCardPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8868CE33F4002AFC1E0D3CA /* ForwardInfoCardPresentationTests.swift */; };
+		9E70C26DE7CD7435F1D73E63 /* ForwardCardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1814DAB9CE2C0C2DD3482744 /* ForwardCardSnapshot.swift */; };
+		D3CEFEB7D57B5216B447681E /* ChatViewController+ForwardCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 599EE5C8840DAA37D64335AA /* ChatViewController+ForwardCards.swift */; };
+		C75E5B59E3AE2EC85ABE719C /* ForwardCardInfoViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E79FD412EEF7A164D0035 /* ForwardCardInfoViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2274,6 +2278,10 @@
 		4EAE94D4D9EB2572CD2F6D3D /* ForwardRewritePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardRewritePersistenceTests.swift; sourceTree = "<group>"; };
 		D8F26A47E2025E4684A826DB /* ForwardOwnMediaProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardOwnMediaProjectionTests.swift; sourceTree = "<group>"; };
 		0EC28D2981CC4986A47223F6 /* ForwardReceiveRouteIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardReceiveRouteIntegrationTests.swift; sourceTree = "<group>"; };
+		C8868CE33F4002AFC1E0D3CA /* ForwardInfoCardPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardInfoCardPresentationTests.swift; sourceTree = "<group>"; };
+		1814DAB9CE2C0C2DD3482744 /* ForwardCardSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardCardSnapshot.swift; sourceTree = "<group>"; };
+		599EE5C8840DAA37D64335AA /* ChatViewController+ForwardCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+ForwardCards.swift"; sourceTree = "<group>"; };
+		4B6E79FD412EEF7A164D0035 /* ForwardCardInfoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardCardInfoViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -3156,6 +3164,7 @@
 				6643F2F021C2650E00333229 /* MessageStyle.swift */,
 				6643F2F121C2650E00333229 /* NSConstraintLayoutSet.swift */,
 				6643F2F221C2650E00333229 /* Sender.swift */,
+				1814DAB9CE2C0C2DD3482744 /* ForwardCardSnapshot.swift */,
 				6635F03B233353FD00F8D7F3 /* MessageForwardMetadata.swift */,
 			);
 			path = Models;
@@ -3561,6 +3570,7 @@
 				664FB83023D9AF170073CA39 /* ChatViewController+ToolsButton.swift */,
 				66F9F35023E9A6860035061B /* ChatViewController+MessagesPanel.swift */,
 				66B10A2A247CF03300B0796D /* ChatViewController+SubscribtionBar.swift */,
+				599EE5C8840DAA37D64335AA /* ChatViewController+ForwardCards.swift */,
 				668409E226035C15001BB80B /* ChatViewController+Dataset.swift */,
 				CA180060CA180060CA180060 /* ChatViewController+ArchiveEngine.swift */,
 				6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */,
@@ -4515,6 +4525,7 @@
 				4E59003A2F86000000ABC001 /* ChatAttachmentMediaPreparationTests.swift */,
 				4E59003E2F87000000ABC001 /* ChatAttachmentSendIntegrationTests.swift */,
 				C0F4931FBC6F9CD77A298487 /* ForwardAuthenticatedSourceTests.swift */,
+				C8868CE33F4002AFC1E0D3CA /* ForwardInfoCardPresentationTests.swift */,
 				0EC28D2981CC4986A47223F6 /* ForwardReceiveRouteIntegrationTests.swift */,
 				D8F26A47E2025E4684A826DB /* ForwardOwnMediaProjectionTests.swift */,
 				4EAE94D4D9EB2572CD2F6D3D /* ForwardRewritePersistenceTests.swift */,
@@ -5113,6 +5124,7 @@
 		66ED0D492488FA4B0053CBEF /* info_screens */ = {
 			isa = PBXGroup;
 			children = (
+				4AAA9B44C8C335D675DC9D4C /* forward_info */,
 				66DCA9E32EE9883900A631ED /* edit_circles */,
 				663426C82C8F0DCA00F6873E /* protocols */,
 				1A3040B727A2A12F00305868 /* footerInfoView */,
@@ -5385,6 +5397,14 @@
 				B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */,
 			);
 			path = language;
+			sourceTree = "<group>";
+		};
+		4AAA9B44C8C335D675DC9D4C /* forward_info */ = {
+			isa = PBXGroup;
+			children = (
+				4B6E79FD412EEF7A164D0035 /* ForwardCardInfoViewController.swift */,
+			);
+			path = forward_info;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -6124,6 +6144,9 @@
 				66DA02DE26412870004EC921 /* LastCallsViewController+Search.swift in Sources */,
 				4DFF74FE2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift in Sources */,
 				66F0C440215D0B940010A16E /* ForwardItem.swift in Sources */,
+				9E70C26DE7CD7435F1D73E63 /* ForwardCardSnapshot.swift in Sources */,
+				D3CEFEB7D57B5216B447681E /* ChatViewController+ForwardCards.swift in Sources */,
+				C75E5B59E3AE2EC85ABE719C /* ForwardCardInfoViewController.swift in Sources */,
 				1DBA59882E7D1F1E90C6D795 /* ForwardSendPlanner.swift in Sources */,
 				6F3598ACA9FA338B5B9D2DC5 /* ForwardContactDataCodec.swift in Sources */,
 				66EAF7F52407C13100207AD3 /* InlineMediaBaseView.swift in Sources */,
@@ -6834,6 +6857,7 @@
 				4E59003B2F86000000ABC001 /* ChatAttachmentMediaPreparationTests.swift in Sources */,
 				4E59003F2F87000000ABC001 /* ChatAttachmentSendIntegrationTests.swift in Sources */,
 				B130CADD5313940401E0B33A /* ForwardAuthenticatedSourceTests.swift in Sources */,
+				ED65A50A17E63274739DBEA8 /* ForwardInfoCardPresentationTests.swift in Sources */,
 				9479E613E47543EA8323BBB9 /* ForwardReceiveRouteIntegrationTests.swift in Sources */,
 				605F6B2BA90A72CF372FBACD /* ForwardOwnMediaProjectionTests.swift in Sources */,
 				D931D58E20C90B0122D7B145 /* ForwardRewritePersistenceTests.swift in Sources */,

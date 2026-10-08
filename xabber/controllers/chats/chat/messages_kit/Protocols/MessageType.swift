@@ -298,6 +298,7 @@ class AudioAttachment {
 }
 
 class MessageAttachment {
+    var forwardCard: ForwardCardSnapshot?
     var primary: String
     var author: String
     var jid: String
@@ -312,7 +313,8 @@ class MessageAttachment {
     var timeMarker: NSAttributedString
     var subforwards: [MessageAttachment]
     
-    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], contacts: [ContactAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment]) {
+    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], contacts: [ContactAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment], forwardCard: ForwardCardSnapshot? = nil) {
+        self.forwardCard = forwardCard
         self.primary = primary
         self.author = author
         self.jid = jid

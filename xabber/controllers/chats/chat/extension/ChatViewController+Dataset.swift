@@ -607,6 +607,7 @@ struct ChatForwardSnapshotLimits: Equatable {
 }
 
 struct ChatMessageForwardSnapshot {
+    let forwardCard: ForwardCardSnapshot?
     let primary: String
     let messageId: String
     let owner: String
@@ -658,6 +659,7 @@ struct ChatMessageForwardSnapshot {
         forwardJid: String,
         forwardNickname: String,
         authorName: String,
+        forwardCard: ForwardCardSnapshot? = nil,
         isOutgoing: Bool,
         originalDate: Date?,
         references: [ChatMessageReferenceSnapshot],
@@ -675,6 +677,7 @@ struct ChatMessageForwardSnapshot {
         self.forwardJid = forwardJid
         self.forwardNickname = forwardNickname
         self.authorName = authorName
+        self.forwardCard = forwardCard
         self.isOutgoing = isOutgoing
         self.originalDate = originalDate
         self.references = references
@@ -772,6 +775,7 @@ struct ChatMessageForwardSnapshot {
             forwardJid: forward.forwardJid,
             forwardNickname: forward.forwardNickname,
             authorName: forward.tryToLoadNickname(),
+            forwardCard: didTruncateReferences ? nil : ForwardCardSnapshot.capture(forward),
             isOutgoing: forward.isOutgoing,
             originalDate: forward.originalDate,
             references: references,
@@ -6746,7 +6750,8 @@ extension ChatViewController {
             timeMarker: timeMarkerString,
             subforwards: attachment.subforwards.compactMap {
                 return mapAttachment($0, context: context, formatters: formatters)
-            }
+            },
+            forwardCard: attachment.forwardCard
         )
     }
 

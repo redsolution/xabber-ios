@@ -64,6 +64,7 @@ protocol MessageCellDelegate: MessageLabelDelegate {
         geoURI: String
     )
     func didTapOnContact(message messagePrimary: String, contact: ContactAttachment)
+    func didTapOnForwardAuthor(message messagePrimary: String, card: ForwardCardSnapshot)
     
     func didTapOnAudio(_ audioView: InlineAudiosGridView.AudioView?, url: URL?)
     
@@ -74,4 +75,8 @@ protocol MessageCellDelegate: MessageLabelDelegate {
     func didSetAudioPosition(_ audioView: InlineAudiosGridView.AudioView?, percentage: Float) -> TimeInterval
     
     func isSelected(primary: String) -> Bool
+}
+
+extension MessageCellDelegate {
+    func didTapOnForwardAuthor(message messagePrimary: String, card: ForwardCardSnapshot) {}
 }

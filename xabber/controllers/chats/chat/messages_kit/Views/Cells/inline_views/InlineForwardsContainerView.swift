@@ -10,6 +10,14 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 
+final class ForwardAuthorLabel: MessageLabel {
+    var activation: (() -> Bool)?
+
+    override func accessibilityActivate() -> Bool {
+        activation?() ?? false
+    }
+}
+
 class InlineMessageAttachmentView: ModernContainerView {
 
     let quoteLine: UIView = {
@@ -20,8 +28,8 @@ class InlineMessageAttachmentView: ModernContainerView {
         return view
     }()
 
-    let authorLabel: MessageLabel = {
-        let label = MessageLabel(frame: .zero)
+    let authorLabel: ForwardAuthorLabel = {
+        let label = ForwardAuthorLabel(frame: .zero)
         
 //        label.backgroundColor = .white
         
@@ -330,6 +338,16 @@ class InlineMessageAttachmentView: ModernContainerView {
     
     var palette: MDCPalette = .amber
     var messagePrimary: String = ""
+    private var forwardCard: ForwardCardSnapshot?
+
+    @discardableResult
+    func activateForwardAuthor() -> Bool {
+        guard let card = forwardCard, !messagePrimary.isEmpty, !card.owner.isEmpty,
+              !card.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let delegate, !delegate.isInSelection() else { return false }
+        delegate.didTapOnForwardAuthor(message: messagePrimary, card: card)
+        return true
+    }
     func configure(_ message: MessageAttachment, palette: MDCPalette) {
         updateContent(message, palette: palette)
     }
@@ -357,6 +375,15 @@ class InlineMessageAttachmentView: ModernContainerView {
         )
         messageLabel.attributedText = message.textMessage
         authorLabel.attributedText = message.attributedAuthor
+        forwardCard = message.forwardCard
+        let canOpenCard = forwardCard?.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        authorLabel.isAccessibilityElement = true
+        authorLabel.isUserInteractionEnabled = canOpenCard
+        authorLabel.accessibilityTraits = canOpenCard ? [.button] : [.staticText]
+        authorLabel.accessibilityIdentifier = "forward_author"
+        authorLabel.accessibilityHint = canOpenCard
+            ? L10n.text("chat__forward__open_card", fallback: "Show information") : nil
+        authorLabel.activation = canOpenCard ? { [weak self] in self?.activateForwardAuthor() ?? false } : nil
 //        let radius = CommonConfigManager.shared.messageStyleConfig.containers.level_1.border.getRadiusFor(index: "16")
 //        configure(
 //            side: .left,
@@ -384,6 +411,11 @@ class InlineMessageAttachmentView: ModernContainerView {
         messagePrimary = ""
         messageLabel.attributedText = nil
         authorLabel.attributedText = nil
+        forwardCard = nil
+        authorLabel.activation = nil
+        authorLabel.isUserInteractionEnabled = false
+        authorLabel.accessibilityTraits = [.staticText]
+        authorLabel.accessibilityHint = nil
         layer.backgroundColor = UIColor.clear.cgColor
         quoteLine.backgroundColor = UIColor.clear
     }
@@ -472,6 +504,10 @@ class InlineMessageAttachmentView: ModernContainerView {
     }
     
     func handleTouch(at touchPoint: CGPoint) -> Bool {
+        if authorLabel.isUserInteractionEnabled,
+           authorLabel.bounds.contains(convert(touchPoint, to: authorLabel)) {
+            return activateForwardAuthor()
+        }
 //        for (index, item) in grid.enumerated() {
 //            if item.cell.contains(point) {
 //                //                callback?(messageId, index, false)
