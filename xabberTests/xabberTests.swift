@@ -26436,8 +26436,8 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         super.tearDown()
     }
 
-    func testTableStylePolicyUsesGroupedStyleForCompactWidth() {
-        XCTAssertEqual(LastChatsTableStylePolicy.style(for: .compact), .grouped)
+    func testTableStylePolicyUsesInsetGroupedStyleForCompactWidth() {
+        XCTAssertEqual(LastChatsTableStylePolicy.style(for: .compact), .insetGrouped)
     }
 
     func testTableStylePolicyKeepsInsetGroupedStyleForRegularWidth() {
@@ -26828,7 +26828,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             viewController.configureSearchBar()
 
             XCTAssertNil(viewController.searchController.searchResultsController)
-            XCTAssertEqual(viewController.tableView.style, .grouped)
+            XCTAssertEqual(viewController.tableView.style, .insetGrouped)
             XCTAssertTrue(viewController.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
             XCTAssertTrue(viewController.view.isOpaque)
             XCTAssertEqual(viewController.tableView.backgroundColor, .clear)

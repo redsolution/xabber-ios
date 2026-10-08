@@ -220,15 +220,8 @@ enum LastChatsDatasourceApplyPolicy: Equatable {
 }
 
 enum LastChatsTableStylePolicy {
-    static func style(for horizontalSizeClass: UIUserInterfaceSizeClass) -> UITableView.Style {
-        switch horizontalSizeClass {
-        case .compact:
-            return .grouped
-        case .regular, .unspecified:
-            return .insetGrouped
-        @unknown default:
-            return .insetGrouped
-        }
+    static func style(for _: UIUserInterfaceSizeClass) -> UITableView.Style {
+        .insetGrouped
     }
 }
 
