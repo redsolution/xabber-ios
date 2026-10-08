@@ -67,11 +67,10 @@ private struct MessageReferenceWireRange: Equatable {
 
         let lowerScalarIndex = scalars.index(scalars.startIndex, offsetBy: begin)
         let upperScalarIndex = scalars.index(scalars.startIndex, offsetBy: end)
-        guard let lowerBound = String.Index(lowerScalarIndex, within: body),
-              let upperBound = String.Index(upperScalarIndex, within: body) else {
-            return nil
-        }
-        return lowerBound..<upperBound
+        // Wire offsets can split a composed character at a scalar boundary.
+        // Converting with String.Index(_:within:) requires a Character boundary
+        // and would reject valid ranges before a combining mark.
+        return lowerScalarIndex..<upperScalarIndex
     }
 }
 
@@ -337,7 +336,8 @@ private func inlineForwardPayload(
     let forwardedElements = directElementChildren(of: reference).filter {
         SCEReceivePolicy.matches($0, name: "forwarded", namespace: inlineForwardXMLNS)
     }
-    guard forwardedElements.count == 1 else { return nil }
+    guard forwardedElements.count == 1,
+          directElementChildren(of: reference).count == 1 else { return nil }
 
     let forwardedChildren = directElementChildren(of: forwardedElements[0])
     let delayElements = forwardedChildren.filter {
@@ -387,6 +387,133 @@ private func inlineForwardPayload(
     )
 }
 
+private struct MessageReferenceAdmission {
+    let reference: DDXMLElement
+    let index: Int
+    let kind: String?
+    let range: MessageReferenceWireRange?
+    let removesBody: Bool
+    let forwardPayload: InlineForwardPayload?
+}
+
+/// Rich materialization and fallback removal share the same admission policy.
+/// Decoration ranges may overlap, but two transformations of the same fallback
+/// cannot both be represented. The first valid transformation owns its range.
+private func admittedMessageReferences(
+    _ references: [DDXMLElement],
+    in escapedBody: String,
+    forwardDepth: Int = 0
+) -> [MessageReferenceAdmission] {
+    var admitted: [MessageReferenceAdmission] = []
+    var transformedRanges: [MessageReferenceWireRange] = []
+    for (index, reference) in references.enumerated() {
+        guard SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS) else {
+            continue
+        }
+        let kind = getReferenceType(reference)
+        let anonymous = isAnonymousMutableReference(reference)
+        guard kind != nil || anonymous else { continue }
+        if kind == "forward", forwardDepth >= inlineForwardMaximumDepth { continue }
+
+        let range = messageReferenceWireRange(reference, in: escapedBody)
+        if referenceHasAnyWireRangeAttribute(reference), range == nil { continue }
+        if anonymous || kind.map({ referenceRequiresWireRange(reference, kind: $0) }) == true {
+            guard range != nil else { continue }
+        }
+        if ["media", "voice"].contains(kind ?? ""),
+           reference.attributeStringValue(forName: "type") != "mutable" { continue }
+
+        let removesBody = anonymous || ["media", "voice", "forward", "geoloc", "contact"].contains(kind ?? "")
+        if let range, removesBody || kind == "quote" {
+            guard !transformedRanges.contains(where: {
+                range.begin < $0.end && $0.begin < range.end
+            }) else { continue }
+            transformedRanges.append(range)
+        }
+        admitted.append(MessageReferenceAdmission(
+            reference: reference,
+            index: index,
+            kind: kind,
+            range: range,
+            removesBody: removesBody,
+            forwardPayload: kind == "forward" ? inlineForwardPayload(from: reference) : nil
+        ))
+    }
+    return admitted
+}
+
+/// Wire callers must use these same admitted direct entries rather than
+/// independently choosing the first forwarded child of an arbitrary reference.
+/// Indices address the qualified direct-reference array, excluding foreign
+/// namespaces. KissXML can create different wrappers for the same XML node.
+func admittedMessageContentReferenceIndices(in message: XMPPMessage, depth: Int = 0) -> Set<Int> {
+    Set(admittedMessageReferences(
+        SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS),
+        in: referenceMessageBody(message).xmlEscaping(reverse: false),
+        forwardDepth: depth
+    ).map(\.index))
+}
+
+func admittedInlineForwardReferenceIndices(in message: XMPPMessage, depth: Int = 0) -> Set<Int> {
+    guard depth < inlineForwardMaximumDepth else { return [] }
+    return Set(admittedMessageReferences(
+        SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS),
+        in: referenceMessageBody(message).xmlEscaping(reverse: false),
+        forwardDepth: depth
+    ).compactMap { $0.forwardPayload == nil ? nil : $0.index })
+}
+
+func admittedMessageContentReferences(in message: XMPPMessage, depth: Int = 0) -> [DDXMLElement] {
+    admittedMessageReferences(
+        SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS),
+        in: referenceMessageBody(message).xmlEscaping(reverse: false),
+        forwardDepth: depth
+    ).map(\.reference)
+}
+
+func admittedInlineForwardReferences(in message: XMPPMessage, depth: Int = 0) -> [DDXMLElement] {
+    guard depth < inlineForwardMaximumDepth else { return [] }
+    return admittedMessageReferences(
+        SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS),
+        in: referenceMessageBody(message).xmlEscaping(reverse: false),
+        forwardDepth: depth
+    ).compactMap { $0.forwardPayload == nil ? nil : $0.reference }
+}
+
+/// Nested ciphertext remains sanitized here: outer authentication is not
+/// authority to interpret plaintext siblings of a forwarded encrypted stanza.
+func inlineForwardPayloadMessage(from reference: DDXMLElement) -> (message: XMPPMessage, date: Date?)? {
+    guard let payload = inlineForwardPayload(from: reference) else { return nil }
+    return (payload.message, payload.originalDate)
+}
+
+private func displayBody(
+    from escapedBody: String,
+    admissions: [MessageReferenceAdmission],
+    through wireOffset: Int? = nil
+) -> String {
+    let limit = wireOffset ?? escapedBody.unicodeScalars.count
+    guard var body = escapedBody.prefixThroughUnicodeScalars(limit) else { return "" }
+    // Prefixes retain the admission computed against the full body. Re-parsing
+    // a short prefix could otherwise admit a previously rejected overlap.
+    for admission in admissions.sorted(by: { ($0.range?.begin ?? 0) > ($1.range?.begin ?? 0) }) {
+        guard let originalRange = admission.range,
+              originalRange.begin < limit,
+              admission.removesBody || admission.kind == "quote" else { continue }
+        let clippedRange = MessageReferenceWireRange(
+            begin: originalRange.begin,
+            end: min(originalRange.end, limit)
+        )
+        guard let range = clippedRange.stringRange(in: body) else { continue }
+        if admission.removesBody {
+            body.removeSubrange(range)
+        } else {
+            body = body.replacingOccurrences(of: "&gt;", with: "", options: [], range: range)
+        }
+    }
+    return body.xmlEscaping(reverse: true)
+}
+
 func parseInlineMessages(
     _ message: XMPPMessage,
     parentId: String,
@@ -398,9 +525,13 @@ func parseInlineMessages(
 
     let escapedBody = referenceMessageBody(message).xmlEscaping(reverse: false)
 
-    return SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS).compactMap { reference in
-        guard messageReferenceWireRange(reference, in: escapedBody) != nil,
-              let payload = inlineForwardPayload(from: reference) else {
+    let cards = ForwardContactDataCodec.cards(in: message)
+    return admittedMessageReferences(
+        SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS),
+        in: escapedBody,
+        forwardDepth: depth
+    ).compactMap { admission in
+        guard let payload = admission.forwardPayload else {
             return nil
         }
 
@@ -416,7 +547,9 @@ func parseInlineMessages(
             outgoing: outgoing,
             date: payload.originalDate,
             forwardJid: payload.from,
-            forwardDepth: depth + 1
+            forwardDepth: depth + 1,
+            referenceIndex: admission.index,
+            contactCard: ForwardContactDataCodec.matchingCard(for: payload.from, cards: cards)
         )
 
         do {
@@ -434,6 +567,14 @@ func parseInlineMessages(
 
 func getReferenceType(_ ref: DDXMLElement) -> String? {
     guard SCEReceivePolicy.matches(ref, name: "reference", namespace: referencesXMLNS) else { return nil }
+    // A reference carrying forwarding and another payload cannot be given
+    // separate media/forward interpretations by different consumers.
+    if directElementChildren(of: ref).contains(where: {
+        SCEReceivePolicy.matches($0, name: "forwarded", namespace: inlineForwardXMLNS)
+    }) {
+        return inlineForwardPayload(from: ref) == nil ? nil : "forward"
+    }
+    if ForwardContactDataCodec.decode(ref) != nil { return "forward-contact-data" }
     if let voice = referenceChild(ref, named: "voice-message", xmlns: "https://xabber.com/protocol/voice-messages"),
        let fileSharing = referenceChild(voice, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
        fileSharingPayload(fileSharing) != nil {
@@ -465,40 +606,27 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
     return nil
 }
 
-func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner: String, echo: Bool = false) -> [MessageReferenceStorageItem] {
+func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner: String, echo: Bool = false, forwardDepth: Int = 0) -> [MessageReferenceStorageItem] {
     var out: [MessageReferenceStorageItem] = []
     let escapingBody = referenceMessageBody(message).xmlEscaping(reverse: false)
     let references = SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS)
     
     let messageDate = getDelayedDate(message) ?? Date()
     
-    let displayBody = escapingBody.excludeFromBody(references, groupchat: nil)
+    let admissions = admittedMessageReferences(references, in: escapingBody, forwardDepth: forwardDepth)
+    let parsedDisplayBody = displayBody(from: escapingBody, admissions: admissions)
 
     func displayOffset(for wireOffset: Int) -> Int? {
-        guard let prefix = escapingBody.prefixThroughUnicodeScalars(wireOffset) else {
-            return nil
-        }
-        return prefix
-            .excludeFromBody(references, groupchat: nil)
-            .utf16.count
+        guard escapingBody.prefixThroughUnicodeScalars(wireOffset) != nil else { return nil }
+        return displayBody(from: escapingBody, admissions: admissions, through: wireOffset).utf16.count
     }
     
-    func parse(_ ref: DDXMLElement) -> MessageReferenceStorageItem? {
-        guard SCEReceivePolicy.matches(ref, name: "reference", namespace: referencesXMLNS),
-            let kind = getReferenceType(ref) else {
+    func parse(_ admission: MessageReferenceAdmission) -> MessageReferenceStorageItem? {
+        let ref = admission.reference
+        guard let kind = admission.kind else {
                 return nil
             }
-        let wireRange = messageReferenceWireRange(ref, in: escapingBody)
-        if referenceHasAnyWireRangeAttribute(ref) {
-            guard wireRange != nil else { return nil }
-        }
-        if referenceRequiresWireRange(ref, kind: kind) {
-            guard wireRange != nil else { return nil }
-        }
-        if ["media", "voice"].contains(kind),
-           ref.attributeStringValue(forName: "type") != "mutable" {
-            return nil
-        }
+        let wireRange = admission.range
         let begin = wireRange.flatMap { displayOffset(for: $0.begin) } ?? 0
         let end = wireRange.flatMap { displayOffset(for: $0.end) } ?? 0
         let reference = MessageReferenceStorageItem()
@@ -513,6 +641,9 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         reference.sentDate = messageDate
         var metadata: [String: Any] = [:]
         switch reference.kind {
+            case .forwardContactData:
+                guard let card = ForwardContactDataCodec.decode(ref) else { return nil }
+                metadata = ForwardContactDataCodec.metadata(for: card)
             case .voice:
                 guard let voice = referenceChild(ref, named: "voice-message", xmlns: "https://xabber.com/protocol/voice-messages"),
                     let fileSharing = referenceChild(voice, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
@@ -731,7 +862,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 if let groupchatJid = parseMentionGroupchat(uri) {
                     metadata["groupchatJid"] = groupchatJid
                 }
-                let nsBody = displayBody
+                let nsBody = parsedDisplayBody
                 let bodyNSString = nsBody as NSString
                 if reference.end <= bodyNSString.length, reference.begin < reference.end {
                     metadata["nickname"] = bodyNSString.substring(with: reference.range)
@@ -763,7 +894,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         out = [reference]
     }
 
-    out.append(contentsOf: references.compactMap{ return parse($0) })
+    out.append(contentsOf: admissions.compactMap { parse($0) })
     return out
 }
 
@@ -789,23 +920,22 @@ private func parseMentionGroupchat(_ uri: String) -> String? {
 extension String {
     public func xmlEscaping(reverse: Bool) -> String {
         var out = self
-        let symbols: [String: String] = [
-            "<": "&lt;",
-            ">": "&gt;",
-            "\"": "&quot;",
-            "\'": "&apos;",
+        let symbols: [(String, String)] = [
+            ("<", "&lt;"),
+            (">", "&gt;"),
+            ("\"", "&quot;"),
+            ("'", "&apos;")
         ]
-        out = out.replacingOccurrences(of: reverse ? "&amp;" : "&",
-                                       with: reverse ? "&" : "&amp;",
-                                       options: [],
-                                       range: Range<String.Index>(NSRange(location: 0,
-                                                                          length: out.count), in: out))
-        symbols.forEach {
-            out = out.replacingOccurrences(of: reverse ? $0.value : $0.key,
-                                           with: reverse ? $0.key : $0.value,
-                                           options: [],
-                                           range: Range<String.Index>(NSRange(location: 0,
-                                                                              length: out.count), in: out))
+        if !reverse {
+            out = out.replacingOccurrences(of: "&", with: "&amp;")
+        }
+        for (symbol, entity) in symbols {
+            out = out.replacingOccurrences(of: reverse ? entity : symbol, with: reverse ? symbol : entity)
+        }
+        // Decode only one layer: literal `&lt;` text was encoded as `&amp;lt;`
+        // and must remain literal after reversing the XML coordinate space.
+        if reverse {
+            out = out.replacingOccurrences(of: "&amp;", with: "&")
         }
         return out
     }
@@ -814,60 +944,20 @@ extension String {
         let scalars = unicodeScalars
         guard offset >= 0, offset <= scalars.count else { return nil }
         let scalarIndex = scalars.index(scalars.startIndex, offsetBy: offset)
-        guard let stringIndex = String.Index(scalarIndex, within: self) else { return nil }
-        return String(self[..<stringIndex])
+        // Keep the scalar boundary even when it lies inside a Character.
+        return String(self[..<scalarIndex])
     }
     
-    public func excludeFromBody(_ references: [DDXMLElement], groupchat: DDXMLElement?) -> String {
+    public func excludeFromBody(_ references: [DDXMLElement], groupchat: DDXMLElement?, forwardDepth: Int = 0) -> String {
         var mutatedReferences: [DDXMLElement] = references
         if let groupchatReference = groupchat {
             mutatedReferences.append(groupchatReference)
         }
         if self.isEmpty { return self }
 
-        struct Candidate {
-            let range: MessageReferenceWireRange
-            let kind: String?
-            let removesBody: Bool
-        }
-
-        let candidates = mutatedReferences.compactMap { reference -> Candidate? in
-            guard SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS),
-                  let range = messageReferenceWireRange(reference, in: self) else {
-                return nil
-            }
-            let kind = getReferenceType(reference)
-            let removesBody: Bool
-            switch kind {
-            case "media", "voice", "forward", "geoloc", "contact":
-                removesBody = true
-            default:
-                removesBody = isAnonymousMutableReference(reference)
-            }
-            guard removesBody || kind == "quote" else { return nil }
-            return Candidate(range: range, kind: kind, removesBody: removesBody)
-        }
-
-        var accepted: [Candidate] = []
-        for candidate in candidates {
-            let overlapsAcceptedRange = accepted.contains {
-                candidate.range.begin < $0.range.end && $0.range.begin < candidate.range.end
-            }
-            if !overlapsAcceptedRange {
-                accepted.append(candidate)
-            }
-        }
-
-        var out = self
-        for candidate in accepted.sorted(by: { $0.range.begin > $1.range.begin }) {
-            guard let range = candidate.range.stringRange(in: out) else { continue }
-            if candidate.removesBody {
-                out.removeSubrange(range)
-            } else if candidate.kind == "quote" {
-                let marker = ">".xmlEscaping(reverse: false)
-                out = out.replacingOccurrences(of: marker, with: "", options: [], range: range)
-            }
-        }
-        return out.xmlEscaping(reverse: true)
+        return displayBody(
+            from: self,
+            admissions: admittedMessageReferences(mutatedReferences, in: self, forwardDepth: forwardDepth)
+        )
     }
 }

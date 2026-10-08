@@ -414,7 +414,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         let primary = manager.willSendMediaMessage(
             [reference],
             to: Self.context.jid,
-            forwarded: Self.context.forwardedMessageIds,
+            forwarded: [],
             conversationType: Self.context.conversationType,
             body: "Caption",
             legacyBody: "Caption"
@@ -524,7 +524,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
 
         let items = manager.formForwardedMessages([olderPrimary, newerPrimary])
 
-        XCTAssertEqual(items.map(\.date), [newerDate, olderDate])
+        XCTAssertEqual(items.map(\.date), [olderDate, newerDate])
         var expectedBegin = 0
         for item in items {
             XCTAssertEqual(
@@ -573,6 +573,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         markup.kind = .markup
         markup.begin = 0
         markup.end = 5
+        markup.metadata = ["styles": ["bold"]]
         let mention = MessageReferenceStorageItem()
         mention.kind = .mention
         mention.begin = 6
@@ -595,8 +596,12 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         let storedMessage = try XCTUnwrap(
             realm.object(ofType: MessageStorageItem.self, forPrimaryKey: outgoingPrimary)
         )
+        XCTAssertEqual(storedMessage.body, "Hello @Juliet")
+        XCTAssertEqual(storedMessage.inlineForwards.map(\.messageId), ["forward-decoration-prefix"])
         XCTAssertEqual(storedMessage.references.first(where: { $0.kind == .markup })?.begin, 0)
+        XCTAssertEqual(storedMessage.references.first(where: { $0.kind == .markup })?.end, 5)
         XCTAssertEqual(storedMessage.references.first(where: { $0.kind == .mention })?.begin, 6)
+        XCTAssertEqual(storedMessage.references.first(where: { $0.kind == .mention })?.end, 13)
         let stanzaRow = try XCTUnwrap(
             realm.object(
                 ofType: MessageStanzaStorageItem.self,
@@ -628,6 +633,7 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
             }
         )
 
+        XCTAssertNotNil(markupReference.element(forName: "bold", xmlns: "https://xabber.com/protocol/markup"))
         XCTAssertEqual(forwardReference.attributeIntegerValue(forName: "begin"), 0)
         XCTAssertEqual(markupReference.attributeIntegerValue(forName: "begin"), fallbackPrefixLength)
         XCTAssertEqual(markupReference.attributeIntegerValue(forName: "end"), fallbackPrefixLength + 5)

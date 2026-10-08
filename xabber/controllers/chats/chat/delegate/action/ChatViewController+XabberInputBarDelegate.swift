@@ -235,15 +235,32 @@ extension ChatViewController: XabberInputBarDelegate {
         DispatchQueue.main.async {
             do {
                 if let reference = self.recordedReferenceObject {
-                    self.sendAudioMessage(reference)
-                    callback?()
+                    self.sendAudioMessage(reference) { didAdmit in
+                        if didAdmit { callback?() }
+                    }
                 } else {
                     if let rawUrl = rawUrl,
                        let duration = duration,
                        let pcm = pcm {
                         let reference = try self.willSendAudioMessage(rawUrl: rawUrl, duration: duration, pcm: pcm)
-                        self.sendAudioMessage(reference)
-                        callback?()
+                        let context = self.makeAttachmentFlowContext()
+                        let sessionID = self.activeAudioRecordingSessionID
+                        self.sendAudioMessage(reference) { [weak self] didAdmit in
+                            if didAdmit { callback?(); return }
+                            guard let self, let sessionID,
+                                  self.activeAudioRecordingSessionID == sessionID,
+                                  self.owner == context.owner, self.jid == context.jid,
+                                  self.conversationType == context.conversationType,
+                                  self.composerForwardIntent == context.forwardIntent,
+                                  self.attachedMessagesIds.value == context.forwardedMessageIds,
+                                  self.recordedReferenceObject === reference else { return }
+                            self.recordedReferenceSessionID = sessionID
+                            self.activeAudioRecordingSessionID = nil
+                            self.recordedPCM = []
+                            self.xabberInputView.recordAndPlayPanel.configure(pcm: pcm, duration: TimeInterval(duration))
+                            self.hideRecordingLockOverlay()
+                            self.xabberInputView.audioRecordingPreviewReady(sessionID: sessionID)
+                        }
                     }
                 }
             } catch {
@@ -252,19 +269,45 @@ extension ChatViewController: XabberInputBarDelegate {
         }
     }
     
-    func sendAudioMessage(_ reference: MessageReferenceStorageItem) {
-        let forwarded: [String] = self.attachedMessagesIds.value
+    func sendAudioMessage(_ reference: MessageReferenceStorageItem, completion: ((Bool) -> Void)? = nil) {
+        guard !self.isComposerSendAdmissionInFlight else { return }
+        self.isComposerSendAdmissionInFlight = true
+        let context = self.makeAttachmentFlowContext()
+        let recordingSession = self.recordedReferenceSessionID
+        let activeSession = self.activeAudioRecordingSessionID
+        if self.recordedReferenceObject == nil { self.recordedReferenceObject = reference }
         self.requestOutgoingAutoScrollAfterDatasourceUpdate()
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.messages.sendMediaMessage([reference], to: self.jid, forwarded: forwarded, conversationType: self.conversationType)
-            self.recordedReferenceObject = nil
-            self.recordedReferenceSessionID = nil
-            DispatchQueue.main.async {
+        let autoScrollRequest = self.pendingOutgoingAutoScrollRequest
+        self.audioMessageSender.sendMediaMessage(references: [reference], body: "", legacyBody: "",
+            requiresUpload: true, context: context) { [weak self] didAdmit in
+            let applyAdmission = {
+                guard let self else { completion?(false); return }
+                self.isComposerSendAdmissionInFlight = false
+                guard self.owner == context.owner, self.jid == context.jid,
+                      self.conversationType == context.conversationType else { completion?(false); return }
+                guard didAdmit else {
+                    if let autoScrollRequest, self.pendingOutgoingAutoScrollRequest?.id == autoScrollRequest.id {
+                        self.pendingOutgoingAutoScrollRequest = nil
+                    }
+                    self.refreshOmemoSendAvailability()
+                    completion?(false)
+                    return
+                }
                 FeedbackManager.shared.generate(feedback: .success)
+                guard self.recordedReferenceObject === reference,
+                      self.recordedReferenceSessionID == recordingSession,
+                      self.activeAudioRecordingSessionID == activeSession,
+                      self.attachedMessagesIds.value == context.forwardedMessageIds,
+                      self.composerForwardIntent == context.forwardIntent else { completion?(false); return }
+                self.recordedReferenceObject = nil
+                self.recordedReferenceSessionID = nil
                 self.clearAttachments()
                 self.unreadMessagePositionId = nil
+                completion?(true)
             }
-        })
+            if Thread.isMainThread { applyAdmission() }
+            else { DispatchQueue.main.async(execute: applyAdmission) }
+        }
     }
     
     func onAudioMessageDidCancel(sessionID: UUID) {
@@ -964,22 +1007,7 @@ extension ChatViewController: XabberInputBarDelegate {
             if self.recordedReferenceObject != nil {
                 self.onSendButtonTouchUpInsideWhenAudioWasRecorded()
             } else if let editedMessage = editMessageId.value, editedMessage.isNotEmpty {
-                self.xabberInputView.clearComposer()
-                self.xabberInputView.textViewDidChange()
-                self.draftMessageText.accept(nil)
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                    user.messages.editSimpleMessage(
-                        payload.body,
-                        primary: editedMessage,
-                        references: payload.references,
-                        groupMentionIntent: payload.groupMentionIntent,
-                        groupMentionSenderRole: payload.groupMentionSenderRole,
-                        groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
-                    )
-                })
-                self.clearAttachments()
-                self.unreadMessagePositionId = nil
+                self.sendComposerMessageAwaitingAdmission(payload, editing: editedMessage)
             } else {
                 self.sendComposerMessageAwaitingAdmission(payload)
             }
@@ -996,7 +1024,10 @@ extension ChatViewController: XabberInputBarDelegate {
         sendMessage(payload)
     }
 
-    private func sendComposerMessageAwaitingAdmission(_ payload: ComposerMessagePayload) {
+    private func sendComposerMessageAwaitingAdmission(_ payload: ComposerMessagePayload, editing primary: String? = nil) {
+        var payload = payload
+        payload.forwardIntent = self.composerForwardIntent
+        let forwardIntent = payload.forwardIntent
         let owner = self.owner
         let jid = self.jid
         let conversationType = self.conversationType
@@ -1007,9 +1038,11 @@ extension ChatViewController: XabberInputBarDelegate {
         let editedMessage = self.editMessageId.value
         let recordingSession = self.activeAudioRecordingSessionID
         self.isComposerSendAdmissionInFlight = true
-        self.beginSendToLocalRowSignpost()
-        self.requestOutgoingAutoScrollAfterDatasourceUpdate()
-        let autoScrollRequest = self.pendingOutgoingAutoScrollRequest
+        if primary == nil {
+            self.beginSendToLocalRowSignpost()
+            self.requestOutgoingAutoScrollAfterDatasourceUpdate()
+        }
+        let autoScrollRequest = primary == nil ? self.pendingOutgoingAutoScrollRequest : nil
 
         let completion: (String) -> Void = { [weak self] messageID in
             let applyAdmission = {
@@ -1031,6 +1064,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 guard currentComposer.isEqual(to: composer),
                       self.draftMessageText.value == draft,
                       self.attachedMessagesIds.value == forwarded,
+                      self.composerForwardIntent == forwardIntent,
                       self.forwardedIds.value == forwardedIDs,
                       self.editMessageId.value == editedMessage,
                       self.activeAudioRecordingSessionID == recordingSession,
@@ -1044,7 +1078,11 @@ extension ChatViewController: XabberInputBarDelegate {
             if Thread.isMainThread { applyAdmission() }
             else { DispatchQueue.main.async(execute: applyAdmission) }
         }
-        if let executor = self.omemoComposerSendAdmissionExecutor {
+        if let primary, let executor = self.omemoComposerEditAdmissionExecutor {
+            executor(payload, primary) { accepted in completion(accepted ? primary : "") }
+            return
+        }
+        if primary == nil, let executor = self.omemoComposerSendAdmissionExecutor {
             executor(payload, forwarded, completion)
             return
         }
@@ -1058,12 +1096,25 @@ extension ChatViewController: XabberInputBarDelegate {
                 return
             }
             user.messages.readLastMessage(jid: jid, conversationType: conversationType)
+            if let primary {
+                let accepted = user.messages.editSimpleMessage(
+                    payload.body,
+                    primary: primary,
+                    references: payload.references,
+                    groupMentionIntent: payload.groupMentionIntent,
+                    groupMentionSenderRole: payload.groupMentionSenderRole,
+                    groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
+                )
+                completion(accepted ? primary : "")
+                return
+            }
             let messageID = user.messages.sendSimpleMessage(
                 payload.body,
                 to: jid,
                 forwarded: forwarded,
                 conversationType: conversationType,
                 references: payload.references,
+                forwardIntent: forwardIntent,
                 groupMentionIntent: payload.groupMentionIntent,
                 groupMentionSenderRole: payload.groupMentionSenderRole,
                 groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted

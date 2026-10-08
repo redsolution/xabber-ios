@@ -29,12 +29,12 @@ extension ChatViewController: ChatViewMessagesPanelDelegate {
         case .edit:
             self.editMessageId.accept(nil)
         case .forward:
-            self.attachedMessagesIds.accept([])
+            self.setComposerForwardSelection([], intent: .forward)
         case nil:
             if self.editMessageId.value != nil {
                 self.editMessageId.accept(nil)
             } else {
-                self.attachedMessagesIds.accept([])
+                self.setComposerForwardSelection([], intent: .forward)
             }
         }
     }

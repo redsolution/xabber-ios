@@ -1024,6 +1024,46 @@ class MessageStorageItem: Object {
     /// Prepared before opening a Realm write, preserving storage lock order.
     var incomingReplayFingerprint: Data? = nil
 
+    /// Local receive evidence binds the entire reconstructed source, including
+    /// opaque authenticated extensions. Ciphertext replay evidence and XML
+    /// success markers deliberately cannot grant this authority.
+    private static let authenticatedForwardSourceMetadataKey = "omemo_authenticated_forward_source_v1"
+
+    func canForwardAuthenticatedPlaintext(stanzaXML: String, owner expectedOwner: String) -> Bool {
+        guard realm != nil, !isInvalidated, owner == expectedOwner, primary.isNotEmpty,
+              let proof = systemMetadata?[Self.authenticatedForwardSourceMetadataKey] as? [String: Any],
+              proof["owner"] as? String == expectedOwner,
+              proof["primary"] as? String == primary,
+              proof["xmlSHA256"] as? String == Self.forwardSourceDigest(stanzaXML) else { return false }
+        return true
+    }
+
+    private static func forwardSourceDigest(_ xml: String) -> String {
+        CryptoKit.SHA256.hash(data: Data(xml.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func persistAuthenticatedForwardSourceProof(stanza: XMPPMessage, xml: String, in realm: Realm) {
+        guard let stored = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              stored.owner == owner else { return }
+        var metadata = stored.systemMetadata ?? [:]
+        let hasReconstructedContent =
+            !SCEReceivePolicy.children(of: stanza, named: "body", xmlns: "jabber:client").isEmpty ||
+            !SCEReceivePolicy.children(of: stanza, named: "reference", xmlns: "https://xabber.com/protocol/references").isEmpty
+        if !isSavedForward, incomingEncryption == .authenticatedSCE(profile: .omemo2),
+           SCEReceivePolicy.matches(stanza, name: "message", namespace: "jabber:client"),
+           SCEReceivePolicy.children(of: stanza, named: "encrypted", xmlns: OmemoManager.xmlns).count == 1,
+           hasReconstructedContent {
+            metadata[Self.authenticatedForwardSourceMetadataKey] = [
+                "owner": owner, "primary": primary, "xmlSHA256": Self.forwardSourceDigest(xml)
+            ]
+        } else if isSavedForward || !stored.canForwardAuthenticatedPlaintext(stanzaXML: xml, owner: owner) {
+            // An identical repeat can keep existing authority; a replaced raw
+            // stanza cannot leave its predecessor's proof available.
+            metadata.removeValue(forKey: Self.authenticatedForwardSourceMetadataKey)
+        }
+        stored.systemMetadata = metadata.isEmpty ? nil : metadata
+    }
+
     var unreadCounterBucket: UnreadCounterBucket {
         get {
             return UnreadCounterBucket(rawValue: unreadCounterBucket_) ?? .none
@@ -1688,6 +1728,7 @@ class MessageStorageItem: Object {
             instance.omemo2ReplayFingerprint = fingerprint
         }
         realm.add(instance, update: .modified)
+        persistAuthenticatedForwardSourceProof(stanza: stanza, xml: instance.stanza, in: realm)
     }
     
     func saveStanze(_ message: XMPPMessage, at date: Date) {
@@ -1903,7 +1944,7 @@ class MessageStorageItem: Object {
             $0.sentDate = Date()
             if CommonConfigManager.shared.config.use_file_enryption_by_default {
                 
-                if $0.conversationType.isEncrypted {
+                if $0.conversationType.isEncrypted && !$0.isUploaded && [.media, .voice].contains($0.kind) {
                     
                     var key = Data(count: 32)
                     
@@ -2424,7 +2465,7 @@ class MessageStorageItem: Object {
         chat.lastVisibleMessageDate = nil
     }
 
-    private func normalizedIncomingTextBody(from messageContainer: XMPPMessage) -> String {
+    internal func normalizedIncomingTextBody(from messageContainer: XMPPMessage) -> String {
         let strippedBody = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client")
             .first?.stringValue?.xmlEscaping(reverse: false)
             .excludeFromBody(
@@ -2497,6 +2538,12 @@ class MessageStorageItem: Object {
         
         references.forEach {
             reference in
+            if reference.kind == .forwardContactData {
+                if let card = ForwardContactDataCodec.card(from: reference) {
+                    out.append(ForwardContactDataCodec.encode(card))
+                }
+                return
+            }
             let referenceElement = DDXMLElement(name: "reference",
                                                 xmlns: "https://xabber.com/protocol/references")
             referenceElement.addAttribute(withName: "type", stringValue: reference.xmlType)
@@ -2703,9 +2750,21 @@ class MessageStorageItem: Object {
                     referenceElement.addChild(voiceMessage)
                     
                 case .forward:
-                    break
+                    // The prepared/raw forwarding serializer owns the payload.
+                    // A display marker cannot become an empty wire reference.
+                    return
+                case .forwardContactData:
+                    return
                 case .markup:
-                    break
+                    for style in reference.metadata?["styles"] as? [String] ?? [] {
+                        if ["bold", "underline", "strike", "italic"].contains(style) {
+                            referenceElement.addChild(DDXMLElement(name: style, xmlns: "https://xabber.com/protocol/markup"))
+                        } else if style == "uri", let uri = reference.metadata?["uri"] as? String ?? reference.url {
+                            let link = DDXMLElement(name: "link", xmlns: "https://xabber.com/protocol/markup")
+                            link.stringValue = uri
+                            referenceElement.addChild(link)
+                        }
+                    }
                 case .mention:
                     if let uri = reference.metadata?["uri"] as? String ?? reference.url {
                         let memberId = GroupMessageMentionsCodec.memberID(from: reference)
@@ -2726,7 +2785,7 @@ class MessageStorageItem: Object {
                         }
                     }
                 case .quote:
-                    break
+                    referenceElement.addChild(DDXMLElement(name: "quote", xmlns: "https://xabber.com/protocol/markup"))
                 case .groupchat:
                     break
                 case .call:
@@ -2854,6 +2913,12 @@ class MessageStorageItem: Object {
             }
             guard let fallback, fallback.isNotEmpty else { return }
 
+            let scalars = Array(out.xmlEscaping(reverse: false).unicodeScalars)
+            if reference.begin >= 0, reference.end > reference.begin, reference.end <= scalars.count,
+               String(String.UnicodeScalarView(scalars[reference.begin..<reference.end])) == fallback.xmlEscaping(reverse: false) {
+                return
+            }
+
             if out.isNotEmpty, !out.hasSuffix("\n") {
                 out.append("\n")
             }
@@ -2866,6 +2931,10 @@ class MessageStorageItem: Object {
             reference in
             switch reference.kind {
             case .quote:
+                // A prepared forwarding carrier already contains the exact
+                // authored wire body; rebuilding from elided display text
+                // would remove donated originals and existing file fallbacks.
+                guard systemMetadata?["forwardPreparedVersion"] as? Int != 1 else { return }
                 out = body
                     .xmlEscaping(reverse: false)
                     .replacingOccurrences(of: "\n",

@@ -98,7 +98,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
     }
     
     func selectionPanel(onReply panel: ModernXabberInputView.SelectionPanel) {
-        attachedMessagesIds.accept(Array(forwardedIds.value))
+        setComposerForwardSelection(Array(forwardedIds.value), intent: .reply)
         cancelSelection()
     }
     

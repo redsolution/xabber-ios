@@ -2579,7 +2579,17 @@ class ChatViewController: MessagesViewController {
         
     let datasourcePageSize: Int = ArchivePageSizing.history
         
-    var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+    override var owner: String {
+        didSet { if owner != oldValue { setComposerForwardSelection([], intent: .forward) } }
+    }
+
+    override var jid: String {
+        didSet { if jid != oldValue { setComposerForwardSelection([], intent: .forward) } }
+    }
+
+    var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
+        didSet { if conversationType != oldValue { setComposerForwardSelection([], intent: .forward) } }
+    }
 
     var timelineInteractionState = ChatTimelineInteractionState()
     var residentDatasetWindow: ChatDatasetWindow = .empty
@@ -2806,6 +2816,8 @@ class ChatViewController: MessagesViewController {
 // ForwardedMessages
     var forwardedIds: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     var attachedMessagesIds: BehaviorRelay<[String]> = BehaviorRelay(value: [])
+    private(set) var composerForwardIntent: ForwardSendIntent = .forward
+    internal var audioMessageSender: ChatAttachmentMediaMessageSending = AccountChatAttachmentMediaMessageSender()
     var inTypingMode: BehaviorRelay<Bool?> = BehaviorRelay(value: nil)
     var revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
     
@@ -2826,6 +2838,7 @@ class ChatViewController: MessagesViewController {
     internal var omemoOptOutDecisionExecutor: ((OMEMO2OptOutPolicy.Decision, @escaping (Result<Void, Error>) -> Void) -> Void)?
     internal var isOMEMO2OptOutDecisionInFlight = false
     internal var omemoComposerSendAdmissionExecutor: ((ComposerMessagePayload, [String], @escaping (String) -> Void) -> Void)?
+    internal var omemoComposerEditAdmissionExecutor: ((ComposerMessagePayload, String, @escaping (Bool) -> Void) -> Void)?
     internal var isComposerSendAdmissionInFlight = false
 // burn
     var selectedAfterburnId: Int = 0
@@ -5000,8 +5013,20 @@ class ChatViewController: MessagesViewController {
     @objc
     func clearAttachments() {
         self.forwardedIds.accept(Set<String>())
-        self.attachedMessagesIds.accept([])
+        self.setComposerForwardSelection([], intent: .forward)
         self.editMessageId.accept(nil)
+    }
+
+    internal func setComposerForwardSelection(_ messageIDs: [String], intent: ForwardSendIntent) {
+        if !messageIDs.isEmpty, intent == .reply { self.editMessageId.accept(nil) }
+        self.composerForwardIntent = messageIDs.isEmpty ? .forward : intent
+        self.attachedMessagesIds.accept(messageIDs)
+    }
+
+    internal func makeAttachmentFlowContext() -> ChatAttachmentFlowContext {
+        ChatAttachmentFlowContext(owner: self.owner, jid: self.jid, conversationType: self.conversationType,
+            forwardedMessageIds: self.attachedMessagesIds.value, composerTintColor: self.accountPallete.tint600,
+            forwardIntent: self.composerForwardIntent)
     }
     
     internal func configureMessagesPanel() {

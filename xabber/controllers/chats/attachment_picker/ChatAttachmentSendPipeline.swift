@@ -343,15 +343,16 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
                     ("referenceCount", references.count),
                     ("forwardedCount", context.forwardedMessageIds.count)
                 ])
-                _ = account.messages.sendSimpleMessage(
+                let admittedID = account.messages.sendSimpleMessage(
                     body,
                     to: context.jid,
                     forwarded: context.forwardedMessageIds,
                     conversationType: context.conversationType,
-                    references: references
+                    references: references,
+                    forwardIntent: context.forwardIntent
                 )
                 DispatchQueue.main.async {
-                    completion(true)
+                    completion(admittedID.isNotEmpty)
                 }
                 return
             }
@@ -368,7 +369,8 @@ final class AccountChatAttachmentMediaMessageSender: ChatAttachmentMediaMessageS
                 forwarded: context.forwardedMessageIds,
                 conversationType: context.conversationType,
                 body: body,
-                legacyBody: legacyBody
+                legacyBody: legacyBody,
+                forwardIntent: context.forwardIntent
             )
             guard let primary else {
                 ChatAttachmentMediaUploadTrace.log("media_sender_local_row_failed", details: [

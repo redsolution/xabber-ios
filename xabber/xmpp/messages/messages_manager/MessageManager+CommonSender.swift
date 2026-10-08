@@ -56,11 +56,6 @@ extension MessageManager {
         let date: Date
     }
 
-    private struct ForwardingSourceMessage {
-        let message: XMPPMessage
-        let timestamp: Date
-    }
-
     internal static func outboundDestinationJID(
         for opponent: String,
         conversationType: ClientSynchronizationManager.ConversationType,
@@ -183,6 +178,7 @@ extension MessageManager {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 guard optOutAllowsOutgoing(to: instance.opponent) else { return }
+                guard preparedBatchPredecessorsAllowed(for: instance, in: realm) else { return }
                 let requiresMediaUpload = Self.retryRequiresMediaUpload(instance)
                 if requiresMediaUpload {
                     let localOnlyUploadedReferences = instance.references.filter {
@@ -207,6 +203,9 @@ extension MessageManager {
                 if requiresMediaUpload {
                     self.uploadMedia(for: primary, retry: true)
                 } else {
+                    if instance.systemMetadata?["forwardUploadPending"] as? Bool == true {
+                        try realm.write { try Self.finalizePreparedForwardUpload(instance, in: realm) }
+                    }
                     self.processSender(
                         item: primary,
                         retry: true,
@@ -221,6 +220,7 @@ extension MessageManager {
         }
     }
     
+    @discardableResult
     internal func processSender(
         item primary: String,
         retry: Bool = false,
@@ -228,13 +228,15 @@ extension MessageManager {
         groupMentionIntent: GroupMessageMentionIntent? = nil,
         groupMentionSenderRole: GroupMemberRole? = nil,
         groupMentionAllCapabilityGranted: Bool = false
-    ) {
+    ) -> Bool {
         do {
             let realm = try WRealm.safe()
             guard let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
-                return
+                return false
             }
-            guard optOutAllowsOutgoing(to: item.opponent) else { return }
+            guard optOutAllowsOutgoing(to: item.opponent) else { return false }
+            guard preparedBatchPredecessorsAllowed(for: item, in: realm) else { return false }
+            guard item.systemMetadata?["forwardUploadPending"] as? Bool != true else { return false }
             if let groupMentionIntent {
                 let persistMentionAuthorization = {
                     item.groupMentionIntent = groupMentionIntent
@@ -271,12 +273,15 @@ extension MessageManager {
                                      elementID: item.messageId,
                                      child: nil)
             
+            stanza.setXmlns("jabber:client")
             let stanzaToSave = XMPPMessage(messageType: .chat,
                                            to: destinationJID,
                                            elementID: item.messageId,
                                            child: nil)
+            stanzaToSave.setXmlns("jabber:client")
             
-            childs.forEach {
+            let preparedContent = try Self.preparedForwardingContent(for: item, in: realm)
+            (preparedContent == nil ? childs : []).forEach {
                 stanza.addChild($0.copy() as! DDXMLElement)
                 stanzaToSave.addChild($0.copy() as! DDXMLElement)
             }
@@ -304,92 +309,62 @@ extension MessageManager {
             if conversationType.isEncrypted && !encryptedSendAvailability.canSend {
                 AccountManager.shared.find(for: item.owner)?.omemo.requestMissingDeviceLists(jid: item.opponent)
                 failEncryptedSend(OmemoManagerError.noTrustedRecipientDevices)
-                return
+                return false
             }
             
-            let forwardedItems = formForwardedMessages(item
-                .inlineForwards
-                .sorted(byKeyPath: "originalDate", ascending: true)
-                .toArray()
-                .compactMap { $0.messageId })
-            let forwardedFallbackBody = forwardedItems.reduce(into: "") { result, forwardedItem in
-                result += "\(forwardedItem.body)\n"
-            }
-            let forwardedFallbackOffset: Int
-            if forwardedFallbackBody.isNotEmpty,
-               item.legacyBody.hasPrefix(forwardedFallbackBody) {
-                forwardedFallbackOffset = forwardedItems.last?
-                    .referenceElement
-                    .attributeIntegerValue(forName: "end") ?? 0
+            let contentBody: String
+            let contentElements: [DDXMLElement]
+            if let preparedContent {
+                contentBody = preparedContent.body ?? ""
+                contentElements = (preparedContent.children ?? []).compactMap { $0 as? DDXMLElement }.filter {
+                    !SCEReceivePolicy.matches($0, name: "body", namespace: "jabber:client") &&
+                    !SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
+                }
             } else {
-                forwardedFallbackOffset = 0
+                let forwardedIDs = item.inlineForwards.sorted(byKeyPath: "originalDate", ascending: true)
+                    .toArray().compactMap { $0.messageId }
+                let forwardedItems = formForwardedMessages(forwardedIDs)
+                if !forwardedIDs.isEmpty && forwardedItems.isEmpty {
+                    throw ForwardOutgoingAdmissionError.missingPreparedContent
+                }
+                let forwardedFallbackBody = forwardedItems.map { "\($0.body)\n" }.joined()
+                let offset = forwardedFallbackBody.isNotEmpty && item.legacyBody.hasPrefix(forwardedFallbackBody)
+                    ? forwardedItems.last?.referenceElement.attributeIntegerValue(forName: "end") ?? 0 : 0
+                let mentions = item.createMentionsElement().map { [$0] } ?? []
+                contentBody = item.legacyBody
+                contentElements = forwardedItems.map(\.referenceElement) + mentions + shiftReferenceRanges(item.createReferences(), by: offset)
             }
-            let shiftedReferences = shiftReferenceRanges(
-                item.createReferences(),
-                by: forwardedFallbackOffset
-            )
+            for element in contentElements { stanzaToSave.addChild(element.copy() as! DDXMLElement) }
+            let savedBody = DDXMLElement(name: "body", xmlns: "jabber:client")
+            savedBody.stringValue = contentBody
+            stanzaToSave.addChild(savedBody)
 
             switch conversationType {
-                case .omemo, .omemo1, .axolotl:
-                    forwardedItems.forEach {
-                        if let copy = $0.referenceElement.copy() as? DDXMLElement {
-                            stanzaToSave.addChild(copy)
-                        }
+            case .omemo, .omemo1, .axolotl:
+                guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
+                    message: contentBody, date: item.sentDate, jid: item.opponent,
+                    additionalContent: contentElements.map { $0.copy() as! DDXMLElement },
+                    ignoreTimeSignature: item.displayAs == .system) else {
+                    failEncryptedSend()
+                    return false
+                }
+                do {
+                    guard let encrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: payload, to: item.opponent) else {
+                        throw OmemoManagerError.encryptionFailed
                     }
-                    
-                    if let mentions = item.createMentionsElement() {
-                        stanzaToSave.addChild(mentions)
-                    }
-
-                    shiftedReferences.forEach {
-                        if let copy = $0.copy() as? DDXMLElement {
-                            stanzaToSave.addChild(copy)
-                        }
-                    }
-                    
-                    let forwardedMessages = forwardedItems.map(\.referenceElement)
-                    let mentions = item.createMentionsElement().map { [$0] } ?? []
-                    
-                    guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
-                        message: item.legacyBody,
-                        date: item.sentDate,
-                        jid: item.opponent,
-                        additionalContent: [forwardedMessages, mentions, shiftedReferences].flatMap({ $0 }),
-                        ignoreTimeSignature: item.displayAs == .system
-                    ) else {
-                        failEncryptedSend()
-                        return
-                    }
-                    do {
-                        let encrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: payload, to: item.opponent)
-                        guard let encrypted = encrypted else {
-                            throw OmemoManagerError.encryptionFailed
-                        }
-                        stanza.addChild(encrypted)
-                    } catch {
-                        failEncryptedSend(error)
-                        return
-                    }
-                    stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
-                    stanzaToSave.addBody(item.legacyBody)
-                default:
-                    forwardedItems.forEach {
-                            stanza.addChild($0.referenceElement.copy() as! DDXMLElement)
-                            stanzaToSave.addChild($0.referenceElement.copy() as! DDXMLElement)
-                        }
-                    
-                    stanza.addBody(item.legacyBody)
-                    stanzaToSave.addBody(item.legacyBody)
-                    if let mentions = item.createMentionsElement() {
-                        stanza.addChild(mentions.copy() as! DDXMLElement)
-                        stanzaToSave.addChild(mentions.copy() as! DDXMLElement)
-                    }
-                    shiftedReferences.forEach {
-                        stanza.addChild($0.copy() as! DDXMLElement)
-                        stanzaToSave.addChild($0.copy() as! DDXMLElement)
-                    }
+                    stanza.addChild(encrypted)
+                } catch {
+                    failEncryptedSend(error)
+                    return false
+                }
+                stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
+            default:
+                for element in contentElements { stanza.addChild(element.copy() as! DDXMLElement) }
+                let bodyElement = DDXMLElement(name: "body", xmlns: "jabber:client")
+                bodyElement.stringValue = contentBody
+                stanza.addChild(bodyElement)
             }
-            
+
             stanza.addOriginId(item.messageId)
             stanzaToSave.addOriginId(item.messageId)
             
@@ -463,8 +438,10 @@ extension MessageManager {
                 }
                 
                 if retry {
-                    realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: item.primary)?
-                        .stanza = stanzaToSave.compactXMLString()
+                    if preparedContent == nil {
+                        realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: "\(item.primary)_stanza")?
+                            .stanza = stanzaToSave.compactXMLString()
+                    }
                     if let instance = realm.object(
                         ofType: LastChatsStorageItem.self,
                         forPrimaryKey: LastChatsStorageItem.genPrimary(
@@ -476,7 +453,7 @@ extension MessageManager {
                         instance.lastMessage = item
                         instance.messageDate = Date()
                     }
-                } else {
+                } else if preparedContent == nil {
                     item.originalStanza = stanzaToSave
                     item.storeStanza()
                 }
@@ -497,11 +474,13 @@ extension MessageManager {
                     )
                 }
                 LastChats.updateErrorState(for: conversationJID, owner: self.owner, conversationType: item.conversationType)
-                return
+                try recordPreparedSubmissionAcceptance(item, state: "queued", in: realm)
+                return true
             }
+            guard let sendingAccount = AccountManager.shared.find(for: owner) else { return false }
             let deferredMessageId = item.messageId
             let deferredConversationType = item.conversationType.rawValue
-            AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
+            sendingAccount.unsafeAction({ (user, stream) in
                 guard self.optOutAllowsOutgoing(to: conversationJID) else {
                     user.outgoingStanzaWasBlocked(stanza)
                     return
@@ -534,9 +513,48 @@ extension MessageManager {
                 }
             })
             LastChats.updateErrorState(for: conversationJID, owner: self.owner, conversationType: item.conversationType)
+            try recordPreparedSubmissionAcceptance(item, state: "awaitingTransport", in: realm)
         } catch {
             DDLogDebug("cant send message \(primary)")
+            if let realm = try? WRealm.safe(),
+               let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+               item.systemMetadata?["forwardPreparedVersion"] as? Int == 1 {
+                try? realm.write {
+                    item.state = .error
+                    item.messageErrorCode = "forward-preparation"
+                }
+            }
+            return false
         }
+        return true
+    }
+
+    private func recordPreparedSubmissionAcceptance(_ row: MessageStorageItem, state: String, in realm: Realm) throws {
+        guard row.systemMetadata?["forwardPreparedVersion"] as? Int == 1 else { return }
+        try realm.write {
+            var metadata = row.systemMetadata ?? [:]
+            metadata["forwardSubmissionState"] = state
+            row.systemMetadata = metadata
+        }
+    }
+
+    /// Resuming any retained tail first hands off the untouched predecessors.
+    /// An already queued or scheduled predecessor keeps its existing ID and is
+    /// not admitted or scheduled a second time by that tail's retry.
+    private func preparedBatchPredecessorsAllowed(for row: MessageStorageItem, in realm: Realm) -> Bool {
+        guard let batch = row.systemMetadata?["forwardBatchPrimaryIDs"] as? [String] else { return true }
+        guard let index = batch.firstIndex(of: row.primary), Set(batch).count == batch.count else { return false }
+        for primary in batch.prefix(index) {
+            guard let predecessor = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+                  predecessor.owner == owner, predecessor.outgoing,
+                  predecessor.systemMetadata?["forwardPreparedVersion"] as? Int == 1 else { return false }
+            let state = predecessor.systemMetadata?["forwardSubmissionState"] as? String
+            if state == "queued" || state == "awaitingTransport" { continue }
+            if !realm.objects(OutgoingMessageQueueItem.self)
+                .filter("owner == %@ AND messagePrimary == %@", owner, primary).isEmpty { continue }
+            guard processSender(item: primary) else { return false }
+        }
+        return true
     }
     
     struct ForwardedMessagePrimaryWithNotmalMessage {
@@ -545,89 +563,41 @@ extension MessageManager {
     }
     
     internal func formForwardedMessages(_ forwarded: [String]) -> [ForwardedMessageItem] {
-        var out: [ForwardedMessageItem] = []
         do {
             let realm = try WRealm.safe()
-            
-            let dateFormatter: DateFormatter = DateFormatter()
-            let timeFormatter: DateFormatter = DateFormatter()
-            
-            dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
-            timeFormatter.dateFormat = "[HH:mm:ss]"
-            
-            let preparedForwardedMessages = forwarded.compactMap {
-                return ForwardedMessagePrimaryWithNotmalMessage(
-                    primary: $0,
-                    stanzaPrimary: [$0, "stanza"].prp()
-                )
-            }
-            
-            try preparedForwardedMessages.forEach {
-                item in
-                var body: String? = nil
-                var stanza: DDXMLElement? = nil
-                var date: Date? = nil
-                if let instance = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: item.stanzaPrimary) {
-                    let storageItem = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: item.primary)
-                    let stanzaRaw = instance.stanza
-                    let document = try DDXMLDocument(xmlString: "\(stanzaRaw)", options: 0)
-                    guard let root = document.rootElement()?.copy() as? DDXMLElement else { fatalError() }
-                    
-                    let storedMessage = XMPPMessage(from: root)
-                    let forwardingSource = forwardingSourceMessage(
-                        from: storedMessage,
-                        storedTimestamp: instance.timestamp,
-                        storageItem: storageItem
-                    )
-                    let message = forwardingSource.message
-                    
-                    
-                    body = ">\(dateFormatter.string(from: forwardingSource.timestamp))\n\(timeFormatter.string(from: forwardingSource.timestamp)) \(message.from?.bare ?? "")\n\(message.body ?? "")".trimmingCharacters(in: .whitespacesAndNewlines)//.xmlEscaping(reverse: false)
-                    body = body!.replacingOccurrences(
-                        of: "\n",
-                        with: "\n>",//.xmlEscaping(reverse: false),
-                        options: [],
-                        range: Range<String.Index>(NSRange(location: 0,
-                                                           length: body!.count),
-                                                   in: body!)
-                    )
-                    date = forwardingSource.timestamp
-                    let refElement = DDXMLElement.element(withName: "reference") as! DDXMLElement
-                    refElement.setXmlns("https://xabber.com/protocol/references")
-                    refElement.addAttribute(withName: "type", stringValue: "mutable")
-                    let forwardedElement = DDXMLElement.element(withName: "forwarded", uri: "urn:xmpp:forward:0") as! DDXMLElement
-                    let delayElement = DDXMLElement.element(withName: "delay", uri: "urn:xmpp:delay") as! DDXMLElement
-                    delayElement.addAttribute(withName: "stamp", stringValue: (date ?? Date()).XMPPFormattedDate)
-                    forwardedElement.addChild(delayElement)
-                    let innerMessage = (message.copy() as? DDXMLElement) ?? message
-                    innerMessage.setXmlns("jabber:client")
-                    forwardedElement.addChild(innerMessage)
-                    refElement.addChild(forwardedElement)
-                    stanza = refElement
-                }
-                if let body = body,
-                    let stanza = stanza,
-                    let date = date {
-                    out.append(ForwardedMessageItem(referenceElement: stanza,
-                                                    body: body,//.xmlEscaping(reverse: true),
-                                                    count: body.count,
-                                                    date: date))
+            let sources = try ForwardSourceLoader.load(ids: forwarded, owner: owner, realm: realm)
+            let units = try ForwardSendPlanner.plan(sources: sources, comment: "")
+            var result: [ForwardedMessageItem] = []
+            var offset = 0
+            for unit in units {
+                for reference in unit.refs {
+                    guard let payload = inlineForwardPayloadMessage(from: reference),
+                          let begin = Int(reference.attributeStringValue(forName: "begin") ?? ""),
+                          let end = Int(reference.attributeStringValue(forName: "end") ?? ""),
+                          var fallback = Self.forwardWireSubstring(unit.body, begin: begin, end: end) else { continue }
+                    if fallback.hasSuffix("\n") { fallback.removeLast() }
+                    reference.removeAttribute(forName: "begin")
+                    reference.removeAttribute(forName: "end")
+                    reference.addAttribute(withName: "begin", integerValue: offset)
+                    offset += fallback.xmlEscaping(reverse: false).unicodeScalars.count + 1
+                    reference.addAttribute(withName: "end", integerValue: offset)
+                    result.append(ForwardedMessageItem(referenceElement: reference, body: fallback,
+                        count: fallback.count, date: payload.date ?? sources.first?.date ?? .distantPast))
                 }
             }
+            return result
         } catch {
-            DDLogDebug("cant form body for forwarded messages")
+            // The compatibility API must never turn a failed selection into a
+            // successful partial forward. Public admission uses the throwing API.
+            DDLogDebug("MessageManager: forwarding preparation rejected")
+            return []
         }
-        let sorted = out.sorted(by: { $0.date.compare($1.date) == .orderedDescending })
-        var fallbackOffset = 0
-        sorted.forEach { item in
-            item.referenceElement.addAttribute(withName: "begin", integerValue: fallbackOffset)
-            fallbackOffset += item.body
-                .xmlEscaping(reverse: false)
-                .unicodeScalars
-                .count + 1
-            item.referenceElement.addAttribute(withName: "end", integerValue: fallbackOffset)
-        }
-        return sorted
+    }
+
+    private static func forwardWireSubstring(_ body: String, begin: Int, end: Int) -> String? {
+        let scalars = Array(body.xmlEscaping(reverse: false).unicodeScalars)
+        guard begin >= 0, end >= begin, end <= scalars.count else { return nil }
+        return String(String.UnicodeScalarView(scalars[begin..<end])).xmlEscaping(reverse: true)
     }
 
     private func shiftReferenceRanges(
@@ -649,42 +619,6 @@ extension MessageManager {
         }
     }
 
-    private func forwardingSourceMessage(
-        from storedMessage: XMPPMessage,
-        storedTimestamp: Date,
-        storageItem: MessageStorageItem?
-    ) -> ForwardingSourceMessage {
-        guard storageItem?.conversationType == .saved else {
-            return ForwardingSourceMessage(message: storedMessage, timestamp: storedTimestamp)
-        }
-
-        if let savedServiceJid = storageItem?.opponent,
-           savedServiceJid.isNotEmpty,
-           [storedMessage.from?.bare, storedMessage.to?.bare].contains(savedServiceJid),
-           let payload = savedForwardedPayload(from: storedMessage) {
-            return ForwardingSourceMessage(
-                message: payload,
-                timestamp: getDeliveryDate(payload) ?? storageItem?.sentDate ?? storedTimestamp
-            )
-        }
-
-        return ForwardingSourceMessage(
-            message: storedMessage,
-            timestamp: getDeliveryDate(storedMessage) ?? storageItem?.sentDate ?? storedTimestamp
-        )
-    }
-
-    private func savedForwardedPayload(from message: XMPPMessage) -> XMPPMessage? {
-        for reference in message.elements(forName: "reference") where reference.xmlns() == "https://xabber.com/protocol/references" {
-            guard let forwarded = reference.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"),
-                  let payload = forwarded.element(forName: "message") else {
-                continue
-            }
-            let payloadCopy = payload.copy() as? DDXMLElement ?? payload
-            return XMPPMessage(from: payloadCopy)
-        }
-        return nil
-    }
     
     internal func prepareForwards(_ forwardedIds: [String], primary: String, isReport: Bool, owner: String, jid: String) -> [MessageForwardsInlineStorageItem] {
         var out: [MessageForwardsInlineStorageItem] = []
@@ -730,6 +664,78 @@ extension MessageManager {
         return out.sorted(by: { ($0.originalDate?.timeIntervalSince1970 ?? 0.0) < ($1.originalDate?.timeIntervalSince1970 ?? 0.0) })
     }
     
+    /// Edits current-level text without reconstructing any forwarded original.
+    internal static func messageByEditingForwardComment(
+        _ original: XMPPMessage, body: String, references: [DDXMLElement], mentions: DDXMLElement? = nil
+    ) throws -> XMPPMessage {
+        guard SCEReceivePolicy.matches(original, name: "message", namespace: "jabber:client"),
+              SCEReceivePolicy.children(of: original, named: "body", xmlns: "jabber:client").count == 1 else {
+            throw ForwardOutgoingAdmissionError.mismatchedPreparedContent
+        }
+        let message = XMPPMessage(from: original.copy() as! DDXMLElement)
+        let originalBody = message.body ?? ""
+        let allReferences = SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references")
+        let forwardMarkers = allReferences.filter { reference in
+            (reference.children ?? []).compactMap { $0 as? DDXMLElement }.contains { $0.localName == "forwarded" }
+        }
+        guard forwardMarkers.count == admittedInlineForwardReferences(in: message).count else {
+            throw ForwardOutgoingAdmissionError.mismatchedPreparedContent
+        }
+        var protected: [(reference: DDXMLElement, begin: Int, end: Int)] = []
+        for reference in allReferences {
+            if reference.attributeStringValue(forName: "type") == "decoration" {
+                reference.detach()
+                continue
+            }
+            guard reference.attributeStringValue(forName: "type") == "mutable" else { continue }
+            guard let begin = Int(reference.attributeStringValue(forName: "begin") ?? ""),
+                  let end = Int(reference.attributeStringValue(forName: "end") ?? ""),
+                  forwardWireSubstring(originalBody, begin: begin, end: end) != nil else {
+                throw ForwardOutgoingAdmissionError.mismatchedPreparedContent
+            }
+            protected.append((reference, begin, end))
+        }
+        protected.sort { $0.begin < $1.begin }
+        var previousEnd = 0
+        var prefix = ""
+        for item in protected {
+            guard item.begin >= previousEnd,
+                  let fallback = forwardWireSubstring(originalBody, begin: item.begin, end: item.end) else {
+                throw ForwardOutgoingAdmissionError.mismatchedPreparedContent
+            }
+            previousEnd = item.end
+            if !prefix.isEmpty && !prefix.hasSuffix("\n") { prefix += "\n" }
+            item.reference.removeAttribute(forName: "begin")
+            item.reference.removeAttribute(forName: "end")
+            item.reference.addAttribute(withName: "begin", integerValue: prefix.xmlEscaping(reverse: false).unicodeScalars.count)
+            prefix += fallback
+            item.reference.addAttribute(withName: "end", integerValue: prefix.xmlEscaping(reverse: false).unicodeScalars.count)
+        }
+        if !prefix.isEmpty && !prefix.hasSuffix("\n") && !body.isEmpty { prefix += "\n" }
+        for element in SCEReceivePolicy.children(of: message, named: "body", xmlns: "jabber:client") { element.detach() }
+        for element in SCEReceivePolicy.children(of: message, named: "stanza-id", xmlns: "urn:xmpp:sid:0") { element.detach() }
+        for element in SCEReceivePolicy.children(of: message, named: "time", xmlns: "https://xabber.com/protocol/delivery") { element.detach() }
+        for element in SCEReceivePolicy.children(of: message, named: "mentions", xmlns: "https://xabber.com/protocol/groups") { element.detach() }
+        let bodyElement = DDXMLElement(name: "body", xmlns: "jabber:client")
+        bodyElement.stringValue = prefix + body
+        message.addChild(bodyElement)
+        let offset = prefix.xmlEscaping(reverse: false).unicodeScalars.count
+        for reference in references {
+            let copy = reference.copy() as! DDXMLElement
+            if copy.attributeStringValue(forName: "type") != "data" {
+                for attribute in ["begin", "end"] {
+                    guard let value = Int(copy.attributeStringValue(forName: attribute) ?? "") else { continue }
+                    copy.removeAttribute(forName: attribute)
+                    copy.addAttribute(withName: attribute, integerValue: value + offset)
+                }
+            }
+            message.addChild(copy)
+        }
+        if let mentions { message.addChild(mentions.copy() as! DDXMLElement) }
+        return message
+    }
+
+    @discardableResult
     public func editSimpleMessage(
         _ body: String,
         primary: String,
@@ -737,25 +743,65 @@ extension MessageManager {
         groupMentionIntent: GroupMessageMentionIntent? = nil,
         groupMentionSenderRole: GroupMemberRole? = nil,
         groupMentionAllCapabilityGranted: Bool = false
-    ) {
+    ) -> Bool {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                guard optOutAllowsOutgoing(to: instance.opponent) else { return }
+                guard instance.owner == self.owner, instance.outgoing,
+                      optOutAllowsOutgoing(to: instance.opponent) else { return false }
                 let stanzaId = instance.archivedId
                 let conversationType = instance.conversationType
-                let original = Self.originalMessageForEdit(instance, in: realm)
-                references.forEach {
+                if let raw = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: primary + "_stanza"),
+                   raw.owner != self.owner { return false }
+                let original = try Self.originalMessageForEdit(instance, in: realm)
+                let hasStoredForwards = !instance.inlineForwards.isEmpty || instance.references.contains { $0.kind == .forward }
+                let isPreparedUnit = instance.systemMetadata?["forwardPreparedVersion"] as? Int == 1
+                let directForwardMarkers = original.map { message in
+                    SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references").filter {
+                        ($0.children ?? []).compactMap { $0 as? DDXMLElement }.contains { $0.localName == "forwarded" }
+                    }
+                } ?? []
+                let preservesPreparedContent = isPreparedUnit || hasStoredForwards || !directForwardMarkers.isEmpty
+                if preservesPreparedContent {
+                    guard realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: primary + "_stanza") != nil,
+                          let original, original.from?.bare == self.owner, original.to?.bare == instance.opponent else { return false }
+                    if hasStoredForwards && directForwardMarkers.isEmpty { return false }
+                }
+                let editedReferences = references.map { reference -> MessageReferenceStorageItem in
+                    let detached = MessageReferenceStorageItem(value: reference)
+                    if reference.realm != nil { detached.primary = UUID().uuidString }
+                    detached.temporaryData = reference.temporaryData
+                    detached.pendingMediaAttachment = reference.pendingMediaAttachment
+                    return detached
+                }
+                editedReferences.forEach {
                     $0.owner = self.owner
                     $0.jid = instance.opponent
                     $0.messageId = primary
                     $0.conversationType = conversationType
                     $0.sentDate = Date()
                 }
+                let preservedForwardEdit: XMPPMessage?
+                if preservesPreparedContent, let original {
+                    let projection = MessageStorageItem()
+                    projection.references.append(objectsIn: editedReferences)
+                    projection.groupMentionIntent = groupMentionIntent
+                    projection.groupMentionSenderRole = groupMentionSenderRole
+                    projection.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+                    preservedForwardEdit = try Self.messageByEditingForwardComment(original, body: body,
+                        references: projection.createReferences(), mentions: projection.createMentionsElement())
+                } else {
+                    preservedForwardEdit = nil
+                }
                 try realm.write {
                     instance.groupMentionIntent = groupMentionIntent
                     instance.groupMentionSenderRole = groupMentionSenderRole
                     instance.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+                    if let preservedForwardEdit {
+                        let pending = instance.editMessage(preservedForwardEdit, editDate: Date())
+                        MessageStorageItem.persistPendingMediaAttachments(pending, forMessagePrimary: instance.primary, in: realm)
+                        instance.storeStanza(in: realm)
+                    } else {
                     instance.legacyBody = body
                     instance.body = body
                     instance.references
@@ -763,11 +809,13 @@ extension MessageManager {
                         .compactMap { instance.references.index(of: $0) }
                         .sorted(by: >)
                         .forEach { instance.references.remove(at: $0) }
-                    instance.references.append(objectsIn: references)
+                    instance.references.append(objectsIn: editedReferences)
+                    }
                     instance.messageError = "Editing".localizeString(id: "editing", arguments: [])
                     instance.editDate = Date()
                 }
-                let message = XMPPMessage(from: DDXMLElement(name: "message", xmlns: "jabber:client"))
+                let message = preservedForwardEdit ?? XMPPMessage(from: DDXMLElement(name: "message", xmlns: "jabber:client"))
+                if preservedForwardEdit == nil {
                 if let original {
                     for name in ["type", "id", "from", "to"] {
                         if let value = original.attributeStringValue(forName: name) {
@@ -812,6 +860,7 @@ extension MessageManager {
                 instance.createReferences().forEach {
                     message.addChild($0)
                 }
+                }
                 let stanzaIdElement = DDXMLElement(name: "stanza-id", xmlns: "urn:xmpp:sid:0")
                 stanzaIdElement.addAttribute(withName: "by",
                                              stringValue: instance.groupchatMetadata != nil ? instance.opponent : self.owner)
@@ -825,21 +874,25 @@ extension MessageManager {
                         user.msgDeleteManager.editMessage(stream, primary: primary, editedMessage: message, conversationType: conversationType)
                     })
                 })
+                return true
             }
         } catch {
-            
+            DDLogDebug("MessageManager: edit admission rejected: \(error.localizedDescription)")
         }
+        return false
     }
 
-    private static func originalMessageForEdit(_ instance: MessageStorageItem, in realm: Realm) -> XMPPMessage? {
+    private static func originalMessageForEdit(_ instance: MessageStorageItem, in realm: Realm) throws -> XMPPMessage? {
         let original: DDXMLElement
-        if let current = instance.originalStanza {
-            original = current.copy() as! DDXMLElement
-        } else {
-            guard let stored = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: instance.primary + "_stanza"),
-                  stored.owner == instance.owner,
+        let stored = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: instance.primary + "_stanza")
+        if let stored {
+            guard stored.owner == instance.owner,
                   let parsed = try? DDXMLElement(xmlString: stored.stanza) else { return nil }
             original = parsed
+        } else if let current = instance.originalStanza {
+            original = current.copy() as! DDXMLElement
+        } else {
+            return nil
         }
         guard original.localName == "message",
               (original.uri ?? "").isEmpty || original.uri == "jabber:client" else { return nil }
@@ -850,7 +903,22 @@ extension MessageManager {
             original.addNamespace(DDXMLNode.namespace(withName: "", stringValue: "jabber:client") as! DDXMLNode)
         }
         guard let parsed = try? DDXMLElement(xmlString: original.xmlString) else { return nil }
-        return XMPPMessage(from: parsed)
+        let message = XMPPMessage(from: parsed)
+        if SCEReceivePolicy.hasOMEMO2(message) {
+            guard let stored,
+                  instance.canForwardAuthenticatedPlaintext(stanzaXML: stored.stanza, owner: instance.owner),
+                  SCEReceivePolicy.children(of: message, named: "encrypted", xmlns: SCEReceivePolicy.omemo).count == 1 else {
+                throw ForwardPreparationError.unavailablePlaintext(instance.primary)
+            }
+            // Verified receive evidence covers this exact reconstructed outer
+            // content. A replacement gets fresh transport encryption; nested
+            // originals remain opaque and are never stripped here.
+            SCEReceivePolicy.children(of: message, named: "encrypted", xmlns: SCEReceivePolicy.omemo).first?.detach()
+            SCEReceivePolicy.children(of: message, named: "encryption", xmlns: "urn:xmpp:eme:0")
+                .filter { $0.attributeStringValue(forName: "namespace") == SCEReceivePolicy.omemo }
+                .forEach { $0.detach() }
+        }
+        return message
     }
         
     private func publishLocalOutgoingAdmission(
@@ -870,6 +938,319 @@ extension MessageManager {
         )
     }
 
+    enum ForwardOutgoingAdmissionError: Error {
+        case gateClosed
+        case emptyPlan
+        case missingPreparedContent
+        case mismatchedPreparedContent
+        case persistenceFailed
+    }
+
+    struct ForwardOutgoingAdmission {
+        let primaryIDs: [String]
+        let messageIDs: [String]
+        let uploadPrimary: String?
+    }
+
+    enum ForwardUnitSubmissionState: Equatable {
+        case queued
+        case awaitingTransport
+        case blocked
+        case failed
+        case unsubmitted
+    }
+
+    struct ForwardUnitSubmission {
+        let primaryID: String
+        let state: ForwardUnitSubmissionState
+    }
+
+    struct ForwardOutgoingSubmission {
+        let admittedPrimaryIDs: [String]
+        let units: [ForwardUnitSubmission]
+        var handedOffPrimaryIDs: [String] { units.filter { [.queued, .awaitingTransport].contains($0.state) }.map(\.primaryID) }
+        var failedPrimaryIDs: [String] { units.filter { $0.state == .failed }.map(\.primaryID) }
+        var blockedPrimaryIDs: [String] { units.filter { $0.state == .blocked }.map(\.primaryID) }
+        var unsubmittedPrimaryIDs: [String] { units.filter { $0.state == .unsubmitted }.map(\.primaryID) }
+    }
+
+    enum ForwardBatchSendResult {
+        case rejected(Error)
+        case admitted(admission: ForwardOutgoingAdmission, submission: ForwardOutgoingSubmission)
+    }
+
+    /// Prepared content is persisted before any publication or network action.
+    /// A retry reads this snapshot rather than the currently selected messages.
+    internal static func preparedForwardingContent(
+        for item: MessageStorageItem, in realm: Realm
+    ) throws -> XMPPMessage? {
+        guard item.systemMetadata?["forwardPreparedVersion"] as? Int == 1 else { return nil }
+        guard let raw = realm.object(ofType: MessageStanzaStorageItem.self,
+                                     forPrimaryKey: "\(item.primary)_stanza"),
+              raw.owner == item.owner,
+              let document = try? DDXMLDocument(xmlString: raw.stanza, options: 0),
+              let root = document.rootElement(),
+              SCEReceivePolicy.matches(root, name: "message", namespace: "jabber:client") else {
+            throw ForwardOutgoingAdmissionError.missingPreparedContent
+        }
+        let message = XMPPMessage(from: root)
+        guard item.outgoing, message.elementID == item.messageId,
+              message.from?.bare == item.owner,
+              message.to?.bare == XMPPJID(string: item.opponent)?.bare,
+              SCEReceivePolicy.children(of: message, named: "body", xmlns: "jabber:client").count == 1 else {
+            throw ForwardOutgoingAdmissionError.mismatchedPreparedContent
+        }
+        return message
+    }
+
+    /// Local ranges are derived from the final wire body after removing its
+    /// fallback spans. Upload state belongs only to the caller's own files.
+    private static func preparedForwardProjection(
+        _ message: XMPPMessage, primary: String, jid: String, owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        ownReferences: [MessageReferenceStorageItem]
+    ) -> [MessageReferenceStorageItem] {
+        var projection = parseReferences(message, primary: primary, jid: jid, owner: owner).filter { $0.kind != .forward }
+        var available = Set(projection.indices)
+        for own in ownReferences.reversed() {
+            let match = projection.indices.reversed().first { index in
+                guard available.contains(index), projection[index].kind == own.kind else { return false }
+                if [.media, .voice].contains(own.kind) {
+                    return projection[index].fileSharingURI == own.fileSharingURI
+                }
+                return true
+            }
+            if let match {
+                available.remove(match)
+                let parsed = projection[match]
+                parsed.primary = own.primary
+                var metadata = own.metadata ?? [:]
+                (parsed.metadata ?? [:]).forEach { metadata[$0.key] = $0.value }
+                parsed.metadata = metadata
+                parsed.temporaryData = own.temporaryData
+                if parsed.pendingMediaAttachment == nil { parsed.pendingMediaAttachment = own.pendingMediaAttachment }
+                parsed.isUploaded = own.isUploaded
+                parsed.isDownloaded = own.isDownloaded
+                parsed.hasError = own.hasError
+            } else if [.media, .voice].contains(own.kind) {
+                // A local upload may not yet have a wire source URI. Keep its
+                // pending data until upload finalization produces that source.
+                let pending = MessageReferenceStorageItem(value: own)
+                pending.temporaryData = own.temporaryData
+                pending.pendingMediaAttachment = own.pendingMediaAttachment
+                pending.begin = 0
+                pending.end = 0
+                projection.append(pending)
+            }
+        }
+        let ownIDs = Set(ownReferences.map(\.primary))
+        for reference in projection where !ownIDs.contains(reference.primary) && [.media, .voice].contains(reference.kind) {
+            if let uri = reference.fileSharingURI, URL(string: uri)?.scheme != nil, !isLocalOnlyFileSharingURI(uri) {
+                reference.isUploaded = true
+            }
+        }
+        for reference in projection {
+            reference.conversationType = conversationType
+            reference.pendingMediaAttachment?.conversationType = conversationType
+        }
+        return projection
+    }
+
+    private static func validatePreparedContentSize(_ message: XMPPMessage) throws {
+        let bytes = (message.children ?? []).compactMap { $0 as? DDXMLElement }.filter {
+            !SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
+        }.reduce(0) { $0 + $1.xmlString.utf8.count }
+        guard bytes <= 32_768 else { throw ForwardPreparationError.oversizedContent }
+    }
+
+    private func admitForwarding(
+        body: String, legacyBody: String, to jid: String, forwarded: [String],
+        conversationType: ClientSynchronizationManager.ConversationType,
+        references: [MessageReferenceStorageItem], childs: [DDXMLElement] = [],
+        intent: ForwardSendIntent, options: ForwardSendOptions,
+        requiresUpload: Bool,
+        groupMentionIntent: GroupMessageMentionIntent? = nil,
+        groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) throws -> ForwardOutgoingAdmission {
+        let realm = try WRealm.safe()
+        let sources = try ForwardSourceLoader.load(ids: forwarded, owner: owner, realm: realm)
+        var units = try ForwardSendPlanner.plan(sources: sources, comment: legacyBody, intent: intent, options: options)
+        // New local attachments need a final authored carrier even when there is
+        // no typed comment or selected current-level content left.
+        let selectionHasOwnContent = sources.contains { source in
+            let message = source.message
+            let carried = admittedInlineForwardReferences(in: message)
+            return !((message.body ?? "").xmlEscaping(reverse: false).excludeFromBody(carried, groupchat: nil)
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+                SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references")
+                    .contains { ["media", "voice", "geoloc", "contact"].contains(getReferenceType($0) ?? "") }
+        }
+        if !references.isEmpty, units.last?.kind != .plain, legacyBody.isEmpty, !selectionHasOwnContent {
+            units.append(ForwardPreparedUnit(body: "", refs: [], kind: .plain))
+        }
+        if units.isEmpty && !references.isEmpty { units.append(ForwardPreparedUnit(body: legacyBody, refs: [], kind: .plain)) }
+        guard !units.isEmpty else { throw ForwardOutgoingAdmissionError.emptyPlan }
+        let conversationJID = Self.canonicalOutgoingConversationJID(for: jid, conversationType: conversationType)
+        guard let destination = Self.outboundDestinationJID(for: conversationJID,
+                conversationType: conversationType, resource: nil) else {
+            throw ForwardOutgoingAdmissionError.mismatchedPreparedContent
+        }
+        let batchDate = Date()
+        var rows: [MessageStorageItem] = []
+        for (index, unit) in units.enumerated() {
+            let last = index == units.count - 1
+            let messageID = UUID().uuidString
+            let row = MessageStorageItem()
+            row.conversationType = conversationType
+            let raw = XMPPMessage(messageType: .chat, to: destination, elementID: messageID, child: nil)
+            raw.setXmlns("jabber:client")
+            raw.addAttribute(withName: "from", stringValue: owner)
+            raw.addOriginId(messageID)
+            unit.appendContent(to: raw)
+            if last { childs.forEach { raw.addChild($0.copy() as! DDXMLElement) } }
+            let ownReferences: [MessageReferenceStorageItem] = last ? references.map { reference in
+                let copy = MessageReferenceStorageItem(value: reference)
+                // Managed inputs must not be overwritten by a new message.
+                if reference.realm != nil { copy.primary = UUID().uuidString }
+                copy.temporaryData = reference.temporaryData
+                copy.pendingMediaAttachment = reference.pendingMediaAttachment
+                copy.owner = owner
+                copy.jid = conversationJID
+                copy.conversationType = conversationType
+                let prefix = unit.body.xmlEscaping(reverse: false).unicodeScalars.count - legacyBody.xmlEscaping(reverse: false).unicodeScalars.count
+                if copy.kind != .forwardContactData {
+                    copy.begin += max(prefix, 0)
+                    copy.end += max(prefix, 0)
+                }
+                return copy
+            } : []
+            let ownProjection = MessageStorageItem()
+            ownProjection.owner = owner
+            ownProjection.opponent = conversationJID
+            ownProjection.primary = MessageStorageItem.genPrimary(messageId: messageID, owner: owner)
+            ownProjection.body = body
+            ownProjection.legacyBody = unit.body
+            ownProjection.systemMetadata = ["forwardPreparedVersion": 1]
+            ownProjection.references.append(objectsIn: ownReferences)
+            if ownReferences.contains(where: { [.media, .voice].contains($0.kind) && (!requiresUpload || $0.isUploaded) }) {
+                ownProjection.createLegacyBody()
+            }
+            let ownWireReferences = ownProjection.createReferences()
+            ownWireReferences.forEach { raw.addChild($0) }
+            SCEReceivePolicy.children(of: raw, named: "body", xmlns: "jabber:client").first?.stringValue = ownProjection.legacyBody
+            if last {
+                ownProjection.groupMentionIntent = groupMentionIntent
+                ownProjection.groupMentionSenderRole = groupMentionSenderRole
+                ownProjection.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+                if let mentions = ownProjection.createMentionsElement() { raw.addChild(mentions) }
+            }
+            try Self.validatePreparedContentSize(raw)
+            // The wire serializer supplies inherited QNames for file/source
+            // descendants. Parse that exact serialized content before deriving
+            // local ranges so display and receiver admission see the same XML.
+            let finalRaw = try XMPPMessage(xmlString: raw.xmlString)
+            let primary = MessageStorageItem.genPrimary(messageId: messageID, owner: owner)
+            let projection = Self.preparedForwardProjection(finalRaw, primary: primary, jid: conversationJID, owner: owner,
+                                                            conversationType: conversationType, ownReferences: ownReferences)
+            ownProjection.references.removeAll()
+            ownProjection.references.append(objectsIn: projection)
+            let visibleBody = ownProjection.normalizedIncomingTextBody(from: finalRaw)
+            row.configureOutgoingMessage(visibleBody, legacy: ownProjection.legacyBody, messageId: messageID,
+                owner: owner, opponent: conversationJID, references: projection,
+                inlineForwards: parseInlineMessages(finalRaw, parentId: primary, jid: conversationJID, owner: owner))
+            row.date = batchDate.addingTimeInterval(Double(index) * 0.000_001)
+            row.sentDate = row.date
+            if last {
+                row.groupMentionIntent = groupMentionIntent
+                row.groupMentionSenderRole = groupMentionSenderRole
+                row.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+            }
+            row.systemMetadata = ["forwardPreparedVersion": 1]
+            row.state = requiresUpload && last ? .uploading : (conversationType == .regular ? .sending : .notSended)
+            if requiresUpload && last {
+                var metadata = row.systemMetadata ?? [:]
+                metadata["forwardOwnReferencePrimaryIDs"] = ownReferences.map(\.primary)
+                metadata["forwardOwnReferenceCount"] = ownWireReferences.count
+                metadata["forwardPreparedBaseBody"] = unit.body
+                row.systemMetadata = metadata
+            }
+            row.originalStanza = finalRaw
+            rows.append(row)
+        }
+        for row in rows {
+            var metadata = row.systemMetadata ?? [:]
+            metadata["forwardBatchPrimaryIDs"] = rows.map(\.primary)
+            if requiresUpload && row.primary == rows.last?.primary { metadata["forwardUploadPending"] = true }
+            row.systemMetadata = metadata
+        }
+        try realm.write {
+            for row in rows {
+                guard row.save(commitTransaction: false) else { throw ForwardOutgoingAdmissionError.persistenceFailed }
+            }
+            realm.object(ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: owner, conversationType: conversationType))?.draftMessage = nil
+        }
+        for row in rows {
+            publishLocalOutgoingAdmission(primaryID: row.primary, conversationJID: conversationJID, conversationType: conversationType)
+        }
+        return ForwardOutgoingAdmission(primaryIDs: rows.map(\.primary), messageIDs: rows.map(\.messageId),
+                                         uploadPrimary: requiresUpload ? rows.last?.primary : nil)
+    }
+
+    @discardableResult
+    internal func submitForwarding(_ admission: ForwardOutgoingAdmission) -> ForwardOutgoingSubmission {
+        var units: [ForwardUnitSubmission] = []
+        var stopped = false
+        for primary in admission.primaryIDs {
+            guard !stopped else {
+                units.append(ForwardUnitSubmission(primaryID: primary, state: .unsubmitted))
+                continue
+            }
+            let accepted = processSender(item: primary)
+            let realm = try? WRealm.safe()
+            let row = realm?.object(ofType: MessageStorageItem.self, forPrimaryKey: primary)
+            let state: ForwardUnitSubmissionState
+            if accepted {
+                let queued = realm?.objects(OutgoingMessageQueueItem.self)
+                    .filter("owner == %@ AND messagePrimary == %@", owner, primary).isEmpty == false
+                state = queued ? .queued : .awaitingTransport
+            } else {
+                state = row?.state == .error ? .failed : .blocked
+                stopped = true
+            }
+            units.append(ForwardUnitSubmission(primaryID: primary, state: state))
+        }
+        return ForwardOutgoingSubmission(admittedPrimaryIDs: admission.primaryIDs, units: units)
+    }
+
+    /// Callers needing batch progress should use this result rather than treating
+    /// a legacy String admission token as proof that every carrier was sent.
+    @discardableResult
+    public func sendForwardingMessage(
+        _ body: String, to jid: String, forwarded: [String],
+        conversationType: ClientSynchronizationManager.ConversationType,
+        references: [MessageReferenceStorageItem] = [], childs: [DDXMLElement] = [],
+        intent: ForwardSendIntent = .forward, options: ForwardSendOptions = .init(),
+        groupMentionIntent: GroupMessageMentionIntent? = nil,
+        groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) -> ForwardBatchSendResult {
+        guard optOutAllowsOutgoing(to: jid) else {
+            return .rejected(ForwardOutgoingAdmissionError.gateClosed)
+        }
+        do {
+            let admission = try admitForwarding(body: body, legacyBody: body, to: jid, forwarded: forwarded,
+                conversationType: conversationType, references: references, childs: childs,
+                intent: intent, options: options, requiresUpload: false,
+                groupMentionIntent: groupMentionIntent, groupMentionSenderRole: groupMentionSenderRole,
+                groupMentionAllCapabilityGranted: groupMentionAllCapabilityGranted)
+            return .admitted(admission: admission, submission: submitForwarding(admission))
+        } catch {
+            return .rejected(error)
+        }
+    }
+
     public func sendSimpleMessage(
         _ body: String,
         to jid: String,
@@ -878,11 +1259,24 @@ extension MessageManager {
         conversationType: ClientSynchronizationManager.ConversationType,
         references: [MessageReferenceStorageItem] = [],
         isReport: Bool = false,
+        forwardIntent: ForwardSendIntent = .forward,
+        forwardOptions: ForwardSendOptions = .init(),
         groupMentionIntent: GroupMessageMentionIntent? = nil,
         groupMentionSenderRole: GroupMemberRole? = nil,
         groupMentionAllCapabilityGranted: Bool = false
     ) -> String {
         guard optOutAllowsOutgoing(to: jid) else { return "" }
+        if !forwarded.isEmpty && !isReport {
+            switch sendForwardingMessage(body, to: jid, forwarded: forwarded, conversationType: conversationType,
+                    references: references, childs: childs, intent: forwardIntent, options: forwardOptions,
+                    groupMentionIntent: groupMentionIntent, groupMentionSenderRole: groupMentionSenderRole,
+                    groupMentionAllCapabilityGranted: groupMentionAllCapabilityGranted) {
+            case .rejected:
+                return ""
+            case .admitted(let admission, _):
+                return admission.messageIDs.last ?? ""
+            }
+        }
         let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
@@ -963,6 +1357,7 @@ extension MessageManager {
             )
         } catch {
             DDLogDebug("cant store new message item")
+            return ""
         }
         return originalId
     }
@@ -998,14 +1393,16 @@ extension MessageManager {
         }
     }
     
-    public func willSendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) -> String? {
+    public func willSendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType, forwardIntent: ForwardSendIntent = .forward, forwardOptions: ForwardSendOptions = .init()) -> String? {
         willSendMediaMessage(
             attachments,
             to: jid,
             forwarded: forwarded,
             conversationType: conversationType,
             body: "",
-            legacyBody: ""
+            legacyBody: "",
+            forwardIntent: forwardIntent,
+            forwardOptions: forwardOptions
         )
     }
 
@@ -1015,10 +1412,22 @@ extension MessageManager {
         forwarded: [String],
         conversationType: ClientSynchronizationManager.ConversationType,
         body: String,
-        legacyBody captionLegacyBody: String
+        legacyBody captionLegacyBody: String,
+        forwardIntent: ForwardSendIntent = .forward,
+        forwardOptions: ForwardSendOptions = .init()
     ) -> String? {
         guard optOutAllowsOutgoing(to: jid) else { return nil }
         if attachments.isEmpty { return nil }
+        if !forwarded.isEmpty {
+            do {
+                return try admitForwarding(body: body, legacyBody: captionLegacyBody, to: jid, forwarded: forwarded,
+                    conversationType: conversationType, references: attachments,
+                    intent: forwardIntent, options: forwardOptions, requiresUpload: true).uploadPrimary
+            } catch {
+                DDLogDebug("MessageManager: media forwarding admission rejected")
+                return nil
+            }
+        }
         do {
             let realm = try  WRealm.safe()
             let conversationJID = Self.canonicalOutgoingConversationJID(for: jid, conversationType: conversationType)
@@ -1068,18 +1477,85 @@ extension MessageManager {
     }
     
     public final func continueSendMediaMessage(_ primary: String?) {
-        guard let primary = primary else { return }
+        guard let primary else { return }
+        if let realm = try? WRealm.safe(),
+           let row = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+            guard preparedBatchPredecessorsAllowed(for: row, in: realm) else { return }
+        }
         uploadMedia(for: primary)
     }
-    
-    public func sendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType) {
+
+    /// Replaces only the current user's upload projection. Forwarded originals,
+    /// cards and existing files stay in the admitted snapshot unchanged.
+    private static func finalizePreparedForwardUpload(_ row: MessageStorageItem, in realm: Realm) throws {
+        guard row.systemMetadata?["forwardUploadPending"] as? Bool == true,
+              let original = try preparedForwardingContent(for: row, in: realm) else { return }
+        let ids = row.systemMetadata?["forwardOwnReferencePrimaryIDs"] as? [String] ?? []
+        let own = ids.compactMap { id in row.references.first { $0.primary == id } }.map { reference -> MessageReferenceStorageItem in
+            let copy = MessageReferenceStorageItem(value: reference)
+            copy.temporaryData = reference.temporaryData
+            copy.pendingMediaAttachment = reference.pendingMediaAttachment
+            return copy
+        }
+        let previousCount = row.systemMetadata?["forwardOwnReferenceCount"] as? Int ?? 0
+        let oldReferences = SCEReceivePolicy.children(of: original, named: "reference", xmlns: "https://xabber.com/protocol/references")
+        guard previousCount <= oldReferences.count else { throw ForwardOutgoingAdmissionError.mismatchedPreparedContent }
+        var oldOwn = Array(oldReferences.suffix(previousCount))
+        for reference in own.reversed() {
+            let decoration = [.markup, .mention, .quote].contains(reference.kind)
+            guard let index = oldOwn.indices.reversed().first(where: {
+                getReferenceType(oldOwn[$0]) == reference.kind.rawValue ||
+                    (decoration && oldOwn[$0].attributeStringValue(forName: "type") == "decoration")
+            }) else { continue }
+            let wire = oldOwn.remove(at: index)
+            reference.begin = Int(wire.attributeStringValue(forName: "begin") ?? "") ?? 0
+            reference.end = Int(wire.attributeStringValue(forName: "end") ?? "") ?? 0
+        }
+        oldReferences.suffix(previousCount).forEach { $0.detach() }
+        let projection = MessageStorageItem()
+        projection.primary = row.primary
+        projection.owner = row.owner
+        projection.opponent = row.opponent
+        projection.legacyBody = row.systemMetadata?["forwardPreparedBaseBody"] as? String ?? row.legacyBody
+        projection.systemMetadata = ["forwardPreparedVersion": 1]
+        projection.references.append(objectsIn: own)
+        projection.createLegacyBody()
+        projection.createReferences().forEach { original.addChild($0) }
+        SCEReceivePolicy.children(of: original, named: "body", xmlns: "jabber:client").first?.stringValue = projection.legacyBody
+        try validatePreparedContentSize(original)
+        let finalized = try XMPPMessage(xmlString: original.xmlString)
+        let projectedReferences = preparedForwardProjection(finalized, primary: row.primary, jid: row.opponent,
+                                                            owner: row.owner, conversationType: row.conversationType,
+                                                            ownReferences: own)
+        let projectedForwards = parseInlineMessages(finalized, parentId: row.primary, jid: row.opponent, owner: row.owner)
+        realm.add(projectedReferences, update: .modified)
+        row.legacyBody = projection.legacyBody
+        row.references.removeAll()
+        row.references.append(objectsIn: projectedReferences)
+        row.body = row.normalizedIncomingTextBody(from: finalized)
+        row.inlineForwards.removeAll()
+        row.inlineForwards.append(objectsIn: projectedForwards)
+        row.updateDisplayMode()
+        MessageStorageItem.persistPendingMediaAttachments(row.pendingMediaAttachmentsIncludingInlineForwards(),
+                                                           forMessagePrimary: row.primary, in: realm)
+        row.originalStanza = finalized
+        var metadata = row.systemMetadata ?? [:]
+        metadata["forwardUploadPending"] = false
+        metadata.removeValue(forKey: "forwardPreparedBaseBody")
+        row.systemMetadata = metadata
+        row.storeStanza(in: realm)
+    }
+
+    public func sendMediaMessage(_ attachments: [MessageReferenceStorageItem], to jid: String, forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType, forwardIntent: ForwardSendIntent = .forward, forwardOptions: ForwardSendOptions = .init()) {
         sendMediaMessage(
             attachments,
             to: jid,
             forwarded: forwarded,
             conversationType: conversationType,
             body: "",
-            legacyBody: ""
+            legacyBody: "",
+            forwardIntent: forwardIntent,
+            forwardOptions: forwardOptions
         )
     }
 
@@ -1089,7 +1565,9 @@ extension MessageManager {
         forwarded: [String],
         conversationType: ClientSynchronizationManager.ConversationType,
         body: String,
-        legacyBody captionLegacyBody: String
+        legacyBody captionLegacyBody: String,
+        forwardIntent: ForwardSendIntent = .forward,
+        forwardOptions: ForwardSendOptions = .init()
     ) {
         let primary = willSendMediaMessage(
             attachments,
@@ -1097,7 +1575,9 @@ extension MessageManager {
             forwarded: forwarded,
             conversationType: conversationType,
             body: body,
-            legacyBody: captionLegacyBody
+            legacyBody: captionLegacyBody,
+            forwardIntent: forwardIntent,
+            forwardOptions: forwardOptions
         )
         continueSendMediaMessage(primary)
     }
@@ -1112,6 +1592,7 @@ extension MessageManager {
             let realm = try WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 guard optOutAllowsOutgoing(to: instance.opponent) else { return }
+                guard preparedBatchPredecessorsAllowed(for: instance, in: realm) else { return }
                 let opponent = instance.opponent
                 let conversationType = instance.conversationType
                 let referenceCount = instance.references.count
@@ -1168,7 +1649,11 @@ extension MessageManager {
                         let uploadedReferenceCount = instance.references.filter("isUploaded == true").count
                         let referenceCount = instance.references.count
                         try realm.write {
-                            instance.createLegacyBody()
+                            if instance.systemMetadata?["forwardUploadPending"] as? Bool == true {
+                                try Self.finalizePreparedForwardUpload(instance, in: realm)
+                            } else {
+                                instance.createLegacyBody()
+                            }
                             instance.state = .sending
                             instance.messageError = nil
                             instance.messageErrorCode = nil

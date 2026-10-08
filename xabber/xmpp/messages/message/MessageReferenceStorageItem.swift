@@ -241,6 +241,7 @@ class MessageReferenceStorageItem: Object {
         case systemMessage = "system-message"
         case geoloc = "geoloc"
         case contact = "contact"
+        case forwardContactData = "forward-contact-data"
         case none = ""
     }
 
@@ -681,6 +682,8 @@ class MessageReferenceStorageItem: Object {
     var xmlType: String {
         get {
             switch kind {
+            case .forwardContactData:
+                return "data"
             case .markup, .mention, .quote:
                 return "decoration"
             case .voice, .media: return "mutable"

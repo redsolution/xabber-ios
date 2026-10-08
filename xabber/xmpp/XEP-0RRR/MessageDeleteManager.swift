@@ -326,12 +326,35 @@ class MessageDeleteManager: AbstractXMPPManager {
                 .filter("owner == %@ AND opponent == %@ AND archivedId == %@", owner, conversation, stanzaId).first {
                 try realm.write {
                     if instance.isInvalidated { return }
+                    // Keep expanded content QNames explicit while translating
+                    // the server codec's message wrapper into a client source.
+                    let normalized = DDXMLElement(name: "message", xmlns: SCEReceivePolicy.client)
+                    for namespace in messageContainer.namespaces ?? [] where namespace.name?.isEmpty == false {
+                        normalized.addNamespace(namespace.copy() as! DDXMLNode)
+                    }
+                    for attribute in messageContainer.attributes ?? [] {
+                        normalized.addAttribute(attribute.copy() as! DDXMLNode)
+                    }
+                    for child in messageContainer.children ?? [] {
+                        if let child = child as? DDXMLElement {
+                            normalized.addChild(SCEReceivePolicy.canonicalElementCopy(child))
+                        } else {
+                            normalized.addChild(child.copy() as! DDXMLNode)
+                        }
+                    }
+                    if normalized.attribute(forName: "to") == nil {
+                        normalized.addAttribute(withName: "to", stringValue: instance.outgoing ? instance.opponent : owner)
+                    }
+                    if normalized.attribute(forName: "id") == nil, instance.messageId.isNotEmpty {
+                        normalized.addAttribute(withName: "id", stringValue: instance.messageId)
+                    }
                     let pendingMediaAttachments = instance.editMessage(
-                        XMPPMessage(from: messageContainer),
+                        XMPPMessage(from: normalized),
                         editDate: editDate
                     )
                     instance.incomingEncryption = encryption
                     instance.applyIncomingSenderTrust(authenticatedSender, encryption: encryption)
+                    instance.storeStanza(in: realm)
                     MessageStorageItem.persistPendingMediaAttachments(
                         pendingMediaAttachments,
                         forMessagePrimary: instance.primary,

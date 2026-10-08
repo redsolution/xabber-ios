@@ -39,7 +39,7 @@ extension ChatViewController: ContextMenuDelegate {
             case "reply":
                 self.inSearchMode.accept(false)
                 self.forwardedIds.accept(Set<String>())
-                self.attachedMessagesIds.accept([primary])
+                self.setComposerForwardSelection([primary], intent: .reply)
                 self.editMessageId.accept(nil)
             case "forward":
                 self.showShareViewController([primary])
@@ -54,7 +54,7 @@ extension ChatViewController: ContextMenuDelegate {
             case "edit":
                 self.inSearchMode.accept(false)
                 self.forwardedIds.accept(Set<String>())
-                self.attachedMessagesIds.accept([])
+                self.setComposerForwardSelection([], intent: .forward)
                 self.editMessageId.accept(primary)
             case "report":
                 let vc = AbuseReportViewController()
@@ -629,7 +629,7 @@ extension ChatViewController: MessageCellDelegate {
         let primary = item.primary
         self.inSearchMode.accept(false)
         self.forwardedIds.accept(Set<String>())
-        attachedMessagesIds.accept([primary])
+        setComposerForwardSelection([primary], intent: .reply)
     }
     
     func selectMessage(in cell: MessageCollectionViewCell) {

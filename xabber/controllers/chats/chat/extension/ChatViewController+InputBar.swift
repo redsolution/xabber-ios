@@ -173,13 +173,7 @@ extension ChatViewController {
         NSLog("ATTACHMENT_TAP event=coordinator_create")
         let coordinator = ChatAttachmentFlowCoordinator(
             presentingViewController: self,
-            context: ChatAttachmentFlowContext(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType,
-                forwardedMessageIds: self.attachedMessagesIds.value,
-                composerTintColor: self.accountPallete.tint600
-            )
+            context: self.makeAttachmentFlowContext()
         )
         coordinator.delegate = self
         self.chatAttachmentFlowCoordinator = coordinator
@@ -408,7 +402,14 @@ extension ChatViewController: ChatAttachmentFlowCoordinatorDelegate {
     }
 
     func chatAttachmentFlowCoordinatorDidSend(_ coordinator: ChatAttachmentFlowCoordinator) {
+        guard let retainedCoordinator = chatAttachmentFlowCoordinator,
+              retainedCoordinator === coordinator else { return }
         clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
+        let context = coordinator.context
+        guard self.owner == context.owner, self.jid == context.jid,
+              self.conversationType == context.conversationType,
+              self.attachedMessagesIds.value == context.forwardedMessageIds,
+              self.composerForwardIntent == context.forwardIntent else { return }
         finishOutgoingAttachmentSend(requestScroll: false)
     }
 

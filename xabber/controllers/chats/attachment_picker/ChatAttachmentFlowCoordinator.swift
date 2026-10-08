@@ -7,19 +7,22 @@ struct ChatAttachmentFlowContext {
     let conversationType: ClientSynchronizationManager.ConversationType
     let forwardedMessageIds: [String]
     let composerTintColor: UIColor
+    let forwardIntent: ForwardSendIntent
 
     init(
         owner: String,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         forwardedMessageIds: [String],
-        composerTintColor: UIColor = .systemBlue
+        composerTintColor: UIColor = .systemBlue,
+        forwardIntent: ForwardSendIntent = .forward
     ) {
         self.owner = owner
         self.jid = jid
         self.conversationType = conversationType
         self.forwardedMessageIds = forwardedMessageIds
         self.composerTintColor = composerTintColor
+        self.forwardIntent = forwardIntent
     }
 }
 
@@ -121,7 +124,7 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
     weak var delegate: ChatAttachmentFlowCoordinatorDelegate?
 
     private weak var presentingViewController: UIViewController?
-    private let context: ChatAttachmentFlowContext
+    let context: ChatAttachmentFlowContext
     private let sourceControllerFactory: ChatAttachmentSourceControllerFactory
     private let presentationHandler: PresentationHandler
     private let dismissalHandler: DismissalHandler

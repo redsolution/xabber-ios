@@ -14,7 +14,7 @@ extension ChatViewController: OpenChatDelegate {
         vc.jid = jid
         vc.owner = owner
         vc.conversationType = conversationType
-        vc.attachedMessagesIds.accept(messages)
+        vc.setComposerForwardSelection(messages, intent: .forward)
         switch CommonConfigManager.shared.interfaceType {
             case .split:
                 self.navigationController?.setViewControllers([vc], animated: true)

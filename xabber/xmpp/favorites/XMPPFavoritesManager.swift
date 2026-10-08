@@ -49,6 +49,7 @@ struct SavedMessageEnvelope {
     let messageId: String
     let date: Date
     let sentDate: Date
+    let originalDate: Date?
 }
 
 enum SavedMessagePersistencePolicy {
@@ -91,23 +92,39 @@ enum SavedMessageParser {
         var date = deliveryDate(from: outerMessage)
         var originalForwardedDate: Date? = nil
 
-        if let reference = outerMessage.element(forName: "reference"),
-           let forwarded = reference.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"),
-           let rawMessage = forwarded.element(forName: "message"),
-           let forwardedDate = deliveryDate(from: outerMessage) {
-            storageMessage = XMPPMessage(from: rawMessage)
+        let forwardReferences = admittedInlineForwardReferences(in: outerMessage)
+        // Rejected overlaps or mixed payloads still belong to the carrier and
+        // must not disappear when stripping a presentation-only service wrapper.
+        let canonicalForwardReferenceCount = SCEReceivePolicy.children(
+            of: outerMessage, named: "reference", xmlns: "https://xabber.com/protocol/references"
+        ).filter {
+            !SCEReceivePolicy.children(of: $0, named: "forwarded", xmlns: "urn:xmpp:forward:0").isEmpty
+        }.count
+        let currentText = (outerMessage.body ?? "").xmlEscaping(reverse: false)
+            .excludeFromBody(forwardReferences, groupchat: nil)
+        // Only the service's single, pure save wrapper is presentation-only.
+        // A content carrier with multiple roots or a comment stays intact.
+        let configuredService = favoritesNode.flatMap { XMPPJID(string: $0)?.bare }
+        let addressedToService = configuredService == nil ||
+            [outerMessage.from?.bare, outerMessage.to?.bare].contains(configuredService)
+        if addressedToService, canonicalForwardReferenceCount == 1, forwardReferences.count == 1,
+           currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let forwardedDate = deliveryDate(from: outerMessage),
+           let payload = inlineForwardPayloadMessage(from: forwardReferences[0]) {
+            storageMessage = XMPPMessage(from: payload.message.copy() as! DDXMLElement)
             innerMessage = storageMessage
             isForwardedSaved = true
             date = forwardedDate
-            originalForwardedDate = deliveryDate(fromForwarded: forwarded)
+            originalForwardedDate = payload.date
         }
 
         guard let originalFromJid = storageMessage.from?.bare,
               let originalToJid = storageMessage.to?.bare,
-              let sentDate = originalForwardedDate ?? deliveryDate(from: storageMessage),
               let messageDate = date else {
             return nil
         }
+        let originalDate = originalForwardedDate ?? deliveryDate(from: storageMessage)
+        let sentDate = originalDate ?? messageDate
 
         let displayAuthorJid = groupDisplayAuthorJid(from: storageMessage) ?? originalFromJid
         let serviceJid = SavedMessagePersistencePolicy.serviceJid(
@@ -139,7 +156,8 @@ enum SavedMessageParser {
             innerStanzaIds: innerMessage.map(stanzaIds(from:)) ?? [],
             messageId: getUniqueMessageId(outerMessage, owner: owner),
             date: messageDate,
-            sentDate: sentDate
+            sentDate: sentDate,
+            originalDate: originalDate
         )
     }
 
@@ -412,45 +430,38 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         return true
     }
 
+    internal func buildForwardMessages(for forwardedIds: [String]) throws -> [XMPPMessage] {
+        guard let node, let destination = XMPPJID(string: node), destination.resource == nil else {
+            throw ForwardPreparationError.missingSource("saved-service")
+        }
+        let realm = try WRealm.safe()
+        let sources = try ForwardSourceLoader.load(ids: forwardedIds, owner: owner, realm: realm)
+        let units = try ForwardSendPlanner.plan(sources: sources, comment: "")
+        guard !units.isEmpty else { throw ForwardPreparationError.missingSource("saved-selection") }
+        return units.map { unit in
+            let id = UUID().uuidString
+            let stanza = XMPPMessage(messageType: .chat, to: destination, elementID: id, child: nil)
+            stanza.setXmlns("jabber:client")
+            stanza.addAttribute(withName: "from", stringValue: owner)
+            stanza.addOriginId(id)
+            unit.appendContent(to: stanza)
+            return stanza
+        }
+    }
+
     internal func buildForwardMessage(for forwardedIds: [String]) -> XMPPMessage? {
-        guard let node = self.node else {
-            return nil
-        }
-
-        let originalId = NanoID.new(8)
-        let stanza = XMPPMessage(messageType: .chat, to: XMPPJID(string: node), elementID: originalId, child: nil)
-        stanza.addAttribute(withName: "from", stringValue: owner)
-
-        let messageManager = AccountManager.shared.find(for: self.owner)?.messages ?? MessageManager(withOwner: self.owner, activeStream: false)
-        let forwardedItems = messageManager.formForwardedMessages(forwardedIds)
-        let legacyBody = forwardedItems
-            .map(\.body)
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if legacyBody.isNotEmpty {
-            stanza.addBody(legacyBody)
-        }
-
-        forwardedItems.forEach {
-            stanza.addChild($0.referenceElement.copy() as! DDXMLElement)
-        }
-
-        stanza.addOriginId(originalId)
-        return stanza
+        guard let messages = try? buildForwardMessages(for: forwardedIds), messages.count == 1 else { return nil }
+        return messages[0]
     }
 
     @discardableResult
     public func forwardMessages(_ forwardedIds: [String], stream: XMPPStream) -> Bool {
-        guard isAvailable(),
-              let stanza = buildForwardMessage(for: forwardedIds) else {
-            return false
-        }
-
-        stream.send(stanza)
+        guard isAvailable(), let stanzas = try? buildForwardMessages(for: forwardedIds) else { return false }
+        // Prepare every carrier before the first transport handoff.
+        stanzas.forEach(stream.send)
         return true
     }
-    
+
     public func receiveSaved(message messageContainer: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext,
                              authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         do {
@@ -504,9 +515,12 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                 let storedXML = existedInstance.originalStanza?.xmlString ??
                     (persistedStanza?.owner == self.owner ? persistedStanza?.stanza : nil)
                 let content = MessageStorageItem()
-                content.body = message.body ?? ""; content.legacyBody = content.body
+                content.legacyBody = message.body ?? ""
+                content.body = content.legacyBody.xmlEscaping(reverse: false).excludeFromBody(
+                    SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references"), groupchat: nil)
                 content.references.append(objectsIn: parseReferences(message,
                     primary: existedInstance.primary, jid: savedServiceJid, owner: self.owner))
+                appendSavedContactData(envelope, to: content.references, primary: existedInstance.primary)
                 let isExactStoredStanza = existedInstance.owner == self.owner &&
                     existedInstance.opponent == savedServiceJid && existedInstance.conversationType == .saved &&
                     existedInstance.hasSameIncomingContent(as: content) && storedXML == message.xmlString
@@ -515,6 +529,14 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                     existedInstance.savedForwardAuthorJid = envelope.isForwardedSaved
                         ? envelope.displayAuthorJid
                         : ""
+                    if envelope.isForwardedSaved && envelope.originalDate == nil {
+                        var metadata = existedInstance.systemMetadata ?? [:]
+                        metadata["forwardOriginalDateUnknown"] = true
+                        existedInstance.systemMetadata = metadata
+                    }
+                    if !existedInstance.references.contains(where: { $0.kind == .forwardContactData }) {
+                        appendSavedContactData(envelope, to: existedInstance.references, primary: existedInstance.primary)
+                    }
                     if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
                         existedInstance.archivedId = archivedId
                         updateSavedLastChatPreviewIfNeeded(
@@ -528,7 +550,8 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                        existedInstance.mamArchiveId != mamArchiveId {
                         existedInstance.mamArchiveId = mamArchiveId
                     }
-                    storeSavedForwardingStanza(for: existedInstance, envelope: envelope, in: realm)
+                    storeSavedForwardingStanza(for: existedInstance, envelope: envelope,
+                        encryption: isExactStoredStanza ? incomingEncryption : .plaintext, in: realm)
                     // A proof for a saved outer stanza does not authenticate a
                     // nested saved-forward's sender or unrelated cached body.
                     if isExactStoredStanza {
@@ -553,7 +576,8 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.primary = MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)
         instance.outgoing = true
         instance.date = envelope.date
-        instance.body = message.body ?? ""
+        instance.body = (message.body ?? "").xmlEscaping(reverse: false).excludeFromBody(
+            SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references"), groupchat: nil).trimmingCharacters(in: .whitespacesAndNewlines)
         instance.conversationType = .saved
         instance.incomingEncryption = incomingEncryption
         if incomingEncryption.isEncrypted && !incomingEncryption.isAuthenticated {
@@ -562,6 +586,9 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.messageId = messageId
         instance.legacyBody = message.body ?? ""
         instance.sentDate = envelope.sentDate
+        if envelope.isForwardedSaved && envelope.originalDate == nil {
+            instance.systemMetadata = ["forwardOriginalDateUnknown": true]
+        }
         instance.archivedId = envelope.outerArchiveId ?? ""
         instance.mamArchiveId = envelope.mamArchiveId ?? ""
         instance.previousId = getPreviousId(envelope.outerMessage)
@@ -574,6 +601,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             encryption: incomingEncryption)
 
         instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
+        appendSavedContactData(envelope, to: instance.references, primary: instance.primary)
         instance.inlineForwards.append(objectsIn: parseInlineMessages(message, parentId: instance.primary, jid: savedServiceJid, owner: self.owner))
         instance.updateDisplayMode()
         instance.references.forEach { $0.messageId = instance.primary }
@@ -587,7 +615,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                 forMessagePrimary: instance.primary,
                 in: realm
             )
-            storeSavedForwardingStanza(for: instance, envelope: envelope, in: realm)
+            storeSavedForwardingStanza(for: instance, envelope: envelope, encryption: incomingEncryption, in: realm)
             updateSavedLastChatPreviewIfNeeded(
                 realm: realm,
                 savedServiceJid: savedServiceJid,
@@ -597,22 +625,44 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         return instance
     }
 
+    private func appendSavedContactData(
+        _ envelope: SavedMessageEnvelope,
+        to references: List<MessageReferenceStorageItem>, primary: String
+    ) {
+        guard envelope.isForwardedSaved,
+              let from = envelope.storageMessage.from?.bare,
+              let card = ForwardContactDataCodec.matchingCard(for: from, cards: ForwardContactDataCodec.cards(in: envelope.outerMessage)) else { return }
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .forwardContactData
+        reference.owner = owner
+        reference.jid = envelope.serviceJid
+        reference.messageId = primary
+        reference.conversationType = .saved
+        reference.metadata = ForwardContactDataCodec.metadata(for: card)
+        references.append(reference)
+    }
+
     private func storeSavedForwardingStanza(
         for instance: MessageStorageItem,
         envelope: SavedMessageEnvelope,
+        encryption: MessageEncryptionProvenance,
         in realm: Realm
     ) {
+        guard instance.owner == owner else { return }
         let stanza = envelope.isForwardedSaved ? envelope.storageMessage : envelope.outerMessage
         let timestamp = envelope.isForwardedSaved ? envelope.sentDate : envelope.date
-        let storedStanza = MessageStanzaStorageItem()
-        storedStanza.set(
-            instance.messageId,
-            for: instance.owner,
-            with: stanza.xmlString,
-            at: timestamp,
-            primary: instance.primary
-        )
-        realm.add(storedStanza, update: .modified)
+        // The managed cache may retain transient provenance from an earlier
+        // arrival. Bind this store only to the actual incoming direct stanza;
+        // an unwrapped saved forward never inherits its outer's authority.
+        let source = MessageStorageItem()
+        source.primary = instance.primary
+        source.owner = instance.owner
+        source.messageId = instance.messageId
+        source.date = timestamp
+        source.originalStanza = stanza
+        source.isSavedForward = envelope.isForwardedSaved
+        source.incomingEncryption = envelope.isForwardedSaved ? .plaintext : encryption
+        source.storeStanza(in: realm)
     }
 
     private func performSavedWrite(in realm: Realm, commitTransaction: Bool, _ block: () -> Void) throws {

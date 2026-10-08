@@ -23,6 +23,17 @@ import RealmSwift
 import XMPPFramework
 import MaterialComponents.MDCPalettes
 
+/// Forwarder-supplied attribution is separate from transport routing and from
+/// authenticated incoming sender evidence. Unknown group privacy stays unknown.
+struct ForwardAttribution: Equatable {
+    let routingJID: String
+    let sourceGroupJID: String?
+    let memberID: String?
+    let displayableAuthorJID: String?
+    let groupName: String?
+    let groupPrivacy: ForwardContactCard.Privacy?
+    let senderName: String
+}
 
 class MessageForwardsInlineStorageItem: Object {
         
@@ -50,7 +61,31 @@ class MessageForwardsInlineStorageItem: Object {
     var subforwards: List<MessageForwardsInlineStorageItem> = List<MessageForwardsInlineStorageItem>()
     var references: List<MessageReferenceStorageItem> = List<MessageReferenceStorageItem>()
 
-    
+    var attribution: ForwardAttribution {
+        let member = references.first(where: {
+            $0.kind == .groupchat && nonEmptyAuthorValue($0.metadata?["id"] as? String) != nil
+        })?.metadata
+        let card = ForwardContactDataCodec.matchingCard(for: forwardJid, references: references.toArray())
+        let groupCard = card?.kind == .group ? card : nil
+        let sourceGroupJID = member != nil || groupCard != nil ? nonEmptyAuthorValue(forwardJid) : nil
+        let displayableAuthorJID: String?
+        if sourceGroupJID != nil {
+            displayableAuthorJID = nonEmptyAuthorValue(member?["jid"] as? String)
+                .flatMap { XMPPJID(string: $0)?.bare }
+        } else {
+            displayableAuthorJID = nonEmptyAuthorValue(forwardJid)
+                .flatMap { XMPPJID(string: $0)?.bare }
+        }
+        return ForwardAttribution(
+            routingJID: forwardJid,
+            sourceGroupJID: sourceGroupJID,
+            memberID: nonEmptyAuthorValue(member?["id"] as? String),
+            displayableAuthorJID: displayableAuthorJID,
+            groupName: groupCard?.name ?? sourceGroupJID.flatMap(localDisplayName),
+            groupPrivacy: groupCard?.privacy,
+            senderName: tryToLoadNickname()
+        )
+    }
     
     
     func configureInline(
@@ -62,23 +97,36 @@ class MessageForwardsInlineStorageItem: Object {
         outgoing: Bool,
         date: Date?,
         forwardJid: String?,
-        forwardDepth: Int = 1
+        forwardDepth: Int = 1,
+        referenceIndex: Int? = nil,
+        contactCard: ForwardContactCard? = nil
     ) {
         self.owner = owner
+        self.parentId = parentId
         self.jid = jid
         self.opponent = opponent
         self.messageId = getUniqueMessageId(messageContainer, owner: owner)
-        self.primary = [parentId, messageId].prp()
+        var identity = [parentId, messageId]
+        if let referenceIndex { identity.append("forward-\(referenceIndex)") }
+        self.primary = identity.prp()
         let parsedReferences = parseReferences(
             messageContainer,
             primary: self.primary,
             jid: jid,
-            owner: owner
+            owner: owner,
+            forwardDepth: forwardDepth
         )
-        self.references.append(objectsIn: forwardDepth >= inlineForwardMaximumDepth
-            ? parsedReferences.filter { $0.kind != .forward }
-            : parsedReferences
-        )
+        parsedReferences.forEach { $0.messageId = self.primary }
+        self.references.append(objectsIn: parsedReferences)
+        if let contactCard {
+            let reference = MessageReferenceStorageItem()
+            reference.owner = owner
+            reference.jid = jid
+            reference.messageId = self.primary
+            reference.kind = .forwardContactData
+            reference.metadata = ForwardContactDataCodec.metadata(for: contactCard)
+            self.references.append(reference)
+        }
         self.subforwards.append(objectsIn: parseInlineMessages(
             messageContainer,
             parentId: self.primary,
@@ -87,15 +135,12 @@ class MessageForwardsInlineStorageItem: Object {
             depth: forwardDepth
         ))
         let bodyReferences = SCEReceivePolicy.children(of: messageContainer, named: "reference", xmlns: "https://xabber.com/protocol/references")
-        let removableBodyReferences = forwardDepth >= inlineForwardMaximumDepth
-            ? bodyReferences.filter { getReferenceType($0) != "forward" }
-            : bodyReferences
         if SCEReceivePolicy.hasOMEMO2(messageContainer) {
             self.body = L10n.text("chat_list__preview__encrypted_message", fallback: "Encrypted message")
         } else {
             self.body = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client")
                 .first?.stringValue?.xmlEscaping(reverse: false)
-                .excludeFromBody(removableBodyReferences, groupchat: nil) ?? ""
+                .excludeFromBody(bodyReferences, groupchat: nil, forwardDepth: forwardDepth) ?? ""
         }
         self.isOutgoing = outgoing
         self.originalDate = date
@@ -105,6 +150,8 @@ class MessageForwardsInlineStorageItem: Object {
             references: references.toArray()
         ) {
             self.forwardNickname = authorSnapshot
+        } else if let contactCard, contactCard.kind == .individual {
+            self.forwardNickname = contactCard.nickname ?? contactCard.name
         }
     }
     
@@ -124,13 +171,22 @@ class MessageForwardsInlineStorageItem: Object {
            ) {
             return accountName
         }
+        if let nickname = localDisplayName(forwardJid) { return nickname }
+        if let card = ForwardContactDataCodec.matchingCard(for: forwardJid, references: references.toArray()),
+           card.kind == .group {
+            return card.nickname ?? card.name
+        }
+        return forwardJid
+    }
+
+    private func localDisplayName(_ jid: String) -> String? {
         do {
             let realm = try WRealm.safe()
             if let nickname = nonEmptyAuthorValue(
                 realm.object(
                     ofType: RosterStorageItem.self,
                     forPrimaryKey: RosterStorageItem.genPrimary(
-                        jid: forwardJid,
+                        jid: jid,
                         owner: owner
                     )
                 )?.displayName
@@ -140,7 +196,7 @@ class MessageForwardsInlineStorageItem: Object {
         } catch {
             DDLogDebug("MessageForwardsInlineStorageItem: \(#function). \(error.localizedDescription)")
         }
-        return forwardJid
+        return nil
     }
 
     private func nonEmptyAuthorValue(_ value: String?) -> String? {

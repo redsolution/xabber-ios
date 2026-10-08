@@ -5323,6 +5323,7 @@ struct ComposerMentionCandidate: Equatable {
 struct ComposerMessagePayload {
     let body: String
     let references: [MessageReferenceStorageItem]
+    var forwardIntent: ForwardSendIntent
     let groupMentionIntent: GroupMessageMentionIntent
     let groupMentionSenderRole: GroupMemberRole?
     let groupMentionAllCapabilityGranted: Bool
@@ -5332,10 +5333,12 @@ struct ComposerMessagePayload {
         references: [MessageReferenceStorageItem],
         groupMentionIntent: GroupMessageMentionIntent = .absent,
         groupMentionSenderRole: GroupMemberRole? = nil,
-        groupMentionAllCapabilityGranted: Bool = false
+        groupMentionAllCapabilityGranted: Bool = false,
+        forwardIntent: ForwardSendIntent = .forward
     ) {
         self.body = body
         self.references = references
+        self.forwardIntent = forwardIntent
         self.groupMentionIntent = groupMentionIntent
         self.groupMentionSenderRole = groupMentionSenderRole
         self.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
@@ -5495,8 +5498,8 @@ enum ComposerMentionRangeCodec {
         guard rawRange.location >= 0, rawRange.upperBound <= nsBody.length else { return nil }
         let prefix = nsBody.substring(to: rawRange.location)
         let segment = nsBody.substring(with: rawRange)
-        let location = prefix.xmlEscaping(reverse: false).count
-        let length = segment.xmlEscaping(reverse: false).count
+        let location = prefix.xmlEscaping(reverse: false).unicodeScalars.count
+        let length = segment.xmlEscaping(reverse: false).unicodeScalars.count
         return NSRange(location: location, length: length)
     }
 
@@ -5511,8 +5514,12 @@ enum ComposerMentionRangeCodec {
         var rawStart: Int?
         var rawEnd: Int?
 
-        for rawIndex in 0...bodyLength {
-            let escapedLength = nsBody.substring(to: rawIndex).xmlEscaping(reverse: false).count
+        // UIKit ranges use UTF-16, but wire references count escaped Unicode
+        // scalars. A boundary inside a surrogate pair would falsely match the
+        // following scalar's wire offset and truncate its composer range.
+        let rawIndices = body.unicodeScalars.indices.map { $0.utf16Offset(in: body) } + [bodyLength]
+        for rawIndex in rawIndices {
+            let escapedLength = nsBody.substring(to: rawIndex).xmlEscaping(reverse: false).unicodeScalars.count
             if rawStart == nil && escapedLength == escapedRange.location {
                 rawStart = rawIndex
             }

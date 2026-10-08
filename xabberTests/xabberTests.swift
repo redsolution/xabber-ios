@@ -29907,7 +29907,8 @@ final class FavoritesFeatureTests: XCTestCase {
         innerStamp: String? = "2026-03-24T12:34:56+0000",
         forwardedDelayStamp: String? = nil,
         outerChildren: String = "",
-        innerChildren: String = ""
+        innerChildren: String = "",
+        innerBody: String? = nil
     ) throws -> XMPPMessage {
         let forwardedDelay = forwardedDelayStamp.map { "<delay xmlns='urn:xmpp:delay' stamp='\($0)'/>" } ?? ""
         let innerTime = innerStamp.map { "<time xmlns='https://xabber.com/protocol/delivery' stamp='\($0)'/>" } ?? ""
@@ -29916,13 +29917,13 @@ final class FavoritesFeatureTests: XCTestCase {
           <time xmlns='https://xabber.com/protocol/delivery' stamp='\(outerStamp)'/>
           \(outerChildren)
           <body>&gt; \(body)</body>
-          <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count + 2)' type='mutable'>
+          <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(("> " + body).xmlEscaping(reverse: false).unicodeScalars.count)' type='mutable'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               \(forwardedDelay)
               <message xmlns='jabber:client' from='\(innerFrom ?? contactJid)' to='\(innerTo ?? owner)' type='chat' id='\(innerId)'>
                 \(innerTime)
                 \(innerChildren)
-                <body>\(body)</body>
+                <body>\(innerBody ?? body)</body>
               </message>
             </forwarded>
           </reference>
@@ -29937,7 +29938,7 @@ final class FavoritesFeatureTests: XCTestCase {
             id: "saved-nested-1",
             innerId: "inner-nested-wrapper-1",
             innerChildren: """
-            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(nestedBody.count)' type='mutable'>
+            <reference xmlns='https://xabber.com/protocol/references' begin='0' end='21' type='mutable'>
               <forwarded xmlns='urn:xmpp:forward:0'>
                 <delay xmlns='urn:xmpp:delay' stamp='2026-03-24T12:30:00+0000'/>
                 <message xmlns='jabber:client' from='juliet@xmppdev01.xabber.com/balcony' to='\(contactJid)' type='chat' id='nested-original-1'>
@@ -29946,7 +29947,10 @@ final class FavoritesFeatureTests: XCTestCase {
                 </message>
               </forwarded>
             </reference>
-            """
+            """,
+            // The 20-scalar fallback and its separating newline belong to the
+            // forwarded range; the wrapper's own comment starts at scalar 21.
+            innerBody: nestedBody + "\nNested saved forward"
         )
     }
 
@@ -30558,6 +30562,7 @@ final class FavoritesFeatureTests: XCTestCase {
         try realm.write {
             let stanza = MessageStanzaStorageItem()
             stanza.primary = stanzaPrimary
+            stanza.owner = owner
             stanza.timestamp = ISO8601DateFormatter().date(from: "2026-03-24T12:34:56Z")!
             stanza.stanza = """
             <message xmlns='jabber:client' from='romeo@xmppdev01.xabber.com/orchard' to='juliet@xmppdev01.xabber.com/balcony' type='chat' id='msg-1'>
@@ -30749,18 +30754,19 @@ final class FavoritesFeatureTests: XCTestCase {
     func testReforwardSavedForwardDoesNotNestSavedEnvelope() throws {
         let stored = try receiveSaved(try makeNestedForwardedSavedMessage())
 
-        let stanza = try XCTUnwrap(favoritesManager().buildForwardMessage(for: [stored.primary]))
-        let payload = try firstForwardedPayload(in: stanza)
-        let nestedPayload = try XCTUnwrap(
-            payload
-                .element(forName: "reference")?
-                .element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")?
-                .element(forName: "message")
-        )
+        let stanzas = try favoritesManager().buildForwardMessages(for: [stored.primary])
+        let payloads = try stanzas.map { try firstForwardedPayload(in: $0) }
 
-        XCTAssertEqual(payload.elementID, "inner-nested-wrapper-1")
-        XCTAssertEqual(nestedPayload.attributeStringValue(forName: "id"), "nested-original-1")
-        XCTAssertFalse(stanza.xmlString.contains("saved-nested-1"))
+        XCTAssertEqual(payloads.map(\.elementID), ["nested-original-1", "inner-nested-wrapper-1"])
+        XCTAssertTrue(payloads.allSatisfy { admittedInlineForwardReferences(in: $0).isEmpty })
+        XCTAssertFalse(stanzas.contains { $0.xmlString.contains("saved-nested-1") })
+        XCTAssertEqual(payloads.first?.body, "Nested original body")
+        XCTAssertEqual(payloads.last?.body, "Nested saved forward")
+        let ownCarrier = try XCTUnwrap(stanzas.last)
+        let ownInline = try XCTUnwrap(parseInlineMessages(
+            ownCarrier, parentId: "reforward-carrier", jid: favoritesJid, owner: owner
+        ).first)
+        XCTAssertEqual(ownInline.body, "Nested saved forward")
     }
 
     func testDirectSavedNoteSendsChatMessageToFavoritesServiceJid() throws {
@@ -32202,7 +32208,7 @@ final class ComposerMentionsTests: XCTestCase {
 
     func testParseReferencesSupportsCanonicalMentionElement() throws {
         let xml = """
-        <message type='groupchat' from='trio@example.com' to='owner@example.com'>
+        <message xmlns='jabber:client' type='groupchat' from='trio@example.com' to='owner@example.com'>
           <body>Hello @Shadow</body>
           <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='6' end='13'>
             <mention xmlns='https://xabber.com/protocol/markup' node='https://xabber.com/protocol/groupchat'>xmpp:trio@example.com?id=123333</mention>
@@ -32223,6 +32229,9 @@ final class ComposerMentionsTests: XCTestCase {
         XCTAssertEqual(first.metadata?["uri"] as? String, "xmpp:trio@example.com?id=123333")
         XCTAssertEqual(first.metadata?["node"] as? String, "https://xabber.com/protocol/groupchat")
         XCTAssertEqual(first.metadata?["nickname"] as? String, "@Shadow")
+        let originalBody = try XCTUnwrap(message.body)
+        let mentionRange = try XCTUnwrap(Range(first.range, in: originalBody))
+        XCTAssertEqual(String(originalBody[mentionRange]), "@Shadow")
     }
 
     func testParseReferencesSupportsWebClientGroupMentionStanza() throws {
@@ -32254,7 +32263,7 @@ final class ComposerMentionsTests: XCTestCase {
 
     func testParseReferencesSupportsLegacyXmppLinkMentions() throws {
         let xml = """
-        <message type='groupchat' from='trio@example.com' to='owner@example.com'>
+        <message xmlns='jabber:client' type='groupchat' from='trio@example.com' to='owner@example.com'>
           <body>Hello @Shadow</body>
           <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='6' end='13'>
             <link xmlns='https://xabber.com/protocol/markup'>xmpp:trio@example.com?id=123333</link>
@@ -32270,8 +32279,14 @@ final class ComposerMentionsTests: XCTestCase {
 
         XCTAssertEqual(references.count, 1)
         XCTAssertEqual(first.kind, .mention)
+        XCTAssertEqual(first.begin, 6)
+        XCTAssertEqual(first.end, 13)
         XCTAssertEqual(first.metadata?["memberId"] as? String, "123333")
         XCTAssertEqual(first.metadata?["groupchatJid"] as? String, "trio@example.com")
+        XCTAssertEqual(first.metadata?["nickname"] as? String, "@Shadow")
+        let originalBody = try XCTUnwrap(message.body)
+        let mentionRange = try XCTUnwrap(Range(first.range, in: originalBody))
+        XCTAssertEqual(String(originalBody[mentionRange]), "@Shadow")
     }
 
     func testDeserializeMentionReferencesBackIntoDecoratedEditorState() {

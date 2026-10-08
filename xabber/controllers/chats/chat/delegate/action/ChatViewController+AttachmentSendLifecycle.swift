@@ -27,7 +27,7 @@ extension ChatViewController {
                 self.requestOutgoingAutoScrollAfterDatasourceUpdate()
             }
             self.forwardedIds.accept(Set<String>())
-            self.attachedMessagesIds.accept([])
+            self.setComposerForwardSelection([], intent: .forward)
             self.unreadMessagePositionId = nil
         }
 
