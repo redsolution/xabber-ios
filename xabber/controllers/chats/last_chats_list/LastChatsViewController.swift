@@ -1675,7 +1675,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         view.register(SpecialMessageTableViewCell.self, forCellReuseIdentifier: SpecialMessageTableViewCell.cellName)
         view.contentInsetAdjustmentBehavior = .scrollableAxes
         
-        view.applyContinuousSplitInsetGroupedAppearance()
+        view.backgroundColor = .clear
+        view.isOpaque = false
 //        view.allowsMultipleSelection = false
 //        view.allowsMultipleSelectionDuringEditing = false
 //        view.cellLayoutMarginsFollowReadableWidth = false
@@ -1683,6 +1684,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         return view
     }()
     
+    private let chatBackgroundBackdropView = ChatBackgroundBackdropView()
+
     internal let emptyView: EmptyView = {
         let view = EmptyView()
         
@@ -5286,6 +5289,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     override func observer() {
         super.observer()
+        NotificationCenter.default.addObserver(
+            chatBackgroundBackdropView,
+            selector: #selector(ChatBackgroundBackdropView.reloadFromSettings),
+            name: .chatBackgroundChanged,
+            object: nil
+        )
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
@@ -5507,7 +5516,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
         tableView.dataSource = self
         tableView.delegate = self
         tableView.prefetchDataSource = self
@@ -5523,6 +5531,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         view.addSubview(emptyView)
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
+        configureChatBackground()
         
         if !archivedMode {
             configurePullToArchived()
@@ -5552,6 +5561,20 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 //        configureNavbar()
     }
     
+    private func configureChatBackground() {
+        tableView.backgroundColor = .clear
+        tableView.isOpaque = false
+        emptyView.backgroundColor = .clear
+        emptyView.isOpaque = false
+
+        if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop {
+            tableView.backgroundView = nil
+        } else if tableView.backgroundView !== chatBackgroundBackdropView {
+            chatBackgroundBackdropView.reload(encrypted: false)
+            tableView.backgroundView = chatBackgroundBackdropView
+        }
+    }
+
     var isPrimaryShow: Bool = false
     
     @objc
@@ -5772,6 +5795,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        configureChatBackground()
         self.updateTableInsetsForFloatingToolbar()
     }
     
@@ -5801,10 +5825,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        configureChatBackground()
         NavigationLargeTitlePolicy.apply(to: self)
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         beginNavigationTransitionDeferralIfNeeded()
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
@@ -5911,6 +5933,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     deinit {
+        NotificationCenter.default.removeObserver(chatBackgroundBackdropView)
         stopExpandedSplitAccountRegistryMutationObservation()
         invalidatePremiumPromotionEligibilityRefresh()
         unsubscribe()

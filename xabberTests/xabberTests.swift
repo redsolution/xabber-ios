@@ -26819,7 +26819,7 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
         }
     }
 
-    func testInPlaceSearchUsesStockHostBackgroundInCompactSplitMode() {
+    func testInPlaceSearchUsesChatWallpaperInCompactSplitMode() {
         withInterfaceType(.split) {
             let viewController = LastChatsViewController()
             let container = embedInTraitContainer(viewController, horizontalSizeClass: .compact)
@@ -26831,9 +26831,9 @@ final class LastChatsSeparatorAppearanceTests: XCTestCase {
             XCTAssertEqual(viewController.tableView.style, .grouped)
             XCTAssertTrue(viewController.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
             XCTAssertTrue(viewController.view.isOpaque)
-            XCTAssertTrue(viewController.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-            XCTAssertNil(viewController.tableView.backgroundView)
-            XCTAssertTrue(viewController.tableView.isOpaque)
+            XCTAssertEqual(viewController.tableView.backgroundColor, .clear)
+            XCTAssertTrue(viewController.tableView.backgroundView is ChatBackgroundBackdropView)
+            XCTAssertFalse(viewController.tableView.isOpaque)
             XCTAssertNil(viewController.navigationItem.searchController)
             XCTAssertTrue(viewController.bottomSearchHostView.superview === viewController.view)
         }
