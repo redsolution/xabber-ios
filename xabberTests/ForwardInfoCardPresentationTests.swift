@@ -448,7 +448,16 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
         XCTAssertEqual(controller.snapshot, snapshot)
         XCTAssertEqual(controller.headerView.titleButton.title(for: .normal), "Historical Juliet")
         XCTAssertEqual(controller.headerView.subtitleLabel.text, "juliet@example.test")
-        XCTAssertEqual(controller.headerView.supportButtonsStack.arrangedSubviews.count, 1)
+        XCTAssertTrue(controller.headerView.supportButtonsStack.arrangedSubviews.isEmpty)
+        XCTAssertFalse(controller.headerView.showButtons)
+        let rows = tableRows(in: controller)
+        let button = try XCTUnwrap(controller.primaryActionButton)
+        let actionRow = try XCTUnwrap(rows.first { button.isDescendant(of: $0.cell.contentView) })
+        XCTAssertEqual(controller.numberOfSections(in: controller.tableView), 2)
+        XCTAssertEqual(controller.tableView(controller.tableView,
+            numberOfRowsInSection: actionRow.indexPath.section), 1)
+        XCTAssertTrue(rows.filter { $0.indexPath.section != actionRow.indexPath.section }
+            .contains { $0.cell.accessibilityIdentifier == "forward_card_jid" })
         XCTAssertNotNil(controller.navigationItem.rightBarButtonItem)
         XCTAssertEqual(controller.view.accessibilityIdentifier, "forward_card_sheet")
     }
@@ -509,11 +518,16 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
             primaryAction: .init(kind: .openChat), onAction: { routed.append($0) }, onOpenGroup: {})
         controller.loadViewIfNeeded()
         let button = try XCTUnwrap(controller.primaryActionButton)
+        let rows = tableRows(in: controller)
+        XCTAssertEqual(rows.filter { button.isDescendant(of: $0.cell.contentView) }.count, 1)
 
         button.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(routed, [.openChat])
         XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.isAccessibilityElement)
+        XCTAssertTrue(button.accessibilityTraits.contains(.button))
+        XCTAssertEqual(button.accessibilityIdentifier, "forward_card_primary_open_chat")
     }
 
     func testDisabledRequestCannotRouteEvenWhenInvokedProgrammatically() throws {
@@ -529,6 +543,9 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
 
         XCTAssertFalse(button.isEnabled)
         XCTAssertTrue(routed.isEmpty)
+        XCTAssertTrue(button.isAccessibilityElement)
+        XCTAssertTrue(button.accessibilityTraits.contains(.button))
+        XCTAssertEqual(button.accessibilityIdentifier, "forward_card_primary_request_to_join")
     }
 
     func testSourceGroupPillRoutesSeparateGroupAction() throws {
@@ -539,6 +556,16 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
             onOpenGroup: { openedGroups += 1 })
         controller.loadViewIfNeeded()
         let button = try XCTUnwrap(controller.sourceGroupButton)
+        let actionButton = try XCTUnwrap(controller.primaryActionButton)
+        let rows = tableRows(in: controller)
+        let sourceRow = try XCTUnwrap(rows.first { button.isDescendant(of: $0.cell.contentView) })
+        let actionRow = try XCTUnwrap(rows.first { actionButton.isDescendant(of: $0.cell.contentView) })
+        let detailRow = try XCTUnwrap(rows.first { $0.cell.accessibilityIdentifier == "forward_card_jid" })
+        XCTAssertEqual(controller.numberOfSections(in: controller.tableView), 3)
+        XCTAssertEqual(Set([sourceRow.indexPath.section, actionRow.indexPath.section,
+                           detailRow.indexPath.section]).count, 3)
+        XCTAssertEqual(controller.tableView(controller.tableView,
+            numberOfRowsInSection: actionRow.indexPath.section), 1)
 
         button.sendActions(for: .touchUpInside)
 
@@ -582,6 +609,9 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
         XCTAssertTrue(controller.headerView.subtitleLabel.text?.isEmpty != false)
         XCTAssertNil(controller.primaryActionButton)
         XCTAssertNil(controller.sourceGroupButton)
+        XCTAssertEqual(controller.numberOfSections(in: controller.tableView), 0)
+        XCTAssertTrue(controller.headerView.supportButtonsStack.arrangedSubviews.isEmpty)
+        XCTAssertFalse(controller.headerView.showButtons)
         XCTAssertTrue(actions.isEmpty)
         XCTAssertEqual(openedGroups, 0)
     }
@@ -596,19 +626,33 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
         XCTAssertNotNil(controller.sourceGroupButton)
     }
 
-    func testUpdatingActionCannotLeavePreviouslyEnabledJoinActive() {
+    func testUpdatingActionCannotLeavePreviouslyEnabledJoinActive() throws {
         var actions: [ForwardCardAction] = []
         let controller = ForwardCardInfoViewController(snapshot: groupCard(),
             primaryAction: .init(kind: .joinGroup), onAction: { actions.append($0) }, onOpenGroup: {})
         controller.loadViewIfNeeded()
+        let previousJoinButton = try XCTUnwrap(controller.primaryActionButton)
+        XCTAssertEqual(controller.numberOfSections(in: controller.tableView), 2)
 
         controller.updatePrimaryAction(.init(kind: .requestToJoin, isEnabled: false))
+        let disabledButton = try XCTUnwrap(controller.primaryActionButton)
+        let disabledRows = tableRows(in: controller)
+        XCTAssertEqual(disabledRows.filter { disabledButton.isDescendant(of: $0.cell.contentView) }.count, 1)
+        XCTAssertEqual(disabledButton.accessibilityIdentifier, "forward_card_primary_request_to_join")
+        XCTAssertFalse(disabledButton.isEnabled)
         controller.performPrimaryAction()
+        controller.updatePrimaryAction(.init(kind: .openGroup))
+        previousJoinButton.sendActions(for: .touchUpInside)
+        disabledButton.sendActions(for: .touchUpInside)
         controller.updatePrimaryAction(nil)
         controller.performPrimaryAction()
 
         XCTAssertTrue(actions.isEmpty)
         XCTAssertNil(controller.primaryActionButton)
+        XCTAssertEqual(controller.numberOfSections(in: controller.tableView), 1)
+        XCTAssertFalse(tableRows(in: controller).contains { disabledButton.isDescendant(of: $0.cell.contentView) })
+        XCTAssertTrue(controller.headerView.supportButtonsStack.arrangedSubviews.isEmpty)
+        XCTAssertFalse(controller.headerView.showButtons)
     }
 
     func testSameTargetSnapshotUpdateClearsUnavailableMetadataAndKeepsOwner() {
@@ -661,6 +705,16 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
             let controller = try XCTUnwrap(navigation.viewControllers.first as? ForwardCardInfoViewController)
             navigation.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: contentSize),
                                                   forChild: controller)
+            controller.loadViewIfNeeded()
+            let button = try XCTUnwrap(controller.primaryActionButton)
+            let rows = tableRows(in: controller)
+            let actionIndexPath = try XCTUnwrap(rows.first {
+                button.isDescendant(of: $0.cell.contentView)
+            }?.indexPath)
+            let sourceIndexPath = rows.first {
+                controller.sourceGroupButton?.isDescendant(of: $0.cell.contentView) == true
+            }?.indexPath
+            controller.tableView.reloadData()
             let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 .first { $0.activationState == .foregroundActive }
                 ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
@@ -694,13 +748,11 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
             navigation.view.layoutIfNeeded()
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
+            controller.tableView.reloadData()
             controller.tableView.layoutIfNeeded()
             controller.headerView.layoutIfNeeded()
 
-            let button = try XCTUnwrap(controller.primaryActionButton)
-            let scrollTarget = button.convert(button.bounds, to: controller.tableView)
-                .insetBy(dx: -8, dy: -12)
-            controller.tableView.scrollRectToVisible(scrollTarget, animated: false)
+            controller.tableView.scrollToRow(at: actionIndexPath, at: .middle, animated: false)
             settlePresentationLayout()
             window.layoutIfNeeded()
             navigation.view.layoutIfNeeded()
@@ -718,19 +770,25 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(actionFrame.minX, navigation.view.bounds.minX - 1, name)
             XCTAssertLessThanOrEqual(actionFrame.maxX, navigation.view.bounds.maxX + 1, name)
             XCTAssertEqual(button.isEnabled, action.isEnabled)
+            XCTAssertTrue(button.isAccessibilityElement)
+            XCTAssertTrue(button.accessibilityTraits.contains(.button))
+            XCTAssertFalse(button.isDescendant(of: controller.headerView))
+            XCTAssertTrue(controller.headerView.supportButtonsStack.arrangedSubviews.isEmpty)
+            XCTAssertFalse(controller.headerView.showButtons)
             XCTAssertTrue(controller.headerView.titleButton.titleLabel?.adjustsFontForContentSizeCategory == true)
-            if action.kind == .requestToJoin {
-                let titleFrame = button.title.convert(button.title.bounds, to: button)
-                let iconContainer = try XCTUnwrap(button.icon.superview)
-                // SF Symbol image bounds include padding outside the constrained alignment rectangle.
-                let iconAlignmentFrame = iconContainer.convert(
-                    button.icon.alignmentRect(forFrame: button.icon.frame), to: button)
-                XCTAssertEqual(button.title.numberOfLines, 1)
-                XCTAssertGreaterThanOrEqual(titleFrame.minY, iconAlignmentFrame.maxY - 0.5)
-            }
+            let actionCell = try XCTUnwrap(controller.tableView.cellForRow(at: actionIndexPath))
+            XCTAssertTrue(button.isDescendant(of: actionCell.contentView), name)
+            let buttonFrame = button.convert(button.bounds, to: actionCell.contentView)
+            XCTAssertEqual(buttonFrame.minX, actionCell.contentView.bounds.minX, accuracy: 1, name)
+            XCTAssertEqual(buttonFrame.maxX, actionCell.contentView.bounds.maxX, accuracy: 1, name)
+            XCTAssertGreaterThanOrEqual(buttonFrame.height, 44, name)
+            let titleLabel = try XCTUnwrap(button.titleLabel)
+            XCTAssertTrue(titleLabel.text?.isEmpty == false, name)
+            XCTAssertTrue(titleLabel.adjustsFontForContentSizeCategory, name)
+            XCTAssertEqual(titleLabel.numberOfLines, 0, name)
 
             if snapshot.sourceGroup != nil {
-                let path = IndexPath(row: 0, section: 0)
+                let path = try XCTUnwrap(sourceIndexPath)
                 controller.tableView.scrollToRow(at: path, at: .middle, animated: false)
                 controller.tableView.layoutIfNeeded()
                 let pill = try XCTUnwrap(controller.sourceGroupButton)
@@ -759,6 +817,17 @@ final class ForwardInfoCardPresentationTests: XCTestCase {
             let directory = URL(fileURLWithPath: "/tmp/xabber-forward-card-20261008", isDirectory: true)
             if (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil {
                 try? png.write(to: directory.appendingPathComponent("\(name).png"), options: .atomic)
+            }
+        }
+    }
+
+    private func tableRows(in controller: ForwardCardInfoViewController)
+        -> [(indexPath: IndexPath, cell: UITableViewCell)] {
+        let table = controller.tableView
+        return (0..<controller.numberOfSections(in: table)).flatMap { section in
+            (0..<controller.tableView(table, numberOfRowsInSection: section)).map { row in
+                let indexPath = IndexPath(row: row, section: section)
+                return (indexPath, controller.tableView(table, cellForRowAt: indexPath))
             }
         }
     }

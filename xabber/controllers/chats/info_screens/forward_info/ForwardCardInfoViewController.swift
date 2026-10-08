@@ -13,8 +13,18 @@ final class ForwardCardInfoViewController: UIViewController {
 
     let headerView = InfoScreenHeaderView(frame: .zero)
     let tableView = UITableView(frame: .zero, style: .insetGrouped)
-    private(set) var primaryActionButton: InfoHeaderButton?
+    private(set) var primaryActionButton: UIButton?
     private(set) var sourceGroupButton: UIButton?
+
+    private enum Section { case sourceGroup, details, primaryAction }
+
+    private var sections: [Section] {
+        var result: [Section] = []
+        if sourceGroupButton != nil { result.append(.sourceGroup) }
+        if !details.isEmpty { result.append(.details) }
+        if primaryActionButton != nil { result.append(.primaryAction) }
+        return result
+    }
 
     private struct Detail {
         let title: String
@@ -227,21 +237,43 @@ final class ForwardCardInfoViewController: UIViewController {
     }
 
     private func renderPrimaryAction() {
+        primaryActionButton?.removeTarget(self, action: #selector(performPrimaryAction), for: .touchUpInside)
+        primaryActionButton?.isEnabled = false
         primaryActionButton = nil
-        headerView.configureButtons {
-            guard let action = primaryAction else { return [] }
-            let button = InfoHeaderButton(frame: .zero)
+        headerView.configureButtons { [] }
+        headerView.showButtons = false
+        if let action = primaryAction {
+            let button = UIButton(type: .system)
             let presentation = actionPresentation(action.kind)
-            button.configure(icon: presentation.icon, title: presentation.title)
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = presentation.title
+            configuration.image = imageLiteral(presentation.icon, dimension: 20)
+            configuration.imagePadding = 12
+            configuration.titleAlignment = .leading
+            configuration.titleLineBreakMode = .byWordWrapping
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+            configuration.baseForegroundColor = .tintColor
+            let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+                var result = attributes
+                result.font = font
+                return result
+            }
+            button.configuration = configuration
+            button.contentHorizontalAlignment = .leading
+            button.titleLabel?.numberOfLines = 0
+            button.titleLabel?.adjustsFontForContentSizeCategory = true
+            button.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
             button.isEnabled = action.isEnabled
+            button.isAccessibilityElement = true
+            button.accessibilityTraits = action.isEnabled ? [.button] : [.button, .notEnabled]
             button.accessibilityLabel = presentation.title
             button.accessibilityIdentifier = "forward_card_primary_\(presentation.identifier)"
             button.addTarget(self, action: #selector(performPrimaryAction), for: .touchUpInside)
             primaryActionButton = button
-            return [button]
         }
-        headerView.showButtons = primaryActionButton != nil
         layoutHeader(force: true)
+        tableView.reloadData()
     }
 
     private func makeSourceGroupButton() -> UIButton? {
@@ -302,35 +334,30 @@ final class ForwardCardInfoViewController: UIViewController {
 
 extension ForwardCardInfoViewController: UITableViewDataSource, UITableViewDelegate {
     func numberOfSections(in tableView: UITableView) -> Int {
-        (sourceGroupButton == nil ? 0 : 1) + (details.isEmpty ? 0 : 1)
+        sections.count
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if sourceGroupButton != nil, section == 0 { return 1 }
-        return details.count
+        switch sections[section] {
+        case .sourceGroup, .primaryAction: return 1
+        case .details: return details.count
+        }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if sourceGroupButton != nil, section == 0 {
+        if sections[section] == .sourceGroup {
             return L10n.text("forward_card__field__source_group", fallback: "Source group")
         }
         return nil
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if let button = sourceGroupButton, indexPath.section == 0 {
-            let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-            cell.selectionStyle = .none
-            cell.backgroundColor = .clear
-            button.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(button)
-            NSLayoutConstraint.activate([
-                button.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
-                button.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
-                button.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
-                button.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor)
-            ])
-            return cell
+        switch sections[indexPath.section] {
+        case .sourceGroup:
+            return buttonCell(sourceGroupButton!, backgroundColor: .clear)
+        case .primaryAction:
+            return buttonCell(primaryActionButton!, backgroundColor: .secondarySystemGroupedBackground)
+        case .details: break
         }
         let detail = details[indexPath.row]
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
@@ -347,6 +374,21 @@ extension ForwardCardInfoViewController: UITableViewDataSource, UITableViewDeleg
         cell.contentConfiguration = configuration
         cell.accessibilityIdentifier = detail.accessibilityIdentifier
         cell.selectionStyle = .none
+        return cell
+    }
+
+    private func buttonCell(_ button: UIButton, backgroundColor: UIColor) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        cell.selectionStyle = .none
+        cell.backgroundColor = backgroundColor
+        button.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor),
+            button.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor),
+            button.topAnchor.constraint(equalTo: cell.contentView.topAnchor),
+            button.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor)
+        ])
         return cell
     }
 }
