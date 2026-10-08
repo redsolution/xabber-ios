@@ -305,27 +305,30 @@ func getDeliveryTime(_ message: XMPPMessage, owner: String) -> Date? {
 }
 
 func getDelayedDate(_ message: XMPPMessage) -> Date? {
-    var date: Date? = nil
-    if let dateString = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "time")?.attributeStringValue(forName: "stamp") {
-        date = dateString.xmppDate
+    guard let result = getMAMResultElement(message) else {
+        return getDeliveryDate(message)
     }
-    if date == nil {
-        if let dateString = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "time")?.attributeStringValue(forName: "stamp") {
-            date = dateString.xmppDate
-        }
+    let forwarded = SCEReceivePolicy.children(of: result, named: "forwarded", xmlns: "urn:xmpp:forward:0")
+    guard forwarded.count == 1 else { return nil }
+
+    // Use the same owned MAM wrapper as payload extraction. A foreign result
+    // or date lookalike must not change an accepted carrier's archive date.
+    let delays = SCEReceivePolicy.children(of: forwarded[0], named: "delay", xmlns: "urn:xmpp:delay")
+    let times = SCEReceivePolicy.children(of: forwarded[0], named: "time", xmlns: "https://xabber.com/protocol/delivery")
+    guard delays.count <= 1, times.count <= 1 else { return nil }
+    if let date = delays.first?.attributeStringValue(forName: "stamp")?.xmppDate {
+        return date
     }
-    if let dateString = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "delay")?.attributeStringValue(forName: "stamp") {
-        date = dateString.xmppDate
+    if let date = times.first?.attributeStringValue(forName: "stamp")?.xmppDate {
+        return date
     }
-    if date == nil {
-        if let dateString = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "delay")?.attributeStringValue(forName: "stamp") {
-            date = dateString.xmppDate
-        }
-    }
-    if date == nil {
-        date = getDeliveryDate(message)
-    }
-    return date
+
+    // Keep the existing outer delivery-time fallback, qualified and singular.
+    let outerTimes = SCEReceivePolicy.children(of: message, named: "time", xmlns: "https://xabber.com/protocol/delivery")
+    let outerDelays = SCEReceivePolicy.children(of: message, named: "delay", xmlns: "urn:xmpp:delay")
+    guard outerTimes.count <= 1, outerDelays.count <= 1 else { return nil }
+    return outerTimes.first?.attributeStringValue(forName: "stamp")?.xmppDate
+        ?? outerDelays.first?.attributeStringValue(forName: "stamp")?.xmppDate
 }
 
 func getDeliveryDate(_ message: XMPPMessage) -> Date? {

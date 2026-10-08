@@ -1117,6 +1117,7 @@
 		E3A03F206FEA7CFA16DA5219 /* ForwardCommentEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 321BF515B5F8B772F8DD67FF /* ForwardCommentEditTests.swift */; };
 		D931D58E20C90B0122D7B145 /* ForwardRewritePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAE94D4D9EB2572CD2F6D3D /* ForwardRewritePersistenceTests.swift */; };
 		605F6B2BA90A72CF372FBACD /* ForwardOwnMediaProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F26A47E2025E4684A826DB /* ForwardOwnMediaProjectionTests.swift */; };
+		9479E613E47543EA8323BBB9 /* ForwardReceiveRouteIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EC28D2981CC4986A47223F6 /* ForwardReceiveRouteIntegrationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2272,6 +2273,7 @@
 		321BF515B5F8B772F8DD67FF /* ForwardCommentEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardCommentEditTests.swift; sourceTree = "<group>"; };
 		4EAE94D4D9EB2572CD2F6D3D /* ForwardRewritePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardRewritePersistenceTests.swift; sourceTree = "<group>"; };
 		D8F26A47E2025E4684A826DB /* ForwardOwnMediaProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardOwnMediaProjectionTests.swift; sourceTree = "<group>"; };
+		0EC28D2981CC4986A47223F6 /* ForwardReceiveRouteIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForwardReceiveRouteIntegrationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4513,6 +4515,7 @@
 				4E59003A2F86000000ABC001 /* ChatAttachmentMediaPreparationTests.swift */,
 				4E59003E2F87000000ABC001 /* ChatAttachmentSendIntegrationTests.swift */,
 				C0F4931FBC6F9CD77A298487 /* ForwardAuthenticatedSourceTests.swift */,
+				0EC28D2981CC4986A47223F6 /* ForwardReceiveRouteIntegrationTests.swift */,
 				D8F26A47E2025E4684A826DB /* ForwardOwnMediaProjectionTests.swift */,
 				4EAE94D4D9EB2572CD2F6D3D /* ForwardRewritePersistenceTests.swift */,
 				321BF515B5F8B772F8DD67FF /* ForwardCommentEditTests.swift */,
@@ -6831,6 +6834,7 @@
 				4E59003B2F86000000ABC001 /* ChatAttachmentMediaPreparationTests.swift in Sources */,
 				4E59003F2F87000000ABC001 /* ChatAttachmentSendIntegrationTests.swift in Sources */,
 				B130CADD5313940401E0B33A /* ForwardAuthenticatedSourceTests.swift in Sources */,
+				9479E613E47543EA8323BBB9 /* ForwardReceiveRouteIntegrationTests.swift in Sources */,
 				605F6B2BA90A72CF372FBACD /* ForwardOwnMediaProjectionTests.swift in Sources */,
 				D931D58E20C90B0122D7B145 /* ForwardRewritePersistenceTests.swift in Sources */,
 				E3A03F206FEA7CFA16DA5219 /* ForwardCommentEditTests.swift in Sources */,
