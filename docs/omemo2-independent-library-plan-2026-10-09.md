@@ -1,6 +1,6 @@
 # План реализации самостоятельной библиотеки OMEMO 2
 
-Дата: 2026-10-09. Статус: L01–L04 выполнены в отдельном package; L05–L07 ещё не выполнены.
+Дата: 2026-10-09. Статус: L01–L05 выполнены в отдельном package; L06–L07 ещё не выполнены.
 Основание: [проверенные зависимости, нормативная база и 70 пунктов требований](omemo2-independent-library-requirements-2026-10-09.md).
 
 ## Результат первой версии
@@ -12,6 +12,14 @@
 **Последнее уточнение пользователя:** package не знает XML/XMPP/другого транспорта, адресов, устройств и структуры сообщения приложения. [Neutral API и границы](independent-crypto-library-api-2026-10-09.md) уточняют этот контракт. Xabber — отдельный consumer, а не часть package.
 
 Используем стандартные криптопримитивы Apple, самостоятельно реализуем протокол и состояние OMEMO 2. Полная собственная реализация Ed25519/AES/SHA с нуля не входит в этот план. X3DH и классический Double Ratchet обязательны для wire-совместимости OMEMO 2, хотя библиотека Signal не используется.
+
+**Происхождение реализации:** libsignal/SignalProtocolC/ObjC и их форки не используются как source,
+шаблон API/state, tests/fixtures/reference scripts или oracle для expected bytes. Реализацию выводим
+из опубликованных спецификаций/стандартов; public X3DH/Double Ratchet specifications на signal.org
+отличаются от кода библиотеки. Expected vectors создаются собственным независимым tooling поверх
+объявленных primitive providers. [Политика источников](</Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift/Documentation/SOURCE_POLICY.md>)
+имеет приоритет над ранними рекомендациями переносить тесты из прежнего backend. Первоначальный
+аудит исследовал existing Signal integration и не является формальным clean-room доказательством.
 
 ## Границы ответственности
 

@@ -188,7 +188,13 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 | Robustness | Fuzz binary wire/snapshot/XML seams, resource caps, ASan/UBSan для собственного native участка, static analysis, secret lifetime/constant-time review. Унаследованный Donna signed-shift UB нельзя переносить как доказанно безопасный primitive. |
 | Build/distribution | Narrow XCTest/TDD first, Simulator app build via cached wrapper (successful test build counts), extension build при затронутом linkage; package build/cutover fixtures, symbol/dependency audit и воспроизводимые pins. |
 
-Уже есть [CryptoKit conformance XCTest](../xabberTests/OMEMO2CryptoKitConformanceTests.swift), C `tests/test_omemo_keys.c`, `test_omemo_wire.c`, `test_omemo_session.c`, ObjC `OMEMO2Tests.m` и независимый `/Users/igor.boldin/projects/xabber/deps/SignalProtocolC/tests/omemo/reference_vector.py`. Их следует перенести/адаптировать; это уже полезная база. Последние vault записи сообщают C↔JS vectors/snapshots, но live two-client acceptance остаётся незавершённым; его нельзя заменить совпадением fixture.
+В исходном аудите отмечены existing CryptoKit/app и C/ObjC tests/reference scripts прежнего Signal
+backend. Ранняя рекомендация перенести/адаптировать их **отменена** уточнённой source policy:
+XabberCryptoSwift не использует libsignal/локальные форки, их tests/fixtures/scripts или outputs как
+implementation reference либо oracle. Package tests пишутся заново из спецификаций, стандартных
+атрибутированных векторов и собственных независимых generators. Для внешней app integration можно
+сохранить документированные behavioral requirements/regressions без переноса Signal-derived code.
+Live two-client acceptance не заменяется совпадением собственных fixtures.
 
 ## 7. Поставка отдельным package
 
