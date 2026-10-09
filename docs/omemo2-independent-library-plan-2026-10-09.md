@@ -1,6 +1,6 @@
 # План реализации самостоятельной библиотеки OMEMO 2
 
-Дата: 2026-10-09. Статус: execution plan; L01 выполнен в отдельном package, L02–L07 ещё не выполнены.
+Дата: 2026-10-09. Статус: L01 и L02 выполнены в отдельном package; L03–L07 ещё не выполнены.
 Основание: [проверенные зависимости, нормативная база и 70 пунктов требований](omemo2-independent-library-requirements-2026-10-09.md).
 
 ## Результат первой версии
@@ -71,6 +71,6 @@ Journal/outbox либо их компактный эквивалент — engin
 
 Ссылки: [noble-curves](https://github.com/paulmillr/noble-curves), [MIT LICENSE](https://github.com/paulmillr/noble-curves/blob/main/LICENSE), [Web Crypto](https://www.w3.org/TR/webcrypto-2/#ed25519), [XEP-0384](https://xmpp.org/extensions/xep-0384.html).
 
-## Первое конкретное действие
+## Выполненные этапы
 
-L01 выполнен в отдельном `XabberCryptoSwift`: typed API, structural tests и standalone consumer. [Отчёт L01](xabber-crypto-swift-l01-2026-10-09.md) фиксирует результат. Следующий этап — L02: independent vectors и primitives. Existing app backend и зависимости при L01 не меняются.
+L01 выполнен в отдельном `XabberCryptoSwift`: typed API, structural tests и standalone consumer. [Отчёт L01](xabber-crypto-swift-l01-2026-10-09.md) фиксирует результат. L02 добавляет Apple primitives, публичные identity/agreement key operations и проверяемую Ed-to-X conversion; [отчёт L02](xabber-crypto-swift-l02-2026-10-09.md) фиксирует проверки. Следующий этап — L03: binary codecs, cryptographic bundle validation и X3DH. Existing app backend и зависимости не меняются.

@@ -1,6 +1,6 @@
 # Универсальная криптографическая библиотека: границы и API
 
-Дата: 2026-10-09. Статус: API proposal уточнён реализацией L01; конкретный crypto engine ещё не реализован.
+Дата: 2026-10-09. Статус: API proposal уточнён реализацией L01–L02; KeyOperations реализован, session/message crypto engine ещё не реализован.
 Уточнение пользователя: пакет подключается к любому приложению и предоставляет генерацию ключей/bundles, шифрование и расшифрование. Пакет ничего не знает о XML, XMPP и другом транспорте. Возможности аналогичны используемой библиотеке Signal, но API, типы, состояние и реализация разрабатываются самостоятельно, без копирования Signal.
 
 ## Контракт
@@ -84,3 +84,7 @@ References: [execution plan](omemo2-independent-library-plan-2026-10-09.md), [re
 ## Реализация L01
 
 Пакет создан в `/Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift`. Фактические декларации — [Package API](</Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift/Documentation/API.md>). Они уточняют proposal: shape-selected bundle отделён от `ValidatedPeerBundle`; receive transitions и `SessionState.info` возвращают exact peer identity; `KeyEnvelopeKind` описывает crypto framing; seal/open/wrap/unwrap дают композицию для нескольких sessions. Конкретных криптоопераций в L01 нет.
+
+## Реализация L02
+
+`IdentityOperations` отделён от session/message API; `KeyOperations` даёт работающие generate/import identity, sign/verify и independent X25519 key generation/import. `CryptoEngine` наследует identity contract, но concrete session backend остаётся последующей работой. Внутренний AppleCryptoProvider реализует Ed25519/X25519, checked RNG, SHA256/512, HMAC/HKDF-SHA256, AES256-CBC/strict PKCS7 и constant-time comparison. Public-point conversion независимо реализована в C; secret signing/DH используют Apple APIs. [Отчёт L02](xabber-crypto-swift-l02-2026-10-09.md).
