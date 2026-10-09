@@ -5,9 +5,11 @@
 
 ## Результат первой версии
 
-Отдельный source SwiftPM package `XabberOMEMOCore` для iOS15+ с самостоятельным ядром `urn:xmpp:omemo:2`, без SignalProtocolC/ObjC и без импорта состояния предыдущего backend. CocoaPods podspec над теми же sources — дополнительный вариант доставки при необходимости; пользователь допускает pod **или** SPM, не требует оба.
+Отдельный source SwiftPM package `XabberCrypto` для iOS15+ с универсальным криптографическим API и первым криптографическим профилем, совместимым с OMEMO 2, без SignalProtocolC/ObjC и без импорта состояния предыдущего backend. CocoaPods podspec над теми же sources — дополнительный вариант доставки при необходимости; пользователь допускает pod **или** SPM, не требует оба.
 
-Предлагаемый каталог: `/Users/igor.boldin/projects/xabber/deps/XabberOMEMOCore`. Название, каталог и SPM primary — техническая рекомендация. Сейчас package/repository не создавался.
+Предлагаемый каталог: `/Users/igor.boldin/projects/xabber/deps/XabberCrypto`. Название, каталог и SPM primary — техническая рекомендация. Сейчас package/repository не создавался.
+
+**Последнее уточнение пользователя:** package не знает XML/XMPP/другого транспорта, адресов, устройств и структуры сообщения приложения. [Neutral API и границы](independent-crypto-library-api-2026-10-09.md) уточняют этот контракт. Xabber — отдельный consumer, а не часть package.
 
 Используем стандартные криптопримитивы Apple, самостоятельно реализуем протокол и состояние OMEMO 2. Полная собственная реализация Ed25519/AES/SHA с нуля не входит в этот план. X3DH и классический Double Ratchet обязательны для wire-совместимости OMEMO 2, хотя библиотека Signal не используется.
 
@@ -21,25 +23,27 @@
 | RNG | Apple Security provider |
 | Seed→X private и checked Ed public→X public | Самостоятельный проверенный conversion adapter |
 | XMPP/XML/PEP, устройства, SCE affixes/provenance, policy доверия, UI | Xabber host adapter |
-| Keychain/Realm, owner/session serialisation, commit и app recovery | Xabber host storage adapter |
+| Любой persistence backend, сопоставление адресатов с sessions, сериализация операций, commit и app recovery | Внешнее приложение; Xabber adapter — один пример |
 
-Public API не экспортирует Signal/Realm/XMPPFramework/UIKit types. Payload AE обрабатывает bytes; библиотека не становится XML/SCE authority. Сохранение candidate ratchet/OPK transitions и принятие plaintext/ciphertext привязаны к явному host commit contract.
+Public API содержит только ключи, bundles, crypto sessions, binary messages/bytes, snapshots и state transitions. Нет адресов/JID/SID, device lists, аккаунтов, Signal/Realm/XMPPFramework/UIKit types. `PublicBundle` содержит список public OPKs, `SelectedPeerBundle` — один OPK для establishment. Crypto operations возвращают provisional output и candidate state; host сам проверяет bytes, атомарно сохраняет state/OPK consumption и допускает output к использованию. Core не обещает скрыть уже возвращённые bytes до внешнего commit.
 
 ## Последовательность работ
 
 | Этап | Реализация | Критерий завершения |
 | --- | --- | --- |
-| **L01 — Package/API** | `Package.swift`, library/test targets, собственные key/bundle/session/error types, provider/store contracts, fixtures, README и license/provenance metadata. При C conversion — отдельный C target. | Package собирается самостоятельно; тесты запускаются без app/account/Keychain; API не зависит от Signal. |
+| **L01 — Package/API** | `Package.swift`, library/test targets, собственные key/public-bundle/selected-bundle/session/error types, provider и candidate-transition contracts, fixtures, README и license/provenance metadata. При C conversion — отдельный C target. | Package собирается самостоятельно; key/bundle/encrypt/decrypt tests запускаются без app/account/Keychain/XML/network; API не зависит от Signal. |
 | **L02 — Primitives/identity** | Native Ed25519 seed, X25519, signing/verification, HMAC/HKDF, AES-CBC, checked RNG, identity conversion и secret lifetime policy. | RFC и независимые positive/negative vectors; Ed seed→X обе стороны дают ожидаемый DH; исходные remote Ed bytes/sign bit сохраняются для signature/AD. |
 | **L03 — Wire/X3DH** | Три protobuf codecs, strict bounded parser, exact raw-byte MAC, bundle/SPK verification, обязательный OPK, 4-DH establishment, initial Alice/Bob state и первый authenticated packet. | Independent expected DH/SK/AD/ciphertext/protobuf bytes; malformed bundle/wire/MAC не создаёт usable session и не потребляет OPK. |
 | **L04 — Double Ratchet/payload** | DH/chain transitions, Ns/Nr/PN, repeated KEX до authenticated reply, skipped keys/retention, replay, empty controls, payload key32+MAC16 и payload authentication. | Exchange в обе стороны, потеря/reorder/duplicate/old chain/MAX_SKIP, KEX/ACK loss и tampering. Failed auth/provider call не меняет committed state. |
-| **L05 — New state/transactions** | Собственный versioned snapshot и state namespace, restore validation, prepare→validate→commit, version/CAS/session serialisation; no writable rollback. | Snapshot roundtrip/restart, pending KEX и skipped keys, concurrent restored objects, corrupt/locked state и injected save failure. Нет release plaintext/ciphertext при неуспешном commit. |
-| **L06 — iOS integration/cutover** | Provider seam в manager/storage/codecs; fresh Ed identity и registration; существующие PEP/devices/SCE/trust/maintenance policies. Удалить legacy reader/imports/Signal pods/patch connections; Curve25519Kit — после проверки других usages. | Focused app XCTest с новым backend, новый fingerprint/publication, old state не интерпретируется новым core, локальная расшифрованная история доступна. Simulator app/test build проходит; extension проверяется при изменении linkage. |
-| **L07 — Acceptance/release** | Реальный exchange с web OMEMO2 и независимым peer, hostile-parser fuzz/native sanitizers, crypto/state review, dependency/symbol audit, README/API examples и versioned release. Optional podspec — отдельный consumer test. | Fresh interoperable sessions, offline/MAM/restart/own devices/reorder/ACK loss; нет Signal runtime linkage; standalone package воспроизводимо подключается к consumer. |
+| **L05 — New state/transactions** | Собственный versioned crypto snapshot, restore validation, immutable input и candidate state transitions, authenticated consumed OPK event. External storage/locks/CAS — host. | Snapshot roundtrip/restart, pending KEX/skipped keys, corruption rejection и failed crypto без state mutation. Host adapter отдельно проверяет commit/CAS failures и не использует provisional bytes до сохранения. |
+| **L06 — Neutral consumer** | Самостоятельный пример двух участников: generate keys/bundles, new sessions, arbitrary bytes encrypt/decrypt и host-owned state. Без Xabber/XMPP/network code. | Пример подключается как обычный SPM/pod consumer, меняет delivery channel без изменения crypto API; package tests и consumer build проходят. |
+| **L07 — Acceptance/release** | Independent crypto peer/vectors, hostile-parser fuzz/native sanitizers, crypto/state review, dependency/symbol audit, README/API examples и versioned release. Transported OMEMO exchange проверяется внешним adapter. Optional podspec — отдельный consumer test. | Fresh compatible crypto sessions, restart/reorder/exchange-reply loss; нет Signal runtime linkage и transport imports; standalone package воспроизводимо подключается к независимому consumer. |
 
 L03/L04 разделены, чтобы сначала доказать корректность первого пакета независимыми bytes, затем проверять сложную state machine. На каждом этапе сначала focused tests, затем implementation, narrow verification и отдельный reviewable commit. Собственная успешная encrypt→decrypt пара не заменяет independent vectors/peer.
 
-## Переключение с предыдущего backend
+## Внешняя интеграция Xabber и переключение с предыдущего backend
+
+Этот раздел — задачи consumer-приложения после готовности package; они не входят в API/core библиотеки. Xabber adapter связывает свои адреса/devices с sessions, генерирует/читает XML, применяет SCE/trust, публикует bundles и хранит state. Его отдельные XCTest/Simulator build и live web exchange подтверждают интеграцию.
 
 - Нет старого Signal v3 reader, X-scalar identity/XEdDSA signer, native snapshot importer и переноса старых sessions/counters/skipped keys.
 - Новая identity означает новый fingerprint и peer trust verification. Local cryptographic device/registration policy должна явно завершить прежние объявления, controls и retries; старые ожидающие ciphertexts не отправляются через новые sessions.
@@ -49,7 +53,7 @@ L03/L04 разделены, чтобы сначала доказать корр�
 
 ## Надёжность, которую нужно определить до integration
 
-Package transaction и app/network transaction — разные boundaries. API должен документировать, когда state считается committed, а ciphertext/plaintext допустим к использованию. До L06 необходимо определить:
+Package transaction и app/network transaction — разные boundaries. API должен документировать, когда state считается committed, а ciphertext/plaintext допустим к использованию. При разработке внешнего host adapter необходимо определить:
 
 - поведение crash между protected state commit и сохранением полученной истории;
 - retry identity и сохранение уже созданного ciphertext;

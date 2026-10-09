@@ -10,9 +10,11 @@
 
 Отказ от библиотеки Signal не отменяет алгоритмы X3DH и классического Double Ratchet: они входят в выбранный профиль OMEMO 2. Собственный несовместимый handshake или ratchet уже не будет этой реализацией OMEMO 2. Новые PQXDH, Triple Ratchet и другие современные расширения Signal не входят автоматически в этот профиль.
 
-Предлагаемая граница: самостоятельный `XabberOMEMOCore` без XMPPFramework, Realm, UIKit и Signal; криптографические providers; адаптер к существующему приложению. Имя и структура пакета — предложение. Для Apple платформ разумно использовать Swift для state machine и CryptoKit для native Ed25519 identities, X25519, SHA/HMAC/HKDF; отдельно понадобится проверенное Ed25519→X25519 преобразование. Старый XEdDSA signer больше не нужен. При требовании одного native ядра для iOS/web/Android нужно отдельно выбрать portable C/Rust backend и способ подключения, а не считать iOS CryptoKit переносимым решением.
+Предлагаемая граница: самостоятельный `XabberCrypto` без XMPPFramework, Realm, UIKit и Signal; криптографические providers; адаптер к существующему приложению. Имя и структура пакета — предложение. Для Apple платформ разумно использовать Swift для state machine и CryptoKit для native Ed25519 identities, X25519, SHA/HMAC/HKDF; отдельно понадобится проверенное Ed25519→X25519 преобразование. Старый XEdDSA signer больше не нужен. При требовании одного native ядра для iOS/web/Android нужно отдельно выбрать portable C/Rust backend и способ подключения, а не считать iOS CryptoKit переносимым решением.
 
 Рекомендация по доставке: SwiftPM как основной package, `.podspec` над теми же sources для текущего CocoaPods приложения. Выбор пользователя допускает один из форматов; поддержка обоих удобна, но не является обязательным условием первой версии.
+
+**Последнее уточнение пользователя:** универсальный package знает только keys/bundles, arbitrary bytes, crypto sessions/envelopes и state. XML/XMPP/PEP/SCE, адреса/JID/SID и persistence принадлежат consumer. [Актуальный neutral API](independent-crypto-library-api-2026-10-09.md) отделяет core от приведённых ниже Xabber integration checks и заменяет namespace-oriented трактовку package.
 
 Здесь различаются:
 
@@ -68,12 +70,12 @@ N01–N09 в [активном нормативном плане](omemo2-standar
 
 ### 5.1. Контракт, типы и providers
 
-- [ ] Закрепить profile `urn:xmpp:omemo:2` и версии XEP; явно отделить legacy `0x05` key encoding / Signal v3 от OMEMO 2.
+- [ ] Закрепить совместимый с OMEMO 2 набор algorithms/KDF/binary envelopes и версии спецификаций; namespace `urn:xmpp:omemo:2` используется только внешним XMPP adapter. Legacy `0x05` key encoding / Signal v3 исключены.
 - [ ] Определить независимые types: identity, DH keypair, signed prekey, one-time prekey, validated bundle, parsed ciphertext, authenticated result, session state и snapshot.
 - [ ] Явно различать Ed25519 seed, производный X25519 scalar, Ed wire public и X public: одинаковая длина не делает их взаимозаменяемыми. Импорт старого Signal scalar отсутствует.
 - [ ] `CryptoProvider`: RNG, X25519, identity conversion/sign/verify, SHA256/SHA512, HMAC, HKDF, AES-CBC/PKCS7, constant-time compare, secret-buffer lifecycle.
-- [ ] `SessionStore` contract: load/version, prepare transition, atomic commit, stale-version rejection. Core не вызывает Keychain/Realm/XMPP самостоятельно.
-- [ ] Структурированные ошибки: invalid input/bundle/signature, no session/key, authentication failure, duplicate, gap limit, stale/replacement KEX, storage failure, unsupported snapshot. Без plaintext fallback на ошибке.
+- [ ] Candidate-transition contract: input state неизменен, output + nextState provisional; persistence и version/CAS/commit у host. Core не вызывает Keychain/Realm/XMPP и не требует обязательный store. Optional convenience store/callback должен оставаться generic.
+- [ ] Структурированные crypto errors: invalid input/bundle/signature, no session/key, authentication failure, duplicate, gap limit, stale/replacement KEX, unsupported snapshot. Storage errors принадлежат host. Без plaintext fallback на ошибке.
 - [ ] Metadata доступна после parse, но не получает trust/authentication authority до успешной проверки.
 
 ### 5.2. Primitives и новые identity
@@ -92,7 +94,7 @@ N01–N09 в [активном нормативном плане](omemo2-standar
 
 - [ ] X25519: RFC7748 scalar decoding/clamping, little-endian public encoding, правильный импорт и DH; отказ от all-zero shared secret.
 - [ ] Identity signature: Ed25519-compatible raw64, Ed wire public raw32; строгие длины и согласованная policy canonical/scalar/subgroup validation.
-- [ ] Публичные преобразования Edwards ↔ Montgomery с сохранением исходных Ed bytes для AD, включая remote sign bit 1 и недопустимые точки/нулевой знаменатель.
+- [ ] Публичное преобразование Edwards → Montgomery с сохранением исходных Ed bytes для AD, включая remote sign bit 1 и недопустимые точки/нулевой знаменатель. Обратное преобразование для выбранных native Ed identities не требуется.
 - [ ] Для native Ed-seed identities: SHA512 seed expansion, правильный private conversion к X25519 и проверка соответствия публичных форм. Не генерировать два независимых ключа для подписи и DH.
 - [ ] Хранить native Ed25519 seed с explicit key kind/version; не принимать прежний X25519 scalar как seed. XEdDSA и импорт старой identity исключены из scope.
 - [ ] SHA256/SHA512, HMAC-SHA256, HKDF-SHA256 с проверенными salt/info/output lengths, AES256-CBC с PKCS7; проверять MAC до CBC decrypt и возвращать общую authentication error.
@@ -121,7 +123,7 @@ CryptoKit подходит для стандартных X25519/Ed25519 опер
 - [ ] Chain KDF: HMAC(CK,byte01)=MK; HMAC(CK,byte02)=next CK.
 - [ ] DH ratchet transition, previous-chain skipped-key extraction, current-chain skip, проверка counters/overflow и обе роли.
 - [ ] Skipped-key addressing по DH public key + message counter; одноразовое использование после authentication. Ограничить total retention и максимальную работу на одном gap; FIFO и конечная deterministic retention policy.
-- [ ] Работать на копии state; parse/MAC/padding/crypto/commit error не меняет committed session. Не удалять skipped key на неаутентифицированном пакете.
+- [ ] Работать на копии state; parse/MAC/padding/crypto error не меняет input session. Host commit failure не заменяет committed state candidate-версией. Не удалять skipped key на неаутентифицированном пакете.
 - [ ] Duplicate/replay и old chain не допускают повторного пользовательского сообщения; eviction, reset и restore не возрождают consumed keys.
 
 ### 5.5. Binary wire и authenticated encryption
@@ -132,10 +134,12 @@ CryptoKit подходит для стандартных X25519/Ed25519 опер
 - [ ] Сохранить исходные inner protobuf bytes; MAC считать по ним, без parse→reserialize normalization.
 - [ ] Ratchet material: HKDF(MK,zero32,`OMEMO Message Key Material`,80) → AES key32 + HMAC key32 + IV16; AES256-CBC/PKCS7; tag=first16 HMAC(AD || exact inner message bytes).
 - [ ] Payload material: случайный key32; HKDF(key,zero32,`OMEMO Payload`,80); тот же split; AES-CBC/PKCS7; payload tag=first16 HMAC(payload ciphertext).
-- [ ] Одно payload ciphertext на stanza, а `key32 || payloadMAC16` шифруется ratchet отдельно каждому устройству.
+- [ ] Одно ciphertext для arbitrary bytes payload; `key32 || payloadMAC16` оборачивается отдельно каждой crypto session. Сопоставление sessions адресатам/устройствам и XML stanza выполняет приложение.
 - [ ] Empty control: ratchet plaintext ровно zero32, payload отсутствует; отличать от user-content plaintext48. Нельзя подменить CBC/HMAC на AES-GCM ради удобства API.
 
 ### 5.6. Собственное состояние и переключение приложения
+
+Snapshot codec и candidate transitions принадлежат core. Переключение backend, защищённое хранение, доверие и commit/retry policy ниже — задачи внешнего приложения.
 
 - [ ] Определить собственный versioned snapshot: role, exact Ed identities/AD, DH keys, RK/CK, counters, EK, pending KEX/SPK/OPK IDs, skipped keys и retention metadata.
 - [ ] Strict decoder с invariants/size caps и unknown-version rejection. Формат storage не является protobuf wire и не должен зависеть от Signal records.
@@ -143,9 +147,9 @@ CryptoKit подходит для стандартных X25519/Ed25519 опер
 - [ ] Генерировать native Ed identity, SPK/OPK и новые sessions; initial registration/SID policy реализуется host adapter с collision check и подтверждённой публикацией. Устаревшее объявление локального устройства заменяется/удаляется по выбранному server profile.
 - [ ] При переключении invalidate старый собственный fingerprint, доверие к прежнему собственному ключу и связанные controls/session references; показывать новый fingerprint и использовать existing key-change verification flow. Не менять доверие к посторонним peer keys без причины.
 - [ ] Создание identity допустимо только для подтверждённого отсутствия нового state. Corrupt/locked/inaccessible Keychain — error, а не повод автоматически перевыпустить ключи.
-- [ ] Секреты, protected state и OPK private keys остаются в host-owned Keychain/store; core возвращает candidate transition, host атомарно фиксирует его до ciphertext release/plaintext acceptance.
+- [ ] Секреты, protected state и OPK private keys остаются в host-owned Keychain/store; core возвращает provisional output и candidate transition. Host атомарно фиксирует transition до отправки ciphertext или использования plaintext; core не скрывает уже возвращённые bytes до внешнего commit.
 - [ ] OPK consumption, session snapshot и receive authentication фиксируются совместно. Failed crypto/payload/save не меняет committed ratchet.
-- [ ] Сериализовать операции для всех restored instances owner/session; version/CAS checks предотвращают lost update. State addressing включает owner + bare peer JID + device SID.
+- [ ] Host сериализует операции restored sessions и применяет version/CAS checks. Core не знает storage addressing. В Xabber adapter ключ owner + bare peer JID + device SID остаётся исключительно app-level association.
 - [ ] Запретить writable downgrade к устаревшему checkpoint после продвижения ratchet; rollback старого state может повторно использовать message keys.
 - [ ] Определить поведение restart/crash/retry: plaintext после secret commit до записи history, partial multi-recipient failure и retirement controls до network send сейчас имеют gaps. Их нельзя выдавать за гарантии нового package.
 - [ ] Сохранить чтение уже расшифрованной локальной истории. Старые encrypted пакеты libsignal, незагруженная legacy MAM история и packets прежних sessions новый core не расшифровывает — выбранная пользователем граница.
@@ -188,17 +192,17 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 
 ## 7. Поставка отдельным package
 
-Предпочтительный вариант: самостоятельный source SwiftPM package с library product `XabberOMEMOCore`; `.podspec` можно добавить над теми же исходниками. Текущий app уже сочетает CocoaPods и SwiftPM. Для первой версии достаточно одного выбранного формата; основной план использует SPM.
+Предпочтительный вариант: самостоятельный source SwiftPM package с library product `XabberCrypto`; `.podspec` можно добавить над теми же исходниками. Текущий app уже сочетает CocoaPods и SwiftPM. Для первой версии достаточно одного выбранного формата; основной план использует SPM.
 
-- [ ] Отдельный repository/directory, `Package.swift`, README, LICENSE/NOTICE, semantic versions/tags и changelog. Proposed path: `/Users/igor.boldin/projects/xabber/deps/XabberOMEMOCore`; создание repository в этой исследовательской задаче не выполняется.
+- [ ] Отдельный repository/directory, `Package.swift`, README, LICENSE/NOTICE, semantic versions/tags и changelog. Proposed path: `/Users/igor.boldin/projects/xabber/deps/XabberCrypto`; создание repository в этой исследовательской задаче не выполняется.
 - [ ] Minimum iOS15.0 совместим с Podfile15.0 и app/test deployment15.6; macOS host support для `swift test` объявить явно, если package tests запускаются на Mac.
-- [ ] Swift public API не экспортирует Signal types/ObjC wrapper classes, Realm или XMPP XML; не допускает release uncommitted ciphertext/plaintext через неясный state contract.
-- [ ] Core/Security providers отделены от app adapter. Test RNG/in-memory store находятся в test targets; production stores внедряются приложением.
+- [ ] Swift public API не экспортирует Signal types/ObjC wrapper classes, Realm или XMPP XML; явно документирует provisional output + candidate state и ответственность host за commit до использования output.
+- [ ] Core/Security providers отделены от app adapter. Test RNG/in-memory state находятся в test targets; production store полностью принадлежит приложению и не обязателен для core API.
 - [ ] Если Ed→X conversion на C: отдельный C target с public headers и Swift target, зависящий от него. Swift и C files не складывать в один target на используемой версии toolchain.
 - [ ] CryptoKit, Security и CommonCrypto — Apple SDK/libSystem; не требуются Signal/CryptoSwift/OpenSSL pods. Не добавлять абсолютные SDK modulemap paths.
-- [ ] Отдельные unit tests с fixtures/resources: crypto vectors, codec, state machine, persistence/fault; для XCTest app integration сохраняется app target.
+- [ ] Отдельные unit tests с fixtures/resources: crypto vectors, codec, state machine, snapshot/restart/failure; persistence/commit fault tests находятся в host adapter, XCTest app integration сохраняется в app target.
 - [ ] Проверить `swift build`/`swift test` на host, iOS Simulator consumer и Release library; app cached test/build подтверждает интеграцию, package tests сами по себе не собирают iOS app.
-- [ ] Если выбирается CocoaPod: `XabberOMEMOCore.podspec`, source tag, deployment target, Swift version, public module/headers, test spec, framework linkage и lint/consumer gate. Использовать тот же source tree; не иметь две расходящиеся копии реализации.
+- [ ] Если выбирается CocoaPod: `XabberCrypto.podspec`, source tag, deployment target, Swift version, public module/headers, test spec, framework linkage и lint/consumer gate. Использовать тот же source tree; не иметь две расходящиеся копии реализации.
 - [ ] Если поддерживаются оба managers: CI проверяет оба consumers; каждый использует одну pinned version, двойное подключение одного module к app запрещено.
 - [ ] Provenance и dependency/symbol audit подтверждают отсутствие Signal-derived runtime components в заявленной границе.
 
@@ -206,13 +210,15 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 
 ## 8. Предлагаемые этапы и условия готовности
 
+После transport-neutral уточнения актуальный library/consumer split зафиксирован в [API proposal](independent-crypto-library-api-2026-10-09.md) и [L01–L07](omemo2-independent-library-plan-2026-10-09.md). App cutover — внешняя задача consumer, standalone package acceptance не требует XMPP внутри библиотеки.
+
 После обсуждения происхождения primitives, browser API и лицензий составлен [подробный execution plan L01–L07](omemo2-independent-library-plan-2026-10-09.md). Он разделяет первый wire/X3DH packet и полную ratchet state machine, уточняет границы host/package и оставляет самостоятельный web package отдельным scope.
 
-1. **Package/API.** Создать отдельный SPM package (либо pod по выбранному варианту), типы/provider/store contracts и test fixtures. Результат: independent compile и API без Signal.
+1. **Package/API.** Создать отдельный SPM package (либо pod по выбранному варианту), типы/provider/candidate-transition contracts и test fixtures. Результат: independent compile и API без Signal, XML или обязательного store.
 2. **Primitives/identity.** Native Ed seed, Apple providers и проверенный conversion. Результат: RFC/independent vectors и корректные signatures/DH/AD.
 3. **Core.** Собственные protobuf codec, X3DH, classic ratchet и payload AE; dedicated tests до implementation. Результат: independent expected bytes и fail-without-mutation guarantees.
-4. **New persistence.** Versioned own snapshot, restart/concurrency/commit fault tests. Результат: new sessions безопасно продолжаются после restart; старый state не импортируется.
-5. **App cutover.** Fresh identity/registration, provider seam, сохранение XMPP lifecycle/SCE и local plaintext history; удаление старого reader и Signal links. Результат: app integration и Simulator gate.
+4. **New state.** Versioned own snapshot, restart/corruption/failure tests; concurrency/commit fault tests отдельно у host. Результат: new sessions продолжаются после корректного restore; старый state не импортируется.
+5. **Neutral consumer.** Пример keys/bundles/arbitrary bytes encrypt/decrypt без Xabber/XMPP. После готовности package отдельно подключить Xabber adapter с fresh identity/registration, existing XMPP/SCE и local history.
 6. **Interoperability/release.** Live web/independent peer через новые sessions, robustness review, semantic release tag и dependency audit; optional podspec consumer gate. Результат: отдельный usable package без Signal.
 
 Наиболее трудные части после отказа от обратной совместимости: безопасный identity conversion, ratchet state machine, hostile wire parsing и failure/crash semantics. Импорт старых snapshots и XEdDSA больше не определяют объём. Сроки без выбора API/providers и package acceptance gates были бы недостоверны.
