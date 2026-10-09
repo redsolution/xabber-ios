@@ -1,7 +1,7 @@
 # XabberCryptoSwift — L01 package/API
 
 Дата: 2026-10-09. Scope: standalone package skeleton и own API contracts.
-Пользователь утвердил имя и каталог `/Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift` и начало L01. Repository инициирован с нуля на `codex/l01-package`; source не копируется из Signal.
+Пользователь утвердил имя и каталог `/Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift` и начало L01. Repository инициирован с нуля на `master`; source не копируется из Signal.
 
 ## Результат
 
@@ -29,4 +29,4 @@ Links: [package README](</Users/igor.boldin/projects/xabber/deps/XabberCryptoSwi
 
 ## Commit
 
-Первый commit package: `bba64e9671ad2b37b900e50a5703d60bd85a437e` (`codex/l01-package`). 19 own-source/test/doc files; build caches ignored.
+Первый commit package: `bba64e9671ad2b37b900e50a5703d60bd85a437e` (`master`). 19 own-source/test/doc files; build caches ignored.
