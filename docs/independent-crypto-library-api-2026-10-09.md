@@ -1,6 +1,6 @@
 # Универсальная криптографическая библиотека: границы и API
 
-Дата: 2026-10-09. Статус: API proposal уточнён реализацией L01–L03; KeyOperations/prekeys/bundles реализованы, complete session/message crypto engine ещё не реализован.
+Дата: 2026-10-09. Статус: API proposal уточнён реализацией L01–L04; XabberCryptoEngine реализует ключи/bundles/session/message/control, snapshot codec ещё не реализован.
 Уточнение пользователя: пакет подключается к любому приложению и предоставляет генерацию ключей/bundles, шифрование и расшифрование. Пакет ничего не знает о XML, XMPP и другом транспорте. Возможности аналогичны используемой библиотеке Signal, но API, типы, состояние и реализация разрабатываются самостоятельно, без копирования Signal.
 
 ## Контракт
@@ -92,3 +92,9 @@ References: [execution plan](omemo2-independent-library-plan-2026-10-09.md), [re
 ## Реализация L03
 
 `KeyOperations` также реализует `PreKeyOperations`: generate/import prekeys, makePublicBundle и validatePeerBundle. `CryptoEngine` наследует оба operational contracts. Внутренние bounded codecs сохраняют exact raw MAC bytes. X3DH/initial-session helpers реализуют четыре DH, exact Ed AD, initial Alice/Bob state и первый authenticated key packet; bad parse/MAC/padding/RNG не возвращают responder state/OPK event. Это не complete public ratchet/message backend; последующие пакеты, controls/payload и snapshots остаются L04–L05. [Отчёт L03](xabber-crypto-swift-l03-2026-10-09.md).
+
+## Реализация L04
+
+`XabberCryptoEngine` реализует operational `CryptoEngine`: ключи/prekeys/bundles, establishment, произвольные байты payload, low-level seal/open/wrap/unwrap и controls. Full classic DH/chain ratchet обрабатывает loss/reorder/repeated KEX и replay с ограниченной памятью/работой. High-level receive возвращает content/state/OPK event только после аутентификации envelope и payload; low-level unwrap остаётся provisional до успешного openPayload. Nil payload означает control с exact zero32, empty user bytes имеют настоящий CBC ciphertext. Host отвечает за trust и сериализацию/атомарный commit каждой session.
+
+Snapshot operations выделены из `CryptoEngine` в отдельный `SessionStateCoding`: контракт существует, codec/restore — L05. `RatchetConfiguration` сохраняется в session; default skip retention/work/lifetime1000, transition cap4096. Retired-chain history не забывается, при cap требуется явное создание новой session. [Отчёт L04](xabber-crypto-swift-l04-2026-10-09.md), [фактический API и limits](</Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift/Documentation/API.md>).

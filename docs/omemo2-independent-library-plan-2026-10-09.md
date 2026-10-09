@@ -1,6 +1,6 @@
 # План реализации самостоятельной библиотеки OMEMO 2
 
-Дата: 2026-10-09. Статус: L01–L03 выполнены в отдельном package; L04–L07 ещё не выполнены.
+Дата: 2026-10-09. Статус: L01–L04 выполнены в отдельном package; L05–L07 ещё не выполнены.
 Основание: [проверенные зависимости, нормативная база и 70 пунктов требований](omemo2-independent-library-requirements-2026-10-09.md).
 
 ## Результат первой версии
@@ -73,4 +73,4 @@ Journal/outbox либо их компактный эквивалент — engin
 
 ## Выполненные этапы
 
-L01 выполнен в отдельном `XabberCryptoSwift`: typed API, structural tests и standalone consumer. [Отчёт L01](xabber-crypto-swift-l01-2026-10-09.md) фиксирует результат. L02 добавляет Apple primitives, публичные identity/agreement key operations и проверяемую Ed-to-X conversion; [отчёт L02](xabber-crypto-swift-l02-2026-10-09.md) фиксирует проверки. L03 реализует prekeys/bundles, binary codecs, X3DH и первый authenticated key packet; [отчёт L03](xabber-crypto-swift-l03-2026-10-09.md) фиксирует независимые векторы и проверки. Следующий этап — L04: complete ratchet/payload backend. Existing app backend и зависимости не меняются.
+L01 выполнен в отдельном `XabberCryptoSwift`: typed API, structural tests и standalone consumer. [Отчёт L01](xabber-crypto-swift-l01-2026-10-09.md) фиксирует результат. L02 добавляет Apple primitives, публичные identity/agreement key operations и проверяемую Ed-to-X conversion; [отчёт L02](xabber-crypto-swift-l02-2026-10-09.md) фиксирует проверки. L03 реализует prekeys/bundles, binary codecs, X3DH и первый authenticated key packet; [отчёт L03](xabber-crypto-swift-l03-2026-10-09.md) фиксирует независимые векторы и проверки. L04 добавляет рабочий `XabberCryptoEngine`, classic ratchet, payload/control и ограниченную обработку пропущенных ключей; [отчёт L04](xabber-crypto-swift-l04-2026-10-09.md) фиксирует многошаговые независимые векторы. Следующий этап — L05: собственный snapshot codec и restart/restore validation. Snapshot methods выделены в отдельный `SessionStateCoding`, пока без реализации. Existing app backend и зависимости не меняются.
