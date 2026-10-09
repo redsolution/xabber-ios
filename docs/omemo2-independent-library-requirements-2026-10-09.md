@@ -206,6 +206,8 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 
 ## 8. Предлагаемые этапы и условия готовности
 
+После обсуждения происхождения primitives, browser API и лицензий составлен [подробный execution plan L01–L07](omemo2-independent-library-plan-2026-10-09.md). Он разделяет первый wire/X3DH packet и полную ratchet state machine, уточняет границы host/package и оставляет самостоятельный web package отдельным scope.
+
 1. **Package/API.** Создать отдельный SPM package (либо pod по выбранному варианту), типы/provider/store contracts и test fixtures. Результат: independent compile и API без Signal.
 2. **Primitives/identity.** Native Ed seed, Apple providers и проверенный conversion. Результат: RFC/independent vectors и корректные signatures/DH/AD.
 3. **Core.** Собственные protobuf codec, X3DH, classic ratchet и payload AE; dedicated tests до implementation. Результат: independent expected bytes и fail-without-mutation guarantees.
