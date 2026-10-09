@@ -1,13 +1,13 @@
 # План реализации самостоятельной библиотеки OMEMO 2
 
-Дата: 2026-10-09. Статус: предлагаемый execution plan; реализация не начата.
+Дата: 2026-10-09. Статус: execution plan; L01 выполнен в отдельном package, L02–L07 ещё не выполнены.
 Основание: [проверенные зависимости, нормативная база и 70 пунктов требований](omemo2-independent-library-requirements-2026-10-09.md).
 
 ## Результат первой версии
 
-Отдельный source SwiftPM package `XabberCrypto` для iOS15+ с универсальным криптографическим API и первым криптографическим профилем, совместимым с OMEMO 2, без SignalProtocolC/ObjC и без импорта состояния предыдущего backend. CocoaPods podspec над теми же sources — дополнительный вариант доставки при необходимости; пользователь допускает pod **или** SPM, не требует оба.
+Отдельный source SwiftPM package `XabberCryptoSwift` для iOS15+ с универсальным криптографическим API и первым криптографическим профилем, совместимым с OMEMO 2, без SignalProtocolC/ObjC и без импорта состояния предыдущего backend. CocoaPods podspec над теми же sources — дополнительный вариант доставки при необходимости; пользователь допускает pod **или** SPM, не требует оба.
 
-Предлагаемый каталог: `/Users/igor.boldin/projects/xabber/deps/XabberCrypto`. Название, каталог и SPM primary — техническая рекомендация. Сейчас package/repository не создавался.
+Пользователь утвердил имя и каталог `/Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift`; создан новый Git repository и SwiftPM skeleton. SPM выбран для L01; optional podspec позже.
 
 **Последнее уточнение пользователя:** package не знает XML/XMPP/другого транспорта, адресов, устройств и структуры сообщения приложения. [Neutral API и границы](independent-crypto-library-api-2026-10-09.md) уточняют этот контракт. Xabber — отдельный consumer, а не часть package.
 
@@ -31,7 +31,7 @@ Public API содержит только ключи, bundles, crypto sessions, b
 
 | Этап | Реализация | Критерий завершения |
 | --- | --- | --- |
-| **L01 — Package/API** | `Package.swift`, library/test targets, собственные key/public-bundle/selected-bundle/session/error types, provider и candidate-transition contracts, fixtures, README и license/provenance metadata. При C conversion — отдельный C target. | Package собирается самостоятельно; key/bundle/encrypt/decrypt tests запускаются без app/account/Keychain/XML/network; API не зависит от Signal. |
+| **L01 — Package/API** | `Package.swift`, library/test targets, собственные key/public-bundle/selected-bundle/session/error types, provider и candidate-transition contracts, fixtures, README и license/provenance metadata. При C conversion — отдельный C target. | Package собирается самостоятельно; structural key/bundle и public contract tests запускаются без app/account/Keychain/XML/network; actual crypto generation/encrypt/decrypt — L02–L04; API не зависит от Signal. |
 | **L02 — Primitives/identity** | Native Ed25519 seed, X25519, signing/verification, HMAC/HKDF, AES-CBC, checked RNG, identity conversion и secret lifetime policy. | RFC и независимые positive/negative vectors; Ed seed→X обе стороны дают ожидаемый DH; исходные remote Ed bytes/sign bit сохраняются для signature/AD. |
 | **L03 — Wire/X3DH** | Три protobuf codecs, strict bounded parser, exact raw-byte MAC, bundle/SPK verification, обязательный OPK, 4-DH establishment, initial Alice/Bob state и первый authenticated packet. | Independent expected DH/SK/AD/ciphertext/protobuf bytes; malformed bundle/wire/MAC не создаёт usable session и не потребляет OPK. |
 | **L04 — Double Ratchet/payload** | DH/chain transitions, Ns/Nr/PN, repeated KEX до authenticated reply, skipped keys/retention, replay, empty controls, payload key32+MAC16 и payload authentication. | Exchange в обе стороны, потеря/reorder/duplicate/old chain/MAX_SKIP, KEX/ACK loss и tampering. Failed auth/provider call не меняет committed state. |
@@ -73,4 +73,4 @@ Journal/outbox либо их компактный эквивалент — engin
 
 ## Первое конкретное действие
 
-После перехода к реализации — L01: отдельный package skeleton, typed API и test harness. Затем L02: independent vectors и primitives. Никакой production backend или зависимости в этой planning-задаче не изменяются; сроки оцениваются после L01/L02, когда определены API/conversion и стоимость verification.
+L01 выполнен в отдельном `XabberCryptoSwift`: typed API, structural tests и standalone consumer. [Отчёт L01](xabber-crypto-swift-l01-2026-10-09.md) фиксирует результат. Следующий этап — L02: independent vectors и primitives. Existing app backend и зависимости при L01 не меняются.

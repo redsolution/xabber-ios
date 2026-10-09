@@ -10,7 +10,7 @@
 
 Отказ от библиотеки Signal не отменяет алгоритмы X3DH и классического Double Ratchet: они входят в выбранный профиль OMEMO 2. Собственный несовместимый handshake или ratchet уже не будет этой реализацией OMEMO 2. Новые PQXDH, Triple Ratchet и другие современные расширения Signal не входят автоматически в этот профиль.
 
-Предлагаемая граница: самостоятельный `XabberCrypto` без XMPPFramework, Realm, UIKit и Signal; криптографические providers; адаптер к существующему приложению. Имя и структура пакета — предложение. Для Apple платформ разумно использовать Swift для state machine и CryptoKit для native Ed25519 identities, X25519, SHA/HMAC/HKDF; отдельно понадобится проверенное Ed25519→X25519 преобразование. Старый XEdDSA signer больше не нужен. При требовании одного native ядра для iOS/web/Android нужно отдельно выбрать portable C/Rust backend и способ подключения, а не считать iOS CryptoKit переносимым решением.
+Предлагаемая граница: самостоятельный `XabberCryptoSwift` без XMPPFramework, Realm, UIKit и Signal; криптографические providers; адаптер к существующему приложению. Имя XabberCryptoSwift и отдельный каталог утверждены пользователем; структура SwiftPM реализована в L01. Для Apple платформ разумно использовать Swift для state machine и CryptoKit для native Ed25519 identities, X25519, SHA/HMAC/HKDF; отдельно понадобится проверенное Ed25519→X25519 преобразование. Старый XEdDSA signer больше не нужен. При требовании одного native ядра для iOS/web/Android нужно отдельно выбрать portable C/Rust backend и способ подключения, а не считать iOS CryptoKit переносимым решением.
 
 Рекомендация по доставке: SwiftPM как основной package, `.podspec` над теми же sources для текущего CocoaPods приложения. Выбор пользователя допускает один из форматов; поддержка обоих удобна, но не является обязательным условием первой версии.
 
@@ -192,9 +192,9 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 
 ## 7. Поставка отдельным package
 
-Предпочтительный вариант: самостоятельный source SwiftPM package с library product `XabberCrypto`; `.podspec` можно добавить над теми же исходниками. Текущий app уже сочетает CocoaPods и SwiftPM. Для первой версии достаточно одного выбранного формата; основной план использует SPM.
+Предпочтительный вариант: самостоятельный source SwiftPM package с library product `XabberCryptoSwift`; `.podspec` можно добавить над теми же исходниками. Текущий app уже сочетает CocoaPods и SwiftPM. Для первой версии достаточно одного выбранного формата; основной план использует SPM.
 
-- [ ] Отдельный repository/directory, `Package.swift`, README, LICENSE/NOTICE, semantic versions/tags и changelog. Proposed path: `/Users/igor.boldin/projects/xabber/deps/XabberCrypto`; создание repository в этой исследовательской задаче не выполняется.
+- [ ] Отдельный repository/directory, `Package.swift`, README, LICENSE/NOTICE, semantic versions/tags и changelog. Path: `/Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift`; свежий Git repository и SwiftPM skeleton созданы отдельной задачей L01.
 - [ ] Minimum iOS15.0 совместим с Podfile15.0 и app/test deployment15.6; macOS host support для `swift test` объявить явно, если package tests запускаются на Mac.
 - [ ] Swift public API не экспортирует Signal types/ObjC wrapper classes, Realm или XMPP XML; явно документирует provisional output + candidate state и ответственность host за commit до использования output.
 - [ ] Core/Security providers отделены от app adapter. Test RNG/in-memory state находятся в test targets; production store полностью принадлежит приложению и не обязателен для core API.
@@ -202,7 +202,7 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 - [ ] CryptoKit, Security и CommonCrypto — Apple SDK/libSystem; не требуются Signal/CryptoSwift/OpenSSL pods. Не добавлять абсолютные SDK modulemap paths.
 - [ ] Отдельные unit tests с fixtures/resources: crypto vectors, codec, state machine, snapshot/restart/failure; persistence/commit fault tests находятся в host adapter, XCTest app integration сохраняется в app target.
 - [ ] Проверить `swift build`/`swift test` на host, iOS Simulator consumer и Release library; app cached test/build подтверждает интеграцию, package tests сами по себе не собирают iOS app.
-- [ ] Если выбирается CocoaPod: `XabberCrypto.podspec`, source tag, deployment target, Swift version, public module/headers, test spec, framework linkage и lint/consumer gate. Использовать тот же source tree; не иметь две расходящиеся копии реализации.
+- [ ] Если выбирается CocoaPod: `XabberCryptoSwift.podspec`, source tag, deployment target, Swift version, public module/headers, test spec, framework linkage и lint/consumer gate. Использовать тот же source tree; не иметь две расходящиеся копии реализации.
 - [ ] Если поддерживаются оба managers: CI проверяет оба consumers; каждый использует одну pinned version, двойное подключение одного module к app запрещено.
 - [ ] Provenance и dependency/symbol audit подтверждают отсутствие Signal-derived runtime components в заявленной границе.
 
@@ -226,3 +226,7 @@ SCE padding минимум512 и allowance±300s — нынешние client par
 ## 9. Что проверено в этом исследовании
 
 Проверены manifests/lockfiles, локальные C/ObjC API и snapshot format, Swift integration/storage/identity/payload, tests, текущие планы и KB/vault; версии XEP сверены с live первичными источниками. Три parallel read-only review покрыли dependencies, normative profile и migration/tests. Production edits, новые dependencies, live account mutations и builds/tests не выполнялись: новый backend ещё не реализован. Полная runtime conformance, поведение cutover на реальном аккаунте и новый provider остаются работой реализации.
+
+## Реализация после аудита
+
+Пользователь поручил L01 и назвал package `XabberCryptoSwift`. [Отчёт L01](xabber-crypto-swift-l01-2026-10-09.md) отделяет реализованные structural models/contracts от будущей криптографии L02–L05. Результаты исходного аудита выше описывают baseline до начала новой реализации.

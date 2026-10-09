@@ -1,11 +1,11 @@
 # Универсальная криптографическая библиотека: границы и API
 
-Дата: 2026-10-09. Статус: API proposal; исходники библиотеки ещё не реализованы.
+Дата: 2026-10-09. Статус: API proposal уточнён реализацией L01; конкретный crypto engine ещё не реализован.
 Уточнение пользователя: пакет подключается к любому приложению и предоставляет генерацию ключей/bundles, шифрование и расшифрование. Пакет ничего не знает о XML, XMPP и другом транспорте. Возможности аналогичны используемой библиотеке Signal, но API, типы, состояние и реализация разрабатываются самостоятельно, без копирования Signal.
 
 ## Контракт
 
-Предлагаемое имя: `XabberCrypto`, отдельный SwiftPM package, optional podspec над теми же sources. Первым поддерживаемым криптографическим профилем является совместимый с OMEMO 2 набор алгоритмов и binary envelopes. Это не XMPP client и не OMEMO transport module: namespace, stanza, PEP, SCE, MAM, адреса/JID, device SID, аккаунты, UI и сеть отсутствуют в public API и core.
+Выбранное пользователем имя: `XabberCryptoSwift`, отдельный SwiftPM package, optional podspec над теми же sources. Первым поддерживаемым криптографическим профилем является совместимый с OMEMO 2 набор алгоритмов и binary envelopes. Это не XMPP client и не OMEMO transport module: namespace, stanza, PEP, SCE, MAM, адреса/JID, device SID, аккаунты, UI и сеть отсутствуют в public API и core.
 
 Совместимость криптографического профиля сохраняет точные KDF labels, X3DH с OPK, классический ratchet, binary protobuf envelopes и CBC/HMAC. Приложение может доставлять эти байты через HTTP, WebSocket, XMPP, файлы либо другой канал. Произвольно настраиваемые algorithms/KDF/wire profiles в первую версию не входят.
 
@@ -80,3 +80,7 @@ High-level `encryptMessage` принимает произвольные bytes (`
 Подключение к Xabber — **внешняя задача первого consumer**, с собственными adapters, SCE/PEP/trust/store tests и Simulator build. Она не добавляет XMPP concepts в library API. Отказ от старого libsignal state и отдельная web реализация сохраняют ранее согласованные границы.
 
 References: [execution plan](omemo2-independent-library-plan-2026-10-09.md), [requirements/audit](omemo2-independent-library-requirements-2026-10-09.md).
+
+## Реализация L01
+
+Пакет создан в `/Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift`. Фактические декларации — [Package API](</Users/igor.boldin/projects/xabber/deps/XabberCryptoSwift/Documentation/API.md>). Они уточняют proposal: shape-selected bundle отделён от `ValidatedPeerBundle`; receive transitions и `SessionState.info` возвращают exact peer identity; `KeyEnvelopeKind` описывает crypto framing; seal/open/wrap/unwrap дают композицию для нескольких sessions. Конкретных криптоопераций в L01 нет.
