@@ -1026,6 +1026,11 @@ class ApplicationStateManager: NSObject {
         if PasscodeLockCoordinator.shared.isProtected {
             PasscodeLockCoordinator.shared.hide(animated: false)
         }
+        AccountManager.shared.users.forEach { account in
+            account.action { user, _ in
+                user.refreshPushHTTPGrantIfNeeded()
+            }
+        }
     }
 
     public final func sceneDidDisconnect(mainWindow: UIWindow) {

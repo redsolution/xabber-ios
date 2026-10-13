@@ -1,4 +1,5 @@
 import UIKit
+import KissXML
 import XCTest
 @testable import xabber
 
@@ -274,6 +275,23 @@ final class PushExtensionRichContentTests: XCTestCase {
         XCTAssertNil(PushNotificationMediaURLPolicy.remoteURLString(
             "https://[0:0:0:0:0:ffff:7f00:1]/photo.jpg"
         ))
+    }
+
+    func testRemoteMAMResultIDWinsOverInnerAccountStanzaID() throws {
+        let document = try DDXMLDocument(xmlString: """
+        <message from='room@example.com' to='romeo@example.com'>
+          <result xmlns='urn:xmpp:mam:2' id='room-archive-1'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message from='room@example.com' to='romeo@example.com' id='message-1'>
+                <body>Archive target</body>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='romeo@example.com' id='account-archive-other'/>
+              </message>
+            </forwarded>
+          </result>
+        </message>
+        """, options: 0)
+        let preview = try XCTUnwrap(PushNotificationArchiveParser.parseHTTPArchivedMessage(try XCTUnwrap(document.rootElement()), owner: owner))
+        XCTAssertEqual(preview.route.stanzaId, "room-archive-1")
     }
 
     func testMAMResultIdCentersCaptionedImageNotificationOnExactMessage() throws {
@@ -684,7 +702,11 @@ final class PushExtensionRichContentTests: XCTestCase {
             .appendingPathComponent("xabber-push-extension/NotificationService.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        XCTAssertTrue(source.contains("applySoundPreference(for: payload_decoded.action)"))
+        let validatedDispatch = try XCTUnwrap(source.range(of: "let event = payload.event(key: key)"))
+        let messageSound = try XCTUnwrap(source.range(of: "applySoundPreference(for: .message)"))
+        let subscriptionSound = try XCTUnwrap(source.range(of: "applySoundPreference(for: .subscribe)"))
+        XCTAssertLessThan(validatedDispatch.lowerBound, messageSound.lowerBound)
+        XCTAssertLessThan(validatedDispatch.lowerBound, subscriptionSound.lowerBound)
         XCTAssertTrue(
             source.contains(
                 "NotificationSoundPreferences.current.isEnabled(for: plan.route.kind)"

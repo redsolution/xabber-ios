@@ -751,12 +751,20 @@ enum PushNotificationArchiveParser {
         return parseArchivedMessage(root, owner: owner)
     }
 
-    static func parseArchivedMessage(_ archiveMessage: DDXMLElement, owner: String) -> PushNotificationPreview? {
+    /// Use only after HTTP response validation bound this result to the requested archive.
+    static func parseHTTPArchivedMessage(_ archiveMessage: DDXMLElement, owner: String) -> PushNotificationPreview? {
+        let results = directChildren(of: archiveMessage).filter { $0.localName == "result" && $0.uri == "urn:xmpp:mam:2" }
+        guard results.count == 1, let archiveID = trimmed(results.first?.attributeString("id")) else { return nil }
+        return parseArchivedMessage(archiveMessage, owner: owner, archiveResultID: archiveID)
+    }
+
+    static func parseArchivedMessage(_ archiveMessage: DDXMLElement, owner: String,
+                                     archiveResultID: String? = nil) -> PushNotificationPreview? {
         // A transport wrapper cannot hide ciphertext carried by its parent.
         // Only an authenticated app projection may expose such content.
         if SCEReceivePolicy.hasOMEMO2(archiveMessage) {
             return parseVisibleMessage(archiveMessage, archiveMessage: archiveMessage, owner: owner,
-                                       timestamp: nil, unverifiedOMEMO: true)
+                                       timestamp: nil, unverifiedOMEMO: true, archiveResultID: archiveResultID)
         }
         guard let envelope = messageEnvelope(in: archiveMessage) else {
             return nil
@@ -764,7 +772,7 @@ enum PushNotificationArchiveParser {
         let message = envelope.message
         if SCEReceivePolicy.hasOMEMO2(message) {
             return parseVisibleMessage(message, archiveMessage: archiveMessage, owner: owner,
-                                       timestamp: envelope.timestamp, unverifiedOMEMO: true)
+                                       timestamp: envelope.timestamp, unverifiedOMEMO: true, archiveResultID: archiveResultID)
         }
         let xenNotifications = message.children(named: "notification", xmlns: XMLNS.xen)
         let hasXenTransport = xenNotifications.contains {
@@ -780,7 +788,7 @@ enum PushNotificationArchiveParser {
                 } ?? true
                 return parseVisibleMessage(bindingMatches ? nested.message : message,
                                            archiveMessage: archiveMessage, owner: owner,
-                                           timestamp: nested.timestamp ?? envelope.timestamp, unverifiedOMEMO: true)
+                                           timestamp: nested.timestamp ?? envelope.timestamp, unverifiedOMEMO: true, archiveResultID: archiveResultID)
             }
         }
         if let verification = verificationRequestMessage(from: message) {
@@ -793,7 +801,8 @@ enum PushNotificationArchiveParser {
             message,
             archiveMessage: archiveMessage,
             owner: owner,
-            timestamp: envelope.timestamp
+            timestamp: envelope.timestamp,
+            archiveResultID: archiveResultID
         )
     }
 
@@ -909,7 +918,8 @@ enum PushNotificationArchiveParser {
         archiveMessage: DDXMLElement,
         owner: String,
         timestamp: TimeInterval?,
-        unverifiedOMEMO: Bool = false
+        unverifiedOMEMO: Bool = false,
+        archiveResultID: String? = nil
     ) -> PushNotificationPreview? {
         let fromBare = bareJid(message.attributeString("from") ?? "")
         let toBare = bareJid(message.attributeString("to") ?? "")
@@ -947,7 +957,9 @@ enum PushNotificationArchiveParser {
             senderNickname = nil
         }
 
-        let stanzaId = preferredStanzaId(in: message, owner: owner, routeJid: routeJid)
+        // HTTP's validated outer result belongs to the queried archive. General
+        // live/carbon/XEN paths retain their existing normalized inner identity.
+        let stanzaId = archiveResultID ?? preferredStanzaId(in: message, owner: owner, routeJid: routeJid)
             ?? trimmed(archiveMessage.firstChild(named: "result")?.attributeString("id"))
         let senderUserId: String?
         let senderAvatarURL: String?

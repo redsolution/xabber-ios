@@ -237,12 +237,29 @@ class APNSManager: NSObject {
         
         switch targetType {
         case .node(let base64EncodedString):
+            if let envelope = PushPayloadEnvelope(base64EncodedString),
+               let encrypted = envelope.encrypted {
+                return try receiveEncrypted(encrypted, target: target, completionHandler: completionHandler)
+            }
             let json = try Self.decodeNodeData(from: base64EncodedString)
             diagnostics.record(
                 .decoded(
                     action: APNSDiagnosticActionCategory.classify(json.action)
                 )
             )
+            // Relay metadata is a dispatch hint. Only validated plaintext owns an event.
+            if let encrypted = json.encrypted {
+                do {
+                    return try receiveEncrypted(encrypted, target: target, completionHandler: completionHandler)
+                } catch APNSError.invalidPayload {
+                    // Unsupported relay events cannot act on unvalidated content.
+                    // Retain their existing ignored outcome and sanitized diagnostics.
+                    if json.action != "regjid", PushPayloadAction(rawValue: json.action ?? "") == nil {
+                        return .ignored
+                    }
+                    throw APNSError.invalidPayload
+                }
+            }
             switch json.action{
             case "regjid":
                 try self.register(json, completionHandler: completionHandler)
@@ -265,7 +282,32 @@ class APNSManager: NSObject {
     }
     
     func data(_ dataInfo: NodeData, target: String?, completionHandler: (() -> Void)?) throws {
-        
+        guard let encrypted = dataInfo.encrypted else { throw APNSError.invalidPayload }
+        _ = try receiveEncrypted(encrypted, target: target, completionHandler: completionHandler)
+    }
+
+    private func receiveEncrypted(_ encrypted: String, target: String?,
+                                  completionHandler: (() -> Void)?) throws -> ReceiveResult {
+        guard let node = target,
+              let credentials = try? CredentialsManager.staticGetPushCredentials(for: node),
+              !credentials.jid.isEmpty, let key = credentials.keyBytes,
+              let root = PushPayloadXML.element(encryptedXML: encrypted, key: key),
+              let event = PushPayloadXML.classify(root) else { throw APNSError.invalidPayload }
+        switch event {
+        case .displayed(let marker):
+            handleDisplayed(marker, node: node, credentials: credentials, completionHandler: completionHandler)
+            return .displayed
+        case .callUpdate(let update):
+            _ = VoIPManager.shared.onReceivePushUpdate(update, owner: credentials.jid)
+            completionHandler?()
+            return .data
+        case .reconciliation:
+            // Reconcile through authenticated XMPP; an encrypted headline does not authorize deletion.
+            completionHandler?()
+            return .data
+        default:
+            return .ignored
+        }
     }
     
     func register(_ registrationInfo: NodeData, completionHandler: (() -> Void)?) throws {
@@ -307,70 +349,34 @@ class APNSManager: NSObject {
     }
     
     func displayed(_ displayedInfo: NodeData, target: String?, completionHandler: (() -> Void)?) throws {
-//        return
-        guard let encrypted = displayedInfo.encrypted else {
-            throw APNSError.invalidPayload
-        }
-        
-        guard let target = target,
-            let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()),
-            let creditionals = defaults.dictionary(forKey: target),
-            let key = creditionals["secret"] as? String else {
-            throw APNSError.invalidPayload
-        }
-        
-        let doc = try DDXMLDocument(xmlString: encrypted, options: 0)
-        
-        guard let rootElement = doc.rootElement(),
-            rootElement.xmlns() == "https://xabber.com/protocol/push",
-            let encryptedStr = rootElement.stringValue else {
-            throw APNSError.invalidPayload
-        }
-        
-        let ivLength = rootElement.attributeIntegerValue(forName: "iv-length")
-        
-        guard let data = Data(base64Encoded: encryptedStr, options: .ignoreUnknownCharacters),
-            ivLength < data.count else {
-            throw APNSError.invalidPayload
-        }
-        
-        let iv = data.bytes.prefix(upTo: ivLength)
-        let encryptedData = Padding.zeroPadding.add(to: Array(data.bytes.suffix(from: ivLength)), blockSize: 16)
-        let encryptedLen = data.bytes.suffix(from: ivLength).count
-        
-        let decrypted = try AES(key: Array(key.utf8),
-                                blockMode: CBC(iv: Array(iv)),
-                                padding: .zeroPadding).decrypt(encryptedData)
-        if let decrypted = String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8),
-            let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-            let displayedElement = document.rootElement() {
-            
-            let stanzaIds = displayedElement
-                .elements(forName: "stanza-id")
-                .compactMap { return $0.attributeStringValue(forName: "id") }
-            diagnostics.record(
-                .displayed(stanzaIDCount: stanzaIds.count)
-            )
-            UNUserNotificationCenter.current().getDeliveredNotifications { (notifications) in
-                stanzaIds.forEach {
-                    stanzaId in
-                    if let userInfo = notifications.first(where: { return $0.request.content.userInfo["stanzaId"] as? String == stanzaId })?.request.content.userInfo,
-                        let timestamp = userInfo["timestamp"] as? TimeInterval,
-                        let jid = userInfo["jid"] as? String,
-                        let owner = userInfo["owner"] as? String {
-                        UNUserNotificationCenter
-                            .current()
-                            .removeDeliveredNotifications(
-                                withIdentifiers: notifications
-                                    .filter({ $0.request.content.userInfo["jid"] as? String == jid && $0.request.content.userInfo["owner"] as? String == owner })
-                                    .filter({ $0.request.content.userInfo["timestamp"] as? TimeInterval ?? 0 <= timestamp })
-                                    .compactMap({ $0.request.identifier })
-                        )
-                    }
-                }
+        guard let encrypted = displayedInfo.encrypted else { throw APNSError.invalidPayload }
+        _ = try receiveEncrypted(encrypted, target: target, completionHandler: completionHandler)
+    }
+
+    private func handleDisplayed(_ marker: PushDisplayedTarget, node: String,
+                                 credentials: CredentialsManager.PushSecretData,
+                                 completionHandler: (() -> Void)?) {
+        diagnostics.record(.displayed(stanzaIDCount: marker.stanzaIDs.count))
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notifications in
+            defer { completionHandler?() }
+            // A logout or key replacement while the OS query was pending revokes this callback.
+            guard let current = try? CredentialsManager.staticGetPushCredentials(for: node),
+                  current.jid == credentials.jid, current.keyBytes == credentials.keyBytes else { return }
+            let records: [PushDeliveredNotification] = notifications.compactMap { notification in
+                guard [PushNotificationCategory.message, PushNotificationCategory.pushMessage]
+                    .contains(notification.request.content.categoryIdentifier) else { return nil }
+                let info = notification.request.content.userInfo
+                guard let owner = info[PushNotificationUserInfoKey.owner] as? String,
+                      let jid = info[PushNotificationUserInfoKey.routeJid] as? String ?? info[PushNotificationUserInfoKey.legacyJid] as? String,
+                      let timestamp = info["timestamp"] as? TimeInterval, timestamp.isFinite else { return nil }
+                return PushDeliveredNotification(identifier: notification.request.identifier,
+                    owner: owner, jid: jid, timestamp: timestamp,
+                    stanzaID: info[PushNotificationUserInfoKey.stanzaId] as? String,
+                    messageID: info[PushNotificationUserInfoKey.messageId] as? String ?? info["messageId"] as? String)
             }
-        } else {
-            completionHandler?()
+            let ids = PushDisplayedPolicy.removalIDs(marker: marker, owner: credentials.jid, notifications: records)
+            if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
         }
     }
 }

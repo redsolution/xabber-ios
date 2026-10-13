@@ -11382,11 +11382,8 @@ final class PushNotificationHardeningTests: XCTestCase {
                 .stringValue
         )
 
-        XCTAssertEqual(sentKey, credentials.secret.toBase64())
-        XCTAssertEqual(
-            PushNotificationsManager.getDefaultsForPush(for: node)["secret"],
-            credentials.secret
-        )
+        XCTAssertTrue(Data(base64Encoded: sentKey) == credentials.keyBytes.map { Data($0) })
+        XCTAssertNil(PushNotificationsManager.getDefaultsForPush(for: node)["secret"])
         XCTAssertEqual(manager.enableState, .pending(queryId: try XCTUnwrap(manager.queryIds.first)))
         XCTAssertTrue(callbackResults.isEmpty)
         XCTAssertFalse(
@@ -11523,7 +11520,8 @@ final class PushNotificationHardeningTests: XCTestCase {
 
         let iq = try makeIQ(xml: """
         <iq type='result' id='\(queryId)'>
-          <x xmlns='jabber:x:data'>
+          <x xmlns='jabber:x:data' type='result'>
+            <field var='FORM_TYPE' type='hidden'><value>https://xabber.com/protocol/push</value></field>
             <field var='url'><value>https://push.example.com</value></field>
             <field var='jwt'><value>jwt-token</value></field>
           </x>
@@ -11542,7 +11540,7 @@ final class PushNotificationHardeningTests: XCTestCase {
         CredentialsManager.shared.removePushCredentials(for: node)
     }
 
-    func testPushEnableResetsToDisabledAfterIncompleteIQResult() throws {
+    func testPushEnableRemainsEnabledAfterIncompleteHTTPGrant() throws {
         let owner = "romeo@example.com"
         let node = "push-node-\(UUID().uuidString)"
         let manager = PushNotificationsManager(withOwner: owner)
@@ -11569,8 +11567,9 @@ final class PushNotificationHardeningTests: XCTestCase {
         """)
 
         XCTAssertTrue(manager.read(withIQ: iq))
-        XCTAssertEqual(manager.enableState, .disabled)
-        XCTAssertEqual(callbackResults, [false])
+        XCTAssertEqual(manager.enableState, .enabled)
+        XCTAssertEqual(callbackResults, [true])
+        XCTAssertFalse(manager.httpPreviewReady)
         XCTAssertFalse(manager.queryIds.contains(queryId))
 
         CredentialsManager.shared.removePushCredentials(for: node)

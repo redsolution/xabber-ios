@@ -4002,6 +4002,7 @@ final class Account: NSObject {
         self.disconnectCanonicalGroupTransport()
         self.notifications.invalidateNotificationSyncSession()
         self.disco.cancelCloudDiscoveryForDisconnect()
+        self.push.clearSession()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
@@ -4131,12 +4132,51 @@ final class Account: NSObject {
  **/
     func configureExtensions() {
         self.carbons.set(xmppStream, to: .enabled)
-        self.push.enable(xmppStream: self.xmppStream) {
-            result in
-            self.pushStatusMessage.accept(result)
-        }
+        self.requestPushRegistration(refreshHTTPGrant: false)
         
 //        ApplicationStateManager.shared.checkApplicationBlockedState(for: self.jid)
+    }
+
+    /// Push registration is independent of optional HTTP preview readiness.
+    /// Foreground work waits until bind/session setup has reached online.
+    func refreshPushHTTPGrantIfNeeded() {
+        guard self.xmppStream.isAuthenticated,
+              self.xmppStream.myJID?.bare == self.jid,
+              self.connectionGate.snapshot().phase == .online else { return }
+        let httpPreviewReady = self.push.httpPreviewReady
+        guard !self.push.enabled || !httpPreviewReady else { return }
+        self.ensurePushCapabilityDiscoveryIfNeeded()
+        self.requestPushRegistration(refreshHTTPGrant: !httpPreviewReady)
+    }
+
+    func restorePushRegistrationAfterResume() {
+        guard self.xmppStream.isAuthenticated,
+              self.xmppStream.myJID?.bare == self.jid,
+              self.connectionGate.snapshot().phase == .online else { return }
+        self.ensurePushCapabilityDiscoveryIfNeeded()
+        self.requestPushRegistration(refreshHTTPGrant: !self.push.httpPreviewReady)
+    }
+
+    private func ensurePushCapabilityDiscoveryIfNeeded() {
+        guard let domain = self.xmppStream.myJID?.domain,
+              !self.push.isAvailable(domain) else { return }
+        if !self.push.isAwaitingCustomPushSupport {
+            self.push.awaitCustomPushSupport()
+        }
+        _ = self.disco.requestFeatures(self.xmppStream)
+    }
+
+    private func requestPushRegistration(refreshHTTPGrant: Bool) {
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self else { return }
+            // A failed refresh leaves an acknowledged registration enabled.
+            self.pushStatusMessage.accept(self.push.enabled)
+        }
+        if refreshHTTPGrant {
+            self.push.refresh(xmppStream: self.xmppStream, callback: completion)
+        } else {
+            self.push.enable(xmppStream: self.xmppStream, callback: completion)
+        }
     }
     
     func updateExtensions() {
@@ -4993,6 +5033,8 @@ final class Account: NSObject {
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.notifications.invalidateNotificationSyncSession()
+        self.disco.cancelCloudDiscoveryForDisconnect()
+        self.push.clearSession()
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()

@@ -65,6 +65,7 @@ extension Account {
             DispatchQueue.main.async {
                 ToastPresenter().present(message: L10n.text("account_sync", fallback: "Synchronization"), image: imageLiteral("cloud"))
             }
+            self.push.awaitCustomPushSupport()
             self.configureExtensions()
             self.recoverCanonicalGroupRuntimeAfterFullAuthentication()
             self.disco.configure(self.xmppStream)
@@ -81,6 +82,9 @@ extension Account {
             responseName: didResume ? "resumed" : "full-auth"
         )
         self.connectionGate.markOnline()
+        if didResume {
+            self.restorePushRegistrationAfterResume()
+        }
         AccountManager.shared.markAsNotConnecting(
             jid: self.jid,
             reason: "online",

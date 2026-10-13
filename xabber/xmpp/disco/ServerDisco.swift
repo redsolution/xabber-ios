@@ -88,6 +88,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     private var activeCloudDiscoveryQuery: ActiveCloudDiscoveryQuery?
     private var accountOwnerCapabilityGeneration: UInt64 = 0
     private var accountOwnerCapabilityDiscovery: AccountOwnerCapabilityDiscovery?
+    private weak var accountOwnerCapabilityStream: XMPPStream?
 
     var accountOwnerCapabilityGraceInterval = ServerDiscoManager.defaultAccountOwnerCapabilityGraceInterval
 
@@ -183,6 +184,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             graceWorkItem: nil,
             isTerminal: false
         )
+        accountOwnerCapabilityStream = xmppStream
         activeCloudDiscoveryQuery?.onboardingCapabilityGeneration = generation
         cloudDiscoveryLock.unlock()
         previousGraceWorkItem?.cancel()
@@ -253,6 +255,9 @@ class ServerDiscoManager: AbstractXMPPManager {
     @discardableResult
     func cancelCloudDiscoveryForDisconnect() -> Bool {
         resetGroupServiceDiscovery()
+        cloudDiscoveryLock.lock()
+        accountOwnerCapabilityStream = nil
+        cloudDiscoveryLock.unlock()
         let activeCloudDiscovery = consumeActiveCloudDiscovery(
             elementID: nil,
             terminal: .disconnect,
@@ -308,9 +313,9 @@ class ServerDiscoManager: AbstractXMPPManager {
             return false
         }
 
-        if let generation = claimAccountOwnerCapabilityQuery(elementID: elementID) {
+        if let claim = claimAccountOwnerCapabilityQuery(elementID: elementID, sender: iq.from) {
             let resolution = resolveAccountOwnerCapabilities(
-                generation: generation,
+                generation: claim.generation,
                 result: .failed
             )
             resolution.graceWorkItemToCancel?.cancel()
@@ -342,6 +347,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
         let activeServerDiscovery: ActiveCloudDiscoveryQuery?
         let accountOwnerCapabilityGeneration: UInt64?
+        let accountOwnerResponseStream: XMPPStream?
         if query.xmlns() == "http://jabber.org/protocol/disco#info" {
             activeServerDiscovery = consumeActiveCloudDiscovery(
                 elementID: elementId,
@@ -349,15 +355,17 @@ class ServerDiscoManager: AbstractXMPPManager {
                 requiresRegisteredQuery: true
             )
             if activeServerDiscovery == nil {
-                accountOwnerCapabilityGeneration = claimAccountOwnerCapabilityQuery(
-                    elementID: elementId
-                )
+                let claim = claimAccountOwnerCapabilityQuery(elementID: elementId, sender: iq.from)
+                accountOwnerCapabilityGeneration = claim?.generation
+                accountOwnerResponseStream = claim?.stream
             } else {
                 accountOwnerCapabilityGeneration = nil
+                accountOwnerResponseStream = nil
             }
         } else {
             activeServerDiscovery = nil
             accountOwnerCapabilityGeneration = nil
+            accountOwnerResponseStream = nil
         }
         let isServerFeatureResponse = activeServerDiscovery != nil
         let isAccountOwnerFeatureResponse = accountOwnerCapabilityGeneration != nil
@@ -493,6 +501,12 @@ class ServerDiscoManager: AbstractXMPPManager {
                     generation: accountOwnerCapabilityGeneration,
                     result: .resolved(accountOwnerPushCapabilities(from: caps))
                 )
+                if resolution.wasTracked,
+                   let stream = accountOwnerResponseStream,
+                   let account = AccountManager.shared.find(for: owner),
+                   account.disco === self, account.xmppStream === stream {
+                    account.push.setCustomPushSupport(caps.contains("xpush"), xmppStream: stream)
+                }
                 resolution.graceWorkItemToCancel?.cancel()
                 if let capabilities = resolution.capabilitiesToPublish {
                     completeServerCapabilitiesOnboarding(capabilities)
@@ -623,18 +637,23 @@ class ServerDiscoManager: AbstractXMPPManager {
         return activeQuery
     }
 
-    private func claimAccountOwnerCapabilityQuery(elementID: String) -> UInt64? {
+    private func claimAccountOwnerCapabilityQuery(
+        elementID: String, sender: XMPPJID?
+    ) -> (generation: UInt64, stream: XMPPStream)? {
         cloudDiscoveryLock.lock()
         guard var discovery = accountOwnerCapabilityDiscovery,
               !discovery.isTerminal,
-              discovery.elementID == elementID else {
+              discovery.elementID == elementID,
+              sender?.full == owner,
+              let stream = accountOwnerCapabilityStream else {
             cloudDiscoveryLock.unlock()
             return nil
         }
         discovery.elementID = nil
         accountOwnerCapabilityDiscovery = discovery
+        accountOwnerCapabilityStream = nil
         cloudDiscoveryLock.unlock()
-        return discovery.generation
+        return (discovery.generation, stream)
     }
 
     private func resolveAccountOwnerCapabilities(

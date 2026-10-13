@@ -464,6 +464,7 @@ extension Account: XMPPStreamDelegate {
         )
         self.cancelDelayedConnectTimer()
         self.notifications.invalidateNotificationSyncSession()
+        self.push.clearSession()
         self.vcards.clearSession()
         self.avatarManager.clearSession()
         self.omemo.clearSession()

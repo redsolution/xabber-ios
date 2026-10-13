@@ -909,24 +909,23 @@ class VoIPManager: NSObject {
         let data = EncryptedPushDate(body)
 
         guard let target = payload["target"] as? String,
-              let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()),
-              let credentials = defaults.dictionary(forKey: target),
-              let secret = credentials["secret"] as? String, !secret.isEmpty,
-              let username = credentials["username"] as? String,
-              let host = credentials["host"] as? String else {
+              let credentials = try? CredentialsManager.staticGetPushCredentials(for: target),
+              let key = credentials.keyBytes, !credentials.jid.isEmpty else {
             return
         }
 
-        let owner = [username, host].joined(separator: "@")
+        let owner = credentials.jid
 
-        guard let decrypted = data.payloadStanza(key: secret),
+        guard let decrypted = data.payloadStanza(key: key),
+              case .call? = PushPayloadXML.classify(decrypted),
               let from = decrypted.attributeStringValue(forName: "from"),
+              let fromJid = XMPPJID(string: from), fromJid.isFull,
               let propose = decrypted.element(forName: "propose", xmlns: VoIPCall.namespace),
               let callId = propose.attributeStringValue(forName: "id") else {
             return
         }
 
-        let bareJid = XMPPJID(string: from)?.bare ?? from
+        let bareJid = fromJid.bare
         let anotherUpdate = Self.callUpdate()
 
         do {
@@ -989,18 +988,16 @@ class VoIPManager: NSObject {
         let data = EncryptedPushDate(body)
        
         guard let target = payload["target"] as? String,
-              let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()),
-              let credentials = defaults.dictionary(forKey: target),
-              let secret = credentials["secret"] as? String, !secret.isEmpty,
-              let username = credentials["username"] as? String,
-              let host = credentials["host"] as? String else {
+              let credentials = try? CredentialsManager.staticGetPushCredentials(for: target),
+              let key = credentials.keyBytes, !credentials.jid.isEmpty else {
             self.reportFailedIncomingPush(callUUID: callUUID, completion: completion)
             return
         }
        
-        let owner = [username, host].joined(separator: "@")
+        let owner = credentials.jid
        
-        guard let decrypted = data.payloadStanza(key: secret),
+        guard let decrypted = data.payloadStanza(key: key),
+              case .call? = PushPayloadXML.classify(decrypted),
               let from = decrypted.attributeStringValue(forName: "from"),
               let fromJid = XMPPJID(string: from),
               fromJid.isFull,
@@ -1011,7 +1008,7 @@ class VoIPManager: NSObject {
         }
 
         if let activeSession = self.currentSession {
-            if activeSession.callId == callId {
+            if activeSession.callId == callId, activeSession.owner == owner {
                 completion()
                 return
             }
@@ -1413,58 +1410,32 @@ class VoIPManager: NSObject {
     }
    
     public final func onReceivePushUpdate(_ payload: [AnyHashable: Any]) -> Bool {
-        guard let currentCall = self.currentCall else {
-            return false
-        }
-        guard let body = payload["body"] as? String else {
-            print("FAIL 0")
-            return false
-        }
-        let data = EncryptedPushDate(body)
-//            let data = try JSONDecoder().decode(EncryptedPushDate.self, from: encodedBody)
-        guard let target = payload["target"] as? String,
-            let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
-            print("FAIL 1")
-            return false
-        }
-        guard let creditionals = defaults.dictionary(forKey: target) else {
-            print("FAIL 2")
-            return false
-        }
+        guard let body = payload["body"] as? String,
+              let target = payload["target"] as? String,
+              let credentials = try? CredentialsManager.staticGetPushCredentials(for: target),
+              let key = credentials.keyBytes,
+              let decrypted = EncryptedPushDate(body).payloadStanza(key: key) else { return false }
+        return onReceivePushUpdate(decrypted, owner: credentials.jid)
+    }
 
-        guard let secret = creditionals["secret"] as? String,
-              secret.isNotEmpty else {
-            print("FAIL 3")
-            return false
-        }
-
-        guard let username = creditionals["username"] as? String,
-              let host = creditionals["host"] as? String else {
-            print("FAIL 4")
-            return false
-        }
-
-        let owner = [username, host].joined(separator: "@")
-
-        guard let decrypted = data.payloadStanza(key: secret) else {
-            print("FAIL 4.5")
-            return false
-        }
-
-        guard let callId = decrypted.attributeStringValue(forName: "id") else {
-            print("FAIL 5")
-            return false
-        }
-
-        if callId != currentCall.callId {
-            return false
-        }
+    /// Both the canonical envelope and app-server JSON relay enter this owner-scoped path.
+    internal final func onReceivePushUpdate(_ decrypted: DDXMLElement, owner: String) -> Bool {
+        guard let currentCall = self.currentCall, currentCall.owner == owner,
+              case .callUpdate? = PushPayloadXML.classify(decrypted),
+              decrypted.uri == VoIPCall.namespace,
+              let callId = decrypted.attributeStringValue(forName: "id"),
+              callId == currentCall.callId else { return false }
         guard let fullJid = currentCall.jid.isEmpty ? nil : currentCall.jid,
               let jid = XMPPJID(string: fullJid)?.bare else {
             return false
         }
-        print("VOIP PUSH DECRYPTED", decrypted)
-        switch decrypted.name {
+        switch decrypted.localName {
+        case "accept":
+            // The server relays bare local-device accepts through this account's push node.
+            // A peer accepting an outgoing call must keep that live call active.
+            guard !currentCall.outgoing else { return false }
+            currentCall.shouldSendReject = false
+            self.finishCurrentCall(reason: .answeredElsewhere, trigger: .remoteEvent, shouldReportToCallKit: true)
         case "reject":
             let call = decrypted.element(forName: "call")
             let duration = call?.attributeDoubleValue(forName: "duration") ?? 0

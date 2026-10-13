@@ -20,6 +20,7 @@
 
 import Foundation
 import dnssd
+import Security
 import XMPPFramework
 
 class PushNotificationsManager: AbstractXMPPManager {
@@ -30,13 +31,96 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
     
     static let suitName: String = "group.com.xabber"
+
+    typealias RegistrationTimeoutScheduler = (TimeInterval, @escaping () -> Void) -> (() -> Void)
+
+    private final class RegistrationRequest {
+        let id: String
+        let owner: String
+        let node: String
+        let service: String
+        let streamJID: String
+        let domain: String
+        let epoch: UInt64
+        let wasEnabled: Bool
+        weak var stream: XMPPStream?
+        var callbacks: [(Bool) -> Void]
+        var cancelTimeout: (() -> Void)?
+        var keyBytes: [UInt8]?
+        var hasBeenSent = false
+
+        init(id: String, owner: String, node: String, service: String, jid: XMPPJID,
+             epoch: UInt64, wasEnabled: Bool, stream: XMPPStream, callback: @escaping (Bool) -> Void) {
+            self.id = id
+            self.owner = owner
+            self.node = node
+            self.service = service
+            self.streamJID = jid.full
+            self.domain = jid.domain
+            self.epoch = epoch
+            self.wasEnabled = wasEnabled
+            self.stream = stream
+            self.callbacks = [callback]
+        }
+    }
+
+    private enum RegistrationError: Error {
+        case invalidCredentials
+        case randomGenerationFailed
+    }
+
+    private let stateLock = NSRecursiveLock()
+    private var configuredNode = ""
+    private var configuredService = ""
+    private var configurationEpoch: UInt64 = 0
+    private var registrationRequest: RegistrationRequest?
+    private var registrationState: EnableState = .disabled
+    private var unpublishedGrantRejection: (node: String, generation: String)?
+    // Account lifecycle explicitly defers full-auth registration until owner disco.
+    // Direct managers retain the existing, server-confirmed profile by default.
+    private var customPushSupported: Bool? = true
+
+    var registrationTimeoutInterval: TimeInterval = 15
+    var registrationTimeoutScheduler: RegistrationTimeoutScheduler = { interval, fire in
+        let workItem = DispatchWorkItem(block: fire)
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + interval, execute: workItem)
+        return { workItem.cancel() }
+    }
+    var credentialReader: (String) throws -> CredentialsManager.PushSecretData = {
+        try CredentialsManager.shared.getPushCredentials(for: $0)
+    }
+    var credentialWriter: (String, CredentialsManager.PushSecretData) throws -> Void = { node, record in
+        try CredentialsManager.shared.storePushCredentials(
+            node: node, jid: record.jid, host: record.host, secret: record.secret,
+            service: record.service, jwt: record.jwt, keyEncoding: record.keyEncoding,
+            grantRevision: record.grantRevision
+        )
+    }
+    var tokenInvalidationStore: PushTokenInvalidationStore? = .live
     
     var enable: Bool = true
-    var node: String = ""
-    var service: String = ""
+    var node: String {
+        get {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return configuredNode
+        }
+        set { updateConfiguration(node: newValue, service: nil) }
+    }
+    var service: String {
+        get {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return configuredService
+        }
+        set { updateConfiguration(node: nil, service: newValue) }
+    }
     var websocketUrl: String? = nil
-    private(set) var enableState: EnableState = .disabled
-    private var pendingEnableCallbacks: [(Bool) -> Void] = []
+    var enableState: EnableState {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return registrationState
+    }
     
     typealias DNSLookupHandler = ([String: String]?) -> Void
 
@@ -114,15 +198,16 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
     
     internal func isAvailable(_ host: String) -> Bool {
-        return true
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return customPushSupported == true && XMPPJID(string: owner)?.domain == host
     }
     
     func configure(node: String, service: String) {
-        self.node = node
-        self.service = service
+        updateConfiguration(node: node, service: service)
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.push.enable(xmppStream: stream) { result in
-                user.pushStatusMessage.accept(result)
+            user.push.enable(xmppStream: stream) { _ in
+                user.pushStatusMessage.accept(user.push.enabled)
             }
         })
     }
@@ -130,154 +215,338 @@ class PushNotificationsManager: AbstractXMPPManager {
     var enabled: Bool {
         enableState == .enabled
     }
+
+    var isAwaitingCustomPushSupport: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return customPushSupported == nil
+    }
+
+    var httpPreviewReady: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let credentials = try? credentialReader(configuredNode),
+              credentials.jid == owner,
+              credentials.host == XMPPJID(string: owner)?.domain,
+              credentials.keyBytes != nil,
+              isSafeHTTPService(credentials.service),
+              !credentials.jwt.isEmpty else {
+            return false
+        }
+        if let rejection = unpublishedGrantRejection,
+           rejection.node == configuredNode, rejection.generation == credentials.tokenGeneration {
+            return false
+        }
+        guard let store = tokenInvalidationStore,
+              (try? store.contains(node: configuredNode, generation: credentials.tokenGeneration)) == false else {
+            return false
+        }
+        return credentials.tokenExpiresAt.map { $0 > Date() } ?? true
+    }
+
+    func awaitCustomPushSupport() {
+        stateLock.lock()
+        customPushSupported = nil
+        configurationEpoch &+= 1
+        let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
+        registrationState = .disabled
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
+    }
+
+    func setCustomPushSupport(_ supported: Bool, xmppStream: XMPPStream) {
+        guard xmppStream.myJID?.bare == owner else { return }
+        stateLock.lock()
+        customPushSupported = supported
+        var callbacks: [(Bool) -> Void] = []
+        if !supported {
+            callbacks = finishRequestLocked(success: false, preserveRegistration: false)
+            registrationState = .disabled
+        } else if let request = registrationRequest, !request.hasBeenSent {
+            if request.stream === xmppStream, isCurrentRequestLocked(request) {
+                callbacks = sendRequestLocked(request)
+            } else {
+                callbacks = finishRequestLocked(success: false, preserveRegistration: false)
+            }
+        }
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
+    }
     
     func enable(xmppStream: XMPPStream, callback: @escaping (Bool)->Void) {
-        guard let jid = xmppStream.myJID,
-            node.isNotEmpty else {
+        beginRegistration(xmppStream: xmppStream, refresh: false, callback: callback)
+    }
+
+    func refresh(xmppStream: XMPPStream, callback: @escaping (Bool) -> Void) {
+        beginRegistration(xmppStream: xmppStream, refresh: true, callback: callback)
+    }
+
+    private func beginRegistration(xmppStream: XMPPStream, refresh: Bool, callback: @escaping (Bool) -> Void) {
+        stateLock.lock()
+        guard let jid = xmppStream.myJID, jid.bare == owner,
+              jid.user?.isEmpty == false, configuredNode.isNotEmpty,
+              configuredService.isNotEmpty, customPushSupported != false else {
+            stateLock.unlock()
+            callback(false)
+            return
+        }
+        if let request = registrationRequest {
+            guard request.stream === xmppStream, isCurrentRequestLocked(request) else {
+                stateLock.unlock()
                 callback(false)
                 return
+            }
+            request.callbacks.append(callback)
+            stateLock.unlock()
+            return
         }
-        
-        if enabled {
+        if registrationState == .enabled, !refresh {
+            stateLock.unlock()
             callback(true)
             return
         }
-        
-        if case .pending = enableState {
-            pendingEnableCallbacks.append(callback)
-            return
+        let request = RegistrationRequest(
+            id: xmppStream.generateUUID, owner: owner, node: configuredNode,
+            service: configuredService, jid: jid, epoch: configurationEpoch,
+            wasEnabled: registrationState == .enabled, stream: xmppStream, callback: callback
+        )
+        registrationRequest = request
+        if !request.wasEnabled {
+            registrationState = .pending(queryId: request.id)
         }
-        
-        let elementId = xmppStream.generateUUID
-        
-        let secret = String.randomString(length: 32, includeNumber: false)
-        let enable: DDXMLElement
-        if isAvailable(jid.domain) {
-            enable = DDXMLElement(name: "enable", xmlns: getPrimaryNamespace())
-        } else {
-            enable = DDXMLElement(name: "enable", xmlns: "urn:xmpp:push:0")
+        request.cancelTimeout = registrationTimeoutScheduler(registrationTimeoutInterval) { [weak self, weak request] in
+            guard let self, let request else { return }
+            self.registrationDidTimeout(request)
         }
-        enable.addAttribute(withName: "node", stringValue: self.node)
-        enable.addAttribute(withName: "jid", stringValue: self.service)
-        let key = DDXMLElement(name: "encryption-key", stringValue: secret.toBase64())
-        let security = DDXMLElement(name: "security", xmlns: getPrimaryNamespace())
-        security.addAttribute(withName: "cipher", stringValue: "urn:xmpp:ciphers:aes-256cbc")
-        security.addChild(key)
-        if isAvailable(jid.domain) {
-            enable.addChild(security)
-        }
-        xmppStream.send(XMPPIQ(iqType: .set, elementID: elementId, child: enable))
+        let callbacks = customPushSupported == true && registrationRequest === request
+            ? sendRequestLocked(request) : []
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
+    }
 
-        do {
-            let pushSecrets = try CredentialsManager.shared.getPushCredentials(for: self.node)
-            try CredentialsManager.shared.storePushCredentials(
-                node: self.node,
-                jid: pushSecrets.jid,
-                host: pushSecrets.host,
-                secret: secret,
-                service: pushSecrets.service,
-                jwt: ""
-            )
-        } catch {
-            try? CredentialsManager.shared.storePushCredentials(
-                node: node,
-                jid: self.owner,
-                host: jid.domain,
-                secret: secret,
-                service: "",
-                jwt: ""
-            )
+    private func sendRequestLocked(_ request: RegistrationRequest) -> [(Bool) -> Void] {
+        guard isCurrentRequestLocked(request), let stream = request.stream,
+              stream.myJID?.full == request.streamJID else {
+            return finishRequestLocked(success: false, preserveRegistration: request.wasEnabled)
         }
-        
-        
-        PushNotificationsManager.updateDefaultsForPush(node, key: "username", value: jid.user!)
-        PushNotificationsManager.updateDefaultsForPush(node, key: "host", value: jid.domain)
-        PushNotificationsManager.updateDefaultsForPush(node, key: "resource", value: jid.resource ?? "xabber-push-service")
-        PushNotificationsManager.updateDefaultsForPush(node, key: "secret", value: secret)
-        PushNotificationsManager.updateDefaultsForPush(node, key: "websocket_url", value: websocketUrl ?? "")
-        
-        queryIds.insert(elementId)
-        pendingEnableCallbacks.append(callback)
-        enableState = .pending(queryId: elementId)
+        do {
+            let credentials = try registrationCredentials(request)
+            guard let keyBytes = credentials.keyBytes else {
+                throw RegistrationError.invalidCredentials
+            }
+            request.keyBytes = keyBytes
+            let enableElement = DDXMLElement(name: "enable", xmlns: getPrimaryNamespace())
+            enableElement.addAttribute(withName: "node", stringValue: request.node)
+            enableElement.addAttribute(withName: "jid", stringValue: request.service)
+            let security = DDXMLElement(name: "security", xmlns: getPrimaryNamespace())
+            security.addAttribute(withName: "cipher", stringValue: "urn:xmpp:ciphers:aes-256cbc")
+            security.addChild(DDXMLElement(name: "encryption-key", stringValue: Data(keyBytes).base64EncodedString()))
+            enableElement.addChild(security)
+
+            publishNonsecretDefaults(request)
+            request.hasBeenSent = true
+            queryIds.insert(request.id)
+            stream.send(XMPPIQ(iqType: .set, elementID: request.id, child: enableElement))
+            return []
+        } catch {
+            return finishRequestLocked(success: false, preserveRegistration: request.wasEnabled)
+        }
+    }
+
+    private func registrationCredentials(_ request: RegistrationRequest) throws -> CredentialsManager.PushSecretData {
+        do {
+            let credentials = try credentialReader(request.node)
+            guard credentials.jid == request.owner, credentials.host == request.domain,
+                  credentials.keyBytes != nil else {
+                throw RegistrationError.invalidCredentials
+            }
+            return credentials
+        } catch CredentialsManager.CredentialsError.itemNotFound {
+            var keyBytes = [UInt8](repeating: 0, count: 32)
+            let status = keyBytes.withUnsafeMutableBytes { buffer in
+                SecRandomCopyBytes(kSecRandomDefault, 32, buffer.baseAddress!)
+            }
+            guard status == errSecSuccess else { throw RegistrationError.randomGenerationFailed }
+            let candidate = CredentialsManager.PushSecretData(
+                host: request.domain, secret: Data(keyBytes).base64EncodedString(), jid: request.owner,
+                service: "", jwt: "", keyEncoding: .base64
+            )
+            try credentialWriter(request.node, candidate)
+            let stored = try credentialReader(request.node)
+            guard stored.jid == request.owner, stored.host == request.domain, stored.keyBytes == keyBytes else {
+                throw RegistrationError.invalidCredentials
+            }
+            return stored
+        }
+    }
+
+    private func publishNonsecretDefaults(_ request: RegistrationRequest) {
+        guard let jid = XMPPJID(string: request.streamJID), let username = jid.user,
+              let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()) else { return }
+        var metadata = Self.getDefaultsForPush(for: request.node)
+        metadata.removeValue(forKey: "secret")
+        metadata["username"] = username
+        metadata["host"] = request.domain
+        metadata["resource"] = jid.resource ?? "xabber-push-service"
+        metadata["websocket_url"] = websocketUrl ?? ""
+        defaults.set(metadata, forKey: request.node)
     }
     
     func disable(xmppStream: XMPPStream) {
-        guard let jid = xmppStream.myJID,
-            service.isNotEmpty else {
-            return
+        stateLock.lock()
+        let node = configuredNode
+        let service = configuredService
+        configurationEpoch &+= 1
+        let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
+        registrationState = .disabled
+        if xmppStream.myJID?.bare == owner, node.isNotEmpty, service.isNotEmpty {
+            let disableElement = DDXMLElement(name: "disable", xmlns: getPrimaryNamespace())
+            disableElement.addAttribute(withName: "jid", stringValue: service)
+            disableElement.addAttribute(withName: "node", stringValue: node)
+            xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: xmppStream.generateUUID, child: disableElement))
         }
-        finishEnable(success: false, queryId: currentPendingQueryId)
-        enableState = .disabled
-        let elementId = xmppStream.generateUUID
-        let disable: DDXMLElement
-        if isAvailable(jid.domain) {
-            disable = DDXMLElement(name: "disable", xmlns: getPrimaryNamespace())
-        } else {
-            disable = DDXMLElement(name: "disable", xmlns: "urn:xmpp:push:0")
-        }
-        disable.addAttribute(withName: "jid", stringValue: self.service)
-        xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: disable))
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
         return readPushRegistrationResult(iq)
     }
 
-    private var currentPendingQueryId: String? {
-        guard case .pending(let queryId) = enableState else {
-            return nil
-        }
-        return queryId
+    override func clearSession() {
+        stateLock.lock()
+        configurationEpoch &+= 1
+        let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
+        registrationState = .disabled
+        queryIds.removeAll()
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
     }
 
-    private func finishEnable(success: Bool, queryId: String?) {
-        if let queryId {
-            queryIds.remove(queryId)
+    private func updateConfiguration(node: String?, service: String?) {
+        stateLock.lock()
+        let nextNode = node ?? configuredNode
+        let nextService = service ?? configuredService
+        guard nextNode != configuredNode || nextService != configuredService else {
+            stateLock.unlock()
+            return
         }
-
-        let callbacks = pendingEnableCallbacks
-        pendingEnableCallbacks.removeAll()
-        enableState = success ? .enabled : .disabled
-        callbacks.forEach { $0(success) }
+        configuredNode = nextNode
+        configuredService = nextService
+        configurationEpoch &+= 1
+        let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
+        registrationState = .disabled
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
     }
-        
-    private final func readPushRegistrationResult(_ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-              queryIds.contains(elementId) else {
+
+    private func isCurrentRequestLocked(_ request: RegistrationRequest) -> Bool {
+        registrationRequest === request && request.epoch == configurationEpoch
+            && request.owner == owner && request.node == configuredNode && request.service == configuredService
+    }
+
+    private func finishRequestLocked(success: Bool, preserveRegistration: Bool) -> [(Bool) -> Void] {
+        guard let request = registrationRequest else { return [] }
+        registrationRequest = nil
+        request.cancelTimeout?()
+        queryIds.remove(request.id)
+        registrationState = success || preserveRegistration ? .enabled : .disabled
+        let callbacks = request.callbacks
+        request.callbacks.removeAll()
+        return callbacks
+    }
+
+    private func registrationDidTimeout(_ request: RegistrationRequest) {
+        stateLock.lock()
+        guard isCurrentRequestLocked(request) else {
+            stateLock.unlock()
+            return
+        }
+        let callbacks = finishRequestLocked(success: false, preserveRegistration: request.wasEnabled)
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
+    }
+
+    private func readPushRegistrationResult(_ iq: XMPPIQ) -> Bool {
+        stateLock.lock()
+        guard let request = registrationRequest, isCurrentRequestLocked(request), request.hasBeenSent,
+              iq.elementID == request.id, queryIds.contains(request.id),
+              iq.iqType == .result || iq.iqType == .error,
+              isExpectedSender(iq.from, request: request),
+              isExpectedRecipient(iq.to, request: request) else {
+            stateLock.unlock()
             return false
         }
-
-        guard let x = iq.element(forName: "x", xmlns: "jabber:x:data"),
-              let url = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "url" })?.element(forName: "value")?.stringValue,
-              let jwt = x.elements(forName: "field").first(where: { $0.attributeStringValue(forName: "var") == "jwt" })?.element(forName: "value")?.stringValue else {
-            finishEnable(success: false, queryId: elementId)
-            return true
-        }
-//        DispatchQueue.main.async {
-//            ToastPresenter(message: "Enable push receive").present(animated: true)
-//        }
-        do {
-            let pushSecrets = try CredentialsManager.shared.getPushCredentials(for: self.node)
-            try CredentialsManager.shared.storePushCredentials(
-                node: self.node,
-                jid: pushSecrets.jid,
-                host: pushSecrets.host,
-                secret: pushSecrets.secret,
-                service: url,
-                jwt: jwt
+        let success = iq.iqType == .result
+        if success, let grant = httpGrant(iq),
+           let credentials = try? credentialReader(request.node),
+           credentials.jid == request.owner, credentials.host == request.domain,
+           credentials.keyBytes == request.keyBytes {
+            let refreshed = CredentialsManager.PushSecretData(
+                host: credentials.host, secret: credentials.secret, jid: credentials.jid,
+                service: grant.url, jwt: grant.jwt, keyEncoding: credentials.keyEncoding,
+                grantRevision: UUID().uuidString
             )
-        } catch {
-            DDLogDebug(error.localizedDescription)
-            finishEnable(success: false, queryId: elementId)
-            return true
+            do {
+                try credentialWriter(request.node, refreshed)
+                unpublishedGrantRejection = nil
+                try? tokenInvalidationStore?.remove(node: request.node, generation: refreshed.tokenGeneration)
+            } catch {
+                if credentials.jwt != grant.jwt {
+                    // The server retains only its newest device token hash. A superseded
+                    // token cannot remain usable when publishing its replacement failed.
+                    unpublishedGrantRejection = (request.node, credentials.tokenGeneration)
+                    try? tokenInvalidationStore?.invalidate(node: request.node, generation: credentials.tokenGeneration)
+                }
+            }
         }
-        
-//        PushNotificationsManager.updateDefaultsForPush(self.node, key: "get_url", value: url)
-        finishEnable(success: true, queryId: elementId)
+        let callbacks = finishRequestLocked(success: success, preserveRegistration: request.wasEnabled)
+        stateLock.unlock()
+        callbacks.forEach { $0(success) }
+        return true
+    }
+
+    private func isExpectedSender(_ sender: XMPPJID?, request: RegistrationRequest) -> Bool {
+        guard let sender else { return true }
+        guard sender.resource == nil || sender.resource?.isEmpty == true else { return false }
+        return sender.bare == request.owner || sender.bare == request.domain
+    }
+
+    private func isExpectedRecipient(_ recipient: XMPPJID?, request: RegistrationRequest) -> Bool {
+        guard let recipient else { return true }
+        return recipient.full == request.streamJID
+            || (recipient.bare == request.owner && (recipient.resource == nil || recipient.resource?.isEmpty == true))
+    }
+
+    private func httpGrant(_ iq: XMPPIQ) -> (url: String, jwt: String)? {
+        let forms = iq.elements(forName: "x").filter { $0.xmlns() == "jabber:x:data" }
+        guard forms.count == 1, let form = forms.first,
+              form.attributeStringValue(forName: "type") == "result" else { return nil }
+        let fields = form.elements(forName: "field")
+        func value(_ name: String) -> String? {
+            let matching = fields.filter { $0.attributeStringValue(forName: "var") == name }
+            guard matching.count == 1, let field = matching.first else { return nil }
+            let values = field.elements(forName: "value")
+            guard values.count == 1, let value = values.first?.stringValue,
+                  !value.isEmpty else { return nil }
+            return value
+        }
+        guard value("FORM_TYPE") == getPrimaryNamespace(), let url = value("url"),
+              isSafeHTTPService(url), let jwt = value("jwt") else { return nil }
+        return (url, jwt)
+    }
+
+    private func isSafeHTTPService(_ value: String) -> Bool {
+        guard let url = URL(string: value), url.scheme?.lowercased() == "https",
+              url.host?.isEmpty == false, url.user == nil, url.password == nil,
+              url.fragment == nil else { return false }
         return true
     }
     
     static public func removeDefaultsForPush(target: String, jid: String) {
+        if let record = try? CredentialsManager.staticGetPushCredentials(for: target), record.jid == jid {
+            CredentialsManager.shared.removePushCredentials(for: target)
+        }
         if let defaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) {
             defaults.removeObject(forKey: target)
             defaults.removeObject(forKey: [jid, "state"].prp())

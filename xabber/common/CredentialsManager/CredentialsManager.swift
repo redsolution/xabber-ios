@@ -78,6 +78,7 @@ class CredentialsManager: NSObject {
     
     enum CredentialsError: Error {
         case itemNotFound
+        case pushStorageFailure
     }
     
     public struct CredentialsStore: Codable {
@@ -994,80 +995,64 @@ class CredentialsManager: NSObject {
         // Auto-Lock now records the scene's background time, not the last PIN entry.
     }
     
-    struct PushSecretData {
-        let host: String
-        let secret: String
-        let jid: String
-        let service: String
-        let jwt: String
-    }
-    
-    public final func storePushCredentials(node: String, jid: String, host: String, secret: String, service: String, jwt: String) throws {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        let dict: NSDictionary = [
-            "jid": jid,
-            "host": host,
-            "secret": secret,
-            "service": service,
-            "jwt": jwt
-        ]
+    typealias PushSecretData = PushCredentialRecord
 
-        let data = try JSONSerialization.data(withJSONObject: dict, options: .sortedKeys)
-
-        let json = String(data: data, encoding: .utf8)
-        if let json = json {
-            credentialsDebugLog("CredentialsManager: push credential stored hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false)")
-            keychain.set(json, forKey: node, withAccessibility: .always)
+    public final func storePushCredentials(node: String, jid: String, host: String, secret: String,
+                                          service: String, jwt: String,
+                                          keyEncoding: PushCredentialKeyEncoding = .utf8,
+                                          grantRevision: String? = nil) throws {
+        let record = PushCredentialRecord(host: host, secret: secret, jid: jid, service: service,
+                                          jwt: jwt, keyEncoding: keyEncoding, grantRevision: grantRevision)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let data = try encoder.encode(record)
+        guard let json = String(data: data, encoding: .utf8), writePushCredential(json, node: node) else {
+            throw CredentialsError.pushStorageFailure
         }
+        credentialsDebugLog("CredentialsManager: push credential stored hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false)")
     }
-    
+
+    /// Overridable transport boundary for deterministic storage-failure tests.
+    func writePushCredential(_ json: String, node: String) -> Bool {
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
+        return keychain.set(json, forKey: node, withAccessibility: .afterFirstUnlock)
+    }
+
     public final func getPushCredentials(for node: String) throws -> PushSecretData {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        guard let jsonString = keychain.string(forKey: node),
-              let data = jsonString.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data, options: []) as? NSDictionary,
-              let jid = dict["jid"] as? String,
-              let service = dict["service"] as? String,
-              let host = dict["host"] as? String,
-              let secret = dict["secret"] as? String,
-              let jwt = dict["jwt"] as? String else {
-            throw CredentialsError.itemNotFound
-        }
-        return PushSecretData(host: host, secret: secret, jid: jid, service: service, jwt: jwt)
+        try Self.staticGetPushCredentials(for: node)
     }
-    
+
     public final func removePushCredentials(for node: String) {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
+        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.removeObject(forKey: node)
+        try? PushTokenInvalidationStore.live?.removeAll(node: node)
     }
-    
+
     public static func staticGetPushCredentials(for node: String) throws -> PushSecretData {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        guard let jsonString = keychain.string(forKey: node),
-              let data = jsonString.data(using: .utf8),
-              let dict = try JSONSerialization.jsonObject(with: data, options: []) as? NSDictionary,
-              let jid = dict["jid"] as? String,
-              let service = dict["service"] as? String,
-              let host = dict["host"] as? String,
-              let secret = dict["secret"] as? String,
-              let jwt = dict["jwt"] as? String  else {
-            throw CredentialsError.itemNotFound
+        // Match SwiftKeychainWrapper's account/generic encoding while retaining OSStatus.
+        // An inaccessible existing key must never be mistaken for a missing registration.
+        let encoded = Data(node.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: uniqueServiceName(),
+            kSecAttrAccessGroup as String: uniqueKeychainAccessGroup(),
+            kSecAttrAccount as String: encoded,
+            kSecAttrGeneric as String: encoded,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: kCFBooleanTrue as Any
+        ]
+        var value: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &value)
+        if status == errSecItemNotFound { throw CredentialsError.itemNotFound }
+        guard status == errSecSuccess, let data = value as? Data, data.count <= 512 * 1024 else {
+            throw CredentialsError.pushStorageFailure
         }
-        return PushSecretData(host: host, secret: secret, jid: jid, service: service, jwt: jwt)
+        return try JSONDecoder().decode(PushCredentialRecord.self, from: data)
     }
-    
+
     private final func clearKeychainFull() {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
