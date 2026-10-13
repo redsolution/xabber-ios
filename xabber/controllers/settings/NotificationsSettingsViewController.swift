@@ -23,12 +23,14 @@ final class NotificationsSettingsViewController: BaseViewController {
     private enum Section: Int, CaseIterable {
         case types
         case inApp
+        case payloadMode
         case system
 
         var title: String? {
             switch self {
             case .types: return L10n.text("notifications_settings__sounds__title", fallback: "Notification Sounds")
             case .inApp: return L10n.text("notifications_settings__in_app__title", fallback: "In-App Notifications")
+            case .payloadMode: return L10n.text("notifications_settings__payload_mode__title", fallback: "Push Content")
             case .system: return nil
             }
         }
@@ -43,6 +45,8 @@ final class NotificationsSettingsViewController: BaseViewController {
                     fallback: "Show banners and play enabled notification sounds while %1$@ is open.",
                     arguments: [CommonConfigManager.shared.config.app_name]
                 )
+            case .payloadMode:
+                return L10n.text("notifications_settings__payload_mode__footer", fallback: "Choose preferred push content. Full can include the message; partial loads it when needed.")
             case .system:
                 return L10n.text("notifications_settings__system__footer", fallback: "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings.")
             }
@@ -55,24 +59,38 @@ final class NotificationsSettingsViewController: BaseViewController {
         case subscriptionRequests
         case inAppSounds
         case bannersOnChats
+        case fullPayload
+        case partialPayload
         case systemSettings
     }
 
     private let store: NotificationsSettingsStoring
+    private let payloadModeProvider: () -> PushPayloadMode
+    private let payloadModeSetter: (PushPayloadMode) -> Void
     internal let tableView = UITableView(frame: .zero, style: .insetGrouped)
 
-    init(store: NotificationsSettingsStoring) {
+    init(
+        store: NotificationsSettingsStoring,
+        payloadModeProvider: @escaping () -> PushPayloadMode = { PushPayloadPreferences.current },
+        payloadModeSetter: @escaping (PushPayloadMode) -> Void = { PushPayloadPreferences.set($0) }
+    ) {
         self.store = store
+        self.payloadModeProvider = payloadModeProvider
+        self.payloadModeSetter = payloadModeSetter
         super.init(nibName: nil, bundle: nil)
     }
 
     override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         store = SettingManagerNotificationsSettingsStore()
+        payloadModeProvider = { PushPayloadPreferences.current }
+        payloadModeSetter = { PushPayloadPreferences.set($0) }
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
     }
 
     required init?(coder: NSCoder) {
         store = SettingManagerNotificationsSettingsStore()
+        payloadModeProvider = { PushPayloadPreferences.current }
+        payloadModeSetter = { PushPayloadPreferences.set($0) }
         super.init(coder: coder)
     }
 
@@ -99,6 +117,10 @@ final class NotificationsSettingsViewController: BaseViewController {
             NotificationsSettingsToggleCell.self,
             forCellReuseIdentifier: NotificationsSettingsToggleCell.reuseIdentifier
         )
+        tableView.register(
+            NotificationsSettingsChoiceCell.self,
+            forCellReuseIdentifier: NotificationsSettingsChoiceCell.reuseIdentifier
+        )
         if #available(iOS 15.0, *) {
             tableView.sectionHeaderTopPadding = 18
         }
@@ -122,6 +144,8 @@ final class NotificationsSettingsViewController: BaseViewController {
             return [.messages, .invites, .subscriptionRequests]
         case .inApp:
             return [.inAppSounds, .bannersOnChats]
+        case .payloadMode:
+            return [.fullPayload, .partialPayload]
         case .system:
             return [.systemSettings]
         }
@@ -203,6 +227,22 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
                 defaultValue: false,
                 accessibilityIdentifier: "notifications.bannersOnChats"
             )
+        case .fullPayload:
+            return makePayloadModeCell(
+                tableView: tableView,
+                indexPath: indexPath,
+                mode: .full,
+                title: L10n.text("notifications_settings__payload_mode__full", fallback: "Full"),
+                accessibilityIdentifier: "notifications.payloadMode.full"
+            )
+        case .partialPayload:
+            return makePayloadModeCell(
+                tableView: tableView,
+                indexPath: indexPath,
+                mode: .summary,
+                title: L10n.text("notifications_settings__payload_mode__partial", fallback: "Partial"),
+                accessibilityIdentifier: "notifications.payloadMode.partial"
+            )
         case .systemSettings:
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NotificationsSettingsActionCell.reuseIdentifier,
@@ -246,6 +286,25 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
         return cell
     }
 
+    private func makePayloadModeCell(
+        tableView: UITableView,
+        indexPath: IndexPath,
+        mode: PushPayloadMode,
+        title: String,
+        accessibilityIdentifier: String
+    ) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: NotificationsSettingsChoiceCell.reuseIdentifier,
+            for: indexPath
+        ) as! NotificationsSettingsChoiceCell
+        cell.configure(
+            title: title,
+            isSelected: payloadModeProvider() == mode,
+            accessibilityIdentifier: accessibilityIdentifier
+        )
+        return cell
+    }
+
     private func makeNotificationTypeCell(
         tableView: UITableView,
         indexPath: IndexPath,
@@ -282,9 +341,41 @@ extension NotificationsSettingsViewController: UITableViewDelegate {
         switch row {
         case .systemSettings:
             openSystemNotificationSettings()
+        case .fullPayload, .partialPayload:
+            let mode: PushPayloadMode = row == .fullPayload ? .full : .summary
+            guard payloadModeProvider() != mode else { return }
+            payloadModeSetter(mode)
+            tableView.reloadSections(IndexSet(integer: Section.payloadMode.rawValue), with: .none)
         case .messages, .invites, .subscriptionRequests, .inAppSounds, .bannersOnChats:
             break
         }
+    }
+}
+
+private final class NotificationsSettingsChoiceCell: UITableViewCell {
+    static let reuseIdentifier = "NotificationsSettingsChoiceCell"
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: .default, reuseIdentifier: reuseIdentifier)
+        textLabel?.font = .preferredFont(forTextStyle: .body)
+        textLabel?.adjustsFontForContentSizeCategory = true
+        textLabel?.numberOfLines = 0
+        textLabel?.isAccessibilityElement = false
+        isAccessibilityElement = true
+        selectionStyle = .default
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(title: String, isSelected: Bool, accessibilityIdentifier: String) {
+        textLabel?.text = title
+        textLabel?.textColor = .label
+        accessoryType = isSelected ? .checkmark : .none
+        accessoryView = nil
+        imageView?.image = nil
+        self.accessibilityIdentifier = accessibilityIdentifier
+        accessibilityLabel = title
+        accessibilityTraits = isSelected ? [.button, .selected] : [.button]
     }
 }
 

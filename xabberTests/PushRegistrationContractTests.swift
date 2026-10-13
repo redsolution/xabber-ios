@@ -42,8 +42,9 @@ final class PushRegistrationContractTests: XCTestCase {
         super.tearDown()
     }
 
-    func testActualServerEnableKeepsLegacySecurityAndDoesNotClaimUnsupportedMode() throws {
+    func testActualServerEnableKeepsLegacySecurityAndRequestsSummaryMode() throws {
         let (manager, stream, _) = fixture()
+        manager.payloadModeProvider = { .summary }
 
         manager.enable(xmppStream: stream) { _ in }
 
@@ -53,7 +54,7 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertEqual(iq.attributeStringValue(forName: "type"), "set")
         XCTAssertEqual(enable.attributeStringValue(forName: "jid"), pushService)
         XCTAssertEqual(enable.attributeStringValue(forName: "node"), manager.node)
-        XCTAssertNil(enable.attributeStringValue(forName: "mode"))
+        XCTAssertEqual(enable.attributeStringValue(forName: "mode"), "summary")
         XCTAssertNil(enable.element(forName: "encryption"))
         XCTAssertEqual(security.attributeStringValue(forName: "cipher"), "urn:xmpp:ciphers:aes-256cbc")
         let encodedKey = try XCTUnwrap(security.element(forName: "encryption-key")?.stringValue)

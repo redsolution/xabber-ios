@@ -4144,7 +4144,7 @@ final class Account: NSObject {
               self.xmppStream.myJID?.bare == self.jid,
               self.connectionGate.snapshot().phase == .online else { return }
         let httpPreviewReady = self.push.httpPreviewReady
-        guard !self.push.enabled || !httpPreviewReady else { return }
+        guard !self.push.enabled || !httpPreviewReady || !self.push.isPayloadModeCurrent else { return }
         self.ensurePushCapabilityDiscoveryIfNeeded()
         self.requestPushRegistration(refreshHTTPGrant: !httpPreviewReady)
     }

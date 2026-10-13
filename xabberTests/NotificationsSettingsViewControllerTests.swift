@@ -46,16 +46,17 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
 
-        XCTAssertEqual(controller.tableView.numberOfSections, 3)
+        XCTAssertEqual(controller.tableView.numberOfSections, 4)
         XCTAssertEqual(controller.tableView.numberOfRows(inSection: 0), 3)
         XCTAssertEqual(controller.tableView.numberOfRows(inSection: 1), 2)
-        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 2), 1)
+        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 2), 2)
+        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 3), 1)
 
         let messagesCell = cell(from: controller, row: 0, section: 0)
         let invitesCell = cell(from: controller, row: 1, section: 0)
         let subscriptionRequestsCell = cell(from: controller, row: 2, section: 0)
         let inAppSoundCell = cell(from: controller, row: 0, section: 1)
-        let systemSettingsCell = cell(from: controller, row: 0, section: 2)
+        let systemSettingsCell = cell(from: controller, row: 0, section: 3)
 
         XCTAssertEqual(messagesCell.accessibilityIdentifier, "notifications.messages")
         XCTAssertEqual(invitesCell.accessibilityIdentifier, "notifications.invites")
@@ -159,13 +160,13 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
     func testSystemSettingsIsLeftAlignedButtonSectionWithoutHeaderIconOrDisclosureIndicator() throws {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
-        let systemCell = cell(from: controller, row: 0, section: 2)
+        let systemCell = cell(from: controller, row: 0, section: 3)
         systemCell.bounds = CGRect(x: 0, y: 0, width: 390, height: 60)
         systemCell.setNeedsLayout()
         systemCell.layoutIfNeeded()
 
         XCTAssertNil(
-            controller.tableView(controller.tableView, titleForHeaderInSection: 2)
+            controller.tableView(controller.tableView, titleForHeaderInSection: 3)
         )
         XCTAssertEqual(systemCell.textLabel?.text, "Open iOS Notification Settings")
         XCTAssertEqual(systemCell.textLabel?.textAlignment, .left)

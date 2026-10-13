@@ -47,6 +47,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         var callbacks: [(Bool) -> Void]
         var cancelTimeout: (() -> Void)?
         var keyBytes: [UInt8]?
+        var payloadMode: PushPayloadMode?
         var hasBeenSent = false
 
         init(id: String, owner: String, node: String, service: String, jid: XMPPJID,
@@ -75,6 +76,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     private var configurationEpoch: UInt64 = 0
     private var registrationRequest: RegistrationRequest?
     private var registrationState: EnableState = .disabled
+    private var acknowledgedPayloadMode: PushPayloadMode?
     private var unpublishedGrantRejection: (node: String, generation: String)?
     // Account lifecycle explicitly defers full-auth registration until owner disco.
     // Direct managers retain the existing, server-confirmed profile by default.
@@ -97,6 +99,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         )
     }
     var tokenInvalidationStore: PushTokenInvalidationStore? = .live
+    var payloadModeProvider: () -> PushPayloadMode = { PushPayloadPreferences.current }
     
     var enable: Bool = true
     var node: String {
@@ -216,6 +219,13 @@ class PushNotificationsManager: AbstractXMPPManager {
         enableState == .enabled
     }
 
+    /// The latest requested mode was acknowledged; the current server may ignore it.
+    var isPayloadModeCurrent: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return registrationState == .enabled && acknowledgedPayloadMode == payloadModeProvider()
+    }
+
     var isAwaitingCustomPushSupport: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -250,6 +260,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         configurationEpoch &+= 1
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
+        acknowledgedPayloadMode = nil
         stateLock.unlock()
         callbacks.forEach { $0(false) }
     }
@@ -262,6 +273,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         if !supported {
             callbacks = finishRequestLocked(success: false, preserveRegistration: false)
             registrationState = .disabled
+            acknowledgedPayloadMode = nil
         } else if let request = registrationRequest, !request.hasBeenSent {
             if request.stream === xmppStream, isCurrentRequestLocked(request) {
                 callbacks = sendRequestLocked(request)
@@ -300,16 +312,26 @@ class PushNotificationsManager: AbstractXMPPManager {
             stateLock.unlock()
             return
         }
-        if registrationState == .enabled, !refresh {
+        if registrationState == .enabled, !refresh, acknowledgedPayloadMode == payloadModeProvider() {
             stateLock.unlock()
             callback(true)
             return
         }
+        let callbacks = startRegistrationLocked(xmppStream: xmppStream, jid: jid, callbacks: [callback])
+        stateLock.unlock()
+        callbacks.forEach { $0(false) }
+    }
+
+    private func startRegistrationLocked(
+        xmppStream: XMPPStream, jid: XMPPJID, callbacks: [(Bool) -> Void]
+    ) -> [(Bool) -> Void] {
         let request = RegistrationRequest(
             id: xmppStream.generateUUID, owner: owner, node: configuredNode,
             service: configuredService, jid: jid, epoch: configurationEpoch,
-            wasEnabled: registrationState == .enabled, stream: xmppStream, callback: callback
+            wasEnabled: registrationState == .enabled, stream: xmppStream,
+            callback: callbacks.first ?? { _ in }
         )
+        request.callbacks = callbacks
         registrationRequest = request
         if !request.wasEnabled {
             registrationState = .pending(queryId: request.id)
@@ -318,10 +340,8 @@ class PushNotificationsManager: AbstractXMPPManager {
             guard let self, let request else { return }
             self.registrationDidTimeout(request)
         }
-        let callbacks = customPushSupported == true && registrationRequest === request
+        return customPushSupported == true && registrationRequest === request
             ? sendRequestLocked(request) : []
-        stateLock.unlock()
-        callbacks.forEach { $0(false) }
     }
 
     private func sendRequestLocked(_ request: RegistrationRequest) -> [(Bool) -> Void] {
@@ -335,9 +355,12 @@ class PushNotificationsManager: AbstractXMPPManager {
                 throw RegistrationError.invalidCredentials
             }
             request.keyBytes = keyBytes
+            let mode = payloadModeProvider()
+            request.payloadMode = mode
             let enableElement = DDXMLElement(name: "enable", xmlns: getPrimaryNamespace())
             enableElement.addAttribute(withName: "node", stringValue: request.node)
             enableElement.addAttribute(withName: "jid", stringValue: request.service)
+            enableElement.addAttribute(withName: "mode", stringValue: mode.rawValue)
             let security = DDXMLElement(name: "security", xmlns: getPrimaryNamespace())
             security.addAttribute(withName: "cipher", stringValue: "urn:xmpp:ciphers:aes-256cbc")
             security.addChild(DDXMLElement(name: "encryption-key", stringValue: Data(keyBytes).base64EncodedString()))
@@ -399,6 +422,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         configurationEpoch &+= 1
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
+        acknowledgedPayloadMode = nil
         if xmppStream.myJID?.bare == owner, node.isNotEmpty, service.isNotEmpty {
             let disableElement = DDXMLElement(name: "disable", xmlns: getPrimaryNamespace())
             disableElement.addAttribute(withName: "jid", stringValue: service)
@@ -418,6 +442,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         configurationEpoch &+= 1
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
+        acknowledgedPayloadMode = nil
         queryIds.removeAll()
         stateLock.unlock()
         callbacks.forEach { $0(false) }
@@ -436,6 +461,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         configurationEpoch &+= 1
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
+        acknowledgedPayloadMode = nil
         stateLock.unlock()
         callbacks.forEach { $0(false) }
     }
@@ -462,9 +488,32 @@ class PushNotificationsManager: AbstractXMPPManager {
             stateLock.unlock()
             return
         }
-        let callbacks = finishRequestLocked(success: false, preserveRegistration: request.wasEnabled)
+        // A sent request may have applied on the server despite a lost response.
+        if request.hasBeenSent { acknowledgedPayloadMode = nil }
+        let completion = finishRequestAndReconcileModeLocked(request, success: false)
         stateLock.unlock()
-        callbacks.forEach { $0(false) }
+        completion.callbacks.forEach { $0(completion.success) }
+    }
+
+    private func finishRequestAndReconcileModeLocked(
+        _ request: RegistrationRequest, success: Bool
+    ) -> (callbacks: [(Bool) -> Void], success: Bool) {
+        let callbacks = finishRequestLocked(success: success, preserveRegistration: request.wasEnabled)
+        let latestMode = payloadModeProvider()
+        // Consume an already-sent IQ and its grant before sending a successor.
+        // A same-mode error/timeout stops here until a new explicit retry.
+        guard let sentMode = request.payloadMode, request.hasBeenSent,
+              sentMode != latestMode,
+              !(registrationState == .enabled && acknowledgedPayloadMode == latestMode),
+              request.epoch == configurationEpoch, request.node == configuredNode,
+              request.service == configuredService, request.owner == owner,
+              customPushSupported != false,
+              let stream = request.stream, let jid = stream.myJID,
+              jid.full == request.streamJID else {
+            return (callbacks, success)
+        }
+        let failures = startRegistrationLocked(xmppStream: stream, jid: jid, callbacks: callbacks)
+        return (failures, false)
     }
 
     private func readPushRegistrationResult(_ iq: XMPPIQ) -> Bool {
@@ -500,9 +549,10 @@ class PushNotificationsManager: AbstractXMPPManager {
                 }
             }
         }
-        let callbacks = finishRequestLocked(success: success, preserveRegistration: request.wasEnabled)
+        if success { acknowledgedPayloadMode = request.payloadMode }
+        let completion = finishRequestAndReconcileModeLocked(request, success: success)
         stateLock.unlock()
-        callbacks.forEach { $0(success) }
+        completion.callbacks.forEach { $0(completion.success) }
         return true
     }
 

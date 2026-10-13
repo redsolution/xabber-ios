@@ -443,6 +443,24 @@ class NotificationService: UNNotificationServiceExtension {
             notificationType = .message
             applySoundPreference(for: .message)
             onMessage(payload)
+        case .fullMessage(let message):
+            guard !payload.outgoing else {
+                suppressCurrentNotification()
+                return
+            }
+            notificationType = .message
+            applySoundPreference(for: .message)
+            guard let preview = PushNotificationArchiveParser.parseArchivedMessage(message, owner: owner) else {
+                fallbackVisibleNotification(for: .message)
+                return
+            }
+            // Full content needs the current decryption key, not an HTTP grant.
+            // Use the same typed renderer as HTTP previews without starting an archive request.
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.renderPreview(preview)
+            }
+            installRenderingTask(task)
         case .displayed:
             notificationType = .marker
             onMarker(payload)
@@ -450,8 +468,21 @@ class NotificationService: UNNotificationServiceExtension {
             notificationType = .subscribe
             applySoundPreference(for: .subscribe)
             onSubscribe(payload)
-        case .call, .callUpdate, .reconciliation:
-            // Calls/data have a separate app/PushKit ingress. Never render their XML as a message.
+        case .reconciliation:
+            guard !payload.outgoing, let message = payload.payloadStanza(key: key),
+                  let preview = PushNotificationArchiveParser.parsePushHeadline(message, owner: owner) else {
+                suppressCurrentNotification()
+                return
+            }
+            notificationType = preview.route.kind == .groupInvite ? .invite : .message
+            applySoundPreference(for: notificationType)
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.renderPreview(preview)
+            }
+            installRenderingTask(task)
+        case .call, .callUpdate:
+            // Calls have a separate app/PushKit ingress. Never render their XML as a message.
             suppressCurrentNotification()
         }
     }
@@ -697,13 +728,17 @@ extension NotificationService: PushPayloadDelegate {
     func networkManager(_ manager: NetworkManager, didUpdateContent preview: PushNotificationPreview) async {
         guard let generation = generation(for: manager) else { return }
         await Self.$handlingGeneration.withValue(generation) {
-            guard !Task.isCancelled, !hasCompletedContent, ownsCurrentCredentialSnapshot() else { return }
-            switch preview.route.kind {
-            case .message: await renderMessage(preview)
-            case .groupInvite: await renderGroupInvite(preview)
-            case .verificationRequest: renderVerificationRequest(preview)
-            case .subscriptionRequest: await renderSubscriptionRequest(preview)
-            }
+            await renderPreview(preview)
+        }
+    }
+
+    private func renderPreview(_ preview: PushNotificationPreview) async {
+        guard !Task.isCancelled, !hasCompletedContent, ownsCurrentCredentialSnapshot() else { return }
+        switch preview.route.kind {
+        case .message: await renderMessage(preview)
+        case .groupInvite: await renderGroupInvite(preview)
+        case .verificationRequest: renderVerificationRequest(preview)
+        case .subscriptionRequest: await renderSubscriptionRequest(preview)
         }
     }
 

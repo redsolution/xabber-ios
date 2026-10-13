@@ -751,6 +751,45 @@ enum PushNotificationArchiveParser {
         return parseArchivedMessage(root, owner: owner)
     }
 
+    /// Only explicitly recognized headline notification routes may become visible.
+    static func parsePushHeadline(_ message: DDXMLElement, owner: String) -> PushNotificationPreview? {
+        guard message.localName == "message", [nil, "jabber:client"].contains(message.uri),
+              message.attributeString("type") == "headline",
+              let sender = message.attributeString("from"), !sender.isEmpty,
+              sender == sender.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sender.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+              !SCEReceivePolicy.containsOMEMO2(message) else { return nil }
+        let bareSender = String(sender.prefix { $0 != "/" })
+        let senderParts = bareSender.split(separator: "@", omittingEmptySubsequences: false)
+        guard canonicalBareJID(bareSender) != nil
+                || (senderParts.count == 1 && canonicalDomain(bareSender) != nil) else { return nil }
+
+        let nodes = directChildren(of: message)
+        // A typed hint cannot turn a call or destructive server control into a visible headline.
+        guard !nodes.contains(where: {
+            ["propose", "accept", "reject", "retract", "proceed", "finish", "displayed"].contains($0.localName ?? "")
+                || ($0.localName == "revoke" && $0.uri == "https://xabber.com/protocol/devices")
+                || (["replace", "retract-message", "retract-user", "retract-all"].contains($0.localName ?? "")
+                    && ["https://xabber.com/protocol/rewrite", "https://xabber.com/protocol/rewrite#notify"].contains($0.uri ?? ""))
+        }) else { return nil }
+        let invites = nodes.filter { $0.localName == "invite" }
+        let trusts = nodes.filter { $0.localName == "trust" }
+        guard invites.count <= 1, trusts.count <= 1, invites.isEmpty || trusts.isEmpty,
+              invites.allSatisfy({ $0.uri == XMLNS.groups }),
+              trusts.allSatisfy({ $0.uri == XMLNS.trust }) else { return nil }
+        if let trust = trusts.first {
+            let contents = directChildren(of: trust)
+            guard contents.count == 1, let request = contents.first,
+                  request.localName == "request", request.uri == XMLNS.trust,
+                  directChildren(of: request).isEmpty else { return nil }
+        }
+        guard let preview = parseArchivedMessage(message, owner: owner) else { return nil }
+        switch preview.route.kind {
+        case .groupInvite, .verificationRequest: return preview
+        default: return nil
+        }
+    }
+
     /// Use only after HTTP response validation bound this result to the requested archive.
     static func parseHTTPArchivedMessage(_ archiveMessage: DDXMLElement, owner: String) -> PushNotificationPreview? {
         let results = directChildren(of: archiveMessage).filter { $0.localName == "result" && $0.uri == "urn:xmpp:mam:2" }
