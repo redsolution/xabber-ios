@@ -24595,7 +24595,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
               <metadata node='https://xabber.com/protocol/synchronization'>
                 <unread count='2' after='1711283295000000'/>
                 <last-message>
-                  <message from='romeo@xmppdev01.xabber.com' to='\(owner)' id='sync-last-message-1'>
+                  <message xmlns='jabber:client' from='romeo@xmppdev01.xabber.com' to='\(owner)' id='sync-last-message-1'>
                     <body>Hello Juliet</body>
                     <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
                   </message>
@@ -24626,6 +24626,20 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         let contactJid = "alexey.boldin@xmppdev01.xabber.com"
         try configureFavoritesNode(favoritesJid)
 
+        let original = try makeMessage(xml: """
+        <message xmlns='jabber:client' from='\(contactJid)/ios' to='\(owner)' type='chat' id='sync-saved-inner'>
+          <origin-id xmlns='urn:xmpp:sid:0' id='sync-saved-inner-origin'/>
+          <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+          <body>Sync saved body</body>
+        </message>
+        """)
+        // Use the sender's fallback and wire offsets. The expected list
+        // preview is the own comment after the forwarded fallback is removed.
+        let savedContent = try XCTUnwrap(ForwardSendPlanner.plan(
+            sources: [ForwardSourceSnapshot(message: original, date: nil, selectionID: "sync-saved-inner")],
+            comment: "> Sync saved body"
+        ).first)
+
         let iq = try makeIQ(xml: """
         <iq type='set' id='push-saved-last-message'>
           <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000008'>
@@ -24633,19 +24647,11 @@ final class ClientSynchronizationManagerTests: XCTestCase {
               <metadata node='https://xabber.com/protocol/synchronization'>
                 <unread count='0'/>
                 <last-message>
-                  <message from='\(owner)/ios' to='\(favoritesJid)' id='sync-saved-outer'>
+                  <message xmlns='jabber:client' from='\(owner)/ios' to='\(favoritesJid)' id='sync-saved-outer'>
                     <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='sync-saved-archive'/>
                     <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:36:00Z'/>
-                    <body>&gt; Sync saved body</body>
-                    <reference xmlns='https://xabber.com/protocol/references' begin='0' end='18' type='mutable'>
-                      <forwarded xmlns='urn:xmpp:forward:0'>
-                        <message from='\(contactJid)/ios' to='\(owner)' type='chat' id='sync-saved-inner'>
-                          <origin-id xmlns='urn:xmpp:sid:0' id='sync-saved-inner-origin'/>
-                          <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
-                          <body>Sync saved body</body>
-                        </message>
-                      </forwarded>
-                    </reference>
+                    <body>\(savedContent.body.xmlEscaping(reverse: false))</body>
+                    \(savedContent.refs.map(\.xmlString).joined())
                   </message>
                 </last-message>
               </metadata>
@@ -24700,7 +24706,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
             <conversation jid='\(jid)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
               <metadata node='https://xabber.com/protocol/synchronization'>
                 <last-message>
-                  <message from='\(jid)' to='\(owner)' id='remote-last-message'>
+                  <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='remote-last-message'>
                     <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1776840442467416'/>
                     <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
                     <body>Hello Juliet</body>
@@ -24894,7 +24900,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
             <conversation jid='group@conference.xabber.com' type='https://xabber.com/protocol/groups' stamp='1711283296000003' status='active'>
               <metadata node='https://xabber.com/protocol/synchronization'>
                 <last-message>
-                  <message from='romeo@xmppdev01.xabber.com' to='\(owner)' id='invite-push-1'>
+                  <message xmlns='jabber:client' from='romeo@xmppdev01.xabber.com' to='\(owner)' id='invite-push-1'>
                     <invite xmlns='https://xabber.com/protocol/groups' jid='group@conference.xabber.com'>
                       <reason>Join us</reason>
                     </invite>

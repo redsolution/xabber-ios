@@ -342,27 +342,15 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         
         let realm = try WRealm.safe()
         
-        if realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: node, owner: self.owner, conversationType: .saved)) != nil {
-            return
-        }
-        
-        let instance = LastChatsStorageItem()
-        instance.owner = self.owner
-        instance.jid = node
-        instance.isSynced = false
-        instance.conversationType = .saved
-        instance.primary = LastChatsStorageItem.genPrimary(jid: node, owner: self.owner, conversationType: .saved)
-        
-        let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: node, owner: self.owner))
-        
-        instance.rosterItem = rosterItem
-        
+        // Starting a write refreshes a stale background Realm. Resolve the
+        // saved row inside that transaction so another writer's existing row
+        // is reused with its history, unread state, pin and draft intact.
         if commitTransaction {
             try realm.write {
-                realm.add(instance)
+                _ = savedLastChat(in: realm, favoritesNode: node)
             }
         } else {
-            realm.add(instance)
+            _ = savedLastChat(in: realm, favoritesNode: node)
         }
     }
 
