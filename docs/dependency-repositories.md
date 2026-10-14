@@ -43,4 +43,4 @@
 
 ## XabberCryptoSwift
 
-SwiftPM SSH dependency `git@github.com:redsolution/XabberCryptoSwift.git`, pinned `bd5d19dbd8e9de2521c8830f54564d3cc175cba8`. Its authorized bundled libsodium1.0.22 uses upstream [jedisct1/libsodium](https://github.com/jedisct1/libsodium); artifact/source/license hashes are in the package inventory. App includes ISC/BSD notices. CryptoSwift and Curve25519Kit remain for unrelated AKE/push APIs.
+SwiftPM SSH dependency `git@github.com:redsolution/XabberCryptoSwift.git`, pinned `bd5d19dbd8e9de2521c8830f54564d3cc175cba8`. Its authorized bundled libsodium1.0.22 uses upstream [jedisct1/libsodium](https://github.com/jedisct1/libsodium); artifact/source/license hashes are in the package inventory. App includes ISC/BSD notices. CryptoSwift remains for unrelated AKE/push APIs. SignalProtocolC, SignalProtocolObjC and the unused WhisperSystems-derived Curve25519Kit are removed from the active Pod graph, application and extension.

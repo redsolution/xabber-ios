@@ -48,7 +48,6 @@ def main_pods
     pod 'XMPPFramework/Swift', :path => File.join(XABBER_DEPENDENCIES_ROOT, 'XMPPFramework')
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
     pod 'OpenSSL-Universal'
-    pod 'Curve25519Kit', :git => 'https://github.com/redsolution/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
     pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git'
 
 end
@@ -68,7 +67,6 @@ target 'xabber-push-extension' do
     pod 'SwiftKeychainWrapper'
     pod 'KissXML'
     pod 'CryptoSwift', :git => 'https://github.com/krzyzanowskim/CryptoSwift.git', :tag => '1.8.1'
-    pod 'Curve25519Kit', :git => 'https://github.com/redsolution/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
 end
 
 # to silence warning in comments in XMPPFramework

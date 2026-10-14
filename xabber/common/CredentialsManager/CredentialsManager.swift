@@ -24,7 +24,6 @@
 
 import Foundation
 import SwiftKeychainWrapper
-import Curve25519Kit
 import Security
 //import Realm
 
