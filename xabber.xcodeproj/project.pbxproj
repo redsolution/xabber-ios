@@ -1146,6 +1146,13 @@
 		C01400000000000000000007 /* OMEMO2CryptoBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01400000000000000000008 /* OMEMO2CryptoBackend.swift */; };
 		C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */; };
 		C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */; };
+		7736DD9052BD4C6BA7E41033 /* OMEMO2CryptoBackendBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377D0C98DD1A4A9DA238D25D /* OMEMO2CryptoBackendBehaviorTests.swift */; };
+		9D07E3D8F3B5438F984E2CE0 /* OMEMO2StorageBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B05FFBF29844B08B3E0C128 /* OMEMO2StorageBehaviorTests.swift */; };
+		172ECDAC59184011908F893A /* OMEMO2NativeProtocolBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F225B06B82472C8746CCCB /* OMEMO2NativeProtocolBehaviorTests.swift */; };
+		E6A2D882A4E24EE1AEEC5A2A /* OMEMO2NativePayloadBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */; };
+		978243CAD7044F4184EF201B /* OMEMO2ManagerLifecycleBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */; };
+		2CD1324E200B40A78383A423 /* OMEMO2CompatibilityIngressBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */; };
+		3797896C3A2E470E9E3D503A /* OMEMO2AccountDeletionBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2325,6 +2332,13 @@
 		C01400000000000000000008 /* OMEMO2CryptoBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CryptoBackend.swift; sourceTree = "<group>"; };
 		C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2XabberCryptoIntegrationTests.swift; sourceTree = "<group>"; };
 		C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CryptoBackendStorageTests.swift; sourceTree = "<group>"; };
+		377D0C98DD1A4A9DA238D25D /* OMEMO2CryptoBackendBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CryptoBackendBehaviorTests.swift; sourceTree = "<group>"; };
+		4B05FFBF29844B08B3E0C128 /* OMEMO2StorageBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2StorageBehaviorTests.swift; sourceTree = "<group>"; };
+		B7F225B06B82472C8746CCCB /* OMEMO2NativeProtocolBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NativeProtocolBehaviorTests.swift; sourceTree = "<group>"; };
+		3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NativePayloadBoundaryTests.swift; sourceTree = "<group>"; };
+		B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2ManagerLifecycleBehaviorTests.swift; sourceTree = "<group>"; };
+		4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CompatibilityIngressBehaviorTests.swift; sourceTree = "<group>"; };
+		99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2AccountDeletionBehaviorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4332,6 +4346,13 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */,
+				B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */,
+				4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */,
+				99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */,
+				B7F225B06B82472C8746CCCB /* OMEMO2NativeProtocolBehaviorTests.swift */,
+				4B05FFBF29844B08B3E0C128 /* OMEMO2StorageBehaviorTests.swift */,
+				377D0C98DD1A4A9DA238D25D /* OMEMO2CryptoBackendBehaviorTests.swift */,
 				C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */,
 				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
 				45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */,
@@ -6687,6 +6708,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E6A2D882A4E24EE1AEEC5A2A /* OMEMO2NativePayloadBoundaryTests.swift in Sources */,
+				978243CAD7044F4184EF201B /* OMEMO2ManagerLifecycleBehaviorTests.swift in Sources */,
+				2CD1324E200B40A78383A423 /* OMEMO2CompatibilityIngressBehaviorTests.swift in Sources */,
+				3797896C3A2E470E9E3D503A /* OMEMO2AccountDeletionBehaviorTests.swift in Sources */,
+				172ECDAC59184011908F893A /* OMEMO2NativeProtocolBehaviorTests.swift in Sources */,
+				9D07E3D8F3B5438F984E2CE0 /* OMEMO2StorageBehaviorTests.swift in Sources */,
+				7736DD9052BD4C6BA7E41033 /* OMEMO2CryptoBackendBehaviorTests.swift in Sources */,
 				C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */,
 				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
 				13C6CE8D47FC43F0A8BD6D95 /* OMEMO2NormativeIncomingTrustRenderingTests.swift in Sources */,

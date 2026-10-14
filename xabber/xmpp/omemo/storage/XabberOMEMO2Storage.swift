@@ -811,16 +811,24 @@ final class XabberOMEMO2Storage {
               state.deviceID > 0, state.deviceID <= Int(Int32.max), state.identityPrivateKey.count == 32,
               state.fingerprintPublicKey.count == 32, state.signedPreKeyPrivateKey.count == 32,
               state.signedPreKeyID > 0, state.signedPreKeyID <= UInt32(Int32.max), state.signature.count == 64,
+              state.signedPreKeyCreatedAt.timeIntervalSince1970.isFinite,
               state.nextPreKeyID > (state.preKeys.map(\.id).max() ?? 0), state.nextPreKeyID <= UInt32(Int32.max) + 1,
               Set(state.preKeys.map(\.id)).count == state.preKeys.count,
               state.preKeys.allSatisfy({ $0.id > 0 && $0.id <= UInt32(Int32.max) && $0.privateKey.count == 32 }),
-              state.retiredSignedPreKeys.allSatisfy({ $0.id > 0 && $0.id < state.signedPreKeyID && $0.privateKey.count == 32 }),
+              state.retiredSignedPreKeys.allSatisfy({
+                  $0.id > 0 && $0.id < state.signedPreKeyID && $0.privateKey.count == 32
+                      && $0.retiredAt.timeIntervalSince1970.isFinite
+              }),
               state.sessions.allSatisfy({ key, value in
-                  value.ephemeralKey.count == 32 && value.seenIncomingRatchets.count <= OMEMO2Session.maximumReceivedRatchets
+                  value.createdAt.timeIntervalSince1970.isFinite
+                      && value.ephemeralKey.count == 32 && value.seenIncomingRatchets.count <= OMEMO2Session.maximumReceivedRatchets
                       && value.seenIncomingRatchets.allSatisfy { $0.count == 32 }
                       && (value.outgoingPreKey == nil || value.outgoingPreKey?.count == 32)
                       && value.address.deviceID > 0 && value.address.deviceID <= Int(Int32.max)
                       && !value.address.jid.isEmpty && sessionKey(value.address, ephemeralKey: value.ephemeralKey) == key
+              }),
+              state.controlsNeeded.allSatisfy({ address in
+                  !address.jid.isEmpty && address.deviceID > 0 && address.deviceID <= Int(Int32.max)
               }),
               (state.authenticatedReceiveFingerprints ?? []).count <= Self.maximumAuthenticatedReceiveFingerprints,
               (state.authenticatedReceiveFingerprints ?? []).allSatisfy({ $0.count == 32 }),

@@ -347,6 +347,7 @@ open class OmemoManager: AbstractXMPPManager {
             let preKeys = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@", owner)
             let sessions = realm.objects(SessionRecordStorageItem.self).filter("owner == %@", owner)
             let deviceLists = realm.objects(OMEMO2DeviceListStorageItem.self).filter("owner == %@", owner)
+            let optOutDecisions = realm.objects(OMEMO2OptOutStorageItem.self).filter("owner == %@", owner)
             let trustedIdentity = realm.objects(SignalTrustedIdentityStoreageItem.self).filter("owner == %@", owner)
             let senderKeys = realm.objects(SignalSenderKeyStoreageItem.self).filter("owner == %@", owner)
             try CredentialsManager.shared.removeOMEMO2State(for: owner)
@@ -360,6 +361,7 @@ open class OmemoManager: AbstractXMPPManager {
                 try realm.write {
                     identitys.forEach { realm.delete($0) }
                     deviceLists.forEach { realm.delete($0) }
+                    optOutDecisions.forEach { realm.delete($0) }
                     devices.forEach { realm.delete($0) }
                     preKeys.forEach { realm.delete($0) }
                     sessions.forEach { realm.delete($0) }
@@ -369,6 +371,7 @@ open class OmemoManager: AbstractXMPPManager {
             } else {
                 identitys.forEach { realm.delete($0) }
                 deviceLists.forEach { realm.delete($0) }
+                optOutDecisions.forEach { realm.delete($0) }
                 devices.forEach { realm.delete($0) }
                 preKeys.forEach { realm.delete($0) }
                 sessions.forEach { realm.delete($0) }
@@ -600,7 +603,7 @@ extension OmemoManager {
                     realm.delete(
                         realm
                             .objects(SignalDeviceStorageItem.self)
-                            .filter("owner == %@ AND deviceId == %@", self.owner, itemId)
+                            .filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, self.owner, itemId)
                     )
                 }
                 try self.sendOwnDevice(xmppStream, createNode: false, excludingIDs: [itemId])
