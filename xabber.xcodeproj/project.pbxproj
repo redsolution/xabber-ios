@@ -21,7 +21,6 @@
 		E559F0789C094B8DBB9F15C0 /* SCEReceivePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */; };
 		442F9FD4E8634914BFDF324A /* SCEReceivePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */; };
 		AB038401260A000000000002 /* OMEMO2CryptoKitConformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */; };
-		317030DD0C0A7D8A75EE828B /* OMEMO2Tests.m in Sources */ = {isa = PBXBuildFile; fileRef = 6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */; };
 		A6D200023D05000000ABC001 /* NotificationsSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */; };
 		A6D200043D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */; };
 		DAA100083D04000000ABC001 /* InterfaceSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA100073D04000000ABC001 /* InterfaceSettingsViewController.swift */; };
@@ -1141,6 +1140,12 @@
 		329CD6BB9E526930B08898FE /* PushPayloadModeRegistrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C685030D7B201A309C78F9B6 /* PushPayloadModeRegistrationTests.swift */; };
 		BC214AC29B28B9C7BBC2F79B /* PushPayloadPreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA4659186C4EDA46E869F09 /* PushPayloadPreferencesTests.swift */; };
 		811CC01C057E21E340053F5B /* PushPayloadPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A2090CC0CA9DE904C4BE3A /* PushPayloadPreferences.swift */; };
+		C01400000000000000000001 /* XabberCryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C01400000000000000000003 /* XabberCryptoSwift */; };
+		C01400000000000000000002 /* XabberCryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C01400000000000000000003 /* XabberCryptoSwift */; };
+		C01400000000000000000005 /* XabberCryptoAcknowledgements.txt in Resources */ = {isa = PBXBuildFile; fileRef = C01400000000000000000006 /* XabberCryptoAcknowledgements.txt */; };
+		C01400000000000000000007 /* OMEMO2CryptoBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01400000000000000000008 /* OMEMO2CryptoBackend.swift */; };
+		C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */; };
+		C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1202,7 +1207,6 @@
 		E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOReceive.swift; sourceTree = "<group>"; };
 		2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SCEReceivePolicy.swift; sourceTree = "<group>"; };
 		AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OMEMO2CryptoKitConformanceTests.swift; path = OMEMO2CryptoKitConformanceTests.swift; sourceTree = "<group>"; };
-		6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = OMEMO2Tests.m; path = ../../../../../deps/SignalProtocolObjC/Testing/SignalProtocolTests/OMEMO2Tests.m; sourceTree = SOURCE_ROOT; };
 		A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewController.swift; sourceTree = "<group>"; };
 		A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewControllerTests.swift; sourceTree = "<group>"; };
 		DAA100073D04000000ABC001 /* InterfaceSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceSettingsViewController.swift; sourceTree = "<group>"; };
@@ -2317,6 +2321,10 @@
 		C685030D7B201A309C78F9B6 /* PushPayloadModeRegistrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayloadModeRegistrationTests.swift; sourceTree = "<group>"; };
 		DDA4659186C4EDA46E869F09 /* PushPayloadPreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayloadPreferencesTests.swift; sourceTree = "<group>"; };
 		89A2090CC0CA9DE904C4BE3A /* PushPayloadPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayloadPreferences.swift; sourceTree = "<group>"; };
+		C01400000000000000000006 /* XabberCryptoAcknowledgements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = XabberCryptoAcknowledgements.txt; path = xabber/XabberCryptoAcknowledgements.txt; sourceTree = SOURCE_ROOT; };
+		C01400000000000000000008 /* OMEMO2CryptoBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CryptoBackend.swift; sourceTree = "<group>"; };
+		C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2XabberCryptoIntegrationTests.swift; sourceTree = "<group>"; };
+		C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CryptoBackendStorageTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -2345,6 +2353,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C01400000000000000000001 /* XabberCryptoSwift in Frameworks */,
 				66898065265B84A400E13ED1 /* AuthenticationServices.framework in Frameworks */,
 				663D1B0E2D94294800EB1169 /* Copus in Frameworks */,
 				66B777322425491C003F1403 /* CloudKit.framework in Frameworks */,
@@ -2367,6 +2376,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C01400000000000000000002 /* XabberCryptoSwift in Frameworks */,
 				0FBECCA69A94E385D67A5669 /* Pods_xabberTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2747,6 +2757,7 @@
 		66159DF2201EDC7D00B1CF92 /* xabber */ = {
 			isa = PBXGroup;
 			children = (
+				C01400000000000000000006 /* XabberCryptoAcknowledgements.txt */,
 				66A349FD280D89DF008E5B9F /* proofreading.json */,
 				66A349FC280D89DE008E5B9F /* translations.json */,
 				1A9347D02806FCD8001A6ABF /* translations */,
@@ -3854,6 +3865,7 @@
 		6695786227A1317A00A6C4AB /* omemo */ = {
 			isa = PBXGroup;
 			children = (
+				C01400000000000000000008 /* OMEMO2CryptoBackend.swift */,
 				9D2BF45B6C914E73875FD412 /* OMEMO2OptOutPolicy.swift */,
 				E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */,
 				728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */,
@@ -4320,6 +4332,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */,
+				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
 				45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */,
 				45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */,
 				732E4515482A40DCB05BDFB8 /* ProfileHydrationTests.swift */,
@@ -4356,7 +4370,6 @@
 				AC8F69A088424A24BEC5B734 /* OMEMO2IdentityBindingTests.swift */,
 				E1575C1787324E4D8560B326 /* OMEMO2PayloadCodecTests.swift */,
 				AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */,
-				6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */,
 				4EA900012F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift */,
 				4EA910012F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift */,
 				4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */,
@@ -5479,6 +5492,9 @@
 				666162042F1FBA8700FA2CD1 /* PBXTargetDependency */,
 			);
 			name = xabber;
+			packageProductDependencies = (
+				C01400000000000000000003 /* XabberCryptoSwift */,
+			);
 			productName = xabber_test_xmpp;
 			productReference = 663F04202F238E780078F2ED /* xabber.app */;
 			productType = "com.apple.product-type.application";
@@ -5520,6 +5536,9 @@
 				66AE4E7B24E12F7C00FF11DC /* PBXTargetDependency */,
 			);
 			name = xabberTests;
+			packageProductDependencies = (
+				C01400000000000000000003 /* XabberCryptoSwift */,
+			);
 			productName = xabberTests;
 			productReference = 663F04212F238E780078F2ED /* xabberTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -5623,6 +5642,7 @@
 			);
 			mainGroup = 66159DE7201EDC7D00B1CF92;
 			packageReferences = (
+				C01400000000000000000004 /* XCRemoteSwiftPackageReference "XabberCryptoSwift" */,
 				663D1B0C2D94294800EB1169 /* XCRemoteSwiftPackageReference "swift-opus" */,
 				662D88D72F3B11FB003EC7E1 /* XCRemoteSwiftPackageReference "swift-ogg" */,
 			);
@@ -5645,6 +5665,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C01400000000000000000005 /* XabberCryptoAcknowledgements.txt in Resources */,
 				66F34A352D8AF95F008D2BC3 /* bubblecorners.json in Resources */,
 				66159E00201EDC7D00B1CF92 /* LaunchScreen.storyboard in Resources */,
 				66A4BF732660D1C70067247C /* emojis.json in Resources */,
@@ -5840,6 +5861,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C01400000000000000000007 /* OMEMO2CryptoBackend.swift in Sources */,
 				74211A4BCB734A50980A6F1E /* OMEMO2OptOutPolicy.swift in Sources */,
 				191531E8B9D041C59110EF5F /* XabberOMEMO2Storage.swift in Sources */,
 				F99DAB1A137A4868BAAEB4EF /* OMEMOReceive.swift in Sources */,
@@ -6665,6 +6687,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */,
+				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
 				13C6CE8D47FC43F0A8BD6D95 /* OMEMO2NormativeIncomingTrustRenderingTests.swift in Sources */,
 				FC0FB2A1340A4342A9BDCEF0 /* OMEMO2BootstrapBundleTests.swift in Sources */,
 				D896CBF61ACA4093A294906A /* ProfileHydrationTests.swift in Sources */,
@@ -6700,7 +6724,6 @@
 				221554EE690D4A6EAF6A8681 /* OMEMO2StateStorageTests.swift in Sources */,
 				C7ED6D3C7FCF482081EEB12C /* OMEMO2IdentityBindingTests.swift in Sources */,
 				D8A212F3C4144E709236D75F /* OMEMO2PayloadCodecTests.swift in Sources */,
-				317030DD0C0A7D8A75EE828B /* OMEMO2Tests.m in Sources */,
 				AB038401260A000000000002 /* OMEMO2CryptoKitConformanceTests.swift in Sources */,
 				4EA900022F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift in Sources */,
 				4EA910022F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift in Sources */,
@@ -7591,6 +7614,14 @@
 				minimumVersion = 0.0.2;
 			};
 		};
+		C01400000000000000000004 /* XCRemoteSwiftPackageReference "XabberCryptoSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "git@github.com:redsolution/XabberCryptoSwift.git";
+			requirement = {
+				kind = revision;
+				revision = bd5d19dbd8e9de2521c8830f54564d3cc175cba8;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -7608,6 +7639,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 663D1B0C2D94294800EB1169 /* XCRemoteSwiftPackageReference "swift-opus" */;
 			productName = Opus;
+		};
+		C01400000000000000000003 /* XabberCryptoSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C01400000000000000000004 /* XCRemoteSwiftPackageReference "XabberCryptoSwift" */;
+			productName = XabberCryptoSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

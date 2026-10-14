@@ -21,10 +21,7 @@
 import Foundation
 import XMPPFramework
 import RealmSwift
-import SignalProtocolObjC
 import RxSwift
-import CryptoSwift
-import CryptoKit
 import SwiftKeychainWrapper
 
 struct OMEMO2BundleRequest: Equatable {
@@ -114,36 +111,15 @@ open class OmemoManager: AbstractXMPPManager {
     internal var omemo2MaintenanceWorkID: UUID?
 
     internal var localStore: XabberAxolotlStorage
-    internal var signalStorage: SignalStorage
-    internal var signalContext: SignalContext
     
     var isRefreshRequest: Bool = false
     
 //    internal var preKeys: [PreKeyStoreItem] = []
     
-    static func generatePreKeys() throws -> [SignalPreKey] {
-        return (0...100).compactMap {
-            _ -> SignalPreKey in
-            return SignalPreKey()
-        }
-    }
-    
     override init(withOwner owner: String) {
         self.omemo2Storage = try? XabberOMEMO2Storage(owner: owner)
-        guard CredentialsManager.shared.getDeviceId(for: owner) != nil else {
-            self.isOmemoPrepared = false
-            self.localStore = XabberAxolotlStorage(withOwner: owner)
-            self.signalStorage = SignalStorage(signalStore: self.localStore)
-            self.signalContext = SignalContext(storage: self.signalStorage)!
-            
-            super.init(withOwner: owner)
-            return
-        }
-        
         self.localStore = XabberAxolotlStorage(withOwner: owner)
-        self.signalStorage = SignalStorage(signalStore: self.localStore)
-        self.signalContext = SignalContext(storage: self.signalStorage)!
-        self.isOmemoPrepared = true
+        self.isOmemoPrepared = (try? self.omemo2Storage?.localBundle()) != nil
         super.init(withOwner: owner)
     }
     
@@ -205,24 +181,14 @@ open class OmemoManager: AbstractXMPPManager {
                 }
             }
             guard let storage = self.omemo2Storage else { throw OMEMO2StorageError.stateUnavailable }
-            do {
-                let bundle = try storage.localBundle()
-                guard bundle.deviceID == deviceId else { throw OMEMO2StorageError.invalidDeviceID }
-                // Existing aggregate is authoritative even if its Realm public
-                // projection has been removed. Do not regenerate legacy keys.
-                try self.localStore.bindExistingDevice(deviceID: bundle.deviceID)
-                _ = try storage.prepare(deviceID: bundle.deviceID)
-            } catch OMEMO2StorageError.stateUnavailable {
-                guard realm.objects(SignalIdentityStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND protocolProfile == %@", self.owner, self.owner, Self.xmlns).isEmpty else {
-                    throw OMEMO2StorageError.stateUnavailable
-                }
-                try self.localStore.create(for: deviceId, context: self.signalContext)
-            }
+            let bundle = try storage.localBundle()
+            guard bundle.deviceID == deviceId else { throw OMEMO2StorageError.invalidDeviceID }
+            try self.localStore.bindExistingDevice(deviceID: bundle.deviceID)
+            _ = try storage.prepare(deviceID: bundle.deviceID)
             _ = try self.ensureOMEMO2Prepared(attemptPublication: false)
-            // Rebuild a missing shared SID mirror from the committed profile,
-            // including restart after fresh preparation. Existing values remain.
-            if CredentialsManager.shared.getDeviceId(for: owner) == nil {
+            // The server device-registration mirror follows committed native
+            // state, including a fresh cutover from an earlier device ID.
+            if CredentialsManager.shared.getDeviceId(for: owner) != deviceId {
                 CredentialsManager.shared.setDeviceId(deviceId, for: owner)
             }
             self.isOmemoPrepared = true
@@ -263,13 +229,11 @@ open class OmemoManager: AbstractXMPPManager {
         catch OMEMO2StorageError.stateUnavailable {
             let realm = try WRealm.safe()
             guard realm.objects(SignalIdentityStorageItem.self)
-                .filter("owner == %@ AND jid == %@ AND protocolProfile == %@", owner, owner, Self.xmlns).isEmpty else {
+                .filter("owner == %@ AND jid == %@ AND cryptoBackend == %@", owner, owner, XabberOMEMO2Storage.backend).isEmpty else {
                 throw OMEMO2StorageError.stateUnavailable
             }
+            return nil
         }
-        guard let id = CredentialsManager.shared.getDeviceId(for: owner) else { return nil }
-        guard id > 0, id <= Int(Int32.max) else { throw OMEMO2StorageError.invalidDeviceID }
-        return id
     }
     
     internal func checkInfo() {
@@ -1222,23 +1186,6 @@ extension OmemoManager {
         if let payload, payload.isEmpty || !payload.count.isMultiple(of: 16) {
             throw OmemoManagerError.invalidEncryptedPayload
         }
-        if data.first == 0x33 {
-            // The old Signal v3 frame is unambiguous. Never try this path after
-            // an OMEMO2 authentication error, or create an outgoing legacy session.
-            let address = SignalAddress(name: from, deviceId: Int32(sid))
-            guard localStore.sessionRecordExists(for: address) else { throw OmemoManagerError.sessionCreationFailed }
-            let cipher = SignalSessionCipher(address: address, context: signalContext)
-            let plaintext: Data
-            do {
-                plaintext = try cipher.decryptCiphertext(SignalCiphertext(data: data, type: keyExchange ? .preKeyMessage : .message))
-            } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
-                return .duplicate
-            }
-            if let opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime) {
-                return .content(opened, .legacySignal)
-            }
-            return .control
-        }
         let ciphertext = try OMEMO2Ciphertext(data: data, keyExchange: keyExchange)
         guard let replayFingerprint = OMEMO2ReplayProtection.fingerprint(for: message, owner: owner, localDeviceID: localID) else {
             throw OmemoManagerError.invalidEncryptedPayload
@@ -1320,7 +1267,7 @@ extension OmemoManager {
         let realm = try WRealm.safe()
         let primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceID)
         let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: primary) ?? SignalDeviceStorageItem()
-        let trustedPrimary = SignalTrustedIdentityStoreageItem.genPrimary(owner, for: SignalAddress(name: jid, deviceId: Int32(deviceID)))
+        let trustedPrimary = SignalTrustedIdentityStoreageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceID)
         let trusted = realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: trustedPrimary)
         let old = trusted?.identity ?? realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: primary)?.identityKey.flatMap { Data(base64Encoded: $0) } ?? previousSessionIdentity
         let same = old.flatMap { try? Omemo2IdentityRepresentation.canonicalRawX25519(storedIdentityKey: $0) } == (try Omemo2IdentityRepresentation.rawX25519(identityKey: identity))

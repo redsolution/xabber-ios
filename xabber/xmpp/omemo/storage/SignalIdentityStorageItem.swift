@@ -31,6 +31,9 @@ class SignalIdentityStorageItem: Object {
     
     @objc dynamic var primary: String = ""
     @objc dynamic var protocolProfile: String = "legacy-signal"
+    // Distinguishes a prepared native profile from the old same-namespace
+    // projection, so absence of native protected secrets never resets identity.
+    @objc dynamic var cryptoBackend: String = ""
     @objc dynamic var identityKey: String? = nil
     @objc dynamic var signedPreKey: String? = nil
     @objc dynamic var signedPreKeyId: Int = 0

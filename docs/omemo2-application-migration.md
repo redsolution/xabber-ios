@@ -1,5 +1,7 @@
 # OMEMO2 application binding and state migration
 
+> Historical backend report. Since 2026-10-14, the app uses [XabberCryptoSwift](xabbercryptoswift-app-migration-2026-10-14.md); Signal Pods and old snapshot/identity import have been removed.
+
 This stage connects the explicit OMEMO2 provider in the existing local SignalProtocolC and SignalProtocolObjC forks to Xabber iOS. No additional dependency is localized or upgraded. The dependency implementation and pins remain documented in [omemo2-dependency-profile.md](omemo2-dependency-profile.md).
 
 ## Migration contract

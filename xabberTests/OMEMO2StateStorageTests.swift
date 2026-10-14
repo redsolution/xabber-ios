@@ -1,6 +1,5 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import Security
 import XCTest
 @testable import xabber
@@ -40,7 +39,7 @@ final class OMEMO2StateStorageTests: XCTestCase {
         XCTAssertEqual(credentials.getIdentityKeyPrivateKey(for: owner), legacyPrivate)
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: CredentialsManager.uniqueServiceName(),
-                                    kSecAttrAccount as String: [owner, XabberOMEMO2Storage.profile, "state-v1"].prp(),
+                                    kSecAttrAccount as String: [owner, XabberOMEMO2Storage.profile, CredentialsManager.omemo2StateNamespace].prp(),
                                     kSecReturnAttributes as String: true]
         var attributes: CFTypeRef?
         XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &attributes), errSecSuccess)
@@ -68,7 +67,7 @@ final class OMEMO2StateStorageTests: XCTestCase {
         func legacyDeviceID(owner: String) -> Int? { legacyDevice }
     }
 
-    func testMigrationPreservesTheExistingIdentityAndDeviceAndIsIdempotent() throws {
+    func testBackendCutoverCreatesFreshIdentityAndIsIdempotent() throws {
         let context = try OMEMO2Context(error: ())
         let legacyIdentity = try context.generateIdentity()
         let persistence = MemoryPersistence()
@@ -80,17 +79,17 @@ final class OMEMO2StateStorageTests: XCTestCase {
         let persisted = persistence.records
         let second = try store.prepare(deviceID: 42, preKeyCount: 3)
 
-        XCTAssertEqual(first.identityKey, legacyIdentity.publicKey)
-        XCTAssertEqual(first.fingerprintPublicKey, legacyIdentity.fingerprintPublicKey)
+        XCTAssertNotEqual(first.identityKey, legacyIdentity.publicKey)
+        XCTAssertNotEqual(first.fingerprintPublicKey, legacyIdentity.fingerprintPublicKey)
         XCTAssertEqual(first.deviceID, 42)
         XCTAssertEqual(first.preKeys.count, 3)
         XCTAssertEqual(second.signedPreKey, first.signedPreKey)
         XCTAssertEqual(persistence.records, persisted)
         XCTAssertEqual(persistence.writes, 1)
-        XCTAssertEqual(persistence.legacy?.publicKey, Data([5]) + first.fingerprintPublicKey)
+        XCTAssertEqual(persistence.legacy?.publicKey, Data([5]) + legacyIdentity.fingerprintPublicKey)
     }
 
-    func testMismatchedLegacyIdentityFailsWithoutGeneratingAReplacement() throws {
+    func testMismatchedLegacyIdentityCannotBeImportedIntoNativeState() throws {
         let context = try OMEMO2Context(error: ())
         let identity = try context.generateIdentity()
         let differentIdentity = try context.generateIdentity()
@@ -98,18 +97,21 @@ final class OMEMO2StateStorageTests: XCTestCase {
         persistence.legacy = (Data([5]) + differentIdentity.fingerprintPublicKey, identity.privateKey)
         let store = try XabberOMEMO2Storage(owner: "alice@example.test", persistence: persistence)
 
-        XCTAssertThrowsError(try store.prepare(deviceID: 42, preKeyCount: 2))
-        XCTAssertTrue(persistence.records.isEmpty)
-        XCTAssertEqual(persistence.writes, 0)
+        let bundle = try store.prepare(deviceID: 42, preKeyCount: 2)
+        XCTAssertNotEqual(bundle.identityKey, identity.publicKey)
+        XCTAssertNotEqual(bundle.identityKey, differentIdentity.publicKey)
+        XCTAssertEqual(persistence.writes, 1)
     }
 
-    func testExistingDeviceWithoutItsLegacyPrivateIdentityFailsClosed() throws {
+    func testLegacyDeviceWithoutPrivateIdentityDoesNotPreventFreshNativeState() throws {
         let persistence = MemoryPersistence()
         persistence.legacyDevice = 42
         let store = try XabberOMEMO2Storage(owner: "alice@example.test", persistence: persistence)
 
-        XCTAssertThrowsError(try store.prepare(deviceID: 42, preKeyCount: 2))
-        XCTAssertTrue(persistence.records.isEmpty)
+        let bundle = try store.prepare(deviceID: 43, preKeyCount: 2)
+        XCTAssertEqual(bundle.deviceID, 43)
+        XCTAssertEqual(bundle.identityKey.count, 32)
+        XCTAssertEqual(persistence.writes, 1)
     }
 
     func testRepeatedKEXContinuesOneSessionAndConsumesTheOPKOnce() throws {
@@ -379,64 +381,6 @@ final class OMEMO2StateStorageTests: XCTestCase {
         XCTAssertEqual(row.profile_, SessionRecordStorageItem.legacyProfile)
     }
 
-    func testLegacyCreateWithMissingDeviceRowPreservesExistingIdentityAndHistoryKeys() throws {
-        try withLegacyFixture { owner, _ in
-            let identity = try OMEMO2Context(error: ()).generateIdentity()
-            let publicKey = Data([5]) + identity.fingerprintPublicKey
-            let credentials = CredentialsManager.shared
-            credentials.setIdentityKey(for: owner, publicKey: publicKey, privateKey: identity.privateKey)
-            credentials.setDeviceId(42, for: owner)
-            credentials.setRegistrationId(11, for: owner)
-            credentials.setPreKey(for: owner, id: 1, key: Data([0xA1]))
-            credentials.setSignedPreKey(for: owner, id: 1, key: Data([0xB1]))
-            let store = XabberAxolotlStorage(withOwner: owner)
-            let context = try XCTUnwrap(SignalContext(storage: SignalStorage(signalStore: store)))
-
-            try store.create(for: 42, context: context)
-
-            XCTAssertEqual(store.localDeviceId(), 42)
-            XCTAssertEqual(credentials.getIdentityKeyPublicKey(for: owner), publicKey)
-            XCTAssertEqual(credentials.getIdentityKeyPrivateKey(for: owner), identity.privateKey)
-            XCTAssertEqual(credentials.getPreKey(for: owner, id: 1), Data([0xA1]))
-            XCTAssertEqual(credentials.getSignedPreKey(for: owner, id: 1), Data([0xB1]))
-        }
-    }
-
-    func testLegacyCreateWithAnExistingDeviceAndMissingIdentityFailsWithoutRegeneration() throws {
-        try withLegacyFixture { owner, realm in
-            let row = SignalDeviceStorageItem()
-            row.primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: owner, deviceId: 42)
-            row.owner = owner
-            row.jid = owner
-            row.deviceId = 42
-            try realm.write { realm.add(row) }
-            CredentialsManager.shared.setDeviceId(42, for: owner)
-            let store = XabberAxolotlStorage(withOwner: owner)
-            let context = try XCTUnwrap(SignalContext(storage: SignalStorage(signalStore: store)))
-
-            XCTAssertThrowsError(try store.create(for: 42, context: context))
-            XCTAssertNil(CredentialsManager.shared.getIdentityKeyPublicKey(for: owner))
-            XCTAssertNil(CredentialsManager.shared.getIdentityKeyPrivateKey(for: owner))
-            XCTAssertNil(CredentialsManager.shared.getSignedPreKey(for: owner, id: 1))
-        }
-    }
-
-    func testLegacyCreateCannotOverwriteKeysWhenOMEMO2StateExistsOrIsCorrupt() throws {
-        try withLegacyFixture { owner, _ in
-            let identity = try OMEMO2Context(error: ()).generateIdentity()
-            let publicKey = Data([5]) + identity.fingerprintPublicKey
-            let credentials = CredentialsManager.shared
-            credentials.setIdentityKey(for: owner, publicKey: publicKey, privateKey: identity.privateKey)
-            try credentials.setOMEMO2State(Data("corrupt protected state".utf8), for: owner)
-            let store = XabberAxolotlStorage(withOwner: owner)
-            let context = try XCTUnwrap(SignalContext(storage: SignalStorage(signalStore: store)))
-
-            XCTAssertThrowsError(try store.create(for: 42, context: context))
-            XCTAssertEqual(credentials.getIdentityKeyPublicKey(for: owner), publicKey)
-            XCTAssertEqual(credentials.getIdentityKeyPrivateKey(for: owner), identity.privateKey)
-        }
-    }
-
     func testBindingExistingDeviceWritesNoCredentialsAndRejectsInvalidIDs() throws {
         try withLegacyFixture { owner, _ in
             let store = XabberAxolotlStorage(withOwner: owner)
@@ -448,100 +392,6 @@ final class OMEMO2StateStorageTests: XCTestCase {
                 XCTAssertThrowsError(try store.bindExistingDevice(deviceID: id))
                 XCTAssertEqual(store.localDeviceId(), 42)
             }
-        }
-    }
-
-    func testCorruptLegacyRegistrationIDIsUnavailableWithoutAnIntegerTrap() throws {
-        try withLegacyFixture { owner, _ in
-            let store = XabberAxolotlStorage(withOwner: owner)
-            CredentialsManager.shared.setRegistrationId(-1, for: owner)
-            XCTAssertEqual(store.getLocalRegistrationId(), 0)
-            CredentialsManager.shared.setRegistrationId(Int.max, for: owner)
-            XCTAssertEqual(store.getLocalRegistrationId(), 0)
-        }
-    }
-
-    func testLegacyIncomingIdentityIsEquivalentToMigratedEdwardsTrustWithoutDowngrade() throws {
-        try withLegacyFixture { owner, realm in
-            let identity = try OMEMO2Context(error: ()).generateIdentity()
-            let peer = "peer@example.test"
-            let address = SignalAddress(name: peer, deviceId: 42)
-            let row = SignalTrustedIdentityStoreageItem()
-            row.primary = SignalTrustedIdentityStoreageItem.genPrimary(owner, for: address)
-            row.owner = owner
-            row.jid = peer
-            row.deviceId = 42
-            row.identity = identity.publicKey
-            let device = SignalDeviceStorageItem()
-            device.primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: peer, deviceId: 42)
-            device.owner = owner
-            device.jid = peer
-            device.deviceId = 42
-            device.state = .trusted
-            device.isTrustedByCertificate = true
-            let session = SessionRecordStorageItem()
-            session.primary = SessionRecordStorageItem.genPrimary(owner, for: address)
-            session.record = Data([0x08, 0x03])
-            try realm.write { realm.add(row); realm.add(device); realm.add(session) }
-            let store = XabberAxolotlStorage(withOwner: owner)
-            let legacyIdentity = Data([5]) + identity.fingerprintPublicKey
-
-            XCTAssertTrue(store.isTrustedIdentity(address, identityKey: legacyIdentity))
-            XCTAssertTrue(store.saveIdentity(address, identityKey: legacyIdentity))
-            XCTAssertEqual(row.identity, identity.publicKey)
-            XCTAssertEqual(device.state, .trusted)
-            XCTAssertTrue(device.isTrustedByCertificate)
-            XCTAssertEqual(session.record, Data([0x08, 0x03]))
-            XCTAssertFalse(session.isInvalidated)
-        }
-    }
-
-    func testDifferentLegacyIncomingKeyStillInvalidatesMigratedTrustAndHistorySession() throws {
-        try withLegacyFixture { owner, realm in
-            let context = try OMEMO2Context(error: ())
-            let old = try context.generateIdentity()
-            let replacement = try context.generateIdentity()
-            let address = SignalAddress(name: "peer@example.test", deviceId: 42)
-            let trusted = SignalTrustedIdentityStoreageItem()
-            trusted.primary = SignalTrustedIdentityStoreageItem.genPrimary(owner, for: address)
-            trusted.identity = old.publicKey
-            let device = SignalDeviceStorageItem()
-            device.primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: address.name, deviceId: 42)
-            device.state = .trusted
-            let session = SessionRecordStorageItem()
-            session.primary = SessionRecordStorageItem.genPrimary(owner, for: address)
-            session.record = Data([0x08, 0x03])
-            try realm.write { realm.add(trusted); realm.add(device); realm.add(session) }
-            let incoming = Data([5]) + replacement.fingerprintPublicKey
-            let store = XabberAxolotlStorage(withOwner: owner)
-
-            XCTAssertFalse(store.isTrustedIdentity(address, identityKey: incoming))
-            XCTAssertEqual(device.state, .fingerprintChanged)
-            XCTAssertEqual(device.fingerprint, try Omemo2IdentityRepresentation.fingerprint(for: incoming))
-            XCTAssertTrue(session.isInvalidated)
-            XCTAssertTrue(trusted.isInvalidated)
-        }
-    }
-
-    func testLegacyStorageNeverReadsOrOverwritesAnotherProfileRecord() throws {
-        try withLegacyFixture { owner, realm in
-            let address = SignalAddress(name: "peer@example.test", deviceId: 42)
-            let row = SessionRecordStorageItem()
-            row.primary = SessionRecordStorageItem.genPrimary(owner, for: address)
-            row.owner = owner
-            row.jid = address.name
-            row.deviceId = 42
-            row.profile_ = XabberOMEMO2Storage.profile
-            row.record = Data([0x01, 0x02])
-            try realm.write { realm.add(row) }
-            let store = XabberAxolotlStorage(withOwner: owner)
-
-            XCTAssertNil(store.sessionRecord(for: address))
-            XCTAssertFalse(store.sessionRecordExists(for: address))
-            XCTAssertFalse(store.storeSessionRecord(Data([0x03]), for: address))
-            XCTAssertTrue(store.allDeviceIds(forAddressName: address.name).isEmpty)
-            XCTAssertEqual(row.record, Data([0x01, 0x02]))
-            XCTAssertEqual(row.profile_, XabberOMEMO2Storage.profile)
         }
     }
 

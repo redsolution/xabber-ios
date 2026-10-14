@@ -19,12 +19,8 @@
 //
 
 import Foundation
-//import SignalClient
-import SignalProtocolObjC
 import RealmSwift
-import CryptoSwift
 import XMPPFramework
-import CryptoKit
 
 enum OmemoManagerError: Error, Equatable {
     case bundleNotFound
@@ -162,14 +158,11 @@ extension OmemoManager {
         catch OMEMO2StorageError.stateUnavailable {
             let realm = try WRealm.safe()
             guard realm.objects(SignalIdentityStorageItem.self)
-                .filter("owner == %@ AND jid == %@ AND protocolProfile == %@", owner, owner, Self.xmlns).isEmpty else {
+                .filter("owner == %@ AND jid == %@ AND cryptoBackend == %@", owner, owner, XabberOMEMO2Storage.backend).isEmpty else {
                 throw OMEMO2StorageError.stateUnavailable
             }
         }
-        let oldID: Int?
-        if let legacyDeviceID { oldID = legacyDeviceID() }
-        else { oldID = CredentialsManager.shared.getDeviceId(for: owner) }
-        let deviceID = oldID ?? freshDeviceID()
+        let deviceID = freshDeviceID()
         guard deviceID > 0, deviceID <= Int(Int32.max) else { throw OMEMO2StorageError.invalidDeviceID }
         return deviceID
     }
@@ -201,17 +194,9 @@ extension OmemoManager {
         defer { omemo2MaintenanceLock.unlock() }
         guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
         storage.authenticatedReceiveDidCommit = { [weak self] in self?.omemo2PreKeyCleanup.authenticatedReceiveDidCommit() }
-        var bundle: OMEMO2LocalBundle
-        do { bundle = try storage.localBundle() }
-        catch OMEMO2StorageError.stateUnavailable {
-            let realm = try WRealm.safe()
-            guard realm.objects(SignalIdentityStorageItem.self)
-                .filter("owner == %@ AND jid == %@ AND protocolProfile == %@", owner, owner, Self.xmlns).isEmpty,
-                localStore.hasLocalIdentityKeyPair(), localStore.localDeviceId() > 0 else {
-                throw OMEMO2StorageError.stateUnavailable
-            }
-            bundle = try storage.prepare(deviceID: localStore.localDeviceId())
-        }
+        // Fresh preparation follows the verified own-device list collision
+        // check in onOwnDeviceListUpdated. Never regenerate at an encrypt call.
+        var bundle = try storage.localBundle()
         let time = omemo2MaintenanceNow()
         let elapsed = omemo2LastMaintenanceAt.map { time.timeIntervalSince($0) }
         let checkDue = forceMaintenance || elapsed == nil || elapsed! < 0 || elapsed! >= Self.omemo2MaintenanceCheckInterval
@@ -250,6 +235,7 @@ extension OmemoManager {
         let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: primary) ?? SignalDeviceStorageItem()
         let fingerprint = try Omemo2IdentityRepresentation.fingerprint(for: bundle.identityKey)
         let changed = identity.realm == nil || identity.protocolProfile != Self.xmlns ||
+            identity.cryptoBackend != XabberOMEMO2Storage.backend ||
             identity.identityKey != bundle.identityKey.base64EncodedString() ||
             identity.signedPreKey != bundle.signedPreKey.base64EncodedString() ||
             identity.signedPreKeyId != Int(bundle.signedPreKeyID) || device.fingerprint != fingerprint
@@ -274,6 +260,7 @@ extension OmemoManager {
             identity.signedPreKeyId = Int(bundle.signedPreKeyID)
             identity.signedPreKeySignature = bundle.signature.base64EncodedString()
             identity.protocolProfile = Self.xmlns
+            identity.cryptoBackend = XabberOMEMO2Storage.backend
             identity.isPublicated = false
             if device.realm == nil {
                 device.owner = owner; device.jid = owner; device.deviceId = bundle.deviceID; device.primary = primary

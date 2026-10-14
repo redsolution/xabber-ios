@@ -1,6 +1,5 @@
 import CryptoKit
 import RealmSwift
-import SignalProtocolObjC
 import XCTest
 import XMPPFramework
 @testable import xabber
@@ -346,7 +345,7 @@ final class OMEMO2BundleCacheIntegrationTests: XCTestCase {
         XCTAssertTrue(realm.objects(SignalDeviceStorageItem.self).isEmpty)
     }
 
-    func testPreparedProfileBindsOwnPublicMetadataWithoutChangingLegacyCredentials() throws {
+    func testFreshBackendBindsOwnPublicMetadataWithoutImportingLegacyCredentials() throws {
         let identity = try OMEMO2Context(error: ()).generateIdentity()
         let legacyPublic = Data([5]) + identity.fingerprintPublicKey
         let persistence = MemoryPersistence()
@@ -381,6 +380,8 @@ final class OMEMO2BundleCacheIntegrationTests: XCTestCase {
         let publicRecord = try XCTUnwrap(realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: oldIdentity.primary))
         let deviceRecord = try XCTUnwrap(realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: oldDevice.primary))
         XCTAssertEqual(publicRecord.protocolProfile, OmemoManager.xmlns)
+        XCTAssertEqual(publicRecord.cryptoBackend, XabberOMEMO2Storage.backend)
+        XCTAssertNotEqual(bundle.identityKey, identity.publicKey)
         XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(publicRecord.identityKey)), bundle.identityKey)
         XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(publicRecord.signedPreKey)), bundle.signedPreKey)
         XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(publicRecord.signedPreKeySignature)), bundle.signature)

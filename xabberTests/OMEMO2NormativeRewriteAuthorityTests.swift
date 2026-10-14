@@ -1,6 +1,5 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XCTest
 import XMPPFramework
 @testable import xabber

@@ -1,5 +1,7 @@
 # Профиль OMEMO2 в зависимостях iOS
 
+> Historical backend report. Since 2026-10-14, the app uses [XabberCryptoSwift](xabbercryptoswift-app-migration-2026-10-14.md); Signal Pods and old snapshot/identity import have been removed.
+
 В локальных SignalProtocolC и SignalProtocolObjC реализован отдельный криптографический профиль [XEP-0384 0.9.1](https://xmpp.org/extensions/xep-0384.html), namespace `urn:xmpp:omemo:2`. Он предоставляет ядро обмена ключами и Double Ratchet для следующего этапа миграции iOS. На следующем этапе новый профиль подключён к приложению: см. [привязку профиля и миграцию состояния](omemo2-application-migration.md). Ниже сохранён отчёт о проверке самих зависимостей.
 
 Изменены только два подготовленных пакета. Версии CocoaPods 2.3.2 и 1.1.0 сохранены; конкретные локальные реализации закрепляются commits и восстановительными patches в [manifest](../tools/local-dependencies.json). Эти patches предназначены для локальных forks и не означают публикацию новых CocoaPods releases.

@@ -25,7 +25,6 @@ import CallKit
 import RealmSwift
 import XMPPFramework
 import MaterialComponents
-import SignalProtocolObjC
 @testable import xabber
 
 /// Resolves the real application scene used by hosted XCTest. The helper waits
@@ -42205,58 +42204,6 @@ final class OmemoSessionLifecycleTests: XCTestCase {
         XCTAssertNil(keyExchangeFlag(in: encrypted, jid: recipient, deviceId: untrustedDeviceId))
     }
 
-    func testIdentityChangeMarksDeviceAndDeletesSession() throws {
-        let owner = uniqueJid("alice")
-        let recipient = uniqueJid("bob")
-        let deviceId: Int32 = 2203
-        let store = XabberAxolotlStorage(withOwner: owner)
-        let oldIdentity = Data([1, 2, 3, 4])
-        let newIdentity = Data([4, 3, 2, 1])
-        let address = SignalAddress(name: recipient, deviceId: deviceId)
-        let realm = try WRealm.safe()
-
-        try realm.write {
-            let device = SignalDeviceStorageItem()
-            device.owner = owner
-            device.jid = recipient
-            device.deviceId = Int(deviceId)
-            device.primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: recipient, deviceId: Int(deviceId))
-            device.state = .trusted
-            device.isTrustedByCertificate = true
-            device.trustedByDeviceId = "manual"
-            realm.add(device, update: .modified)
-
-            let session = SessionRecordStorageItem()
-            session.owner = owner
-            session.jid = recipient
-            session.deviceId = Int(deviceId)
-            session.primary = SessionRecordStorageItem.genPrimary(owner, for: address)
-            session.record = Data([9, 9, 9])
-            realm.add(session, update: .modified)
-
-            let trusted = SignalTrustedIdentityStoreageItem()
-            trusted.owner = owner
-            trusted.jid = recipient
-            trusted.deviceId = Int(deviceId)
-            trusted.primary = SignalTrustedIdentityStoreageItem.genPrimary(owner, for: address)
-            trusted.identity = oldIdentity
-            realm.add(trusted, update: .modified)
-        }
-
-        XCTAssertFalse(store.isTrustedIdentity(address, identityKey: newIdentity))
-
-        let updatedDevice = try XCTUnwrap(realm.object(
-            ofType: SignalDeviceStorageItem.self,
-            forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: recipient, deviceId: Int(deviceId))
-        ))
-        XCTAssertEqual(updatedDevice.state, .fingerprintChanged)
-        XCTAssertFalse(updatedDevice.isTrustedByCertificate)
-        XCTAssertNil(updatedDevice.trustedByDeviceId)
-        XCTAssertEqual(updatedDevice.fingerprint, newIdentity.formattedFingerprint())
-        XCTAssertNil(realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: SessionRecordStorageItem.genPrimary(owner, for: address)))
-        XCTAssertNil(realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: SignalTrustedIdentityStoreageItem.genPrimary(owner, for: address)))
-    }
-
     func testDecryptMissingRecipientKeyThrowsWithoutCrash() throws {
         let owner = uniqueJid("alice")
         let sender = uniqueJid("bob")
@@ -42285,7 +42232,7 @@ final class OmemoSessionLifecycleTests: XCTestCase {
 
     private func makeManager(owner: String, deviceId: Int) throws -> OmemoManager {
         let manager = OmemoManager(withOwner: owner)
-        try manager.localStore.create(for: deviceId, context: manager.signalContext)
+        try manager.localStore.bindExistingDevice(deviceID: deviceId)
         _ = try XCTUnwrap(manager.omemo2Storage).prepare(deviceID: deviceId)
         manager.isOmemoPrepared = true
         try advertiseDevices(to: manager, jid: owner, ids: [deviceId])

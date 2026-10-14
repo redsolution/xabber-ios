@@ -2,7 +2,6 @@ import CryptoKit
 import CryptoSwift
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XMPPFramework
 import XCTest
 @testable import xabber

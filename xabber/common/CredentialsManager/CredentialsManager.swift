@@ -736,11 +736,15 @@ class CredentialsManager: NSObject {
         !HostedXCTestIsolationPolicy.isEnabled(environment: environment)
     }
 
-    private func omemo2StateQuery(for jid: String) -> [String: Any] {
+    /// Independent from the retired backend's `state-v1` item: equal-sized
+    /// private scalars are never reinterpreted as native Ed25519 seeds.
+    static let omemo2StateNamespace = "xabbercryptoswift-state-v2"
+
+    private func omemo2StateQuery(for jid: String, namespace: String = CredentialsManager.omemo2StateNamespace) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: CredentialsManager.uniqueServiceName(),
-            kSecAttrAccount as String: [jid, "urn:xmpp:omemo:2", "state-v1"].prp(),
+            kSecAttrAccount as String: [jid, "urn:xmpp:omemo:2", namespace].prp(),
             kSecAttrSynchronizable as String: false
         ]
         // Unsigned hosted tests use the isolated test service and the default
@@ -752,7 +756,17 @@ class CredentialsManager: NSObject {
     }
 
     public final func getOMEMO2State(for jid: String) throws -> Data? {
-        var query = omemo2StateQuery(for: jid)
+        try loadOMEMO2State(for: jid, namespace: Self.omemo2StateNamespace)
+    }
+
+    /// Internal domain-only cutover source. Crypto consumers cannot use this
+    /// retired item as an identity/session fallback.
+    final func getRetiredOMEMO2StateForPolicyMigration(for jid: String) throws -> Data? {
+        try loadOMEMO2State(for: jid, namespace: "state-v1")
+    }
+
+    private func loadOMEMO2State(for jid: String, namespace: String) throws -> Data? {
+        var query = omemo2StateQuery(for: jid, namespace: namespace)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -779,10 +793,16 @@ class CredentialsManager: NSObject {
     }
 
     public final func removeOMEMO2State(for jid: String) throws {
-        let status = SecItemDelete(omemo2StateQuery(for: jid) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw OMEMO2KeychainError.operationFailed(status)
+        // Account teardown revokes both generations, while routine reads and
+        // writes remain exclusively in the native backend namespace.
+        var firstFailure: OSStatus?
+        for namespace in [Self.omemo2StateNamespace, "state-v1"] {
+            let status = SecItemDelete(omemo2StateQuery(for: jid, namespace: namespace) as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound && firstFailure == nil {
+                firstFailure = status
+            }
         }
+        if let firstFailure { throw OMEMO2KeychainError.operationFailed(firstFailure) }
     }
 
     public final func setPreKey(for jid: String, id preKeyId: Int, key: Data) {

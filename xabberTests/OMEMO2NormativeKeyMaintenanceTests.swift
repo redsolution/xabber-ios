@@ -1,6 +1,5 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XMPPFramework
 import XCTest
 @testable import xabber
@@ -118,6 +117,10 @@ final class OMEMO2NormativeKeyMaintenanceTests: XCTestCase {
         let peer = try sender(clock: f.clock)
         let remote = try peer.localBundle()
         try f.storage.initiateSession(jid: peer.owner, deviceID: remote.deviceID, bundle: selected(remote))
+        // Native initiation commits its actual EK with the first envelope.
+        // Establish that session before measuring whether maintenance resets it.
+        let initial = try f.storage.encrypt(Data(repeating: 0, count: 32), jid: peer.owner, deviceID: remote.deviceID)
+        XCTAssertEqual(try peer.decrypt(initial, jid: f.manager.owner, deviceID: 42), Data(repeating: 0, count: 32))
         let beforeBundle = try f.storage.localBundle()
         let beforeSession = try XCTUnwrap(f.storage.sessionMetadata(jid: peer.owner, deviceID: remote.deviceID))
         f.clock.advance(XabberOMEMO2Storage.signedPreKeyRotationInterval)
@@ -130,6 +133,12 @@ final class OMEMO2NormativeKeyMaintenanceTests: XCTestCase {
         XCTAssertEqual(afterSession.sendCounter, beforeSession.sendCounter + 1)
         let encrypted = try XCTUnwrap(control.element(forName: "encrypted", xmlns: OmemoManager.xmlns))
         XCTAssertNil(encrypted.element(forName: "payload", xmlns: OmemoManager.xmlns))
+        let key = try XCTUnwrap(encrypted.element(forName: "header", xmlns: OmemoManager.xmlns)?
+            .element(forName: "keys", xmlns: OmemoManager.xmlns)?.element(forName: "key", xmlns: OmemoManager.xmlns))
+        let ciphertext = try OMEMO2Ciphertext(data: Omemo2PayloadCodec.decodeBase64(try XCTUnwrap(key.stringValue)),
+            keyExchange: key.attributeBoolValue(forName: "kex"))
+        XCTAssertEqual(ciphertext.ephemeralKey, beforeSession.ephemeralKey)
+        XCTAssertEqual(try peer.decrypt(ciphertext, jid: f.manager.owner, deviceID: beforeBundle.deviceID), Data(repeating: 0, count: 32))
         XCTAssertTrue(f.manager.shouldPublicate)
     }
 
@@ -181,6 +190,8 @@ final class OMEMO2NormativeKeyMaintenanceTests: XCTestCase {
         let peer = try sender(clock: f.clock)
         let remote = try peer.localBundle()
         try f.storage.initiateSession(jid: peer.owner, deviceID: remote.deviceID, bundle: selected(remote))
+        let initial = try f.storage.encrypt(Data(repeating: 0, count: 32), jid: peer.owner, deviceID: remote.deviceID)
+        XCTAssertEqual(try peer.decrypt(initial, jid: f.manager.owner, deviceID: 42), Data(repeating: 0, count: 32))
         let device = SignalDeviceStorageItem()
         device.primary = SignalDeviceStorageItem.genPrimary(owner: f.manager.owner, jid: peer.owner, deviceId: remote.deviceID)
         device.owner = f.manager.owner; device.jid = peer.owner; device.deviceId = remote.deviceID
@@ -202,6 +213,7 @@ final class OMEMO2NormativeKeyMaintenanceTests: XCTestCase {
 
         XCTAssertEqual(try f.storage.localBundle().signedPreKeyID, before.signedPreKeyID + 1)
         XCTAssertEqual(try f.storage.sessionMetadata(jid: peer.owner, deviceID: remote.deviceID)?.ephemeralKey, initialEK)
+        XCTAssertEqual(try f.storage.sessionMetadata(jid: peer.owner, deviceID: remote.deviceID)?.sendCounter, 2)
         let key = try XCTUnwrap(encrypted.element(forName: "header", xmlns: OmemoManager.xmlns)?.element(forName: "keys", xmlns: OmemoManager.xmlns)?.element(forName: "key", xmlns: OmemoManager.xmlns))
         let payload = try XCTUnwrap(encrypted.element(forName: "payload", xmlns: OmemoManager.xmlns)?.stringValue)
         let ciphertext = try OMEMO2Ciphertext(data: Omemo2PayloadCodec.decodeBase64(try XCTUnwrap(key.stringValue)), keyExchange: key.attributeStringValue(forName: "kex") == "true")

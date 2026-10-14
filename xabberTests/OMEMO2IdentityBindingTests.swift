@@ -1,8 +1,6 @@
 import CryptoKit
-import Curve25519Kit
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XCTest
 @testable import xabber
 
@@ -72,7 +70,7 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         let bob = try context.identity(withPrivateKey: data(hex: bobScalar))
         let expected = try data(hex: "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742")
 
-        let shared = try Omemo2IdentityRepresentation.sharedSecret(privateKey: data(hex: aliceScalar), peerIdentity: bob.publicKey)
+        let shared = try Omemo2IdentityRepresentation.sharedSecret(privateKey: data(hex: aliceScalar), peerIdentity: bob.publicKey, representation: .xabberX25519Scalar)
 
         XCTAssertEqual(shared, expected)
     }
@@ -104,7 +102,7 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         let identity = try context.identity(withPrivateKey: data(hex: aliceScalar))
         let canonicalHash = Data(SHA256.hash(data: Data("trusted-items canonical string".utf8)))
 
-        let signature = try Omemo2IdentityRepresentation.sign(canonicalHash, privateKey: identity.privateKey)
+        let signature = try Omemo2IdentityRepresentation.sign(canonicalHash, privateKey: identity.privateKey, representation: .xabberX25519Scalar)
 
         let independent = try CryptoKit.Curve25519.Signing.PublicKey(rawRepresentation: identity.publicKey)
         XCTAssertTrue(independent.isValidSignature(signature, for: canonicalHash))
@@ -112,19 +110,14 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         XCTAssertFalse(Omemo2IdentityRepresentation.verify(signature, data: canonicalHash + Data([1]), storedIdentity: identity.publicKey))
     }
 
-    func testLegacyTrustSignatureIsNeverAcceptedForOMEMO2WireIdentity() throws {
-        let context = try OMEMO2Context(error: ())
-        let identity = try context.identity(withPrivateKey: data(hex: aliceScalar))
-        let hash = Data(SHA256.hash(data: Data("legacy signed trust".utf8)))
-        let legacyIdentity = Data([5]) + identity.fingerprintPublicKey
-        let signature = try legacySignature(data: hash, publicKey: legacyIdentity, privateKey: identity.privateKey)
+    func testLegacyIdentityCannotAuthorizeTrustAfterBackendReplacement() throws {
+        let identity = try OMEMO2Context(error: ()).generateIdentity()
+        let hash = Data(SHA256.hash(data: Data("retired profile trust proof".utf8)))
+        let signature = try Omemo2IdentityRepresentation.sign(hash, privateKey: identity.privateKey, representation: .xabberX25519Scalar)
 
-        XCTAssertTrue(Omemo2IdentityRepresentation.verify(signature, data: hash, storedIdentity: legacyIdentity))
-        // Legacy signatures with Edwards x sign one must not select a fallback
-        // merely because standard Ed25519 verification failed.
-        var oppositeWireSign = identity.publicKey
-        oppositeWireSign[31] = (oppositeWireSign[31] & 0x7F) | ((signature[63] & 0x80) ^ 0x80)
-        XCTAssertFalse(Omemo2IdentityRepresentation.verify(signature, data: hash, storedIdentity: oppositeWireSign))
+        XCTAssertTrue(Omemo2IdentityRepresentation.verify(signature, data: hash, storedIdentity: identity.publicKey))
+        XCTAssertFalse(Omemo2IdentityRepresentation.verify(signature, data: hash,
+            storedIdentity: Data([5]) + identity.fingerprintPublicKey))
     }
 
     func testRemoteEd25519IdentityWithSignBitOneVerifiesWithoutCurveSignature() throws {
@@ -183,6 +176,7 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         marker.deviceId = 42
         marker.primary = SignalIdentityStorageItem.genRpimary(owner: owner, jid: owner, deviceId: 42)
         marker.protocolProfile = XabberOMEMO2Storage.profile
+        marker.cryptoBackend = XabberOMEMO2Storage.backend
         try realm.write { realm.add(marker, update: .modified) }
 
         XCTAssertThrowsError(try Omemo2IdentityRepresentation.localIdentityPrivateKey(owner: owner, storage: store,
@@ -190,13 +184,14 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         XCTAssertTrue(persistence.records.isEmpty)
     }
 
-    func testAnAbsentOMEMO2ProfileCanUseTheExistingLegacyPrivateKey() throws {
+    func testAnAbsentOMEMO2ProfileNeverUsesLegacyPrivateMaterial() throws {
         let persistence = MemoryPersistence()
         let store = try XabberOMEMO2Storage(owner: "alice@example.test", persistence: persistence)
         let legacy = try data(hex: aliceScalar)
 
-        XCTAssertEqual(try Omemo2IdentityRepresentation.localIdentityPrivateKey(owner: store.owner, storage: store,
-                       legacyPrivateKey: { legacy }), legacy)
+        XCTAssertThrowsError(try Omemo2IdentityRepresentation.localIdentityPrivateKey(owner: store.owner, storage: store,
+            legacyPrivateKey: { legacy }))
+        XCTAssertTrue(persistence.records.isEmpty)
     }
 
     func testLocalIdentityCannotBeReadFromAnotherAccountOrAnInvalidLegacyScalar() throws {
@@ -239,14 +234,14 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         XCTAssertThrowsError(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { 123 }, freshDeviceID: { 456 }))
     }
 
-    func testPreparationCanUseLegacyOrFreshIDsOnlyBeforeAMigrationExists() throws {
+    func testPreparationUsesFreshIDBeforeNativeBackendStateExists() throws {
         let persistence = MemoryPersistence()
         let owner = "fresh-\(UUID().uuidString)@example.test"
         let store = try XabberOMEMO2Storage(owner: owner, persistence: persistence)
         let manager = OmemoManager(withOwner: owner)
         manager.omemo2Storage = store
 
-        XCTAssertEqual(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { 123 }, freshDeviceID: { 456 }), 123)
+        XCTAssertEqual(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { 123 }, freshDeviceID: { 456 }), 456)
         XCTAssertEqual(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { nil }, freshDeviceID: { 456 }), 456)
         XCTAssertTrue(persistence.records.isEmpty)
     }
@@ -267,6 +262,7 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         marker.deviceId = 42
         marker.primary = SignalIdentityStorageItem.genRpimary(owner: owner, jid: owner, deviceId: 42)
         marker.protocolProfile = XabberOMEMO2Storage.profile
+        marker.cryptoBackend = XabberOMEMO2Storage.backend
         try realm.write { realm.add(marker, update: .modified) }
 
         XCTAssertThrowsError(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { nil }, freshDeviceID: { 456 }))
@@ -274,16 +270,66 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         XCTAssertTrue(persistence.records.isEmpty)
     }
 
-    func testPreparationRejectsInvalidLegacyOrGeneratedDeviceIDs() throws {
+    func testPreparationIgnoresLegacyIDsAndRejectsInvalidGeneratedDeviceIDs() throws {
         let persistence = MemoryPersistence()
         let owner = "invalid-id-\(UUID().uuidString)@example.test"
         let store = try XabberOMEMO2Storage(owner: owner, persistence: persistence)
         let manager = OmemoManager(withOwner: owner)
         manager.omemo2Storage = store
         for invalid in [-1, 0, Int(Int32.max) + 1] {
-            XCTAssertThrowsError(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { invalid }, freshDeviceID: { 123 }))
+            XCTAssertEqual(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { invalid }, freshDeviceID: { 123 }), 123)
             XCTAssertThrowsError(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { nil }, freshDeviceID: { invalid }))
         }
+    }
+
+    func testLegacyOwnProfileMarkerAllowsFreshNativePreparation() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: UUID().uuidString)
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let owner = "legacy-marker-\(UUID().uuidString)@example.test"
+        let persistence = MemoryPersistence()
+        let storage = try XabberOMEMO2Storage(owner: owner, persistence: persistence)
+        let manager = OmemoManager(withOwner: owner)
+        manager.omemo2Storage = storage
+        let marker = SignalIdentityStorageItem()
+        marker.owner = owner
+        marker.jid = owner
+        marker.deviceId = 42
+        marker.primary = SignalIdentityStorageItem.genRpimary(owner: owner, jid: owner, deviceId: 42)
+        marker.protocolProfile = XabberOMEMO2Storage.profile
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(marker) }
+
+        let fresh = try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { 42 }, freshDeviceID: { 43 })
+
+        XCTAssertEqual(marker.cryptoBackend, "")
+        XCTAssertEqual(fresh, 43)
+        XCTAssertEqual(try storage.prepare(deviceID: fresh, preKeyCount: 1).deviceID, 43)
+    }
+
+    func testNativeBackendMarkerFailsClosedEvenWhenNamespaceWasLost() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: UUID().uuidString)
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let owner = "native-marker-\(UUID().uuidString)@example.test"
+        let persistence = MemoryPersistence()
+        let storage = try XabberOMEMO2Storage(owner: owner, persistence: persistence)
+        let manager = OmemoManager(withOwner: owner)
+        manager.omemo2Storage = storage
+        let marker = SignalIdentityStorageItem()
+        marker.owner = owner
+        marker.jid = owner
+        marker.deviceId = 42
+        marker.primary = SignalIdentityStorageItem.genRpimary(owner: owner, jid: owner, deviceId: 42)
+        marker.cryptoBackend = XabberOMEMO2Storage.backend
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(marker) }
+
+        XCTAssertThrowsError(try manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { 42 }, freshDeviceID: {
+            XCTFail("Missing native protected state must not generate a replacement")
+            return 43
+        }))
+        XCTAssertTrue(persistence.records.isEmpty)
     }
 
     func testPreparationRejectsAnAggregateBelongingToAnotherAccount() throws {
@@ -313,11 +359,6 @@ final class OMEMO2IdentityBindingTests: XCTestCase {
         try realm.write { realm.add(stored, update: .modified) }
 
         try assertions(AuthenticatedKeyExchangeManager(withOwner: owner), jid, deviceID)
-    }
-
-    private func legacySignature(data: Data, publicKey: Data, privateKey: Data) throws -> Data {
-        let pair = Curve25519Kit.Curve25519.load(fromPublicKey: Data(publicKey.dropFirst()), andPrivateKey: privateKey)
-        return try XCTUnwrap(Ed25519.sign(data, with: pair))
     }
 
     private func data(hex: String) throws -> Data {

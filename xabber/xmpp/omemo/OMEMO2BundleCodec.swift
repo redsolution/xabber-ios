@@ -1,5 +1,4 @@
 import Foundation
-import SignalProtocolObjC
 import XMPPFramework
 
 /// Detached public PEP data. Secret key material belongs to XabberOMEMO2Storage.

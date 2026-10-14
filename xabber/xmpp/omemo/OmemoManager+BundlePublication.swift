@@ -19,7 +19,6 @@
 //
 import Foundation
 import XMPPFramework
-import SignalProtocolObjC
 import RealmSwift
 import Network
 

@@ -1,5 +1,4 @@
 import Foundation
-import SignalProtocolObjC
 import XCTest
 @testable import xabber
 

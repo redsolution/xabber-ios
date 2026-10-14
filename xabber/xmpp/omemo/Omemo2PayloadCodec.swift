@@ -3,6 +3,7 @@ import Security
 import CryptoSwift
 import CryptoKit
 import XMPPFramework
+import XabberCryptoSwift
 
 /// Authenticates the payload and its SCE bindings before a receive transaction
 /// may advance the ratchet. Empty protocol messages have a distinct shape.
@@ -141,7 +142,14 @@ enum Omemo2PayloadCodec {
         return data
     }
 
-    static func seal(_ xml: String, randomBytes: (Int) throws -> Data = secureRandom) throws -> SealedPayload {
+    static func seal(_ xml: String) throws -> SealedPayload {
+        let sealed = try OMEMOPayloadCipher().seal(Data(xml.utf8))
+        return SealedPayload(ciphertext: sealed.ciphertext, keyAndMAC: sealed.keyMaterial.serializedData())
+    }
+
+    /// Explicit deterministic fixture seam. Production sealing uses the native
+    /// package and its system RNG through the overload above.
+    static func seal(_ xml: String, randomBytes: (Int) throws -> Data) throws -> SealedPayload {
         let key = try randomBytes(32)
         guard key.count == 32 else { throw OmemoManagerError.encryptionFailed }
         let derived = try derive(key)
@@ -163,14 +171,13 @@ enum Omemo2PayloadCodec {
         guard let payload, !payload.isEmpty, payload.count.isMultiple(of: 16), keyAndMAC.count == 48 else {
             throw OmemoManagerError.invalidEncryptedPayload
         }
-        let derived = try derive(Data(keyAndMAC.prefix(32)))
-        let calculated = CryptoKit.HMAC<SHA256>.authenticationCode(for: payload, using: SymmetricKey(data: Data(derived[32..<64])))
-        let supplied = Array(keyAndMAC.suffix(16))
-        var difference: UInt8 = 0
-        for (a, b) in zip(supplied, calculated.prefix(16)) { difference |= a ^ b }
-        guard difference == 0 else { throw OmemoManagerError.payloadAuthenticationFailed }
-        let aes = try AES(key: Array(derived[0..<32]), blockMode: CBC(iv: Array(derived[64..<80])), padding: .pkcs7)
-        let plaintext = Data(try aes.decrypt(payload.bytes))
+        let plaintext: Data
+        do {
+            plaintext = try OMEMOPayloadCipher().open(payload,
+                keyMaterial: OMEMOPayloadKeyMaterial(serializedData: keyAndMAC))
+        } catch OMEMOPayloadError.authenticationFailed {
+            throw OmemoManagerError.payloadAuthenticationFailed
+        }
         guard let xml = String(data: plaintext, encoding: .utf8) else {
             throw OmemoManagerError.invalidDecryptedPayload
         }

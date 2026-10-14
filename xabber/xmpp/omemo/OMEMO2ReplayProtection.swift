@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XMPPFramework
+import XabberCryptoSwift
 
 /// Local evidence of an authenticated packet, never a transport ID or XML
 /// success flag. Length framing also distinguishes absent and empty payloads.
@@ -27,7 +27,24 @@ enum OMEMO2ReplayProtection {
         let kex = keys[0].attributeStringValue(forName: "kex")
         guard kex == nil || ["true", "false", "1", "0"].contains(kex!) else { return nil }
         let keyExchange = kex == "true" || kex == "1"
-        guard (try? OMEMO2Ciphertext(data: key, keyExchange: keyExchange)) != nil else { return nil }
+        guard let envelope = try? OMEMOEnvelope(data: key, keyExchange: keyExchange) else { return nil }
+        let replayKey: Data
+        do {
+            switch envelope {
+            case .keyExchange(let exchange):
+                // Only the unMAC-bound outer KEX encoding is normalized. Exact
+                // IK/IDs and authenticated inner bytes/MAC remain in the proof.
+                // This keeps aliases duplicate even after their snapshot is pruned.
+                replayKey = try OMEMOKeyExchange(preKeyID: exchange.preKeyID,
+                    signedPreKeyID: exchange.signedPreKeyID, identityKey: exchange.identityKey,
+                    ephemeralKey: OMEMO2PublicKeyRepresentation.canonicalX25519(exchange.ephemeralKey),
+                    message: exchange.message).serializedData()
+            case .message(let authenticated):
+                // serializedData preserves authenticated.message verbatim;
+                // never decode/reserialize the MAC-covered inner ratchet bytes.
+                replayKey = try authenticated.serializedData()
+            }
+        } catch { return nil }
         let payloads = children(encrypted[0], "payload")
         guard payloads.count <= 1 else { return nil }
         var payload: Data?
@@ -36,10 +53,10 @@ enum OMEMO2ReplayProtection {
             payload = decoded
         }
         let recipient = leaf.attributeStringValue(forName: "to").flatMap { XMPPJID(string: $0)?.bare } ?? owner
-        var framed = Data("Xabber OMEMO2 authenticated receive v1".utf8)
+        var framed = Data("XabberCryptoSwift OMEMO2 authenticated receive v2".utf8)
         for value in [Data(owner.utf8), Data(from.utf8), Data(String(sid).utf8), Data(recipient.utf8),
                       Data(String(localDeviceID).utf8), Data([leaf.attributeStringValue(forName: "type") == "groupchat" ? 1 : 0]),
-                      Data([keyExchange ? 1 : 0]), key, Data([payload == nil ? 0 : 1]), payload ?? Data()] {
+                      Data([keyExchange ? 1 : 0]), replayKey, Data([payload == nil ? 0 : 1]), payload ?? Data()] {
             var length = UInt64(value.count).bigEndian
             withUnsafeBytes(of: &length) { framed.append(contentsOf: $0) }
             framed.append(value)

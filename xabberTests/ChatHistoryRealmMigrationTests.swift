@@ -22,7 +22,7 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
     }
 
     func testCurrentSchemaIsNonDestructiveAndIndexesActualHistoryPredicates() {
-        XCTAssertEqual(XabberRealmSchema.current, 22)
+        XCTAssertEqual(XabberRealmSchema.current, 26)
         let configuration = makeRealmMigrationConfiguration(
             scheme: XabberRealmSchema.current
         )
@@ -51,6 +51,42 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             "associatedJid",
             "date"
         ]))
+    }
+
+    func testSchema25KeepsDecryptedHistoryAndDoesNotPromoteRetiredIdentityToNativeAuthority() throws {
+        let identityPrimary = SignalIdentityStorageItem.genRpimary(owner: "migration-owner",
+            jid: "migration-owner", deviceId: 42)
+        let retiredPublic = (Data([5]) + Data(repeating: 0x17, count: 32)).base64EncodedString()
+        var legacy = makeRealmMigrationConfiguration(scheme: 25)
+        legacy.fileURL = realmURL
+        try autoreleasepool {
+            let realm = try Realm(configuration: legacy)
+            let identity = SignalIdentityStorageItem()
+            identity.primary = identityPrimary
+            identity.owner = "migration-owner"
+            identity.jid = "migration-owner"
+            identity.deviceId = 42
+            identity.identityKey = retiredPublic
+            identity.protocolProfile = XabberOMEMO2Storage.profile
+            let history = message(primary: "decrypted-crypto-history", archivedId: "100", messageId: "history-100",
+                timestamp: 100, isDeleted: false, deleteState: .visible)
+            history.body = "already decrypted history"
+            try realm.write { realm.add(identity); realm.add(history) }
+        }
+        var upgraded = makeRealmMigrationConfiguration(scheme: XabberRealmSchema.current)
+        upgraded.fileURL = realmURL
+
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgraded)
+            let identity = try XCTUnwrap(realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: identityPrimary))
+            let history = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "decrypted-crypto-history"))
+            XCTAssertEqual(identity.identityKey, retiredPublic)
+            XCTAssertEqual(identity.protocolProfile, XabberOMEMO2Storage.profile)
+            XCTAssertEqual(identity.cryptoBackend, "")
+            XCTAssertEqual(history.body, "already decrypted history")
+            XCTAssertEqual(history.archivedId, "100")
+            XCTAssertEqual(history.messageId, "history-100")
+        }
     }
 
     func testSchema20RebuildsRawProtocolStanzaNumericValueWithoutChangingMAMIdentity() throws {

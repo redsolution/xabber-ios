@@ -1,8 +1,8 @@
 # Git-репозитории зависимостей вне redsolution
 
-Список происхождения зависимостей по ранее закреплённым CocoaPods/SPM specs и required submodule. Это инвентаризация; новое локальное подключение выполнено только для [двух Signal-пакетов](local-dependencies.md).
+Список происхождения зависимостей CocoaPods/SPM и required submodule. OMEMO с 2026-10-14 использует [XabberCryptoSwift через SwiftPM](local-dependencies.md); SignalProtocolC/ObjC удалены.
 
-Вне redsolution находятся 21 source/packaging repository:
+Вне redsolution находятся 20 source/packaging repository:
 
 | Репозиторий | Пакет | Новое локальное подключение для OMEMO |
 | --- | --- | --- |
@@ -20,7 +20,6 @@
 | [gumob/PunycodeSwift](https://github.com/gumob/PunycodeSwift) | Punycode | Нет |
 | [realm/realm-swift](https://github.com/realm/realm-swift) | Realm, RealmSwift | Нет |
 | [ReactiveX/RxSwift](https://github.com/ReactiveX/RxSwift) | RxCocoa, RxRelay, RxSwift | Нет |
-| [WhisperSystems/libsignal-protocol-c](https://github.com/WhisperSystems/libsignal-protocol-c) | SignalProtocolC | Да |
 | [jrendel/SwiftKeychainWrapper](https://github.com/jrendel/SwiftKeychainWrapper) | SwiftKeychainWrapper | Нет |
 | [webrtc-sdk/Specs](https://github.com/webrtc-sdk/Specs) | WebRTC-SDK | Нет |
 | [Yubico/yubikit-ios](https://github.com/Yubico/yubikit-ios) | YubiKit | Нет |
@@ -28,7 +27,6 @@
 | [vector-im/opus-swift](https://github.com/vector-im/opus-swift) | opus-swift | Нет |
 | [xiph/opus](https://github.com/xiph/opus) | xiph-opus | Нет |
 
-SignalProtocolObjC уже находится в [redsolution/SignalProtocol-ObjC](https://github.com/redsolution/SignalProtocol-ObjC). Git URL приведён из источника зависимости; старое имя WhisperSystems может перенаправляться GitHub.
 
 ## Существующие локальные forks
 
@@ -41,3 +39,8 @@ SignalProtocolObjC уже находится в [redsolution/SignalProtocol-ObjC
 - Неинициализированные developer-tool submodules MaterialComponents не используются Palettes и не входят в этот список runtime-подключений.
 
 Дополнительные checkout, локальные бинарные копии и рабочие ветки, ошибочно созданные при первоначальном слишком широком толковании задачи, удалены. Подключения и pins остальных пакетов восстановлены.
+
+
+## XabberCryptoSwift
+
+SwiftPM SSH dependency `git@github.com:redsolution/XabberCryptoSwift.git`, pinned `bd5d19dbd8e9de2521c8830f54564d3cc175cba8`. Its authorized bundled libsodium1.0.22 uses upstream [jedisct1/libsodium](https://github.com/jedisct1/libsodium); artifact/source/license hashes are in the package inventory. App includes ISC/BSD notices. CryptoSwift and Curve25519Kit remain for unrelated AKE/push APIs.

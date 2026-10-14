@@ -1,6 +1,5 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XMPPFramework
 import XCTest
 @testable import xabber
@@ -89,35 +88,24 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         XCTAssertEqual(localPreview.mediaItems.map(\.url), ["https://example.test/verified.jpg"])
     }
 
-    func testActualLegacySignalHistoryUsesAuthenticatedSCEAndConsumesReplay() throws {
-        let f = try legacyFixture()
-        for (index, message) in f.messages.enumerated() {
-            addInjection(message)
-            let key = try XCTUnwrap(message.element(forName: "encrypted")?.element(forName: "header")?.element(forName: "keys")?.element(forName: "key")?.stringValue)
-            XCTAssertEqual(try Omemo2PayloadCodec.decodeBase64(key).first, 0x33)
-            let archive = XMPPMessage(from: try DDXMLElement(xmlString: """
-            <message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'>
-              <result xmlns='urn:xmpp:mam:2' id='legacy-archive-\(index)' queryid='legacy-query'>
-                <forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='2020-01-02T03:04:05Z'/>\(message.xmlString)</forwarded>
-              </result>
-            </message>
-            """))
+    func testRetiredSignalFramingFailsClosedWithoutAdvancingNativeState() throws {
+        let f = try fixture()
+        let before = f.memory.records[f.bob.owner]
+        let retiredBytes = Data([0x33, 0x08, 0x01, 0x12, 0x20] + Array(repeating: 0x42, count: 32))
+        let message = XMPPMessage(from: try DDXMLElement(xmlString: """
+        <message xmlns='jabber:client' type='chat' from='\(f.alice.owner)' to='\(f.bob.owner)'>
+          <encrypted xmlns='urn:xmpp:omemo:2'><header sid='41'>
+            <keys jid='\(f.bob.owner)'><key rid='42' kex='false'>\(retiredBytes.base64EncodedString())</key></keys>
+          </header><payload>\(Data(repeating: 0x11, count: 16).base64EncodedString())</payload></encrypted>
+        </message>
+        """))
+        addInjection(message)
 
-            guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(archive, context: .archive) else {
-                return XCTFail("Expected actual legacy history to remain readable")
-            }
-            XCTAssertEqual(proof, .authenticatedSCE(profile: .legacySignal))
-            let bare = try XCTUnwrap(getArchivedMessageContainer(clean))
-            XCTAssertEqual(bare.body, "legacy history \(index)")
-            for name in ["reference", "ephemeral", "displayed", "time-signature", "omemo-result__system", "envelope"] {
-                XCTAssertNil(bare.element(forName: name), name)
-            }
-            XCTAssertEqual(getMAMQueryId(clean), "legacy-query")
-            XCTAssertTrue(clean.xmlString.contains("2020-01-02T03:04:05Z"))
-            guard case .consumed(.duplicate) = f.bob.prepareIncoming(archive, context: .archive) else {
-                return XCTFail("A replay of actual legacy ciphertext must not create an error bubble")
-            }
+        guard case let .failed(clean, _) = f.bob.prepareIncoming(message, context: .archive) else {
+            return XCTFail("Retired Signal framing must fail closed")
         }
+        XCTAssertNotEqual(clean.body, "injected")
+        XCTAssertEqual(f.memory.records[f.bob.owner], before)
     }
 
     func testRealMAMAndBothCarbonWrappersKeepTransportMetadata() throws {
@@ -617,85 +605,6 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         let bob: OmemoManager
         let bobID: Int
         let memory: Memory
-    }
-
-    /// Key material stays in memory; session callbacks use the production
-    /// adapter against this test's isolated Realm, without credential writes.
-    private final class LegacyKeyStore: NSObject, SignalStore {
-        var identity: SignalIdentityKeyPair!
-        let sessions: XabberAxolotlStorage
-        let registrationID: UInt32
-        private var preKeys: [UInt32: Data] = [:]
-        private var signedPreKeys: [UInt32: Data] = [:]
-        private var identities: [String: Data] = [:]
-        private var senderKeys: [String: Data] = [:]
-
-        init(owner: String, registrationID: UInt32) {
-            sessions = XabberAxolotlStorage(withOwner: owner)
-            self.registrationID = registrationID
-        }
-
-        private func key(_ address: SignalAddress) -> String { "\(address.name):\(address.deviceId)" }
-        func sessionRecord(for address: SignalAddress) -> Data? { sessions.sessionRecord(for: address) }
-        func storeSessionRecord(_ recordData: Data, for address: SignalAddress) -> Bool { sessions.storeSessionRecord(recordData, for: address) }
-        func sessionRecordExists(for address: SignalAddress) -> Bool { sessions.sessionRecordExists(for: address) }
-        func deleteSessionRecord(for address: SignalAddress) -> Bool { sessions.deleteSessionRecord(for: address) }
-        func allDeviceIds(forAddressName name: String) -> [NSNumber] { sessions.allDeviceIds(forAddressName: name) }
-        func deleteAllSessions(forAddressName name: String) -> Int32 { sessions.deleteAllSessions(forAddressName: name) }
-        func loadPreKey(withId id: UInt32) -> Data? { preKeys[id] }
-        func storePreKey(_ data: Data, preKeyId id: UInt32) -> Bool { preKeys[id] = data; return true }
-        func containsPreKey(withId id: UInt32) -> Bool { preKeys[id] != nil }
-        func deletePreKey(withId id: UInt32) -> Bool { preKeys.removeValue(forKey: id); return true }
-        func loadSignedPreKey(withId id: UInt32) -> Data? { signedPreKeys[id] }
-        func storeSignedPreKey(_ data: Data, signedPreKeyId id: UInt32) -> Bool { signedPreKeys[id] = data; return true }
-        func containsSignedPreKey(withId id: UInt32) -> Bool { signedPreKeys[id] != nil }
-        func removeSignedPreKey(withId id: UInt32) -> Bool { signedPreKeys.removeValue(forKey: id); return true }
-        func getIdentityKeyPair() -> SignalIdentityKeyPair { identity }
-        func getLocalRegistrationId() -> UInt32 { registrationID }
-        func saveIdentity(_ address: SignalAddress, identityKey: Data?) -> Bool { identities[key(address)] = identityKey; return true }
-        func isTrustedIdentity(_ address: SignalAddress, identityKey: Data) -> Bool { identities[key(address)].map { $0 == identityKey } ?? true }
-        func storeSenderKey(_ senderKey: Data, address: SignalAddress, groupId: String) -> Bool { senderKeys["\(groupId):\(key(address))"] = senderKey; return true }
-        func loadSenderKey(for address: SignalAddress, groupId: String) -> Data? { senderKeys["\(groupId):\(key(address))"] }
-    }
-
-    private func legacyFixture() throws -> (bob: OmemoManager, messages: [XMPPMessage]) {
-        let f = try fixture()
-        let aliceKeys = LegacyKeyStore(owner: f.alice.owner, registrationID: 41)
-        let bobKeys = LegacyKeyStore(owner: f.bob.owner, registrationID: 42)
-        let aliceStorage = SignalStorage(signalStore: aliceKeys)
-        let bobStorage = SignalStorage(signalStore: bobKeys)
-        let aliceContext = try XCTUnwrap(SignalContext(storage: aliceStorage))
-        let bobContext = try XCTUnwrap(SignalContext(storage: bobStorage))
-        let aliceHelper = try XCTUnwrap(SignalKeyHelper(context: aliceContext))
-        let bobHelper = try XCTUnwrap(SignalKeyHelper(context: bobContext))
-        aliceKeys.identity = try XCTUnwrap(aliceHelper.generateIdentityKeyPair())
-        bobKeys.identity = try XCTUnwrap(bobHelper.generateIdentityKeyPair())
-        let preKey = try XCTUnwrap(bobHelper.generatePreKeys(withStartingPreKeyId: 1, count: 1).first)
-        let signedPreKey = try XCTUnwrap(bobHelper.generateSignedPreKey(withIdentity: bobKeys.identity, signedPreKeyId: 1))
-        XCTAssertTrue(bobKeys.storePreKey(try XCTUnwrap(preKey.serializedData()), preKeyId: preKey.preKeyId))
-        XCTAssertTrue(bobKeys.storeSignedPreKey(try XCTUnwrap(signedPreKey.serializedData()), signedPreKeyId: signedPreKey.preKeyId))
-        let bundle = try SignalPreKeyBundle(
-            registrationId: bobKeys.registrationID, deviceId: 42,
-            preKeyId: preKey.preKeyId, preKeyPublic: try XCTUnwrap(preKey.keyPair).publicKey,
-            signedPreKeyId: signedPreKey.preKeyId, signedPreKeyPublic: try XCTUnwrap(signedPreKey.keyPair).publicKey,
-            signature: signedPreKey.signature, identityKey: bobKeys.identity.publicKey
-        )
-        let aliceCipher = SignalSessionCipher(address: SignalAddress(name: f.bob.owner, deviceId: 42), context: aliceContext)
-        let bobCipher = SignalSessionCipher(address: SignalAddress(name: f.alice.owner, deviceId: 41), context: bobContext)
-        try SignalSessionBuilder(address: aliceCipher.address, context: aliceContext).processPreKeyBundle(bundle)
-        let bootstrap = try aliceCipher.encryptData(Data("bootstrap existing legacy session".utf8))
-        XCTAssertEqual(try bobCipher.decryptCiphertext(bootstrap), Data("bootstrap existing legacy session".utf8))
-        XCTAssertTrue(bobKeys.sessions.sessionRecordExists(for: bobCipher.address))
-        f.bob.localStore = bobKeys.sessions
-        f.bob.signalStorage = bobStorage
-        f.bob.signalContext = bobContext
-
-        let messages = try (0..<2).map { index in
-            let sealed = try Omemo2PayloadCodec.seal("<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>legacy history \(index)</body></content><rpad>padding</rpad><from jid='\(f.alice.owner)'/><to jid='\(f.bob.owner)'/></envelope>")
-            let wrapped = try aliceCipher.encryptData(sealed.keyAndMAC)
-            return XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' type='chat' from='\(f.alice.owner)/ios' to='\(f.bob.owner)' id='legacy-\(index)'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='41'><keys jid='\(f.bob.owner)'><key rid='42' kex='\(wrapped.type == .preKeyMessage ? "true" : "false")'>\(wrapped.data.base64EncodedString())</key></keys></header><payload>\(sealed.ciphertext.base64EncodedString())</payload></encrypted></message>"))
-        }
-        return (f.bob, messages)
     }
 
     private func fixture() throws -> Fixture {

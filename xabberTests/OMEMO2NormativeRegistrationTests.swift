@@ -1,6 +1,5 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XMPPFramework
 import XCTest
 @testable import xabber
@@ -171,20 +170,19 @@ final class OMEMO2NormativeRegistrationTests: XCTestCase {
 
             XCTAssertEqual(try f.storage.localBundle().deviceID, 42)
             XCTAssertEqual(try f.storage.localBundle().identityKey, previousIdentity)
-            XCTAssertEqual(CredentialsManager.shared.getDeviceId(for: f.manager.owner), legacyID ?? 42)
+            XCTAssertEqual(CredentialsManager.shared.getDeviceId(for: f.manager.owner), 42)
             XCTAssertEqual(try publishedDeviceIDs(f.stream), [42, 99])
         }
     }
 
-    func testLegacyDeviceIDIsNotChangedByTheFreshIDGenerator() throws {
+    func testLegacyDeviceIDIsReplacedByFreshNativeBackendDeviceID() throws {
         let f = try fixture()
 
         let id = try f.manager.deviceIDForOMEMO2Preparation(legacyDeviceID: { 42 }, freshDeviceID: {
-            XCTFail("Migration must preserve its existing device ID")
             return 43
         })
 
-        XCTAssertEqual(id, 42)
+        XCTAssertEqual(id, 43)
         XCTAssertTrue(f.memory.records.isEmpty)
     }
 

@@ -8,7 +8,6 @@
 
 import Foundation
 import UIKit
-import SignalProtocolObjC
 import XMPPFramework
 
 class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFieldDelegate {

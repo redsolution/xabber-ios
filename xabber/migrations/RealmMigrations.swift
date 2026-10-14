@@ -31,7 +31,9 @@ enum XabberRealmSchema {
     /// Schema 24 stores local authentication evidence beside received ciphertext.
     /// Schema 25 adds an account/peer opt-out presentation table. Only the
     /// protected owner aggregate can authorize sends; no history is migrated.
-    static let current: UInt64 = 25
+    /// Schema 26 labels the local XabberCryptoSwift public projection. Old
+    /// projections remain unmarked; no identity, session or history is imported.
+    static let current: UInt64 = 26
 }
 
 
@@ -444,6 +446,12 @@ func makeRealmMigrationConfiguration(
                 // receive. Keep history untouched and start with no evidence.
                 migration.enumerateObjects(ofType: MessageStanzaStorageItem.className()) { _, newObject in
                     newObject?["omemo2ReplayFingerprint"] = nil
+                }
+            }
+            if oldSchemaVersion < 26,
+               migration.newSchema.objectSchema.contains(where: { $0.className == SignalIdentityStorageItem.className() }) {
+                migration.enumerateObjects(ofType: SignalIdentityStorageItem.className()) { _, newObject in
+                    newObject?["cryptoBackend"] = ""
                 }
             }
             if oldSchemaVersion < 22 {

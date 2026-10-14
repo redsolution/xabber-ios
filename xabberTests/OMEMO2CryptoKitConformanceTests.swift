@@ -2,13 +2,13 @@
 //  OMEMO2CryptoKitConformanceTests.swift
 //  xabberTests
 //
-//  Independent Apple backend checks for the opt-in OMEMO2 dependencies.
+//  Independent checks for the linked XabberCryptoSwift backend.
 //
 
 import CryptoKit
-import SignalProtocolC
-import SignalProtocolObjC
 import XCTest
+import XabberCryptoSwift
+@testable import xabber
 
 final class OMEMO2CryptoKitConformanceTests: XCTestCase {
     private let aliceScalar = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"
@@ -141,31 +141,8 @@ final class OMEMO2CryptoKitConformanceTests: XCTestCase {
     }
 
     private func checkedAgreement(privateKey: Data, publicKey: Data) throws -> Data {
-        var rawContext: OpaquePointer?
-        try requireSuccess(signal_context_create(&rawContext, nil))
-        let context = try XCTUnwrap(rawContext)
-        defer { signal_context_destroy(context) }
-        var privatePoint: OpaquePointer?
-        var publicPoint: OpaquePointer?
-        defer {
-            if let point = privatePoint { signal_type_unref(point) }
-            if let point = publicPoint { signal_type_unref(point) }
-        }
-        try privateKey.withUnsafeBytes {
-            try requireSuccess(curve_decode_private_point(&privatePoint, $0.bindMemory(to: UInt8.self).baseAddress, $0.count, context))
-        }
-        try publicKey.withUnsafeBytes {
-            try requireSuccess(omemo_public_key_decode(&publicPoint, $0.bindMemory(to: UInt8.self).baseAddress, context))
-        }
-        var output = [UInt8](repeating: 0, count: 32)
-        try output.withUnsafeMutableBufferPointer {
-            try requireSuccess(omemo_calculate_agreement($0.baseAddress, publicPoint, privatePoint))
-        }
-        return Data(output)
-    }
-
-    private func requireSuccess(_ result: Int32) throws {
-        guard result == 0 else { throw NSError(domain: "OMEMO2CryptoKitConformanceTests", code: Int(result)) }
+        let key = try OMEMOKeyFactory().agreementKeyPair(privateScalar: privateKey)
+        return try key.sharedSecret(with: X25519PublicKey(rawRepresentation: publicKey))
     }
 
     private func data(hex: String) throws -> Data {

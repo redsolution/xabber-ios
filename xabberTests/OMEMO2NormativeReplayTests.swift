@@ -1,8 +1,8 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XCTest
 import XMPPFramework
+import XabberCryptoSwift
 @testable import xabber
 
 final class OMEMO2NormativeReplayTests: XCTestCase {
@@ -130,6 +130,97 @@ final class OMEMO2NormativeReplayTests: XCTestCase {
         payload.stringValue = Data([1]).base64EncodedString()
         bad.element(forName: "encrypted", xmlns: OmemoManager.xmlns)?.addChild(payload)
         assertFailedWithoutMutation(bad, f: f)
+    }
+
+    func testOuterKEXEncodingAliasesHaveOneReplayFingerprint() throws {
+        let f = try fixture()
+        let original = try content(f)
+        let key = try keyElement(original)
+        let bytes = try Omemo2PayloadCodec.decodeBase64(try XCTUnwrap(key.stringValue))
+        let exchange = try OMEMOKeyExchange(serializedData: bytes)
+        var aliasEK = exchange.ephemeralKey
+        aliasEK[31] ^= 0x80
+        let alias = try OMEMOKeyExchange(preKeyID: exchange.preKeyID, signedPreKeyID: exchange.signedPreKeyID,
+            identityKey: exchange.identityKey, ephemeralKey: aliasEK, message: exchange.message)
+        let originalFingerprint = try replayFingerprint(original, f: f)
+        // Outer fields are unauthenticated protobuf metadata. None changes
+        // the exact MAC-bearing message, identity, IDs or canonical EK.
+        let encodedAliases = [
+            try alias.serializedData(),
+            Data([0x08, UInt8(exchange.preKeyID) | 0x80, 0]) + bytes.dropFirst(2),
+            bytes + Data([0x98, 0x06, 0x01])
+        ]
+        for encoded in encodedAliases {
+            let replay = XMPPMessage(from: original.copy() as! DDXMLElement)
+            try keyElement(replay).stringValue = encoded.base64EncodedString()
+            XCTAssertEqual(try replayFingerprint(replay, f: f), originalFingerprint)
+        }
+    }
+
+    func testKEXReplayFingerprintKeepsMACAndExactAuthenticatedMessageBytes() throws {
+        let f = try fixture()
+        let original = try content(f)
+        let bytes = try Omemo2PayloadCodec.decodeBase64(try XCTUnwrap(keyElement(original).stringValue))
+        let exchange = try OMEMOKeyExchange(serializedData: bytes)
+        var damagedMAC = exchange.message.mac
+        damagedMAC[0] ^= 1
+        let changedMessages = [
+            try OMEMOAuthenticatedMessage(mac: damagedMAC, message: exchange.message.message),
+            try OMEMOAuthenticatedMessage(mac: exchange.message.mac,
+                message: exchange.message.message + Data([0xa0, 0x06, 0x01]))
+        ]
+        let originalFingerprint = try replayFingerprint(original, f: f)
+        for message in changedMessages {
+            let changed = try OMEMOKeyExchange(preKeyID: exchange.preKeyID, signedPreKeyID: exchange.signedPreKeyID,
+                identityKey: exchange.identityKey, ephemeralKey: exchange.ephemeralKey, message: message)
+            let packet = XMPPMessage(from: original.copy() as! DDXMLElement)
+            try keyElement(packet).stringValue = changed.serializedData().base64EncodedString()
+            XCTAssertNotEqual(try replayFingerprint(packet, f: f), originalFingerprint)
+        }
+    }
+
+    func testEquivalentKEXReplayRemainsDuplicateAfterNativeSessionSnapshotIsPruned() throws {
+        let f = try fixture()
+        f.bob.omemo2PreKeyCleanup.beginCatchUp(id: UUID())
+        let original = try content(f)
+        assertVerified(f.bob.prepareIncoming(original))
+        let storage = try XCTUnwrap(f.bob.omemo2Storage)
+        XCTAssertFalse(try storage.consumedPreKeyIDs().isEmpty)
+        let saved = try XCTUnwrap(f.memory.records[f.bob.owner])
+        var state = try XCTUnwrap(PropertyListSerialization.propertyList(from: saved, format: nil) as? [String: Any])
+        let receipts = try XCTUnwrap(state["authenticatedReceiveFingerprints"] as? [Data])
+        XCTAssertTrue(receipts.contains(try replayFingerprint(original, f: f)))
+        state["sessions"] = [String: Any]()
+        state["currentSessions"] = [String: Any]()
+        state["controlsNeeded"] = []
+        f.memory.records[f.bob.owner] = try PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0)
+        XCTAssertFalse(try storage.sessionExists(jid: f.alice.owner, deviceID: 41))
+        assertDuplicateWithoutMutation(original, f: f)
+        let beforeReplay = f.memory.records[f.bob.owner]
+        let consumedPreKeys = try storage.consumedPreKeyIDs()
+
+        let replay = XMPPMessage(from: original.copy() as! DDXMLElement)
+        let key = try keyElement(replay)
+        let parsed = try OMEMOKeyExchange(serializedData: Omemo2PayloadCodec.decodeBase64(try XCTUnwrap(key.stringValue)))
+        var aliasEK = parsed.ephemeralKey
+        aliasEK[31] ^= 0x80
+        let aliased = try OMEMOKeyExchange(preKeyID: parsed.preKeyID, signedPreKeyID: parsed.signedPreKeyID,
+            identityKey: parsed.identityKey, ephemeralKey: aliasEK, message: parsed.message)
+        key.stringValue = try aliased.serializedData().base64EncodedString()
+
+        XCTAssertEqual(try replayFingerprint(replay, f: f), try replayFingerprint(original, f: f))
+        assertDuplicateWithoutMutation(replay, f: f)
+        XCTAssertEqual(f.memory.records[f.bob.owner], beforeReplay)
+        XCTAssertEqual(try storage.consumedPreKeyIDs(), consumedPreKeys)
+    }
+
+    private func keyElement(_ message: XMPPMessage) throws -> DDXMLElement {
+        try XCTUnwrap(message.element(forName: "encrypted", xmlns: OmemoManager.xmlns)?
+            .element(forName: "header")?.element(forName: "keys")?.element(forName: "key"))
+    }
+
+    private func replayFingerprint(_ packet: XMPPMessage, f: Fixture) throws -> Data {
+        try XCTUnwrap(OMEMO2ReplayProtection.fingerprint(for: packet, owner: f.bob.owner, localDeviceID: 42))
     }
 
     private func fixture() throws -> Fixture {

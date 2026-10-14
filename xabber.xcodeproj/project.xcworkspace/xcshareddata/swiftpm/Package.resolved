@@ -1,5 +1,5 @@
 {
-  "originHash" : "2659dd42aa511bbed98ec82bda47268ade804acb173a9ceb3c5ae1ff2ba034b5",
+  "originHash" : "9289bc32ff2b74c8791bd851a42a9592f7d5272db3e22f72dcc529dfc7288948",
   "pins" : [
     {
       "identity" : "ogg-swift",
@@ -35,6 +35,14 @@
       "state" : {
         "revision" : "5f0164b8915fb9001265c54413aa0f0efbd3df06",
         "version" : "0.0.2"
+      }
+    },
+    {
+      "identity" : "xabbercryptoswift",
+      "kind" : "remoteSourceControl",
+      "location" : "git@github.com:redsolution/XabberCryptoSwift.git",
+      "state" : {
+        "revision" : "bd5d19dbd8e9de2521c8830f54564d3cc175cba8"
       }
     }
   ],

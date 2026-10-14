@@ -1,6 +1,5 @@
 import Foundation
 import RealmSwift
-import SignalProtocolObjC
 import XMPPFramework
 import XCTest
 @testable import xabber
@@ -68,6 +67,34 @@ final class OMEMO2OwnDeviceBindingTests: XCTestCase {
         let local = try XCTUnwrap(realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: f.manager.owner, jid: f.manager.owner, deviceId: 42)))
         XCTAssertFalse(local.isInDeviceList)
         XCTAssertEqual(local.state, .trusted)
+    }
+
+    func testFreshBackendRegistrationRepairsLegacyDeviceCredentialMirror() throws {
+        let f = try fixture()
+        CredentialsManager.shared.setDeviceId(123, for: f.manager.owner)
+        f.manager.omemo2FreshDeviceIDGenerator = { 42 }
+        f.manager.beginOMEMO2Registration(f.stream)
+
+        XCTAssertTrue(f.manager.read(withIQ: try ownNodeReply(f, devices: "<device id='123'/><device id='99'/>")))
+
+        XCTAssertEqual(try f.storage.localBundle().deviceID, 42)
+        XCTAssertEqual(CredentialsManager.shared.getDeviceId(for: f.manager.owner), 42)
+        XCTAssertEqual(f.current.omemoDeviceId, 42)
+        XCTAssertEqual(f.remote.omemoDeviceId, 99)
+    }
+
+    func testFailedFreshBackendRegistrationPreservesLegacyDeviceCredentialMirror() throws {
+        let f = try fixture()
+        CredentialsManager.shared.setDeviceId(123, for: f.manager.owner)
+        f.memory.failSaves = true
+        f.manager.omemo2FreshDeviceIDGenerator = { 42 }
+        f.manager.beginOMEMO2Registration(f.stream)
+
+        XCTAssertTrue(f.manager.read(withIQ: try ownNodeReply(f, devices: "<device id='123'/>")))
+
+        XCTAssertEqual(CredentialsManager.shared.getDeviceId(for: f.manager.owner), 123)
+        XCTAssertEqual(f.current.omemoDeviceId, -1)
+        XCTAssertTrue(f.memory.records.isEmpty)
     }
 
     func testUnchangedCommittedBundleRepairsCurrentSessionBinding() throws {

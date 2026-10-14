@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import SignalProtocolObjC
 import XMPPFramework
 import CryptoKit
 import CryptoSwift
