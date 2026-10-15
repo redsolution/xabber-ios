@@ -5800,6 +5800,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         configureChatBackground()
+        let columnWidth = navigationController?.navigationBar.bounds.width ?? view.bounds.width
+        navigationTitlePill.preferredPillWidth = NavigationTitlePillSizing.width(
+            columnWidth: columnWidth, bottomPillWidth: floatingBottomBarView.centerEffectView.bounds.width)
         self.updateTableInsetsForFloatingToolbar()
     }
     

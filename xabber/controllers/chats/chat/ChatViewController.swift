@@ -6257,7 +6257,7 @@ class ChatViewController: MessagesViewController {
             titleButton.translatesAutoresizingMaskIntoConstraints = false
             let widthConstraint = titleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 140)
             widthConstraint.priority = UILayoutPriority(999)
-            let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: 42)
+            let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.minimumHeight)
             NSLayoutConstraint.activate([widthConstraint, heightConstraint])
             navigationTitleWidthConstraint = widthConstraint
             navigationTitleHeightConstraint = heightConstraint
@@ -6346,6 +6346,8 @@ class ChatViewController: MessagesViewController {
         )
     }
 
+    private var navigationTitlePreferredWidthConstraint: NSLayoutConstraint?
+
     private func updateNavbarTitleWidth() {
         guard navigationItem.titleView === titleButton,
               let navigationTitleWidthConstraint else { return }
@@ -6363,10 +6365,17 @@ class ChatViewController: MessagesViewController {
             // writing zero here collapses the title for the whole transition.
             return
         }
-        let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
-        let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
-        let sideReserve = max(leftReserved, rightReserved)
-        let targetWidth = max(0, navBarWidth - sideReserve * 2)
+        let targetWidth = NavigationTitlePillSizing.width(
+            columnWidth: navBarWidth, bottomPillWidth: xabberInputView.composerPillWidth)
+        if navigationTitlePreferredWidthConstraint == nil {
+            let preferred = titleButton.widthAnchor.constraint(equalToConstant: targetWidth)
+            preferred.priority = UILayoutPriority(998)
+            preferred.isActive = true
+            navigationTitlePreferredWidthConstraint = preferred
+        }
+        if abs((navigationTitlePreferredWidthConstraint?.constant ?? 0) - targetWidth) > 0.5 {
+            navigationTitlePreferredWidthConstraint?.constant = targetWidth
+        }
         if abs(navigationTitleWidthConstraint.constant - targetWidth) > 0.5 {
             navigationTitleWidthConstraint.constant = targetWidth
         }

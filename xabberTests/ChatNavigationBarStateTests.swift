@@ -859,7 +859,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
             })
         )
         XCTAssertEqual(widthConstraint.relation, .lessThanOrEqual)
-        XCTAssertLessThanOrEqual(widthConstraint.constant, 64.5)
+        XCTAssertLessThanOrEqual(widthConstraint.constant, 128.5)
         let initialConstraintIdentity = ObjectIdentifier(widthConstraint)
         let initialConstant = widthConstraint.constant
 
@@ -892,10 +892,14 @@ final class ChatNavigationBarStateTests: XCTestCase {
                 $0.firstItem === chat.titleButton && $0.firstAttribute == .width
             })
         )
-        let expectedSafeCenterWidth = navigationController.navigationBar.bounds.width - 176
+        let expectedSafeCenterWidth = navigationController.navigationBar.bounds.width - 112
 
         XCTAssertEqual(widthConstraint.relation, .lessThanOrEqual)
-        XCTAssertEqual(widthConstraint.constant, expectedSafeCenterWidth, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(widthConstraint.constant, expectedSafeCenterWidth + 0.5)
+        let composerWidth = chat.xabberInputView.composerPillWidth
+        if composerWidth > 0, composerWidth <= expectedSafeCenterWidth {
+            XCTAssertEqual(widthConstraint.constant, composerWidth, accuracy: 0.5)
+        }
         XCTAssertGreaterThan(
             widthConstraint.constant,
             140,
@@ -1231,12 +1235,15 @@ final class ChatNavigationBarStateTests: XCTestCase {
         horizontalRegion: ClosedRange<CGFloat>
     ) -> UIControl? {
         descendantControls(in: navigationBar).first(where: { control in
-            guard isEffectivelyVisible(control, in: navigationBar),
+            // The wide title capsule can extend into these coarse side regions;
+            // this helper finds navigation actions, not the center title button.
+            guard control !== navigationBar.topItem?.titleView,
+                  isEffectivelyVisible(control, in: navigationBar),
                   control.isUserInteractionEnabled else {
                 return false
             }
             let frame = control.convert(control.bounds, to: navigationBar)
-            return horizontalRegion.overlaps(frame.minX...frame.maxX)
+            return horizontalRegion.contains(frame.midX)
         })
     }
 

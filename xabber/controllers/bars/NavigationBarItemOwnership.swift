@@ -242,6 +242,11 @@ enum NavigationTitlePillSurface {
 
 final class NavigationTitlePillView: UIView {
     private let label = UILabel()
+    var preferredPillWidth: CGFloat = 0 {
+        didSet {
+            if abs(oldValue - preferredPillWidth) > 0.5 { invalidateIntrinsicContentSize() }
+        }
+    }
 
     var text: String? {
         get { label.text }
@@ -275,6 +280,14 @@ final class NavigationTitlePillView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: label.intrinsicContentSize.width + 32, height: max(42, label.font.lineHeight + 16))
+        CGSize(width: preferredPillWidth > 0 ? preferredPillWidth : label.intrinsicContentSize.width + 32, height: max(NativeGlassBarStyle.minimumHeight, label.font.lineHeight + 16))
+    }
+}
+
+/// Reserve the outer navigation controls while balancing the top and bottom pills.
+enum NavigationTitlePillSizing {
+    static func width(columnWidth: CGFloat, bottomPillWidth: CGFloat) -> CGFloat {
+        let available = max(0, columnWidth - 112)
+        return bottomPillWidth > 0 ? min(bottomPillWidth, available) : available
     }
 }

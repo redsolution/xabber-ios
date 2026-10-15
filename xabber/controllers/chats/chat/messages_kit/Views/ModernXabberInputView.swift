@@ -2351,6 +2351,8 @@ class ModernXabberInputView: UIView {
         return view
     }()
 
+    var composerPillWidth: CGFloat { mainInputGlassView.bounds.width }
+
     private let mainInputGlassView: UIVisualEffectView = {
         let view = ModernXabberInputView.makeGlassEffectView(
             role: .clearInputSurface,

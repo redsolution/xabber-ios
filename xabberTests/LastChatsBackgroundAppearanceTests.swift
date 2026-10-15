@@ -40,6 +40,12 @@ final class LastChatsBackgroundAppearanceTests: XCTestCase {
         }
     }
 
+    func testTitlePillUsesBottomPillWidthWithNavigationRoom() {
+        XCTAssertEqual(NavigationTitlePillSizing.width(columnWidth: 393, bottomPillWidth: 257), 257)
+        XCTAssertEqual(NavigationTitlePillSizing.width(columnWidth: 700, bottomPillWidth: 560), 560)
+        XCTAssertEqual(NavigationTitlePillSizing.width(columnWidth: 240, bottomPillWidth: 180), 128)
+    }
+
     func testRecentChatsRendersActiveChatWallpaperBehindTransparentTable() throws {
         let controller = LastChatsViewController()
         controller.loadViewIfNeeded()
