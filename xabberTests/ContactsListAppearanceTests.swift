@@ -320,10 +320,10 @@ final class ContactsListAppearanceTests: XCTestCase {
             navigationController.viewControllers.forEach(applyContinuousSplitAppearanceAfterAttach)
         }
         if let contactsController = viewController as? ContactsViewController {
-            contactsController.tableView.applyContinuousSplitInsetGroupedAppearance()
+            contactsController.applyChatWallpaper(to: contactsController.tableView)
         }
         if let categoryController = viewController as? ContactsCategoryViewController {
-            categoryController.tableView.applyContinuousSplitInsetGroupedAppearance()
+            categoryController.applyChatWallpaper(to: categoryController.tableView)
         }
     }
 
@@ -486,7 +486,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.searchController.definesPresentationContext)
     }
 
-    func testContactsListUsesStockBackgroundAndBottomSearchInCompactSplitWidth() {
+    func testContactsListUsesWallpaperAndBottomSearchInCompactSplitWidth() {
         let controller = ContactsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
@@ -496,8 +496,9 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
-        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertEqual(controller.tableView.backgroundColor, .clear)
+        XCTAssertNotNil(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
         XCTAssertTrue(controller.view.isOpaque)
         XCTAssertNil(controller.navigationItem.searchController)
@@ -659,7 +660,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.view.isOpaque)
     }
 
-    func testGroupsListUsesStockBackgroundInCompactSplitWidth() {
+    func testGroupsListUsesWallpaperInCompactSplitWidth() {
         let controller = ContactsViewController()
         controller.isGroup = true
         let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
@@ -669,8 +670,9 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
-        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertEqual(controller.tableView.backgroundColor, .clear)
+        XCTAssertNotNil(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
         XCTAssertTrue(controller.view.isOpaque)
         XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
@@ -702,15 +704,16 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:viewForFooterInSection:))))
     }
 
-    func testContactsCategoryUsesStockBackgroundInCompactSplitWidth() {
+    func testContactsCategoryUsesWallpaperInCompactSplitWidth() {
         let controller = ContactsCategoryViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
-        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-        XCTAssertTrue(controller.tableView.isOpaque)
+        XCTAssertEqual(controller.tableView.backgroundColor, .clear)
+        XCTAssertNotNil(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
         XCTAssertTrue(controller.view.isOpaque)
         XCTAssertNil(controller.navigationItem.standardAppearance)

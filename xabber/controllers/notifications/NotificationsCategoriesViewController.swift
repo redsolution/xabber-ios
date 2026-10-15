@@ -102,7 +102,7 @@ class NotificationsCategoriesViewController: BaseViewController {
         
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        applyChatWallpaper(to: tableView, emptyView: nil)
         tableView.delegate = self
         tableView.dataSource = self
 //        bottomBar.configure()
@@ -184,8 +184,14 @@ class NotificationsCategoriesViewController: BaseViewController {
         removeNotificationObserer()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyChatWallpaper(to: tableView, emptyView: nil)
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        applyChatWallpaper(to: tableView, emptyView: nil)
         NavigationLargeTitlePolicy.apply(to: self)
     }
 

@@ -584,6 +584,31 @@ final class BackgroundRootContainerViewController: UIViewController {
     }
 }
 
+extension UIViewController {
+    /// Match Recent Chats while allowing the regular-width split container to own
+    /// one continuous wallpaper across its columns.
+    func applyChatWallpaper(to tableView: UITableView, emptyView: UIView? = nil) {
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
+        tableView.backgroundColor = .clear
+        tableView.isOpaque = false
+        emptyView?.backgroundColor = .clear
+        emptyView?.isOpaque = false
+        if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop {
+            tableView.backgroundView = nil
+        } else if !(tableView.backgroundView is ChatBackgroundBackdropView) {
+            let backdrop = ChatBackgroundBackdropView()
+            backdrop.reload(encrypted: false)
+            NotificationCenter.default.addObserver(
+                backdrop,
+                selector: #selector(ChatBackgroundBackdropView.reloadFromSettings),
+                name: .chatBackgroundChanged,
+                object: nil
+            )
+            tableView.backgroundView = backdrop
+        }
+    }
+}
+
 extension UITableView {
     func applyContinuousSplitInsetGroupedAppearance() {
         switch ContinuousSplitBackgroundExperiment.mode(for: self) {

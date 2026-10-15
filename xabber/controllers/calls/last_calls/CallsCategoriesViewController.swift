@@ -92,7 +92,7 @@ class CallsCategoriesViewController: BaseViewController {
 
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        applyChatWallpaper(to: tableView, emptyView: nil)
         tableView.delegate = self
         tableView.dataSource = self
     }
@@ -110,10 +110,15 @@ class CallsCategoriesViewController: BaseViewController {
         selectFilter(.all, animated: false, notify: true)
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyChatWallpaper(to: tableView, emptyView: nil)
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        applyChatWallpaper(to: tableView, emptyView: nil)
         applyNavigationAppearance()
         NavigationLargeTitlePolicy.apply(to: self)
     }

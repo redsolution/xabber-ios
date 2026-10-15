@@ -726,17 +726,7 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
 
     internal func refreshContinuousSplitBackgroundAppearance() {
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
-
-        switch ContinuousSplitBackgroundExperiment.mode(for: self) {
-        case .sharedBackdrop:
-            emptyView.backgroundColor = .clear
-            emptyView.isOpaque = false
-        case .inactive, .deferred, .stockCompact:
-            emptyView.backgroundColor = .systemBackground
-            emptyView.isOpaque = true
-        }
+        applyChatWallpaper(to: tableView, emptyView: emptyView)
     }
     
     override func loadDatasource() {
@@ -1533,6 +1523,7 @@ class NotificationsListViewController: SimpleBaseViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        applyChatWallpaper(to: tableView, emptyView: emptyView)
         updateNotificationsTableInsetsForBottomSearch()
     }
 

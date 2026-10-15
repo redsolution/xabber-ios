@@ -908,7 +908,7 @@ final class NotificationsListAppearanceTests: XCTestCase {
             notificationsController.refreshContinuousSplitBackgroundAppearance()
         }
         if let categoryController = viewController as? NotificationsCategoriesViewController {
-            categoryController.tableView.applyContinuousSplitInsetGroupedAppearance()
+            categoryController.applyChatWallpaper(to: categoryController.tableView)
         }
     }
 }

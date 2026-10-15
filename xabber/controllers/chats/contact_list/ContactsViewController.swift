@@ -2417,6 +2417,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        applyChatWallpaper(to: tableView, emptyView: emptyView)
         updateTableInsetsForBottomSearch()
     }
     
@@ -2469,15 +2470,15 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        applyChatWallpaper(to: tableView, emptyView: emptyView)
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 92
         
         emptyView.isHidden = true
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
+        emptyView.backgroundColor = .clear
+        emptyView.isOpaque = false
         view.addSubview(emptyView)
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
@@ -2517,10 +2518,10 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        applyChatWallpaper(to: tableView, emptyView: emptyView)
         NavigationLargeTitlePolicy.apply(to: self)
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
+        emptyView.backgroundColor = .clear
+        emptyView.isOpaque = false
         let updateNavigationItems = !isSearchHostNavigationTransitionActive
         configureBars(animated: false, updateNavigationItems: updateNavigationItems)
         if !updateNavigationItems {

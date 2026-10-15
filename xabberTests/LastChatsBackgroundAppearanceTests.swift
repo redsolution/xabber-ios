@@ -103,6 +103,46 @@ final class LastChatsBackgroundAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
     }
 
+    func testSectionListsAndCategoriesUseActiveWallpaper() throws {
+        let contacts = ContactsViewController()
+        let calls = LastCallsViewController()
+        let notifications = NotificationsListViewController()
+        let contactsCategories = ContactsCategoryViewController()
+        let callsCategories = CallsCategoriesViewController()
+        let notificationsCategories = NotificationsCategoriesViewController()
+        let sections: [(UIViewController, () -> UITableView)] = [
+            (contacts, { contacts.tableView }),
+            (calls, { calls.tableView }),
+            (notifications, { notifications.tableView }),
+            (contactsCategories, { contactsCategories.tableView }),
+            (callsCategories, { callsCategories.tableView }),
+            (notificationsCategories, { notificationsCategories.tableView })
+        ]
+        for (controller, table) in sections {
+            controller.loadViewIfNeeded()
+            let backdrop = try XCTUnwrap(table().backgroundView as? ChatBackgroundBackdropView,
+                                        "Missing wallpaper for \(type(of: controller))")
+            XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper)
+            XCTAssertEqual(table().backgroundColor, .clear)
+            XCTAssertFalse(table().isOpaque)
+            var preview = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+            preview.profile.wallpaper = .gradient(stops: [AppearanceColor(hex: "#123456")!], pattern: nil, intensity: 0)
+            backdrop.configure(document: preview)
+            NotificationCenter.default.post(name: .chatBackgroundChanged, object: nil)
+            XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper)
+            controller.beginAppearanceTransition(true, animated: false)
+            controller.endAppearanceTransition()
+            controller.view.layoutIfNeeded()
+            XCTAssertTrue(table().backgroundView === backdrop)
+            controller.beginAppearanceTransition(false, animated: false)
+            controller.endAppearanceTransition()
+        }
+        for empty in [contacts.emptyView, calls.emptyView, notifications.emptyView] {
+            XCTAssertEqual(empty.backgroundColor, .clear)
+            XCTAssertFalse(empty.isOpaque)
+        }
+    }
+
     private var activeWallpaper: AppearanceWallpaper {
         AppearanceSettingsStore()?.load().profile.wallpaper
             ?? AppearanceProfile.default(accent: .systemBlue).wallpaper
