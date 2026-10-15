@@ -132,8 +132,9 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         XCTAssertEqual(f.callbacks, [true])
     }
 
-    func testUnaddressedHTTPProvisioningAcceptsOwnBareDomainOrAbsentResponseSender() throws {
-        for sender in [Optional(owner), Optional(domain), nil] {
+    func testUnaddressedHTTPProvisioningCorrelatesResponsesRegardlessOfFrom() throws {
+        for sender in [owner, domain, nil, "another@example.invalid", "another.example.invalid",
+                       "\(domain)/server-resource", "\(owner)/ios-http-iq"] {
             let f = fixture()
             try acknowledgeSummary(f)
             let discovery = try request(f, "endpoints")
@@ -365,17 +366,13 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         }
     }
 
-    func testWrongIDSenderRecipientAndIQTypeCannotConsumeCurrentHTTPQuery() throws {
+    func testWrongIDRecipientAndIQTypeCannotConsumeCurrentHTTPQuery() throws {
         let f = fixture()
         try acknowledgeSummary(f)
         let discovery = try request(f, "endpoints")
         let id = try XCTUnwrap(discovery.attributeStringValue(forName: "id"))
         for iq in [
             try reply(id: "wrong-id", body: endpoints()),
-            try reply(id: id, from: "another.example.invalid", body: endpoints()),
-            try reply(id: id, from: "\(domain)/server-resource", body: endpoints()),
-            try reply(id: id, from: "another@example.invalid", body: endpoints()),
-            try reply(id: id, from: "\(owner)/ios-http-iq", body: endpoints()),
             try reply(id: id, to: "another@example.invalid/ios-http-iq", body: endpoints()),
             try reply(id: id, to: "\(owner)/other-resource", body: endpoints()),
             try reply(id: id, type: "get", body: endpoints())
@@ -387,23 +384,22 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         XCTAssertEqual(requests(f, "token").count, 1)
     }
 
-    func testUnrelatedOrResourceQualifiedSenderCannotConsumeCurrentTokenQuery() throws {
-        let f = fixture()
-        try acknowledgeSummary(f)
-        XCTAssertTrue(f.manager.read(withIQ: try reply(to: request(f, "endpoints"), body: endpoints())))
-        let token = try request(f, "token")
-        let id = try XCTUnwrap(token.attributeStringValue(forName: "id"))
+    func testCorrelatedTokenResponsePublishesGrantRegardlessOfFrom() throws {
+        for sender in [owner, domain, nil, "another@example.invalid", "another.example.invalid",
+                       "\(domain)/server-resource", "\(owner)/ios-http-iq"] {
+            let f = fixture()
+            try acknowledgeSummary(f)
+            XCTAssertTrue(f.manager.read(withIQ: try reply(to: request(f, "endpoints"), body: endpoints())))
+            let token = try request(f, "token")
+            let id = try XCTUnwrap(token.attributeStringValue(forName: "id"))
 
-        for sender in ["another@example.invalid", "another.example.invalid", "\(domain)/server-resource", "\(owner)/ios-http-iq"] {
-            XCTAssertFalse(f.manager.read(withIQ: try reply(id: id, from: sender, body: tokenResult())))
-            XCTAssertEqual(f.writes, 0)
-            XCTAssertNil(f.record.httpArchive)
-            XCTAssertFalse(f.manager.httpPreviewReady)
+            XCTAssertTrue(f.manager.read(withIQ: try reply(id: id, from: sender,
+                includeSender: sender != nil, body: tokenResult())))
+            XCTAssertEqual(f.writes, 1)
+            XCTAssertNotNil(f.record.httpArchive)
+            XCTAssertTrue(f.manager.httpPreviewReady)
+            XCTAssertTrue(f.manager.enabled)
         }
-
-        XCTAssertTrue(f.manager.read(withIQ: try reply(id: id, from: owner, body: tokenResult())))
-        XCTAssertEqual(f.writes, 1)
-        XCTAssertTrue(f.manager.httpPreviewReady)
     }
 
     func testDuplicateDiscoveryAndTokenRepliesCannotRepublishOrIssueTwice() throws {

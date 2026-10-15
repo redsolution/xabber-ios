@@ -692,8 +692,6 @@ class PushNotificationsManager: AbstractXMPPManager {
         }
         guard iq.elementID == request.id, queryIds.contains(request.id),
               iq.iqType == .result || iq.iqType == .error,
-              iq.from == nil || ((iq.from?.bare == request.domain || iq.from?.bare == request.owner)
-                                && iq.from?.resource == nil),
               iq.to == nil || iq.to?.full == request.streamJID || iq.to?.full == request.owner else { return false }
         NSLog("HTTP_IQ_ARCHIVE response XML:\n%@", iq.prettyXMLString ?? iq.xmlString)
         guard iq.iqType == .result else {
