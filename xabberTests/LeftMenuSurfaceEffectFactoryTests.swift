@@ -25,6 +25,19 @@ final class LeftMenuSurfaceEffectFactoryTests: XCTestCase {
         }
     }
 
+    func testExpandedTabletSidebarUsesWholeColumnWithoutAnInsetCard() {
+        let bounds = CGRect(x: 0, y: 0, width: 320, height: 1024)
+        let frame = LeftMenuFloatingLayout.frame(
+            in: bounds, safeArea: UIEdgeInsets(top: 24, left: 0, bottom: 20, right: 0),
+            contentHeight: 540, fillsColumn: true)
+        XCTAssertEqual(frame, bounds)
+    }
+
+    func testExpandedColumnHasNoSecondGlassEffect() {
+        XCTAssertNil(LeftMenuSurfaceEffectFactory.makeEffect(fillsColumn: true))
+        XCTAssertNotNil(LeftMenuSurfaceEffectFactory.makeEffect(fillsColumn: false))
+    }
+
     func testShortWindowConstrainsPanelInsteadOfClippingSettings() {
         let frame = LeftMenuFloatingLayout.frame(in: CGRect(x: 0, y: 0, width: 700, height: 320),
                                                 safeArea: .zero, contentHeight: 700)

@@ -37,3 +37,11 @@ Port verification completed (2026-10-15):
 - Visually verified the new inset-grouped chats over green wallpaper and the floating menu over the same green wallpaper. Existing icons, labels, order, badges, and upstream availability rules were retained. The menu remains open in the simulator.
 - Phone/tablet layout and split-selection policies are covered by the selected tests. No separate physical-device or live iPad run was performed.
 - `git diff --check` passed. No chat-list source changes exist relative to the fetched upstream version.
+
+## Single surface in expanded tablet sidebars
+
+Expanded split sidebars use UIKit's existing full-height column material. The menu content fills that column and adds no second glass effect, tint, inset card, or rounded rectangle. Safe-area padding still protects the title and rows. Compact/collapsed layouts retain the content-sized floating glass card. The decision follows split/window presentation state rather than device idiom, so narrow iPad windows follow the compact policy.
+
+UI owns this refinement. Added regression checks for full-column geometry and absence of a second material, preserving existing compact geometry and selection-policy checks. Configured Igor vault paths remain unavailable; this repository note records the decision alongside the existing implementation notes.
+
+Verification: 15 focused sidebar tests passed and the signed simulator build succeeded. Visually checked expanded iPad Pro 11-inch: a single full-height glass surface, no inset inner card. iPhone 17 Pro retains its content-sized floating card. Both simulators left on the updated menus.

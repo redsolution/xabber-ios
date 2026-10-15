@@ -20,7 +20,9 @@ import RxRealm
 
 /// Geometry uses the current column bounds, including iPad multitasking windows.
 enum LeftMenuFloatingLayout {
-    static func frame(in bounds: CGRect, safeArea: UIEdgeInsets, contentHeight: CGFloat) -> CGRect {
+    static func frame(in bounds: CGRect, safeArea: UIEdgeInsets, contentHeight: CGFloat,
+                      fillsColumn: Bool = false) -> CGRect {
+        if fillsColumn { return bounds }
         let available = bounds.inset(by: safeArea).insetBy(dx: 16, dy: 16)
         return CGRect(x: available.minX, y: available.minY,
                       width: max(0, min(350, available.width)),
@@ -47,6 +49,11 @@ enum LeftMenuSurfaceEffectFactory {
             interactive: false,
             prefersNativeGlass: prefersNativeGlass
         )
+    }
+
+    /// Expanded split sidebars already receive their glass surface from UIKit.
+    static func makeEffect(fillsColumn: Bool) -> UIVisualEffect? {
+        fillsColumn ? nil : makeEffect()
     }
 
     static func surfaceBackgroundColor(prefersNativeGlass: Bool = true) -> UIColor {
@@ -710,6 +717,8 @@ class LeftMenuViewController: UIViewController {
         return view
     }()
 
+    private var surfaceFillsColumn: Bool?
+
     private let menuSurfaceView: UIVisualEffectView = {
         let view = UIVisualEffectView(effect: LeftMenuSurfaceEffectFactory.makeEffect())
 
@@ -1134,23 +1143,40 @@ class LeftMenuViewController: UIViewController {
         dismissMenuControl.frame = view.bounds
         // On iPad the root backdrop spans all columns; phones need a local wallpaper.
         menuBackdropView.isHidden = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
+        let fillsColumn = splitViewController.map { split in
+            LeftMenuSelectionPresentationPolicy.action(
+                isSplitCollapsed: split.isCollapsed,
+                splitHorizontalSizeClass: split.traitCollection.horizontalSizeClass,
+                windowHorizontalSizeClass: view.window?.traitCollection.horizontalSizeClass ?? .unspecified,
+                viewHorizontalSizeClass: traitCollection.horizontalSizeClass
+            ).hidesPrimary
+        } ?? false
+        if surfaceFillsColumn != fillsColumn {
+            surfaceFillsColumn = fillsColumn
+            menuSurfaceView.effect = LeftMenuSurfaceEffectFactory.makeEffect(fillsColumn: fillsColumn)
+            menuSurfaceView.backgroundColor = fillsColumn ? .clear : LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
+            menuSurfaceView.layer.cornerRadius = fillsColumn ? 0 : 30
+            if #available(iOS 26.0, *) {
+                menuSurfaceView.cornerConfiguration = .uniformCorners(radius: .fixed(fillsColumn ? 0 : 30))
+            }
+        }
         let headerHeight = max(84, menuTitleLabel.font.lineHeight + 40)
         let sectionSpacing = CGFloat(max(0, datasource.count - 1)) * 16
         let contentHeight = headerHeight + CGFloat(datasource.flatMap { $0 }.count) * floatingRowHeight + sectionSpacing + 12
         menuSurfaceView.frame = LeftMenuFloatingLayout.frame(in: view.bounds,
                                                             safeArea: view.safeAreaInsets,
-                                                            contentHeight: contentHeight)
-        let bounds = menuSurfaceView.bounds
+                                                            contentHeight: contentHeight,
+                                                            fillsColumn: fillsColumn)
+        let bounds = fillsColumn
+            ? menuSurfaceView.bounds.inset(by: view.safeAreaInsets)
+            : menuSurfaceView.bounds
         let showsPremium = !premiumButton.isHidden
         let titleWidth = max(0, bounds.width - 44 - (showsPremium ? 54 : 0))
-        menuTitleLabel.frame = CGRect(x: 22, y: 20, width: titleWidth, height: headerHeight - 40)
-        premiumButton.frame = CGRect(x: bounds.width - 66, y: (headerHeight - 44) / 2, width: 44, height: 44)
-        tableView.frame = CGRect(x: 12, y: headerHeight, width: max(0, bounds.width - 24),
+        menuTitleLabel.frame = CGRect(x: bounds.minX + 22, y: bounds.minY + 20, width: titleWidth, height: headerHeight - 40)
+        premiumButton.frame = CGRect(x: bounds.maxX - 66, y: bounds.minY + (headerHeight - 44) / 2, width: 44, height: 44)
+        tableView.frame = CGRect(x: bounds.minX + 12, y: bounds.minY + headerHeight, width: max(0, bounds.width - 24),
                                  height: max(0, bounds.height - headerHeight - 12))
         tableView.isScrollEnabled = contentHeight > bounds.height
-        if #available(iOS 26.0, *) {
-            menuSurfaceView.cornerConfiguration = .uniformCorners(radius: .fixed(30))
-        }
     }
 
     private func updatePremiumBarButton() {
