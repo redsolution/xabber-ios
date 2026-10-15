@@ -3119,12 +3119,23 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
     }
     
+    private let navigationTitlePill = NavigationTitlePillView()
+
     internal func updateTitle(_ value: Filter) {
         guard !self.isNavigationTransitionActive else {
             self.pendingNavigationChromeRefreshAfterNavigationTransition = true
             return
         }
         self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+        navigationTitlePill.text = title
+        navigationTitlePill.overrideUserInterfaceStyle = view.window?.traitCollection.userInterfaceStyle
+            ?? view.traitCollection.userInterfaceStyle
+        if #available(iOS 26.0, *) {
+            tableView.topEdgeEffect.isHidden = true
+        }
+        if navigationItem.titleView !== navigationTitlePill {
+            navigationItem.titleView = navigationTitlePill
+        }
     }
     
     private final func scrollTableViewToTop(animated: Bool) {

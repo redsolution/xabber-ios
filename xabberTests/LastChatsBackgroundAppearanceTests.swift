@@ -26,6 +26,20 @@ final class LastChatsBackgroundAppearanceTests: XCTestCase {
         super.tearDown()
     }
 
+    func testRecentChatsTitleUsesBottomBarGlassPillAndUpdatesInPlace() throws {
+        let controller = LastChatsViewController()
+        controller.loadViewIfNeeded()
+        let pill = try XCTUnwrap(controller.navigationItem.titleView as? NavigationTitlePillView)
+        controller.updateTitle(controller.filter.value)
+        XCTAssertTrue(controller.navigationItem.titleView === pill)
+        XCTAssertEqual(pill.accessibilityLabel, controller.title)
+        XCTAssertNotNil(pill.subviews.first { $0 is UIVisualEffectView })
+        XCTAssertGreaterThanOrEqual(pill.intrinsicContentSize.height, 42)
+        if #available(iOS 26.0, *) {
+            XCTAssertTrue(controller.tableView.topEdgeEffect.isHidden)
+        }
+    }
+
     func testRecentChatsRendersActiveChatWallpaperBehindTransparentTable() throws {
         let controller = LastChatsViewController()
         controller.loadViewIfNeeded()

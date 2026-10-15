@@ -6213,6 +6213,14 @@ class ChatViewController: MessagesViewController {
     }
 
     private func setupNavigationTitleView() {
+        NavigationTitlePillSurface.install(on: titleButton, role: .clearInputSurface)
+        // Navigation-bar edge adaptation must not turn capsule text white over
+        // its light material. Follow the content window's actual appearance.
+        titleButton.overrideUserInterfaceStyle = view.window?.traitCollection.userInterfaceStyle
+            ?? view.traitCollection.userInterfaceStyle
+        if #available(iOS 26.0, *) {
+            messagesCollectionView.topEdgeEffect.isHidden = true
+        }
         if titleStack.arrangedSubviews.isEmpty {
             titleStack.addArrangedSubview(titleLabel)
             titleStack.addArrangedSubview(statusLabel)
@@ -6221,8 +6229,8 @@ class ChatViewController: MessagesViewController {
             titleButton.addSubview(titleStack)
             titleStack.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor),
-                titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor),
+                titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor, constant: 16),
+                titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor, constant: -16),
                 titleStack.topAnchor.constraint(greaterThanOrEqualTo: titleButton.topAnchor),
                 titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor),
                 titleStack.centerYAnchor.constraint(equalTo: titleButton.centerYAnchor)

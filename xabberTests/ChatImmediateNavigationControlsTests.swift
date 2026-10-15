@@ -4,6 +4,24 @@ import UIKit
 
 @MainActor
 final class ChatImmediateNavigationControlsTests: XCTestCase {
+    func testChatTitleHasOneGlassPillAndKeepsInfoAction() throws {
+        let chat = ChatViewController()
+        chat.configureNavbar()
+        chat.configureNavbar()
+        let pills = chat.titleButton.subviews.filter {
+            $0.accessibilityIdentifier == NavigationTitlePillSurface.accessibilityIdentifier
+        }
+        XCTAssertEqual(pills.count, 1)
+        let surface = try XCTUnwrap(pills.first as? UIVisualEffectView)
+        XCTAssertNotNil(surface.effect)
+        XCTAssertFalse(surface.isUserInteractionEnabled)
+        XCTAssertTrue(chat.navigationItem.titleView === chat.titleButton)
+        if #available(iOS 26.0, *) {
+            XCTAssertTrue(chat.messagesCollectionView.topEdgeEffect.isHidden)
+        }
+        XCTAssertFalse(chat.titleButton.actions(forTarget: chat, forControlEvent: .touchUpInside)?.isEmpty ?? true)
+    }
+
     func testLastChatsPreparesVisibleBackChevronBeforeChatPush() throws {
         let lastChats = LastChatsViewController()
         let navigationController = UINavigationController(

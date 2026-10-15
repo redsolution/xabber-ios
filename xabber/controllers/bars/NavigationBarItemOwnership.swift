@@ -218,3 +218,63 @@ enum NativeSectionNavigationBarPolicy {
         resetNavigationItemAppearance(viewController.navigationItem)
     }
 }
+
+/// Local title chrome shares the material used by the composer and bottom bars.
+enum NavigationTitlePillSurface {
+    static let accessibilityIdentifier = "navigation_title_pill_surface"
+
+    static func install(on view: UIView, role: XabberGlassStyle.SurfaceRole) {
+        guard !view.subviews.contains(where: { $0.accessibilityIdentifier == accessibilityIdentifier }) else { return }
+        let surface = UIVisualEffectView()
+        XabberGlassStyle.applySurface(to: surface, role: role, cornerStyle: .capsule, interactive: true)
+        surface.isUserInteractionEnabled = false
+        surface.accessibilityIdentifier = accessibilityIdentifier
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(surface, at: 0)
+        NSLayoutConstraint.activate([
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+}
+
+final class NavigationTitlePillView: UIView {
+    private let label = UILabel()
+
+    var text: String? {
+        get { label.text }
+        set {
+            label.text = newValue
+            accessibilityLabel = newValue
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        NavigationTitlePillSurface.install(on: self, role: .bar)
+        label.font = UIFont.preferredFont(forTextStyle: .headline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.textAlignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .staticText
+        accessibilityIdentifier = "recent_chats_title_pill"
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: label.intrinsicContentSize.width + 32, height: max(42, label.font.lineHeight + 16))
+    }
+}
