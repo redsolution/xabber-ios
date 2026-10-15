@@ -285,7 +285,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "startTLS": hasStartTLS,
                 "bind": hasBind
             ],
-            rawXML: features.xmlString
+            rawXML: features.prettyXMLString ?? features.xmlString
         )
         if hasStartTLS {
             self.lifecycleCoordinator.markTLSNegotiating()
@@ -302,7 +302,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         self.logConnectionDiagnostics(
             event: "authentication_failed",
             details: ["streamError": self.streamErrorName(error)],
-            rawXML: error.xmlString
+            rawXML: error.prettyXMLString ?? error.xmlString
         )
         self.didReceiveError(error)
 //        else {
@@ -315,7 +315,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         self.logConnectionDiagnostics(
             event: "xmpp_stream_error",
             details: ["streamError": self.streamErrorName(error)],
-            rawXML: error.xmlString
+            rawXML: error.prettyXMLString ?? error.xmlString
         )
 //        if error.element(forName: "policy-violation") != nil {
 //            self.disable(self.currentJid ?? "")
@@ -415,7 +415,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "fallbackDelivered": fallbackDelivered,
                 "stage": stage
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
         return true
     }
@@ -431,7 +431,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
         if let routingId = self.mamCompletionRoutingId(for: iq),
            self.preRoutedMamCompletionIQIds.remove(routingId) != nil {
@@ -442,7 +442,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     "routingId": routingId,
                     "reason": "preRouted"
                 ],
-                rawXML: iq.xmlString
+                rawXML: iq.prettyXMLString ?? iq.xmlString
             )
             self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
             return true
@@ -484,7 +484,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
     }
     
@@ -496,7 +496,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.xmlString,
+            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
 //        print("FAIL", iq.prettyXMLString())
@@ -527,7 +527,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
             ],
-            rawXML: message.xmlString
+            rawXML: message.prettyXMLString ?? message.xmlString
         )
     }
     
@@ -541,7 +541,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
             ],
-            rawXML: message.xmlString
+            rawXML: message.prettyXMLString ?? message.xmlString
         )
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
@@ -673,7 +673,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "id": message.elementID ?? "none",
                 "type": message.type ?? "chat"
             ],
-            rawXML: message.xmlString,
+            rawXML: message.prettyXMLString ?? message.xmlString,
             error: error
         )
     }
@@ -688,7 +688,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
             ],
-            rawXML: presence.xmlString
+            rawXML: presence.prettyXMLString ?? presence.xmlString
         )
     }
 
@@ -702,7 +702,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
             ],
-            rawXML: presence.xmlString
+            rawXML: presence.prettyXMLString ?? presence.xmlString
         )
     }
 
@@ -714,7 +714,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "id": presence.elementID ?? "none",
                 "type": presence.type ?? "available"
             ],
-            rawXML: presence.xmlString,
+            rawXML: presence.prettyXMLString ?? presence.xmlString,
             error: error
         )
     }

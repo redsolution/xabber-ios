@@ -3123,9 +3123,8 @@ final class ConnectionDiagnosticsTimeline {
 
 struct ConnectionDiagnosticsLogger {
     static let prefix = "CONNECTION_DIAGNOSTICS"
-    static let redactedValue = "[redacted]"
 
-    // Log stanza XML by default while preserving credential redaction.
+    // Stream XML is logged in full, without redaction or string escaping.
     static let rawXMLLoggingEnabled = true
 
     static func log(
@@ -3223,67 +3222,11 @@ struct ConnectionDiagnosticsLogger {
             parts.append("\(key)=\(format(unwrapped))")
         }
 
+        let header = parts.joined(separator: " ")
         if includeRawXML, let rawXML {
-            parts.append("xml=\(format(redact(rawXML)))")
+            return header + "\n" + rawXML
         }
-
-        return parts.joined(separator: " ")
-    }
-
-    static func redact(_ rawXML: String) -> String {
-        var output = rawXML
-
-        let sensitiveElements = [
-            "auth",
-            "response",
-            "device-secret",
-            "device_secret",
-            "deviceSecret",
-            "xabberDeviceSecret",
-            "validation-key",
-            "validation_key",
-            "validationKey",
-            "key",
-            "encryption-key",
-            "encryption_key",
-            "encryptionKey",
-            "access-token",
-            "access_token",
-            "accessToken",
-            "refresh-token",
-            "refresh_token",
-            "refreshToken",
-            "password",
-            "token",
-            "secret",
-            "jwt"
-        ]
-
-        for element in sensitiveElements {
-            output = replacing(
-                pattern: "(?is)(<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?\(element)\\b[^>]*>)(.*?)(</(?:[A-Za-z_][A-Za-z0-9_.-]*:)?\(element)>)",
-                in: output,
-                with: "$1\(redactedValue)$3"
-            )
-        }
-
-        output = replacing(
-            pattern: "(?i)\\b(device-secret|device_secret|deviceSecret|xabberDeviceSecret|validation-key|validation_key|validationKey|encryption-key|encryption_key|encryptionKey|access-token|access_token|accessToken|refresh-token|refresh_token|refreshToken|password|token|secret|jwt|authorization)\\s*=\\s*\"[^\"]*\"",
-            in: output,
-            with: "$1=\"\(redactedValue)\""
-        )
-        output = replacing(
-            pattern: "(?i)\\b(device-secret|device_secret|deviceSecret|xabberDeviceSecret|validation-key|validation_key|validationKey|encryption-key|encryption_key|encryptionKey|access-token|access_token|accessToken|refresh-token|refresh_token|refreshToken|password|token|secret|jwt|authorization)\\s*=\\s*'[^']*'",
-            in: output,
-            with: "$1='\(redactedValue)'"
-        )
-        output = replacing(
-            pattern: "(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]+",
-            in: output,
-            with: "Bearer \(redactedValue)"
-        )
-
-        return output
+        return header
     }
 
     static func stateDescription(for stream: XMPPStream) -> String {
@@ -3313,14 +3256,6 @@ struct ConnectionDiagnosticsLogger {
             return "\"\(escaped)\""
         }
         return escaped
-    }
-
-    private static func replacing(pattern: String, in value: String, with template: String) -> String {
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return value
-        }
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        return expression.stringByReplacingMatches(in: value, options: [], range: range, withTemplate: template)
     }
 }
 
@@ -3916,7 +3851,7 @@ final class Account: NSObject {
                 "kind": primaryStreamStanzaKind(for: stanza).rawValue,
                 "violation": String(describing: violation)
             ],
-            rawXML: stanza.xmlString
+            rawXML: stanza.prettyXMLString ?? stanza.xmlString
         )
     }
 

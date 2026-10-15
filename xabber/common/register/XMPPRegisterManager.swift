@@ -232,7 +232,7 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
 //        print("registration error: \(error.prettyXMLString!)")
         self.logConnectionDiagnostics(
             event: "xmpp_stream_error",
-            rawXML: error.xmlString
+            rawXML: error.prettyXMLString ?? error.xmlString
         )
         do {
             self.logConnectionDiagnostics(
@@ -258,7 +258,7 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
         if let query = iq.element(forName: "query", xmlns: "jabber:iq:register") {
             switch state {
@@ -328,7 +328,7 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
     }
 
@@ -339,7 +339,7 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.xmlString,
+            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
     }

@@ -229,7 +229,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none"
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
         sender.send(iq)
     }
@@ -237,7 +237,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
         self.logConnectionDiagnostics(
             event: "authentication_failed",
-            rawXML: error.xmlString
+            rawXML: error.prettyXMLString ?? error.xmlString
         )
         close(sender)
         guard let text = error.elements(forName: "text").first?.stringValue else {
@@ -255,7 +255,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
             ],
-            rawXML: iq.xmlString
+            rawXML: iq.prettyXMLString ?? iq.xmlString
         )
         
         switch iq.iqType {
@@ -296,7 +296,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.xmlString,
+            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
     }
@@ -304,7 +304,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
         self.logConnectionDiagnostics(
             event: "xmpp_stream_error",
-            rawXML: error.xmlString
+            rawXML: error.prettyXMLString ?? error.xmlString
         )
     }
 
@@ -317,7 +317,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
                 "startTLS": hasStartTLS,
                 "bind": hasBind
             ],
-            rawXML: features.xmlString
+            rawXML: features.prettyXMLString ?? features.xmlString
         )
     }
 
