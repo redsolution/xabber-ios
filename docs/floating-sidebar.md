@@ -13,9 +13,27 @@ Ownership: UI; affected coverage: LeftMenuSurfaceEffectFactoryTests (phone/table
 
 The AGENTS.md knowledge-base and Obsidian locations under /Users/igor.boldin/projects/xabber are absent on this machine; this note records the local task context instead.
 
-Verification (2026-10-15):
+Original implementation verification (2026-10-15):
 
 - Cached Debug build for generic iOS Simulator succeeded (arm64 and x86_64).
 - Isolated hosted XCTest run on iPhone 17 Pro / iOS 26 succeeded: all 6 LeftMenuSurfaceEffectFactoryTests passed, including geometry cases for phone and tablet columns and short windows.
 - `git diff --check` passed.
 - No signed-in visual review or physical-device check was performed. Tablet geometry is covered by unit tests; the test host ran on a phone simulator.
+
+
+## Port to Igor's latest version
+
+Based on origin/codex/omemo-xabbercryptoswift at d33c588a, fetched 2026-10-15. This version includes ce05bf57 (inset grouped recent chats at every width) and 012b1582 (wallpaper behind recent chats). Ported the existing menu commit while retaining the new chat navigation route resolver and current localization behavior. No chat-list implementation was replaced.
+
+The prior branch and its commits remain intact. The two pre-existing local edits (Podfile path and Realm migration property guard) were saved in a named Git stash. The migration safeguard was reapplied locally to retain compatibility with this simulator's existing database. The newer Podfile uses XABBER_DEPS_ROOT, pointed at a local dependency-directory symlink. Updated installed Pods according to upstream's declared dependency graph and synchronized the workspace package lock from the committed project lock. The ignored local Info.plist explicitly selects the actual signed Keychain entitlement through upstream's newer access-group resolver, preserving simulator login without reapplying the old credential implementation.
+
+Owner: UI; secondary verification: simulator integration. Local knowledge-base README reviewed at /Users/andrew.nenakhov/Projects/xabber-knowledge. Original Igor vault paths remain unavailable.
+
+Port verification completed (2026-10-15):
+
+- All 18 selected tests passed: LeftMenuSurfaceEffectFactoryTests, LeftMenuSelectionPresentationPolicyTests, and LastChatsBackgroundAppearanceTests.
+- Signed Debug build succeeded for iPhone 17 Pro / iOS 26.
+- Installed and launched the updated app with Igor's existing signed-in account intact; no new login was needed.
+- Visually verified the new inset-grouped chats over green wallpaper and the floating menu over the same green wallpaper. Existing icons, labels, order, badges, and upstream availability rules were retained. The menu remains open in the simulator.
+- Phone/tablet layout and split-selection policies are covered by the selected tests. No separate physical-device or live iPad run was performed.
+- `git diff --check` passed. No chat-list source changes exist relative to the fetched upstream version.

@@ -1118,7 +1118,7 @@ class LeftMenuViewController: UIViewController {
         menuSurfaceView.contentView.addSubview(tableView)
         menuSurfaceView.contentView.addSubview(menuTitleLabel)
         menuSurfaceView.contentView.addSubview(premiumButton)
-        premiumButton.accessibilityLabel = "Premium"
+        premiumButton.accessibilityLabel = L10n.text("settings__title__premium", fallback: "Premium")
         premiumButton.addTarget(self, action: #selector(onPremiumButton), for: .touchUpInside)
         self.navigationItem.backButtonDisplayMode = .minimal
         tableView.delegate = self
