@@ -7,11 +7,11 @@ enum PushHTTPIQ {
     static let mamScope = "urn:xmpp:mam:2"
     static let requestedTTL = 3600
 
-    static func endpointsRequest(id: String, jid: XMPPJID) -> XMPPIQ {
-        request(id: id, jid: jid, child: DDXMLElement(name: "endpoints", xmlns: namespace))
+    static func endpointsRequest(id: String) -> XMPPIQ {
+        request(id: id, child: DDXMLElement(name: "endpoints", xmlns: namespace))
     }
 
-    static func tokenRequest(id: String, jid: XMPPJID) -> XMPPIQ {
+    static func tokenRequest(id: String) -> XMPPIQ {
         let token = DDXMLElement(name: "token", xmlns: namespace)
         let scope = DDXMLElement(name: "scope", xmlns: namespace)
         scope.stringValue = mamScope
@@ -19,13 +19,11 @@ enum PushHTTPIQ {
         let ttl = DDXMLElement(name: "ttl", xmlns: namespace)
         ttl.stringValue = String(requestedTTL)
         token.addChild(ttl)
-        return request(id: id, jid: jid, child: token)
+        return request(id: id, child: token)
     }
 
-    private static func request(id: String, jid: XMPPJID, child: DDXMLElement) -> XMPPIQ {
-        let iq = XMPPIQ(iqType: .get, to: XMPPJID(string: jid.domain), elementID: id, child: child)
-        iq.addAttribute(withName: "from", stringValue: jid.full)
-        return iq
+    private static func request(id: String, child: DDXMLElement) -> XMPPIQ {
+        XMPPIQ(iqType: .get, elementID: id, child: child)
     }
 
     static func archiveEndpoint(in iq: XMPPIQ) -> String? {

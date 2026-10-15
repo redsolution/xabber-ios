@@ -641,8 +641,10 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
 
     private func sendHTTPArchiveRequestLocked(_ request: HTTPArchiveRequest) {
-        guard isCurrentHTTPArchiveRequestLocked(request), let stream = request.stream,
-              let jid = stream.myJID else { cancelHTTPArchiveRequestLocked(); return }
+        guard isCurrentHTTPArchiveRequestLocked(request), let stream = request.stream else {
+            cancelHTTPArchiveRequestLocked()
+            return
+        }
         request.cancelTimeout?()
         queryIds.remove(request.id)
         request.id = stream.generateUUID
@@ -659,8 +661,8 @@ class PushNotificationsManager: AbstractXMPPManager {
         guard httpArchiveRequest === request, request.id == id else { cancel(); return }
         request.cancelTimeout = cancel
         let iq = request.endpoint == nil
-            ? PushHTTPIQ.endpointsRequest(id: id, jid: jid)
-            : PushHTTPIQ.tokenRequest(id: id, jid: jid)
+            ? PushHTTPIQ.endpointsRequest(id: id)
+            : PushHTTPIQ.tokenRequest(id: id)
         NSLog("HTTP_IQ_ARCHIVE event=request_queued operation=\(request.endpoint == nil ? "endpoints" : "token") namespace=\(PushHTTPIQ.namespace)")
         NSLog("HTTP_IQ_ARCHIVE request XML:\n%@", iq.prettyXMLString ?? iq.xmlString)
         stream.send(iq)
@@ -690,7 +692,8 @@ class PushNotificationsManager: AbstractXMPPManager {
         }
         guard iq.elementID == request.id, queryIds.contains(request.id),
               iq.iqType == .result || iq.iqType == .error,
-              iq.from == nil || (iq.from?.bare == request.domain && iq.from?.resource == nil),
+              iq.from == nil || ((iq.from?.bare == request.domain || iq.from?.bare == request.owner)
+                                && iq.from?.resource == nil),
               iq.to == nil || iq.to?.full == request.streamJID || iq.to?.full == request.owner else { return false }
         NSLog("HTTP_IQ_ARCHIVE response XML:\n%@", iq.prettyXMLString ?? iq.xmlString)
         guard iq.iqType == .result else {

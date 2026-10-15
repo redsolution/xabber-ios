@@ -30,12 +30,18 @@ final class PushPipelineIntegrationTests: XCTestCase {
         manager.setCustomPushSupport(true, xmppStream: stream)
         manager.enable(xmppStream: stream) { XCTAssertTrue($0) }
         func requestID(_ child: String, namespace: String) throws -> String {
-            try XCTUnwrap(stream.sent.last(where: {
+            let request = try XCTUnwrap(stream.sent.last(where: {
                 $0.element(forName: child, xmlns: namespace) != nil
-            })?.attributeStringValue(forName: "id"))
+            }))
+            if namespace == "https://xabber.com/protocol/http-iq" {
+                XCTAssertEqual(request.attributeStringValue(forName: "type"), "get")
+                XCTAssertNil(request.attributeStringValue(forName: "to"))
+                XCTAssertNil(request.attributeStringValue(forName: "from"))
+            }
+            return try XCTUnwrap(request.attributeStringValue(forName: "id"))
         }
         func result(_ id: String, body: String) throws -> XMPPIQ {
-            let document = try DDXMLDocument(xmlString: "<iq type='result' id='\(id)' from='example.invalid' to='\(owner)/ios'>\(body)</iq>", options: 0)
+            let document = try DDXMLDocument(xmlString: "<iq type='result' id='\(id)' from='\(owner)' to='\(owner)/ios'>\(body)</iq>", options: 0)
             return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
         }
         XCTAssertTrue(manager.read(withIQ: try result(requestID("enable", namespace: manager.getPrimaryNamespace()), body: "")))

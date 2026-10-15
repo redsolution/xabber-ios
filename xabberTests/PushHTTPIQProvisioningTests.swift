@@ -79,7 +79,7 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSummaryEnableAcknowledgementStartsDiscoveryBeforeAnyTokenOrHTTPReadiness() throws {
+    func testSummaryEnableAcknowledgementStartsUnaddressedDiscoveryBeforeAnyTokenOrHTTPReadiness() throws {
         let f = fixture()
         f.manager.enable(xmppStream: f.stream) { f.callbacks.append($0) }
         XCTAssertTrue(requests(f, "endpoints").isEmpty)
@@ -93,13 +93,13 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         XCTAssertFalse(f.manager.httpPreviewReady)
         let discovery = try request(f, "endpoints")
         XCTAssertEqual(discovery.attributeStringValue(forName: "type"), "get")
-        XCTAssertEqual(discovery.attributeStringValue(forName: "from"), "\(owner)/ios-http-iq")
-        XCTAssertEqual(discovery.attributeStringValue(forName: "to"), domain)
+        XCTAssertNil(discovery.attributeStringValue(forName: "from"))
+        XCTAssertNil(discovery.attributeStringValue(forName: "to"))
         XCTAssertEqual(discovery.element(forName: "endpoints", xmlns: httpNamespace)?.childCount, 0)
         XCTAssertTrue(requests(f, "token").isEmpty)
     }
 
-    func testDiscoveryFindsMAMByIDAndTokenGrantIsPublishedAtomicallyForExtension() throws {
+    func testDiscoveryIssuesUnaddressedMAMTokenRequestAndPublishesGrantAtomicallyForExtension() throws {
         let f = fixture()
         let originalKey = f.record.keyBytes
         try acknowledgeSummary(f)
@@ -108,8 +108,8 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         XCTAssertEqual(f.writes, 0, "An endpoint alone must not publish a usable partial grant")
         let tokenRequest = try request(f, "token")
         XCTAssertEqual(tokenRequest.attributeStringValue(forName: "type"), "get")
-        XCTAssertEqual(tokenRequest.attributeStringValue(forName: "from"), "\(owner)/ios-http-iq")
-        XCTAssertEqual(tokenRequest.attributeStringValue(forName: "to"), domain)
+        XCTAssertNil(tokenRequest.attributeStringValue(forName: "from"))
+        XCTAssertNil(tokenRequest.attributeStringValue(forName: "to"))
         let token = try XCTUnwrap(tokenRequest.element(forName: "token", xmlns: httpNamespace))
         XCTAssertEqual(token.elements(forName: "scope").map { $0.stringValue ?? "" }, [mamNamespace])
         XCTAssertEqual(token.element(forName: "ttl", xmlns: httpNamespace)?.stringValue, "3600")
@@ -130,6 +130,27 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         XCTAssertTrue(f.manager.httpPreviewReady)
         XCTAssertTrue(f.manager.enabled)
         XCTAssertEqual(f.callbacks, [true])
+    }
+
+    func testUnaddressedHTTPProvisioningAcceptsOwnBareDomainOrAbsentResponseSender() throws {
+        for sender in [Optional(owner), Optional(domain), nil] {
+            let f = fixture()
+            try acknowledgeSummary(f)
+            let discovery = try request(f, "endpoints")
+            let discoveryID = try XCTUnwrap(discovery.attributeStringValue(forName: "id"))
+
+            XCTAssertTrue(f.manager.read(withIQ: try reply(id: discoveryID, from: sender,
+                includeSender: sender != nil, body: endpoints())))
+            let token = try request(f, "token")
+            let tokenID = try XCTUnwrap(token.attributeStringValue(forName: "id"))
+            XCTAssertTrue(f.manager.read(withIQ: try reply(id: tokenID, from: sender,
+                includeSender: sender != nil, body: tokenResult())))
+
+            XCTAssertEqual(f.writes, 1)
+            XCTAssertEqual(f.record.httpArchive?.discoveryDomain, domain)
+            XCTAssertTrue(f.manager.httpPreviewReady)
+            XCTAssertTrue(f.manager.enabled)
+        }
     }
 
     func testFullModeNeverDiscoversOrIssuesHTTPTokenAfterSuccessfulEnable() throws {
@@ -353,7 +374,8 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
             try reply(id: "wrong-id", body: endpoints()),
             try reply(id: id, from: "another.example.invalid", body: endpoints()),
             try reply(id: id, from: "\(domain)/server-resource", body: endpoints()),
-            try reply(id: id, from: owner, body: endpoints()),
+            try reply(id: id, from: "another@example.invalid", body: endpoints()),
+            try reply(id: id, from: "\(owner)/ios-http-iq", body: endpoints()),
             try reply(id: id, to: "another@example.invalid/ios-http-iq", body: endpoints()),
             try reply(id: id, to: "\(owner)/other-resource", body: endpoints()),
             try reply(id: id, type: "get", body: endpoints())
@@ -363,6 +385,25 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         }
         XCTAssertTrue(f.manager.read(withIQ: try reply(to: discovery, body: endpoints())))
         XCTAssertEqual(requests(f, "token").count, 1)
+    }
+
+    func testUnrelatedOrResourceQualifiedSenderCannotConsumeCurrentTokenQuery() throws {
+        let f = fixture()
+        try acknowledgeSummary(f)
+        XCTAssertTrue(f.manager.read(withIQ: try reply(to: request(f, "endpoints"), body: endpoints())))
+        let token = try request(f, "token")
+        let id = try XCTUnwrap(token.attributeStringValue(forName: "id"))
+
+        for sender in ["another@example.invalid", "another.example.invalid", "\(domain)/server-resource", "\(owner)/ios-http-iq"] {
+            XCTAssertFalse(f.manager.read(withIQ: try reply(id: id, from: sender, body: tokenResult())))
+            XCTAssertEqual(f.writes, 0)
+            XCTAssertNil(f.record.httpArchive)
+            XCTAssertFalse(f.manager.httpPreviewReady)
+        }
+
+        XCTAssertTrue(f.manager.read(withIQ: try reply(id: id, from: owner, body: tokenResult())))
+        XCTAssertEqual(f.writes, 1)
+        XCTAssertTrue(f.manager.httpPreviewReady)
     }
 
     func testDuplicateDiscoveryAndTokenRepliesCannotRepublishOrIssueTwice() throws {
@@ -558,9 +599,11 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         try reply(id: XCTUnwrap(request.attributeStringValue(forName: "id")), type: type, body: body)
     }
 
-    private func reply(id: String, type: String = "result", from: String? = nil, to: String? = nil, body: String) throws -> XMPPIQ {
+    private func reply(id: String, type: String = "result", from: String? = nil, to: String? = nil,
+                       includeSender: Bool = true, body: String) throws -> XMPPIQ {
+        let sender = includeSender ? " from='\(from ?? domain)'" : ""
         let document = try DDXMLDocument(
-            xmlString: "<iq type='\(type)' from='\(from ?? domain)' to='\(to ?? "\(owner)/ios-http-iq")' id='\(id)'>\(body)</iq>", options: 0
+            xmlString: "<iq type='\(type)'\(sender) to='\(to ?? "\(owner)/ios-http-iq")' id='\(id)'>\(body)</iq>", options: 0
         )
         return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
     }

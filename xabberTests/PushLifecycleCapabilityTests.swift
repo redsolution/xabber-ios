@@ -259,13 +259,13 @@ final class PushLifecycleCapabilityTests: XCTestCase {
             $0.element(forName: "endpoints", xmlns: "https://xabber.com/protocol/http-iq") != nil
         }))
         let id = try XCTUnwrap(request.attributeStringValue(forName: "id"))
-        let domain = try XCTUnwrap(fixture.stream.myJID?.domain)
         let recipient = try XCTUnwrap(fixture.stream.myJID?.full)
-        XCTAssertEqual(request.attributeStringValue(forName: "to"), domain)
+        XCTAssertNil(request.attributeStringValue(forName: "to"))
+        XCTAssertNil(request.attributeStringValue(forName: "from"))
         XCTAssertFalse(fixture.account.push.needsHTTPArchive, "An active HTTP IQ chain must suppress foreground retries")
 
         XCTAssertTrue(fixture.account.push.read(withIQ: try iq("""
-        <iq type='error' id='\(id)' from='\(domain)' to='\(recipient)'>
+        <iq type='error' id='\(id)' from='\(fixture.account.jid)' to='\(recipient)'>
           <error type='cancel'><service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error>
         </iq>
         """)))
