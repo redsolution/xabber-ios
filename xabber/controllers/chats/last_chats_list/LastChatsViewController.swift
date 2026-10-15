@@ -5577,7 +5577,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             if self.splitViewController?.isShowing(.primary) ?? false {
                 self.splitViewController?.hide(.primary)
             } else {
-                self.splitViewController?.show(.primary)
+                self.splitViewController?.showXabberSidebar()
             }
         } else {
             if isPrimaryShow {
@@ -5585,7 +5585,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 self.splitViewController?.hide(.primary)
             } else {
                 isPrimaryShow = true
-                self.splitViewController?.show(.primary)
+                self.splitViewController?.showXabberSidebar()
             }
         }
     }

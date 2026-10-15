@@ -1572,7 +1572,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         case .popNavigationStack:
             navigationController?.popViewController(animated: true)
         case .revealSplitList:
-            splitViewController?.show(.primary)
+            splitViewController?.showXabberSidebar()
         case .selectChatsRoot:
             leftMenuDelegate?.selectRootScreenAndCategory(screen: "chat", category: nil)
         case .none:

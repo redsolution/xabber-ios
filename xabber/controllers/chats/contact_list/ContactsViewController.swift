@@ -1846,7 +1846,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     
     @objc
     private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
-        self.splitViewController?.show(.primary)
+        self.splitViewController?.showXabberSidebar()
     }
     
     internal let securityButton: UIBarButtonItem = {

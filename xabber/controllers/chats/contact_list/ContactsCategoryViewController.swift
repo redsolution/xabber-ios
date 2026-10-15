@@ -300,7 +300,7 @@ class ContactsCategoryViewController: BaseViewController {
 
     @objc
     private final func onSidebarButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        splitViewController?.show(.primary)
+        splitViewController?.showXabberSidebar()
     }
     
     override func observer() {

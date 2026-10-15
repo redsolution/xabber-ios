@@ -45,3 +45,11 @@ Expanded split sidebars use UIKit's existing full-height column material. The me
 UI owns this refinement. Added regression checks for full-column geometry and absence of a second material, preserving existing compact geometry and selection-policy checks. Configured Igor vault paths remain unavailable; this repository note records the decision alongside the existing implementation notes.
 
 Verification: 15 focused sidebar tests passed and the signed simulator build succeeded. Visually checked expanded iPad Pro 11-inch: a single full-height glass surface, no inset inner card. iPhone 17 Pro retains its content-sized floating card. Both simulators left on the updated menus.
+
+## Compact menu over current content
+
+Compact sidebar buttons now capture the visible split content immediately before UIKit shows the primary column. A transient view capture under a full-screen thick-material blur preserves the visible screen and scroll position behind the floating menu. The capture is noninteractive, hidden from accessibility, replaced on each opening, released on menu disappearance, and never written to disk. Menu selection and tap-outside still use existing split navigation. Expanded tablet sidebars continue using UIKit's single column surface. A fresh launch without a captured screen retains the wallpaper fallback.
+
+All explicit sidebar entry points use `showXabberSidebar()` so Chats, Contacts, Notifications, Calls, and their category/detail screens share the same behavior. Added capture replacement/release and heavy-blur regression checks alongside existing geometry and navigation policy tests. UI owns this work; configured external vault paths remain unavailable, so durable notes are kept here.
+
+Verification: 17 focused sidebar tests passed and the normal signed simulator build succeeded. Visually checked the iPhone menu over the captured chat list, selected Chats to restore the original list, and reopened the menu successfully. Left the updated phone menu open for review. Expanded-column geometry/effect and compact selection policy regressions passed.

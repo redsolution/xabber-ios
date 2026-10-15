@@ -915,7 +915,7 @@ class ContactInfoViewController: BaseViewController {
         case .popNavigationStack:
             navigationController?.popViewController(animated: true)
         case .revealSplitList:
-            splitViewController?.show(.primary)
+            splitViewController?.showXabberSidebar()
         case .none:
             break
         }

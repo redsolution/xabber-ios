@@ -38,6 +38,28 @@ final class LeftMenuSurfaceEffectFactoryTests: XCTestCase {
         XCTAssertNotNil(LeftMenuSurfaceEffectFactory.makeEffect(fillsColumn: false))
     }
 
+    @MainActor
+    func testCompactMenuBackdropReplacesAndReleasesCapturedContent() {
+        let backdrop = LeftMenuCompactBackdropView()
+        let firstScreen = UIView()
+        let nextScreen = UIView()
+        backdrop.show(firstScreen)
+        XCTAssertTrue(firstScreen.superview === backdrop)
+        XCTAssertFalse(backdrop.isHidden)
+        backdrop.show(nextScreen)
+        XCTAssertNil(firstScreen.superview)
+        XCTAssertTrue(nextScreen.superview === backdrop)
+        XCTAssertEqual(backdrop.subviews.count, 2) // One capture and its blur.
+        backdrop.show(nil)
+        XCTAssertNil(nextScreen.superview)
+        XCTAssertTrue(backdrop.isHidden)
+    }
+
+    @MainActor
+    func testCompactContentBackdropUsesHeavyMaterialBlur() {
+        XCTAssertEqual(LeftMenuCompactBackdropView.blurStyle, .systemThickMaterial)
+    }
+
     func testShortWindowConstrainsPanelInsteadOfClippingSettings() {
         let frame = LeftMenuFloatingLayout.frame(in: CGRect(x: 0, y: 0, width: 700, height: 320),
                                                 safeArea: .zero, contentHeight: 700)

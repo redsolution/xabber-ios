@@ -30,6 +30,49 @@ enum LeftMenuFloatingLayout {
     }
 }
 
+/// A transient on-screen capture keeps compact split navigation intact while the
+/// menu visually overlays the screen it replaced. Nothing is persisted to disk.
+final class LeftMenuCompactBackdropView: UIView {
+    static let blurStyle: UIBlurEffect.Style = .systemThickMaterial
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: LeftMenuCompactBackdropView.blurStyle))
+    private var capturedView: UIView?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+        isHidden = true
+        addSubview(blurView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func show(_ capture: UIView?) {
+        capturedView?.removeFromSuperview()
+        capturedView = capture
+        if let capture {
+            insertSubview(capture, belowSubview: blurView)
+        }
+        isHidden = capture == nil
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        capturedView?.frame = bounds
+        blurView.frame = bounds
+    }
+}
+
+extension UISplitViewController {
+    func showXabberSidebar() {
+        if let menu = viewController(for: .primary) as? LeftMenuViewController {
+            menu.captureCompactBackdrop(in: self)
+        }
+        show(.primary)
+    }
+}
+
 enum LeftMenuSurfaceEffectFactory {
     static var fallbackBlurStyle: UIBlurEffect.Style {
         XabberGlassStyle.fallbackBlurStyle(for: .leftMenuSurface)
@@ -535,6 +578,7 @@ class LeftMenuViewController: UIViewController {
         stackedNavigationRoute(for: $0)
     }
     private let menuBackdropView = ChatBackgroundBackdropView()
+    private let compactContentBackdropView = LeftMenuCompactBackdropView()
     private let dismissMenuControl = UIControl()
     private let premiumButton = UIButton(type: .system)
     private var wasNavigationBarHidden = false
@@ -1121,6 +1165,7 @@ class LeftMenuViewController: UIViewController {
         view.backgroundColor = .clear
         view.isOpaque = false
         view.addSubview(menuBackdropView)
+        view.addSubview(compactContentBackdropView)
         view.addSubview(dismissMenuControl)
         dismissMenuControl.addTarget(self, action: #selector(onTableViewEmptySpaceTap), for: .touchUpInside)
         view.addSubview(menuSurfaceView)
@@ -1140,9 +1185,11 @@ class LeftMenuViewController: UIViewController {
 
     private func layoutFloatingMenu() {
         menuBackdropView.frame = view.bounds
+        compactContentBackdropView.frame = view.bounds
         dismissMenuControl.frame = view.bounds
         // On iPad the root backdrop spans all columns; phones need a local wallpaper.
-        menuBackdropView.isHidden = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
+        let sharedBackdrop = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
+        menuBackdropView.isHidden = sharedBackdrop || !compactContentBackdropView.isHidden
         let fillsColumn = splitViewController.map { split in
             LeftMenuSelectionPresentationPolicy.action(
                 isSplitCollapsed: split.isCollapsed,
@@ -1151,6 +1198,9 @@ class LeftMenuViewController: UIViewController {
                 viewHorizontalSizeClass: traitCollection.horizontalSizeClass
             ).hidesPrimary
         } ?? false
+        if fillsColumn {
+            compactContentBackdropView.show(nil)
+        }
         if surfaceFillsColumn != fillsColumn {
             surfaceFillsColumn = fillsColumn
             menuSurfaceView.effect = LeftMenuSurfaceEffectFactory.makeEffect(fillsColumn: fillsColumn)
@@ -1177,6 +1227,17 @@ class LeftMenuViewController: UIViewController {
         tableView.frame = CGRect(x: bounds.minX + 12, y: bounds.minY + headerHeight, width: max(0, bounds.width - 24),
                                  height: max(0, bounds.height - headerHeight - 12))
         tableView.isScrollEnabled = contentHeight > bounds.height
+    }
+
+    fileprivate func captureCompactBackdrop(in split: UISplitViewController) {
+        guard selectionPresentationAction(for: split) == .compactRevealSupplementary,
+              split.isViewLoaded else { return }
+        if #available(iOS 26.0, *), split.isShowing(.primary) { return }
+        // Capture before UIKit replaces the compact content column with primary.
+        let capture = split.view.snapshotView(afterScreenUpdates: false)
+        loadViewIfNeeded()
+        compactContentBackdropView.show(capture)
+        view.setNeedsLayout()
     }
 
     private func updatePremiumBarButton() {
@@ -1278,6 +1339,7 @@ class LeftMenuViewController: UIViewController {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        compactContentBackdropView.show(nil)
     }
 }
 

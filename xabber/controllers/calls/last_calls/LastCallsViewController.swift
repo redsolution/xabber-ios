@@ -569,7 +569,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     @objc
     private func onSidebarButtonTouchUp(_ sender: UIBarButtonItem) {
-        self.splitViewController?.show(.primary)
+        self.splitViewController?.showXabberSidebar()
     }
     
     internal final func showRegisterYubikeyDialog() {

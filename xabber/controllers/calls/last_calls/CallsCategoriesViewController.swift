@@ -155,7 +155,7 @@ class CallsCategoriesViewController: BaseViewController {
 
     @objc
     private final func onSidebarButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        splitViewController?.show(.primary)
+        splitViewController?.showXabberSidebar()
     }
 
     deinit {
