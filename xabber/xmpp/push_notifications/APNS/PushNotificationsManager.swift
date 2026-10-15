@@ -385,10 +385,12 @@ class PushNotificationsManager: AbstractXMPPManager {
             enableElement.addAttribute(withName: "node", stringValue: request.node)
             enableElement.addAttribute(withName: "jid", stringValue: request.service)
             enableElement.addAttribute(withName: "mode", stringValue: mode.rawValue)
-            let security = DDXMLElement(name: "security", xmlns: getPrimaryNamespace())
-            security.addAttribute(withName: "cipher", stringValue: "urn:xmpp:ciphers:aes-256cbc")
-            security.addChild(DDXMLElement(name: "encryption-key", stringValue: Data(keyBytes).base64EncodedString()))
-            enableElement.addChild(security)
+            let encryption = DDXMLElement(name: "encryption", xmlns: getPrimaryNamespace())
+            encryption.addAttribute(withName: "algorithm", stringValue: "urn:xmpp:ciphers:aes-256-cbc")
+            let key = DDXMLElement(name: "key", xmlns: getPrimaryNamespace())
+            key.stringValue = Data(keyBytes).base64EncodedString()
+            encryption.addChild(key)
+            enableElement.addChild(encryption)
 
             publishNonsecretDefaults(request)
             request.hasBeenSent = true
@@ -443,16 +445,12 @@ class PushNotificationsManager: AbstractXMPPManager {
     
     func disable(xmppStream: XMPPStream) {
         stateLock.lock()
-        let node = configuredNode
-        let service = configuredService
         configurationEpoch &+= 1
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
         acknowledgedPayloadMode = nil
-        if xmppStream.myJID?.bare == owner, node.isNotEmpty, service.isNotEmpty {
+        if xmppStream.myJID?.bare == owner {
             let disableElement = DDXMLElement(name: "disable", xmlns: getPrimaryNamespace())
-            disableElement.addAttribute(withName: "jid", stringValue: service)
-            disableElement.addAttribute(withName: "node", stringValue: node)
             xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: xmppStream.generateUUID, child: disableElement))
         }
         stateLock.unlock()

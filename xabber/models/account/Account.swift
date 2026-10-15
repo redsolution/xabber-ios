@@ -3243,6 +3243,7 @@ struct ConnectionDiagnosticsLogger {
             "validation-key",
             "validation_key",
             "validationKey",
+            "key",
             "encryption-key",
             "encryption_key",
             "encryptionKey",
@@ -3260,7 +3261,7 @@ struct ConnectionDiagnosticsLogger {
 
         for element in sensitiveElements {
             output = replacing(
-                pattern: "(?is)(<\(element)\\b[^>]*>)(.*?)(</\(element)>)",
+                pattern: "(?is)(<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?\(element)\\b[^>]*>)(.*?)(</(?:[A-Za-z_][A-Za-z0-9_.-]*:)?\(element)>)",
                 in: output,
                 with: "$1\(redactedValue)$3"
             )

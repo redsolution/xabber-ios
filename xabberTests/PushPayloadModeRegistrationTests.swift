@@ -59,17 +59,18 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         super.tearDown()
     }
 
-    func testMissingPreferenceSendsExplicitSummaryWithExistingServerSecurity() throws {
+    func testMissingPreferenceSendsExplicitSummaryWithXEPEncryption() throws {
         let f = fixture()
 
         f.manager.enable(xmppStream: f.stream) { _ in }
 
         let enable = try enableElement(f, index: 0)
+        let encryption = try XCTUnwrap(enable.element(forName: "encryption", xmlns: "https://xabber.com/protocol/push"))
         XCTAssertEqual(enable.attributeStringValue(forName: "mode"), "summary")
-        XCTAssertEqual(enable.element(forName: "security")?.attributeStringValue(forName: "cipher"), "urn:xmpp:ciphers:aes-256cbc")
-        XCTAssertEqual(enable.element(forName: "security")?.element(forName: "encryption-key")?.stringValue,
+        XCTAssertEqual(encryption.attributeStringValue(forName: "algorithm"), "urn:xmpp:ciphers:aes-256-cbc")
+        XCTAssertEqual(encryption.element(forName: "key", xmlns: "https://xabber.com/protocol/push")?.stringValue,
                        Data(f.memory.record.keyBytes!).base64EncodedString())
-        XCTAssertNil(enable.element(forName: "encryption"))
+        XCTAssertNil(enable.element(forName: "security"))
     }
 
     func testFullPreferenceSendsExactFullWireValue() throws {
@@ -78,7 +79,14 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
 
         f.manager.enable(xmppStream: f.stream) { _ in }
 
-        XCTAssertEqual(try enableElement(f, index: 0).attributeStringValue(forName: "mode"), "full")
+        let enable = try enableElement(f, index: 0)
+        XCTAssertEqual(enable.attributeStringValue(forName: "mode"), "full")
+        XCTAssertEqual(enable.element(forName: "encryption", xmlns: "https://xabber.com/protocol/push")?
+            .attributeStringValue(forName: "algorithm"), "urn:xmpp:ciphers:aes-256-cbc")
+        XCTAssertEqual(enable.element(forName: "encryption", xmlns: "https://xabber.com/protocol/push")?
+            .element(forName: "key", xmlns: "https://xabber.com/protocol/push")?.stringValue,
+                       Data(f.memory.record.keyBytes!).base64EncodedString())
+        XCTAssertNil(enable.element(forName: "security"))
     }
 
     func testUnknownSavedPreferenceFallsBackToSummary() throws {
@@ -117,6 +125,12 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         XCTAssertEqual(f.memory.record.jwt, "first-rotated-grant")
         XCTAssertEqual(f.stream.enables.count, 2)
         XCTAssertEqual(try enableElement(f, index: 1).attributeStringValue(forName: "mode"), "full")
+        for index in [0, 1] {
+            let encodedKey = try XCTUnwrap(try enableElement(f, index: index)
+                .element(forName: "encryption", xmlns: "https://xabber.com/protocol/push")?
+                .element(forName: "key", xmlns: "https://xabber.com/protocol/push")?.stringValue)
+            XCTAssertEqual(Data(base64Encoded: encodedKey), originalKey.map { Data($0) })
+        }
         XCTAssertEqual(f.memory.record.keyBytes, originalKey)
         XCTAssertFalse(f.manager.read(withIQ: try response(f, index: 0, jwt: "duplicate-old-grant")))
         XCTAssertTrue(f.manager.read(withIQ: try response(f, index: 1, jwt: "latest-grant")))

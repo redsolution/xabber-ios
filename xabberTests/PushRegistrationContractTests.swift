@@ -42,7 +42,7 @@ final class PushRegistrationContractTests: XCTestCase {
         super.tearDown()
     }
 
-    func testActualServerEnableKeepsLegacySecurityAndRequestsSummaryMode() throws {
+    func testEnableUsesXEPEncryptionElementAndRequestsSummaryMode() throws {
         let (manager, stream, _) = fixture()
         manager.payloadModeProvider = { .summary }
 
@@ -50,14 +50,18 @@ final class PushRegistrationContractTests: XCTestCase {
 
         let iq = try XCTUnwrap(stream.sentElements.first)
         let enable = try XCTUnwrap(iq.element(forName: "enable", xmlns: manager.getPrimaryNamespace()))
-        let security = try XCTUnwrap(enable.element(forName: "security"))
+        let encryption = try XCTUnwrap(enable.element(forName: "encryption", xmlns: manager.getPrimaryNamespace()))
         XCTAssertEqual(iq.attributeStringValue(forName: "type"), "set")
         XCTAssertEqual(enable.attributeStringValue(forName: "jid"), pushService)
         XCTAssertEqual(enable.attributeStringValue(forName: "node"), manager.node)
         XCTAssertEqual(enable.attributeStringValue(forName: "mode"), "summary")
-        XCTAssertNil(enable.element(forName: "encryption"))
-        XCTAssertEqual(security.attributeStringValue(forName: "cipher"), "urn:xmpp:ciphers:aes-256cbc")
-        let encodedKey = try XCTUnwrap(security.element(forName: "encryption-key")?.stringValue)
+        XCTAssertEqual(enable.elements(forName: "encryption").count, 1)
+        XCTAssertNil(enable.element(forName: "security"))
+        XCTAssertEqual(encryption.attributeStringValue(forName: "algorithm"), "urn:xmpp:ciphers:aes-256-cbc")
+        XCTAssertNil(encryption.attributeStringValue(forName: "cipher"))
+        XCTAssertEqual(encryption.elements(forName: "key").count, 1)
+        XCTAssertNil(encryption.element(forName: "encryption-key"))
+        let encodedKey = try XCTUnwrap(encryption.element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue)
         XCTAssertEqual(Data(base64Encoded: encodedKey)?.count, 32)
     }
 
@@ -214,8 +218,8 @@ final class PushRegistrationContractTests: XCTestCase {
         var queryWasTrackedAtSend = false
         stream.onSend = { element in
             guard let key = element.element(forName: "enable")?
-                .element(forName: "security")?
-                .element(forName: "encryption-key")?.stringValue,
+                .element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
+                .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue,
                   let credentials = try? CredentialsManager.shared.getPushCredentials(for: node) else {
                 return
             }
@@ -240,8 +244,8 @@ final class PushRegistrationContractTests: XCTestCase {
         manager.enable(xmppStream: stream) { _ in }
 
         let wireKey = try XCTUnwrap(stream.sentElements.first?
-            .element(forName: "enable")?.element(forName: "security")?
-            .element(forName: "encryption-key")?.stringValue)
+            .element(forName: "enable")?.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
+            .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue)
         XCTAssertTrue(Data(base64Encoded: wireKey) == Data(existingSecret.utf8))
         let credentials = try CredentialsManager.shared.getPushCredentials(for: node)
         XCTAssertTrue(credentials.secret == existingSecret)
@@ -259,11 +263,43 @@ final class PushRegistrationContractTests: XCTestCase {
         manager.enable(xmppStream: stream) { _ in }
 
         let keys = stream.sentElements.compactMap {
-            $0.element(forName: "enable")?.element(forName: "security")?
-                .element(forName: "encryption-key")?.stringValue
+            $0.element(forName: "enable")?.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
+                .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue
         }
         XCTAssertEqual(keys.count, 2)
         XCTAssertTrue(keys.allSatisfy { Data(base64Encoded: $0) == Data(existingSecret.utf8) })
+    }
+
+    func testBinaryStoredKeyIsEncodedExactlyOnceForSummaryAndFullRegistration() throws {
+        let (manager, stream, node) = fixture()
+        let bytes = Data(Array(UInt8(0)...UInt8(31)))
+        let encodedKey = bytes.base64EncodedString()
+        try CredentialsManager.shared.storePushCredentials(
+            node: node, jid: owner, host: "example.invalid", secret: encodedKey,
+            service: "https://example.invalid/iq", jwt: "previous-fixture-jwt", keyEncoding: .base64
+        )
+        var mode = PushPayloadMode.summary
+        manager.payloadModeProvider = { mode }
+
+        manager.enable(xmppStream: stream) { _ in }
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: "")))
+        mode = .full
+        manager.enable(xmppStream: stream) { _ in }
+
+        XCTAssertEqual(stream.sentElements.count, 2)
+        guard stream.sentElements.count == 2 else { return }
+        for (index, expectedMode) in ["summary", "full"].enumerated() {
+            let enable = try XCTUnwrap(stream.sentElements[index].element(forName: "enable"))
+            let key = try XCTUnwrap(enable.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
+                .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue)
+            XCTAssertEqual(enable.attributeStringValue(forName: "mode"), expectedMode)
+            XCTAssertEqual(key, encodedKey)
+            XCTAssertEqual(Data(base64Encoded: key), bytes)
+        }
+        let stored = try CredentialsManager.shared.getPushCredentials(for: node)
+        XCTAssertEqual(stored.keyEncoding, .base64)
+        XCTAssertEqual(stored.secret, encodedKey)
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream, index: 1), body: "")))
     }
 
     func testForeignOwnedNodeCredentialsAreNotOverwrittenOrSent() throws {
@@ -297,15 +333,40 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertEqual(callbacks, [false])
     }
 
-    func testDisableUsesBothServiceAndNodeToAvoidDeletingOtherDeviceRegistrations() throws {
-        let (manager, stream, node) = fixture()
+    func testDisableIsEmptyAndScopedToAuthenticatedSession() throws {
+        let (manager, stream, _) = fixture()
 
         manager.disable(xmppStream: stream)
 
         let disable = try XCTUnwrap(stream.sentElements.first?
             .element(forName: "disable", xmlns: manager.getPrimaryNamespace()))
-        XCTAssertEqual(disable.attributeStringValue(forName: "jid"), pushService)
-        XCTAssertEqual(disable.attributeStringValue(forName: "node"), node)
+        XCTAssertNil(disable.attributeStringValue(forName: "jid"))
+        XCTAssertNil(disable.attributeStringValue(forName: "node"))
+        XCTAssertEqual(disable.childCount, 0)
+    }
+
+    func testDisableDoesNotRequireLocalNodeOrServiceConfiguration() throws {
+        let manager = PushNotificationsManager(withOwner: owner)
+        let stream = CapturingStream()
+        stream.myJID = XMPPJID(string: "\(owner)/ios-contract")
+
+        manager.disable(xmppStream: stream)
+
+        let iq = try XCTUnwrap(stream.sentElements.first)
+        let disable = try XCTUnwrap(iq.element(forName: "disable", xmlns: manager.getPrimaryNamespace()))
+        XCTAssertEqual(iq.attributeStringValue(forName: "type"), "set")
+        XCTAssertNil(disable.attributeStringValue(forName: "jid"))
+        XCTAssertNil(disable.attributeStringValue(forName: "node"))
+        XCTAssertEqual(disable.childCount, 0)
+    }
+
+    func testDisableCannotUseAnotherAccountsAuthenticatedSession() {
+        let (manager, stream, _) = fixture()
+        stream.myJID = XMPPJID(string: "another-account@example.invalid/ios-contract")
+
+        manager.disable(xmppStream: stream)
+
+        XCTAssertTrue(stream.sentElements.isEmpty)
     }
 
     func testImplicitAndAccountBareSendersRemainCompatibleWithActualServer() throws {
@@ -403,6 +464,10 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertTrue(manager.enabled)
         XCTAssertTrue(manager.httpPreviewReady)
         let refreshID = try requestID(stream, index: 1)
+        let refreshKey = try XCTUnwrap(stream.sentElements[1]
+            .element(forName: "enable")?.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
+            .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue)
+        XCTAssertEqual(Data(base64Encoded: refreshKey), firstKey.map { Data($0) })
         XCTAssertTrue(manager.read(withIQ: try response(id: refreshID, body: grant().replacingOccurrences(of: "fixture-jwt", with: "refreshed-fixture-jwt"))))
         XCTAssertEqual(initialCallbacks, [true])
         XCTAssertEqual(refreshCallbacks, [true])

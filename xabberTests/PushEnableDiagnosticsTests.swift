@@ -95,10 +95,11 @@ final class PushEnableDiagnosticsTests: XCTestCase {
             let enable = try XCTUnwrap(f.stream.sent.first?.element(forName: "enable"))
             XCTAssertEqual(enable.xmlns(), "https://xabber.com/protocol/push")
             XCTAssertEqual(enable.attributeStringValue(forName: "mode"), mode.rawValue)
-            XCTAssertEqual(enable.element(forName: "security")?.attributeStringValue(forName: "cipher"), "urn:xmpp:ciphers:aes-256cbc")
-            XCTAssertEqual(enable.element(forName: "security")?.element(forName: "encryption-key")?.stringValue,
+            let encryption = try XCTUnwrap(enable.element(forName: "encryption", xmlns: "https://xabber.com/protocol/push"))
+            XCTAssertEqual(encryption.attributeStringValue(forName: "algorithm"), "urn:xmpp:ciphers:aes-256-cbc")
+            XCTAssertEqual(encryption.element(forName: "key", xmlns: "https://xabber.com/protocol/push")?.stringValue,
                            Data(f.memory.record.keyBytes!).base64EncodedString())
-            XCTAssertNil(enable.element(forName: "encryption"))
+            XCTAssertNil(enable.element(forName: "security"))
         }
     }
 

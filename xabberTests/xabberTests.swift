@@ -10804,6 +10804,31 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
         XCTAssertTrue(redacted.contains("deviceSecret=\"\(ConnectionDiagnosticsLogger.redactedValue)\""))
     }
 
+    func testPushEncryptionKeyIsRedactedIncludingReflectedAndPrefixedXML() {
+        for prefix in ["", "push:"] {
+            let xml = """
+            <iq type='error'><enable xmlns='https://xabber.com/protocol/push'>
+              <\(prefix)encryption xmlns:push='https://xabber.com/protocol/push' algorithm='urn:xmpp:ciphers:aes-256-cbc'>
+                <\(prefix)key>push-symmetric-key-sentinel</\(prefix)key>
+              </\(prefix)encryption>
+            </enable><error><bad-request xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>
+            """
+
+            let line = ConnectionDiagnosticsLogger.line(
+                event: "stanza_receive_iq",
+                stream: .primary,
+                jid: "owner@example.invalid",
+                rawXML: xml
+            )
+
+            XCTAssertTrue(line.contains("xml="))
+            XCTAssertTrue(line.contains("urn:xmpp:ciphers:aes-256-cbc"))
+            XCTAssertTrue(line.contains("<\(prefix)key>[redacted]</\(prefix)key>"))
+            XCTAssertTrue(line.contains("bad-request"))
+            XCTAssertFalse(line.contains("push-symmetric-key-sentinel"))
+        }
+    }
+
     func testFormatterCoversLifecycleTcpReconnectAndAccountStateEvents() {
         let lifecycle = ConnectionDiagnosticsLogger.line(
             event: "xmpp_stream_features",

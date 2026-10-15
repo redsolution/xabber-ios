@@ -63,7 +63,9 @@ final class PushLifecycleCapabilityTests: XCTestCase {
         XCTAssertTrue(f.account.disco.read(withIQ: try disco(f, from: f.account.jid, features: ["https://xabber.com/protocol/push"])))
 
         XCTAssertEqual(f.stream.enables.count, 1)
-        XCTAssertEqual(f.stream.enables.first?.element(forName: "enable")?.element(forName: "security")?.element(forName: "encryption-key")?.stringValue,
+        XCTAssertEqual(f.stream.enables.first?.element(forName: "enable")?
+            .element(forName: "encryption", xmlns: "https://xabber.com/protocol/push")?
+            .element(forName: "key", xmlns: "https://xabber.com/protocol/push")?.stringValue,
                        Data(f.memory.record.keyBytes!).base64EncodedString())
     }
 
