@@ -13,12 +13,15 @@ final class HTTPArchiveByIDTests: XCTestCase {
         super.tearDown()
     }
 
-    func testRequestPreservesServerBaseArchiveRouteAndBearer() throws {
+    func testRequestUsesExactDiscoveredByIDEndpointAndBearer() throws {
         let request = try XCTUnwrap(PushArchiveHTTPClient.makeRequest(
-            baseURL: try XCTUnwrap(URL(string: "https://example.com/iq")),
+            endpointURL: try XCTUnwrap(URL(string: "https://example.com/custom/archive/id?tenant=ios")),
             token: "fixture-token", id: "123", by: owner
         ))
-        XCTAssertEqual(request.url?.path, "/iq/archive")
+        XCTAssertEqual(request.url?.path, "/custom/archive/id")
+        XCTAssertEqual(request.url?.query, "tenant=ios&id=123&by=romeo%40example.com")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/xml")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Cache-Control"), "no-store")
         XCTAssertEqual(request.httpMethod, "GET")
         XCTAssertNil(request.httpBody)
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
@@ -26,21 +29,25 @@ final class HTTPArchiveByIDTests: XCTestCase {
 
     func testQueryEncodesLiteralPlusForServerFormDecoder() throws {
         let request = try XCTUnwrap(PushArchiveHTTPClient.makeRequest(
-            baseURL: try XCTUnwrap(URL(string: "https://example.com/iq")),
+            endpointURL: try XCTUnwrap(URL(string: "https://example.com/custom/archive/id?tenant=ios")),
             token: "fixture-token", id: "123+45&?", by: "romeo+device@example.com"
         ))
         let query = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.percentEncodedQuery)
         XCTAssertTrue(query.contains("%2B"))
         XCTAssertFalse(query.contains("+"))
-        XCTAssertEqual(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "123+45&?")
+        XCTAssertEqual(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "id" })?.value, "123+45&?")
     }
 
-    func testActualServerMessageAndFinalIQSequenceProducesMessage() {
-        assertMessage(decode(message() + fin()), id: "123")
+    func testSingleMAMResultDocumentProducesMessage() {
+        assertMessage(decode(message()), id: "123")
     }
 
-    func testEmptyFinalIQIsSuccessfulEmptyArchiveResult() {
-        guard case .empty = decode(fin()) else { return XCTFail("Expected an empty archive result, not invalid XML") }
+    func testLegacyConcatenatedMessageAndFinalIQSequenceIsRejected() {
+        assertFailure(decode(message() + fin()), .invalidResponse)
+    }
+
+    func testFinalIQWithoutMAMMessageIsNotAByIDResponse() {
+        assertFailure(decode(fin()), .invalidResponse)
     }
 
     func testHTTP200XMPPErrorIsPreservedWithoutUnauthorized() {
@@ -59,20 +66,33 @@ final class HTTPArchiveByIDTests: XCTestCase {
     }
 
     func testMismatchedArchiveResultIDIsRejected() {
-        assertFailure(decode(message(id: "456") + fin()), .invalidResponse)
+        assertFailure(decode(message(id: "456")), .invalidResponse)
     }
 
     func testMismatchedArchiveOwnerIsRejected() {
-        assertFailure(decode(message(from: "other@example.com") + fin()), .invalidResponse)
+        assertFailure(decode(message(from: "other@example.com")), .invalidResponse)
     }
 
-    func testSequenceFinalIQMustMatchMessageQueryID() {
-        assertFailure(decode(message() + fin().replacingOccurrences(of: "id='query-1'", with: "id='different-query'")), .invalidResponse)
+    func testUnknownWrapperAndTrailingSecondRootAreRejected() {
+        assertFailure(decode("<archive-envelope>" + message() + "</archive-envelope>"), .invalidResponse)
+        assertFailure(decode(message() + "<unexpected/>"), .invalidResponse)
+        assertFailure(decode("text" + message()), .invalidResponse)
+    }
+
+    func testForeignStanzaAndForwardedNamespacesAreRejected() {
+        assertFailure(decode(message().replacingOccurrences(of: "<message from=", with: "<message xmlns='urn:foreign' from=")), .invalidResponse)
+        assertFailure(decode(message().replacingOccurrences(of: "urn:xmpp:forward:0", with: "urn:foreign")), .invalidResponse)
+    }
+
+    func testMalformedOrMissingForwardedMessageIsRejected() {
+        let missing = "<message from='\(owner)'><result xmlns='urn:xmpp:mam:2' id='123'/></message>"
+        assertFailure(decode(missing), .invalidResponse)
+        assertFailure(decode(message().replacingOccurrences(of: "id='123'", with: "id=''")), .invalidResponse)
     }
 
     func testMultipleMessagesAndForeignMAMNamespaceAreRejected() {
         assertFailure(decode(message() + message() + fin()), .invalidResponse)
-        assertFailure(decode(message().replacingOccurrences(of: "urn:xmpp:mam:2", with: "https://foreign.example/mam") + fin()), .invalidResponse)
+        assertFailure(decode(message().replacingOccurrences(of: "urn:xmpp:mam:2", with: "https://foreign.example/mam")), .invalidResponse)
     }
 
     func testDTDAndEntityDeclarationsAreRejected() {
@@ -80,27 +100,94 @@ final class HTTPArchiveByIDTests: XCTestCase {
     }
 
     func testRequestRejectsUnsafeURLAndAmbiguousReservedQueryParameters() throws {
-        for value in ["http://example.com/iq", "https://user:password@example.com/iq", "https://example.com/iq#fragment", "https://example.com/iq?id=old"] {
-            XCTAssertNil(PushArchiveHTTPClient.makeRequest(baseURL: try XCTUnwrap(URL(string: value)), token: "fixture-token", id: "123", by: nil))
+        for value in ["http://example.com/iq", "https://user:password@example.com/iq", "https://example.com/iq#fragment", "https://example.com/iq?id=old", "https://example.com/iq?by=old", "https://example.com/iq?%69d=old", "//example.com/iq", "/iq/archive/id"] {
+            XCTAssertNil(PushArchiveHTTPClient.makeRequest(endpointURL: try XCTUnwrap(URL(string: value)), token: "fixture-token", id: "123", by: nil))
         }
     }
 
-    func testActualHTTPClientAcceptsServerTextHTMLContentTypeAndPreservesLiteralQuery() throws {
-        let body = message() + fin()
+    func testHTTPClientAcceptsApplicationXMLAndUsesDiscoveredEndpoint() throws {
+        let body = message()
         let received = expectation(description: "typed HTTP archive result")
         let client = try makeClient { request, stub in
-            XCTAssertEqual(request.url?.path, "/iq/archive")
+            XCTAssertEqual(request.url?.path, "/custom/archive/id")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
             XCTAssertFalse(request.httpShouldHandleCookies)
             XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
             XCTAssertNil(request.httpBody)
-            stub.respond(status: 200, body: Data(body.utf8), headers: ["Content-Type": "text/html; charset=utf-8"])
+            stub.respond(status: 200, body: Data(body.utf8), headers: ["Content-Type": "application/xml; charset=utf-8"])
         }
         client.fetch(id: "123") { outcome in
             self.assertMessage(outcome, id: "123")
             received.fulfill()
         }
         wait(for: [received], timeout: 2)
+    }
+
+    func testQueryEncodesEveryReservedCharacterAndUnicodeWithoutChangingEndpoint() throws {
+        let id = "id +&?=/#%Ж"
+        let by = "room+tag@example.com/ресурс"
+        let request = try XCTUnwrap(PushArchiveHTTPClient.makeRequest(
+            endpointURL: try XCTUnwrap(URL(string: "https://example.com/exact%2Froute?id-context=retained%2Bvalue")),
+            token: "fixture-token", id: id, by: by
+        ))
+        let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.percentEncodedPath, "/exact%2Froute")
+        XCTAssertEqual(components.queryItems?.map(\.name), ["id-context", "id", "by"])
+        XCTAssertEqual(components.queryItems?.map(\.value), ["retained+value", id, by])
+        XCTAssertEqual(components.percentEncodedQuery, "id-context=retained%2Bvalue&id=id%20%2B%26%3F%3D%2F%23%25%D0%96&by=room%2Btag%40example.com%2F%D1%80%D0%B5%D1%81%D1%83%D1%80%D1%81")
+    }
+
+    func testOmittedByUsesTokenOwnerAndDoesNotAddAQueryParameter() throws {
+        let request = try XCTUnwrap(PushArchiveHTTPClient.makeRequest(
+            endpointURL: try XCTUnwrap(URL(string: "https://example.com/iq/archive/id")),
+            token: "fixture-token", id: "123", by: nil
+        ))
+        XCTAssertEqual(request.url?.absoluteString, "https://example.com/iq/archive/id?id=123")
+        XCTAssertFalse(request.httpShouldHandleCookies)
+        XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+    }
+
+    func testInvalidOrMissingXMLContentTypeIsRejectedWithoutRetry() throws {
+        for contentType in ["text/html", "text/xml", "application/json", ""] {
+            let received = expectation(description: "invalid MIME \(contentType)")
+            let count = ArchiveHTTPLockedCounter()
+            let client = try makeClient { _, stub in
+                _ = count.increment()
+                stub.respond(status: 200, body: Data(self.message().utf8), headers: ["Content-Type": contentType])
+            }
+            client.fetch(id: "123") { outcome in
+                self.assertFailure(outcome, .invalidResponse)
+                received.fulfill()
+            }
+            wait(for: [received], timeout: 2)
+            XCTAssertEqual(count.value, 1)
+        }
+    }
+
+    func testErrorDocumentMustUseRequestedArchiveOwnerAndConsistentStanzaNamespace() {
+        let error = "<iq from='\(owner)' type='error' id='q'><error type='cancel'><item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>"
+        assertFailure(decode(error.replacingOccurrences(of: owner, with: "other@example.com")), .invalidResponse)
+        assertFailure(decode(error.replacingOccurrences(of: "<error type=", with: "<error xmlns='jabber:client' type=")), .invalidResponse)
+        guard case .xmppError(let condition) = decode(error.replacingOccurrences(of: "<iq from=", with: "<iq xmlns='jabber:client' from=")) else {
+            return XCTFail("Expected namespace-consistent XMPP error document")
+        }
+        XCTAssertEqual(condition, "item-not-found")
+    }
+
+    func testSuccessfulHTTPBodyMustBeOneXMLDocument() throws {
+        let received = expectation(description: "legacy multipart rejection")
+        let count = ArchiveHTTPLockedCounter()
+        let client = try makeClient { _, stub in
+            _ = count.increment()
+            stub.respond(status: 200, body: Data((self.message() + self.fin()).utf8))
+        }
+        client.fetch(id: "123") { outcome in
+            self.assertFailure(outcome, .invalidResponse)
+            received.fulfill()
+        }
+        wait(for: [received], timeout: 2)
+        XCTAssertEqual(count.value, 1)
     }
 
     func testHTTP401IsTypedUnauthorizedAndNeverRetried() throws {
@@ -197,6 +284,64 @@ final class HTTPArchiveByIDTests: XCTestCase {
         XCTAssertEqual(count.value, 2)
     }
 
+    func testTransientNetworkFailureRetriesSameEndpointAndCanSucceed() throws {
+        let scheduler = ArchiveHTTPControlledScheduler()
+        let retryScheduled = expectation(description: "network retry scheduled")
+        scheduler.onRetryScheduled = { retryScheduled.fulfill() }
+        let received = expectation(description: "retry success")
+        let count = ArchiveHTTPLockedCounter()
+        let client = try makeClient(scheduler: scheduler) { request, stub in
+            XCTAssertEqual(request.url?.path, "/custom/archive/id")
+            XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name), ["id", "by"])
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
+            if count.increment() == 1 { stub.fail(URLError(.networkConnectionLost)) }
+            else { stub.respond(status: 200, body: Data(self.message().utf8)) }
+        }
+        client.fetch(id: "123", by: owner) { outcome in
+            self.assertMessage(outcome, id: "123")
+            received.fulfill()
+        }
+        wait(for: [retryScheduled], timeout: 2)
+        scheduler.perform(delay: 0.2)
+        wait(for: [received], timeout: 2)
+        XCTAssertEqual(count.value, 2)
+    }
+
+    func testExplicitArchiveOwnerIsUsedToValidateResponse() throws {
+        let received = expectation(description: "selected archive owner")
+        let archive = "room@example.com"
+        let client = try makeClient { request, stub in
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(query?.first(where: { $0.name == "by" })?.value, archive)
+            stub.respond(status: 200, body: Data(self.message(from: archive).utf8))
+        }
+        client.fetch(id: "123", by: archive) { outcome in
+            self.assertMessage(outcome, id: "123")
+            received.fulfill()
+        }
+        wait(for: [received], timeout: 2)
+    }
+
+    func testCancellationDuringRequestCompletesOnceAndDoesNotRetry() throws {
+        let started = expectation(description: "held request")
+        let received = expectation(description: "in-flight cancellation")
+        received.assertForOverFulfill = true
+        let count = ArchiveHTTPLockedCounter()
+        let client = try makeClient { _, _ in
+            _ = count.increment()
+            started.fulfill()
+        }
+        client.fetch(id: "123") { outcome in
+            guard case .cancelled = outcome else { return XCTFail("Expected cancellation") }
+            received.fulfill()
+        }
+        wait(for: [started], timeout: 2)
+        client.cancel()
+        client.cancel()
+        wait(for: [received], timeout: 2)
+        XCTAssertEqual(count.value, 1)
+    }
+
     func testAbsoluteDeadlineCancelsHeldRequestExactlyOnce() throws {
         let scheduler = ArchiveHTTPControlledScheduler()
         let started = expectation(description: "HTTP request held")
@@ -240,7 +385,7 @@ final class HTTPArchiveByIDTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ArchiveHTTPURLProtocol.self]
         return try XCTUnwrap(PushArchiveHTTPClient(
-            baseURL: try XCTUnwrap(URL(string: "https://\(host)/iq")),
+            endpointURL: try XCTUnwrap(URL(string: "https://\(host)/custom/archive/id")),
             token: "fixture-token", archiveOwner: owner,
             configuration: configuration,
             maximumResponseSize: maximumResponseSize,
@@ -359,8 +504,9 @@ private final class ArchiveHTTPURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     func begin(status: Int, headers: [String: String] = [:]) {
+        let fields = ["Content-Type": "application/xml"].merging(headers) { _, supplied in supplied }
         guard active, let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers) else { return }
+              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: fields) else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
     }
 
@@ -372,6 +518,11 @@ private final class ArchiveHTTPURLProtocol: URLProtocol, @unchecked Sendable {
     func finish() {
         guard active else { return }
         client?.urlProtocolDidFinishLoading(self)
+    }
+
+    func fail(_ error: Error) {
+        guard active else { return }
+        client?.urlProtocol(self, didFailWithError: error)
     }
 
     func respond(status: Int, body: Data, headers: [String: String] = [:]) {

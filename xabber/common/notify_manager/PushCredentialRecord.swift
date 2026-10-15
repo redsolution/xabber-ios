@@ -7,9 +7,43 @@ enum PushCredentialKeyEncoding: String, Codable {
     case base64
 }
 
+/// Endpoint and token obtained together from one authenticated XMPP discovery domain.
+/// Token claims are only scheduling hints; authorization is enforced by the HTTP server.
+struct PushHTTPArchiveGrant: Codable, Equatable {
+    let endpoint: String
+    let token: String
+    let scopes: [String]
+    let expiresAt: Date
+    let discoveryDomain: String
+
+    func isUsable(forAccount account: String, host: String, now: Date) -> Bool {
+        let bareAccount = account.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        let accountParts = bareAccount.split(separator: "@", omittingEmptySubsequences: false)
+        guard accountParts.count == 2, !accountParts[0].isEmpty,
+              !discoveryDomain.isEmpty, !host.isEmpty,
+              accountParts[1].lowercased() == discoveryDomain.lowercased(),
+              host.lowercased() == discoveryDomain.lowercased(),
+              !discoveryDomain.contains(where: { $0.isWhitespace || $0.isNewline }),
+              discoveryDomain.rangeOfCharacter(from: .controlCharacters) == nil,
+              scopes.contains("urn:xmpp:mam:2"), expiresAt > now,
+              !token.isEmpty, token.utf8.count <= 256 * 1024,
+              !token.contains(where: { $0.isWhitespace || $0.isNewline }),
+              token.rangeOfCharacter(from: .controlCharacters) == nil,
+              !endpoint.isEmpty,
+              !endpoint.contains(where: { $0.isWhitespace || $0.isNewline }),
+              endpoint.rangeOfCharacter(from: .controlCharacters) == nil,
+              let url = URLComponents(string: endpoint),
+              url.scheme?.lowercased() == "https", let endpointHost = url.host, !endpointHost.isEmpty,
+              url.user == nil, url.password == nil, url.fragment == nil,
+              !(url.queryItems ?? []).contains(where: { $0.name == "id" || $0.name == "by" }),
+              url.url != nil else { return false }
+        return true
+    }
+}
+
 /// One atomic Keychain value. JWT claims below are scheduling hints, never auth proof.
 struct PushCredentialRecord: Codable {
-    static let currentVersion = 2
+    static let currentVersion = 3
     let version: Int
     let host: String
     let secret: String
@@ -18,9 +52,11 @@ struct PushCredentialRecord: Codable {
     let jwt: String
     let keyEncoding: PushCredentialKeyEncoding
     let grantRevision: String?
+    let httpArchive: PushHTTPArchiveGrant?
 
     init(host: String, secret: String, jid: String, service: String, jwt: String,
-         keyEncoding: PushCredentialKeyEncoding = .utf8, grantRevision: String? = nil) {
+         keyEncoding: PushCredentialKeyEncoding = .utf8, grantRevision: String? = nil,
+         httpArchive: PushHTTPArchiveGrant? = nil) {
         self.version = Self.currentVersion
         self.host = host
         self.secret = secret
@@ -29,10 +65,11 @@ struct PushCredentialRecord: Codable {
         self.jwt = jwt
         self.keyEncoding = keyEncoding
         self.grantRevision = grantRevision
+        self.httpArchive = httpArchive
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, host, secret, jid, service, jwt, keyEncoding, grantRevision
+        case version, host, secret, jid, service, jwt, keyEncoding, grantRevision, httpArchive
     }
 
     init(from decoder: Decoder) throws {
@@ -51,6 +88,13 @@ struct PushCredentialRecord: Codable {
             ? (try values.decodeIfPresent(PushCredentialKeyEncoding.self, forKey: .keyEncoding) ?? .utf8)
             : (try values.decode(PushCredentialKeyEncoding.self, forKey: .keyEncoding))
         grantRevision = try values.decodeIfPresent(String.self, forKey: .grantRevision)
+        // Legacy flat URL/JWT fields do not prove endpoint discovery or a MAM-scoped grant.
+        // Keep the encryption key, then require the app to discover and request a fresh token.
+        if version >= 3 {
+            httpArchive = try values.decodeIfPresent(PushHTTPArchiveGrant.self, forKey: .httpArchive)
+        } else {
+            httpArchive = nil
+        }
     }
 
     var keyBytes: [UInt8]? {
@@ -65,11 +109,28 @@ struct PushCredentialRecord: Codable {
     }
 
     var tokenGeneration: String {
-        let context = (try? JSONSerialization.data(withJSONObject: [jid, host, service, jwt, grantRevision ?? "legacy"])) ?? Data()
+        struct GrantContext: Encodable {
+            let jid: String
+            let host: String
+            let service: String
+            let jwt: String
+            let revision: String?
+            let httpArchive: PushHTTPArchiveGrant?
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let context = (try? encoder.encode(GrantContext(jid: jid, host: host, service: service, jwt: jwt,
+                                                      revision: grantRevision, httpArchive: httpArchive))) ?? Data()
         return SHA256.hash(data: context).map { String(format: "%02x", $0) }.joined()
     }
 
     var tokenExpiresAt: Date? {
+        guard let grant = httpArchive else { return Self.jwtExpiresAt(jwt) }
+        guard let jwtExpiry = Self.jwtExpiresAt(grant.token) else { return grant.expiresAt }
+        return min(grant.expiresAt, jwtExpiry)
+    }
+
+    private static func jwtExpiresAt(_ jwt: String) -> Date? {
         guard jwt.utf8.count <= 256 * 1024 else { return nil }
         let parts = jwt.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3 else { return nil }

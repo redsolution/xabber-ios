@@ -173,7 +173,7 @@ final class PushEnableDiagnosticsTests: XCTestCase {
         XCTAssertTrue(f.manager.enabled)
     }
 
-    func testSuccessfulDurableHTTPGrantEmitsReadyEnabledDiagnostic() throws {
+    func testLegacyInlineGrantDoesNotClaimHTTPReadinessAtEnableAcknowledgement() throws {
         let f = fixture()
         f.manager.enable(xmppStream: f.stream) { _ in }
         let id = try requestID(f)
@@ -181,8 +181,12 @@ final class PushEnableDiagnosticsTests: XCTestCase {
 
         XCTAssertTrue(f.manager.read(withIQ: try response(id: id, type: "result", body: form)))
 
-        XCTAssertEqual(f.events.values.last, .enabled(request: id, httpReady: true))
-        XCTAssertTrue(f.manager.httpPreviewReady)
+        XCTAssertEqual(f.events.values.last, .enabled(request: id, httpReady: false))
+        XCTAssertFalse(f.manager.httpPreviewReady)
+        XCTAssertNil(f.memory.record.httpArchive)
+        XCTAssertEqual(f.stream.sent.filter {
+            $0.element(forName: "endpoints", xmlns: "https://xabber.com/protocol/http-iq") != nil
+        }.count, 1)
     }
 
     func testCorrelatedQualifiedRFCConditionsAreReportedExactly() throws {
@@ -425,7 +429,9 @@ final class PushEnableDiagnosticsTests: XCTestCase {
     }
 
     private func requestID(_ fixture: Fixture) throws -> UUID {
-        let raw = try XCTUnwrap(fixture.stream.sent.last?.attributeStringValue(forName: "id"))
+        let raw = try XCTUnwrap(fixture.stream.sent.last(where: {
+            $0.element(forName: "enable", xmlns: "https://xabber.com/protocol/push") != nil
+        })?.attributeStringValue(forName: "id"))
         return try XCTUnwrap(UUID(uuidString: raw))
     }
 

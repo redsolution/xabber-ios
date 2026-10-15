@@ -1,7 +1,7 @@
 import Foundation
 import KissXML
 
-/// Shared transport for the current server's base URL plus /archive API.
+/// XEP-HTTPIQ-MAM by-id transport using the exact endpoint from XMPP discovery.
 /// Each instance owns one fetch and never refreshes or mutates credentials.
 final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
     enum Failure: Equatable {
@@ -12,7 +12,6 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
 
     enum Outcome {
         case message(DDXMLElement)
-        case empty
         case xmppError(String?)
         case unauthorized
         case failure(Failure)
@@ -27,7 +26,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         return item
     }
 
-    private let baseURL: URL
+    private let endpointURL: URL
     private let token: String
     private let archiveOwner: String
     private let configuration: URLSessionConfiguration
@@ -57,7 +56,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
     private var hasFinished = false
 
     init?(
-        baseURL: URL, token: String, archiveOwner: String,
+        endpointURL: URL, token: String, archiveOwner: String,
         configuration: URLSessionConfiguration = .ephemeral,
         maximumResponseSize: Int = 1024 * 1024,
         totalBudget: TimeInterval = 8,
@@ -66,10 +65,10 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         scheduler: @escaping Scheduler = PushArchiveHTTPClient.liveScheduler,
         callbackQueue: DispatchQueue = .global(qos: .utility)
     ) {
-        guard Self.validBaseURL(baseURL), Self.validToken(token), !archiveOwner.isEmpty,
+        guard Self.validEndpointURL(endpointURL), Self.validToken(token), !archiveOwner.isEmpty,
               maximumResponseSize > 0, totalBudget.isFinite, totalBudget > 0,
               requestTimeout.isFinite, requestTimeout > 0 else { return nil }
-        self.baseURL = baseURL
+        self.endpointURL = endpointURL
         self.token = token
         self.archiveOwner = archiveOwner
         self.configuration = (configuration.copy() as? URLSessionConfiguration) ?? configuration
@@ -93,7 +92,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
             requestID = id
             requestBy = by
             guard !isCancellationRequested else { finish(.cancelled); return }
-            guard Self.makeRequest(baseURL: baseURL, token: token, id: id, by: by) != nil else {
+            guard Self.makeRequest(endpointURL: endpointURL, token: token, id: id, by: by) != nil else {
                 finish(.failure(.invalidRequest))
                 return
             }
@@ -126,7 +125,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         guard !isCancellationRequested else { finish(.cancelled); return }
         let remaining = deadline - clock()
         guard remaining > 0 else { finish(.failure(.timeout)); return }
-        guard var request = Self.makeRequest(baseURL: baseURL, token: token, id: requestID, by: requestBy) else {
+        guard var request = Self.makeRequest(endpointURL: endpointURL, token: token, id: requestID, by: requestBy) else {
             finish(.failure(.invalidRequest))
             return
         }
@@ -231,6 +230,11 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
                 handleFailure(outcome, transient: transient)
                 return
             }
+            guard response.mimeType?.lowercased() == "application/xml" else {
+                completionHandler(.cancel)
+                finish(.failure(.invalidResponse))
+                return
+            }
             guard response.expectedContentLength <= Int64(maximumResponseSize) else {
                 completionHandler(.cancel)
                 finish(.failure(.oversizedResponse))
@@ -295,10 +299,10 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         }
     }
 
-    static func makeRequest(baseURL: URL, token: String, id: String, by: String?) -> URLRequest? {
-        guard validBaseURL(baseURL), validToken(token), !id.isEmpty,
+    static func makeRequest(endpointURL: URL, token: String, id: String, by: String?) -> URLRequest? {
+        guard validEndpointURL(endpointURL), validToken(token), !id.isEmpty,
               by.map({ !$0.isEmpty }) ?? true,
-              var components = URLComponents(url: baseURL.appendingPathComponent("archive", isDirectory: false), resolvingAgainstBaseURL: false),
+              var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false),
               !((components.queryItems ?? []).contains { $0.name == "id" || $0.name == "by" }) else { return nil }
         let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
         guard let encodedID = id.addingPercentEncoding(withAllowedCharacters: unreserved) else { return nil }
@@ -315,11 +319,13 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         request.httpMethod = "GET"
         request.httpShouldHandleCookies = false
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/xml", forHTTPHeaderField: "Accept")
+        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         return request
     }
 
-    private static func validBaseURL(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == "https" && url.host?.isEmpty == false
+    private static func validEndpointURL(_ url: URL) -> Bool {
+        url.baseURL == nil && url.scheme?.lowercased() == "https" && url.host?.isEmpty == false
             && url.user == nil && url.password == nil && url.fragment == nil
     }
 
@@ -340,52 +346,32 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
               !xml.localizedCaseInsensitiveContains("<!DOCTYPE"),
               !xml.localizedCaseInsensitiveContains("<!ENTITY") else { return .failure(.invalidResponse) }
 
-        let roots: [DDXMLElement]
-        if let document = try? DDXMLDocument(xmlString: xml, options: 0), let root = document.rootElement() {
-            roots = [root]
-        } else if let document = try? DDXMLDocument(xmlString: "<archive-envelope>\(xml)</archive-envelope>", options: 0),
-                  let root = document.rootElement(), let nodes = root.children,
-                  nodes.allSatisfy({ node in
-                      node is DDXMLElement || (node.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                          || node.xmlString.hasPrefix("<!--") || node.xmlString.hasPrefix("<?")
-                  }) {
-            roots = nodes.compactMap { $0 as? DDXMLElement }
-        } else { return .failure(.invalidResponse) }
-        guard !roots.isEmpty, roots.count <= 2,
-              roots.allSatisfy({ stanza($0, name: "message") || stanza($0, name: "iq") }) else { return .failure(.invalidResponse) }
-        let messages = roots.filter { $0.localName == "message" }
-        let finals = roots.filter { $0.localName == "iq" }
-        guard messages.count <= 1, finals.count <= 1,
-              roots.allSatisfy({ ownerMatches($0.attribute(forName: "from")?.stringValue, archiveOwner) }) else { return .failure(.invalidResponse) }
-
-        if let final = finals.first, final.attribute(forName: "type")?.stringValue == "error" {
-            guard messages.isEmpty, let id = final.attribute(forName: "id")?.stringValue, !id.isEmpty,
-                  children(final, named: "error").count == 1,
-                  let error = children(final, named: "error").first,
-                  error.uri == nil || error.uri == "jabber:client" else { return .failure(.invalidResponse) }
-            let conditions = elements(error).filter { $0.uri == "urn:ietf:params:xml:ns:xmpp-stanzas" && $0.localName != "text" }
-            guard conditions.count <= 1 else { return .failure(.invalidResponse) }
+        // A profile response is one XML document, never a stream of MAM
+        // stanzas. Do not wrap malformed/multiple-root input to make it parse.
+        guard let document = try? DDXMLDocument(xmlString: xml, options: 0),
+              let root = document.rootElement(),
+              stanza(root, name: "message") || stanza(root, name: "iq"),
+              ownerMatches(root.attribute(forName: "from")?.stringValue, archiveOwner) else {
+            return .failure(.invalidResponse)
+        }
+        if stanza(root, name: "iq") {
+            guard root.attribute(forName: "type")?.stringValue == "error",
+                  let id = root.attribute(forName: "id")?.stringValue, !id.isEmpty,
+                  children(root, named: "error").count == 1,
+                  let error = children(root, named: "error").first,
+                  error.uri == root.uri else { return .failure(.invalidResponse) }
+            let conditions = elements(error).filter {
+                $0.uri == "urn:ietf:params:xml:ns:xmpp-stanzas" && $0.localName != "text"
+            }
+            guard conditions.count == 1 else { return .failure(.invalidResponse) }
             let known: Set<String> = ["bad-request", "conflict", "feature-not-implemented", "forbidden", "gone", "internal-server-error", "item-not-found", "jid-malformed", "not-acceptable", "not-allowed", "not-authorized", "policy-violation", "recipient-unavailable", "redirect", "registration-required", "remote-server-not-found", "remote-server-timeout", "resource-constraint", "service-unavailable", "subscription-required", "undefined-condition", "unexpected-request"]
             let condition = (conditions.first?.localName).flatMap { known.contains($0) ? $0 : nil }
             return .xmppError(condition)
         }
-
-        var finalID: String?
-        if let final = finals.first {
-            let finishes = children(final, named: "fin")
-            guard final.attribute(forName: "type")?.stringValue == "result",
-                  let id = final.attribute(forName: "id")?.stringValue, !id.isEmpty,
-                  finishes.count == 1, let fin = finishes.first, fin.uri == "urn:xmpp:mam:2",
-                  children(final, named: "error").isEmpty,
-                  (fin.attribute(forName: "queryid")?.stringValue).map({ $0 == id }) ?? true else { return .failure(.invalidResponse) }
-            finalID = id
-        }
-        guard let message = messages.first else { return finalID == nil ? .failure(.invalidResponse) : .empty }
-        if finals.count == 1, roots.last?.localName != "iq" { return .failure(.invalidResponse) }
+        let message = root
         let results = children(message, named: "result")
         guard results.count == 1, let result = results.first, result.uri == "urn:xmpp:mam:2",
-              result.attribute(forName: "id")?.stringValue == expectedID,
-              finalID.map({ result.attribute(forName: "queryid")?.stringValue == $0 }) ?? true else { return .failure(.invalidResponse) }
+              result.attribute(forName: "id")?.stringValue == expectedID else { return .failure(.invalidResponse) }
         let forwarded = children(result, named: "forwarded")
         guard forwarded.count == 1, let forward = forwarded.first, forward.uri == "urn:xmpp:forward:0",
               children(forward, named: "delay").count <= 1 else { return .failure(.invalidResponse) }

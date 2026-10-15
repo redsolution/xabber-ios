@@ -111,18 +111,20 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         XCTAssertEqual(try enableElement(f, index: 0).attributeStringValue(forName: "mode"), "full")
     }
 
-    func testSentRequestPublishesItsGrantBeforeOneLatestModeRegistration() throws {
+    func testSentSummaryAcknowledgementStartsLatestFullModeWithoutAcceptingInlineGrant() throws {
         let f = fixture()
         var callbacks: [Bool] = []
         f.manager.enable(xmppStream: f.stream) { callbacks.append($0) }
         let originalKey = f.memory.record.keyBytes
+        let originalGrant = f.memory.record.httpArchive
         preferences.set("full", forKey: preferenceKey)
         f.manager.enable(xmppStream: f.stream) { callbacks.append($0) }
         XCTAssertEqual(f.stream.enables.count, 1)
 
         XCTAssertTrue(f.manager.read(withIQ: try response(f, index: 0, jwt: "first-rotated-grant")))
 
-        XCTAssertEqual(f.memory.record.jwt, "first-rotated-grant")
+        XCTAssertEqual(f.memory.record.jwt, "saved-opaque-grant")
+        XCTAssertEqual(f.memory.record.httpArchive, originalGrant)
         XCTAssertEqual(f.stream.enables.count, 2)
         XCTAssertEqual(try enableElement(f, index: 1).attributeStringValue(forName: "mode"), "full")
         for index in [0, 1] {
@@ -134,7 +136,8 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         XCTAssertEqual(f.memory.record.keyBytes, originalKey)
         XCTAssertFalse(f.manager.read(withIQ: try response(f, index: 0, jwt: "duplicate-old-grant")))
         XCTAssertTrue(f.manager.read(withIQ: try response(f, index: 1, jwt: "latest-grant")))
-        XCTAssertEqual(f.memory.record.jwt, "latest-grant")
+        XCTAssertEqual(f.memory.record.jwt, "saved-opaque-grant")
+        XCTAssertEqual(f.memory.record.httpArchive, originalGrant)
         XCTAssertEqual(callbacks, [true, true])
         XCTAssertTrue(f.manager.enabled)
         XCTAssertTrue(f.manager.isPayloadModeCurrent)
@@ -201,11 +204,10 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         preferences.set("full", forKey: preferenceKey)
         var callbacks: [Bool] = []
         f.manager.enable(xmppStream: f.stream) { callbacks.append($0) }
-        XCTAssertEqual(f.timeouts.actions.count, 2)
-        guard f.timeouts.actions.count == 2 else { return }
+        let timeout = try XCTUnwrap(f.timeouts.actions.last)
 
-        f.timeouts.actions[1]()
-        f.timeouts.actions[1]()
+        timeout()
+        timeout()
 
         XCTAssertEqual(callbacks, [false])
         XCTAssertTrue(f.manager.enabled)
@@ -262,7 +264,8 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         f.manager.enable(xmppStream: f.stream) { callbacks.append($0) }
         XCTAssertEqual(f.stream.enables.count, 2)
 
-        f.timeouts.actions[1]()
+        let timeout = try XCTUnwrap(f.timeouts.actions.last)
+        timeout()
 
         XCTAssertTrue(f.manager.enabled)
         XCTAssertTrue(f.manager.httpPreviewReady)
@@ -272,7 +275,7 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         XCTAssertEqual(f.stream.enables.count, 3)
         XCTAssertTrue(callbacks.isEmpty)
         XCTAssertEqual(try enableElement(f, index: 2).attributeStringValue(forName: "mode"), "summary")
-        f.timeouts.actions[1]()
+        timeout()
         XCTAssertEqual(f.stream.enables.count, 3)
         XCTAssertTrue(f.manager.read(withIQ: try response(f, index: 2)))
         XCTAssertEqual(callbacks, [true, true])
@@ -287,7 +290,10 @@ final class PushPayloadModeRegistrationTests: XCTestCase {
         stream.myJID = XMPPJID(string: owner, resource: "ios")
         let memory = Memory(record: CredentialsManager.PushSecretData(
             host: "example.invalid", secret: String(repeating: "k", count: 32), jid: owner,
-            service: "https://example.invalid/iq", jwt: "saved-opaque-grant"
+            service: "https://example.invalid/iq", jwt: "saved-opaque-grant",
+            httpArchive: PushHTTPArchiveGrant(endpoint: "https://example.invalid/custom/archive/id",
+                token: "header.payload.signature", scopes: ["urn:xmpp:mam:2"],
+                expiresAt: Date().addingTimeInterval(3600), discoveryDomain: "example.invalid")
         ))
         manager.credentialReader = { _ in memory.record }
         manager.credentialWriter = { _, record in memory.record = record; memory.writes += 1 }

@@ -80,7 +80,7 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertFalse(manager.queryIds.contains(id))
     }
 
-    func testIncompleteHTTPGrantDoesNotTurnSuccessfulRegistrationIntoFailure() throws {
+    func testLegacyInlineFormDoesNotTurnSuccessfulRegistrationIntoFailure() throws {
         let (manager, stream, _) = fixture()
         var callbacks: [Bool] = []
         manager.enable(xmppStream: stream) { callbacks.append($0) }
@@ -286,10 +286,11 @@ final class PushRegistrationContractTests: XCTestCase {
         mode = .full
         manager.enable(xmppStream: stream) { _ in }
 
-        XCTAssertEqual(stream.sentElements.count, 2)
-        guard stream.sentElements.count == 2 else { return }
+        let enables = stream.sentElements.filter { $0.element(forName: "enable", xmlns: manager.getPrimaryNamespace()) != nil }
+        XCTAssertEqual(enables.count, 2)
+        guard enables.count == 2 else { return }
         for (index, expectedMode) in ["summary", "full"].enumerated() {
-            let enable = try XCTUnwrap(stream.sentElements[index].element(forName: "enable"))
+            let enable = try XCTUnwrap(enables[index].element(forName: "enable"))
             let key = try XCTUnwrap(enable.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
                 .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue)
             XCTAssertEqual(enable.attributeStringValue(forName: "mode"), expectedMode)
@@ -449,13 +450,14 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertTrue(manager.enabled)
     }
 
-    func testRefreshRenewsGrantWithoutRotatingKeyOrDisablingExistingRegistration() throws {
+    func testPushRefreshPreservesModernHTTPGrantAndEncryptionKey() throws {
         let (manager, stream, node) = fixture()
+        let grant = modernGrant()
+        try store(node: node, secret: String(repeating: "r", count: 32), httpArchive: grant)
         var initialCallbacks: [Bool] = []
         var refreshCallbacks: [Bool] = []
         manager.enable(xmppStream: stream) { initialCallbacks.append($0) }
-        let firstID = try requestID(stream)
-        XCTAssertTrue(manager.read(withIQ: try response(id: firstID, body: grant())))
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: "")))
         let firstKey = try CredentialsManager.shared.getPushCredentials(for: node).keyBytes
         XCTAssertTrue(manager.httpPreviewReady)
 
@@ -463,36 +465,37 @@ final class PushRegistrationContractTests: XCTestCase {
 
         XCTAssertTrue(manager.enabled)
         XCTAssertTrue(manager.httpPreviewReady)
-        let refreshID = try requestID(stream, index: 1)
-        let refreshKey = try XCTUnwrap(stream.sentElements[1]
-            .element(forName: "enable")?.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
+        let refreshKey = try XCTUnwrap(stream.sentElements.filter {
+            $0.element(forName: "enable", xmlns: manager.getPrimaryNamespace()) != nil
+        }.dropFirst().first?.element(forName: "enable")?.element(forName: "encryption", xmlns: manager.getPrimaryNamespace())?
             .element(forName: "key", xmlns: manager.getPrimaryNamespace())?.stringValue)
         XCTAssertEqual(Data(base64Encoded: refreshKey), firstKey.map { Data($0) })
-        XCTAssertTrue(manager.read(withIQ: try response(id: refreshID, body: grant().replacingOccurrences(of: "fixture-jwt", with: "refreshed-fixture-jwt"))))
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream, index: 1), body: self.grant())))
         XCTAssertEqual(initialCallbacks, [true])
         XCTAssertEqual(refreshCallbacks, [true])
         let updated = try CredentialsManager.shared.getPushCredentials(for: node)
-        XCTAssertTrue(updated.keyBytes == firstKey)
-        XCTAssertEqual(updated.jwt, "refreshed-fixture-jwt")
+        XCTAssertEqual(updated.keyBytes, firstKey)
+        XCTAssertEqual(updated.httpArchive, grant, "Legacy inline forms cannot renew an HTTP IQ grant")
     }
 
-    func testFailedRefreshKeepsRegistrationAndExistingGrant() throws {
+    func testFailedRefreshKeepsRegistrationAndExistingModernGrant() throws {
         let (manager, stream, node) = fixture()
+        let grant = modernGrant()
+        try store(node: node, secret: String(repeating: "r", count: 32), httpArchive: grant)
         let timeouts = ManualTimeouts()
         manager.registrationTimeoutScheduler = timeouts.schedule
         manager.enable(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: grant())))
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: "")))
         var callbacks: [Bool] = []
 
         manager.refresh(xmppStream: stream) { callbacks.append($0) }
-        let id = try requestID(stream, index: 1)
-        XCTAssertTrue(manager.read(withIQ: try response(id: id, type: "error", body: "")))
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream, index: 1), type: "error", body: "")))
         timeouts.tasks[1].fire()
 
         XCTAssertEqual(callbacks, [false])
         XCTAssertTrue(manager.enabled)
         XCTAssertTrue(manager.httpPreviewReady)
-        XCTAssertEqual(try CredentialsManager.shared.getPushCredentials(for: node).jwt, "fixture-jwt")
+        XCTAssertEqual(try CredentialsManager.shared.getPushCredentials(for: node).httpArchive, grant)
     }
 
     func testTimeoutDuringRefreshKeepsRegistrationAndCompletesOnce() throws {
@@ -577,53 +580,7 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertEqual(callbacks, [true])
     }
 
-    func testInvalidatedGrantBecomesReadyOnlyAfterSuccessfulDurableRefresh() throws {
-        let (manager, stream, node) = fixture()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let markers = PushTokenInvalidationStore(directory: directory)
-        manager.tokenInvalidationStore = markers
-        manager.enable(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: grant())))
-        let generation = try CredentialsManager.shared.getPushCredentials(for: node).tokenGeneration
-        try markers.invalidate(node: node, generation: generation)
-        XCTAssertFalse(manager.httpPreviewReady)
-
-        manager.refresh(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream, index: 1), body: grant())))
-
-        let refreshedGeneration = try CredentialsManager.shared.getPushCredentials(for: node).tokenGeneration
-        XCTAssertNotEqual(refreshedGeneration, generation)
-        XCTAssertTrue(try markers.contains(node: node, generation: generation))
-        XCTAssertFalse(try markers.contains(node: node, generation: refreshedGeneration))
-        // A late rejection of the old snapshot cannot invalidate same-JWT reissuance.
-        try markers.invalidate(node: node, generation: generation)
-        XCTAssertTrue(manager.httpPreviewReady)
-    }
-
-    func testFailedGrantWriteDoesNotClearInvalidationOrRejectSuccessfulRegistration() throws {
-        let (manager, stream, node) = fixture()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let markers = PushTokenInvalidationStore(directory: directory)
-        manager.tokenInvalidationStore = markers
-        manager.enable(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: grant())))
-        let generation = try CredentialsManager.shared.getPushCredentials(for: node).tokenGeneration
-        try markers.invalidate(node: node, generation: generation)
-        manager.credentialWriter = { _, _ in throw CredentialsManager.CredentialsError.pushStorageFailure }
-        var callbacks: [Bool] = []
-        manager.refresh(xmppStream: stream) { callbacks.append($0) }
-
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream, index: 1), body: grant())))
-
-        XCTAssertEqual(callbacks, [true])
-        XCTAssertTrue(manager.enabled)
-        XCTAssertTrue(try markers.contains(node: node, generation: generation))
-        XCTAssertFalse(manager.httpPreviewReady)
-    }
-
-    func testUnusableGrantMetadataCannotEnableHTTPPreview() throws {
+    func testLegacyInlineFormsCannotEnableHTTPPreview() throws {
         for body in [
             grant().replacingOccurrences(of: "https://example.invalid/iq", with: "http://example.invalid/iq"),
             grant().replacingOccurrences(of: "https://example.invalid/iq", with: "https://user:password@example.invalid/iq"),
@@ -674,24 +631,22 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertEqual(callbacks, [false])
     }
 
-    func testExpiredGrantAffectsPreviewReadinessAndRefreshKeepsNodeKey() throws {
+    func testExpiredModernGrantRemainsUnreadyAfterPushOnlyRefresh() throws {
         let (manager, stream, node) = fixture()
-        let payload = Data("{\"exp\":1}".utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let expired = modernGrant(expiresAt: Date(timeIntervalSince1970: 1))
+        try store(node: node, secret: String(repeating: "e", count: 32), httpArchive: expired)
         manager.enable(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(
-            id: requestID(stream),
-            body: grant().replacingOccurrences(of: "fixture-jwt", with: "header.\(payload).signature")
-        )))
+        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: "")))
         let key = try CredentialsManager.shared.getPushCredentials(for: node).keyBytes
 
-        XCTAssertTrue(manager.enabled)
-        XCTAssertFalse(manager.httpPreviewReady)
         manager.refresh(xmppStream: stream) { _ in }
         XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream, index: 1), body: grant())))
 
         XCTAssertTrue(manager.enabled)
-        XCTAssertTrue(manager.httpPreviewReady)
-        XCTAssertTrue(try CredentialsManager.shared.getPushCredentials(for: node).keyBytes == key)
+        XCTAssertFalse(manager.httpPreviewReady)
+        let saved = try CredentialsManager.shared.getPushCredentials(for: node)
+        XCTAssertEqual(saved.keyBytes, key)
+        XCTAssertEqual(saved.httpArchive, expired)
     }
 
     func testSimultaneousRefreshCallersShareOneServerIssuanceAndFinishOnce() throws {
@@ -733,64 +688,10 @@ final class PushRegistrationContractTests: XCTestCase {
         XCTAssertEqual(replacement, [true])
     }
 
-    func testChangedJWTThatCannotBePublishedRejectsPriorGrantWithoutDisablingRegistration() throws {
-        let (manager, stream, node) = fixture()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let markers = PushTokenInvalidationStore(directory: directory)
-        manager.tokenInvalidationStore = markers
-        manager.enable(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: grant())))
-        let original = try CredentialsManager.shared.getPushCredentials(for: node)
-        XCTAssertTrue(manager.httpPreviewReady)
-        manager.credentialWriter = { _, _ in throw CredentialsManager.CredentialsError.pushStorageFailure }
-        var callbacks: [Bool] = []
-
-        manager.refresh(xmppStream: stream) { callbacks.append($0) }
-        XCTAssertTrue(manager.read(withIQ: try response(
-            id: requestID(stream, index: 1),
-            body: grant().replacingOccurrences(of: "fixture-jwt", with: "server-replaced-jwt")
-        )))
-
-        XCTAssertEqual(callbacks, [true])
-        XCTAssertTrue(manager.enabled)
-        XCTAssertFalse(manager.httpPreviewReady)
-        XCTAssertTrue(try markers.contains(node: node, generation: original.tokenGeneration))
-        XCTAssertEqual(try CredentialsManager.shared.getPushCredentials(for: node).jwt, original.jwt)
-    }
-
-    func testFailedChangedGrantPublicationRejectsLocallyWhenMarkersAreUnavailableAndRecoversAfterWrite() throws {
-        let (manager, stream, _) = fixture()
-        manager.tokenInvalidationStore = nil
-        manager.enable(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(id: requestID(stream), body: grant())))
-        let durableWriter = manager.credentialWriter
-        manager.credentialWriter = { _, _ in throw CredentialsManager.CredentialsError.pushStorageFailure }
-
-        manager.refresh(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(
-            id: requestID(stream, index: 1),
-            body: grant().replacingOccurrences(of: "fixture-jwt", with: "unpublished-new-jwt")
-        )))
-        manager.clearSession()
-        XCTAssertFalse(manager.httpPreviewReady)
-        manager.credentialWriter = durableWriter
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        manager.tokenInvalidationStore = PushTokenInvalidationStore(directory: directory)
-        manager.refresh(xmppStream: stream) { _ in }
-        XCTAssertTrue(manager.read(withIQ: try response(
-            id: requestID(stream, index: 2),
-            body: grant().replacingOccurrences(of: "fixture-jwt", with: "durably-recovered-jwt")
-        )))
-
-        XCTAssertTrue(manager.enabled)
-        XCTAssertTrue(manager.httpPreviewReady)
-    }
-
     private func fixture() -> (PushNotificationsManager, CapturingStream, String) {
         let node = freshNode()
         let manager = PushNotificationsManager(withOwner: owner)
+        manager.payloadModeProvider = { .full }
         manager.node = node
         manager.service = pushService
         let stream = CapturingStream()
@@ -805,22 +706,28 @@ final class PushRegistrationContractTests: XCTestCase {
     }
 
     private func requestID(_ stream: CapturingStream, index: Int = 0) throws -> String {
-        XCTAssertGreaterThan(stream.sentElements.count, index)
-        guard stream.sentElements.indices.contains(index) else {
-            throw NSError(domain: "PushRegistrationContractTests", code: 1)
+        let enables = stream.sentElements.filter {
+            $0.element(forName: "enable", xmlns: "https://xabber.com/protocol/push") != nil
         }
-        return try XCTUnwrap(stream.sentElements[index].attributeStringValue(forName: "id"))
+        XCTAssertGreaterThan(enables.count, index)
+        return try XCTUnwrap(enables.dropFirst(index).first?.attributeStringValue(forName: "id"))
     }
 
-    private func store(node: String, jid: String? = nil, secret: String, jwt: String = "") throws {
+    private func store(node: String, jid: String? = nil, secret: String, jwt: String = "", httpArchive: PushHTTPArchiveGrant? = nil) throws {
         try CredentialsManager.shared.storePushCredentials(
             node: node,
             jid: jid ?? owner,
             host: "example.invalid",
             secret: secret,
             service: "https://example.invalid/iq",
-            jwt: jwt
+            jwt: jwt,
+            httpArchive: httpArchive
         )
+    }
+
+    private func modernGrant(expiresAt: Date = Date().addingTimeInterval(3600)) -> PushHTTPArchiveGrant {
+        PushHTTPArchiveGrant(endpoint: "https://example.invalid/iq/archive/id", token: "header.payload.signature",
+                            scopes: ["urn:xmpp:mam:2"], expiresAt: expiresAt, discoveryDomain: "example.invalid")
     }
 
     private func response(

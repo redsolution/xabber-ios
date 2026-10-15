@@ -4076,10 +4076,10 @@ final class Account: NSObject {
         guard self.xmppStream.isAuthenticated,
               self.xmppStream.myJID?.bare == self.jid,
               self.connectionGate.snapshot().phase == .online else { return }
-        let httpPreviewReady = self.push.httpPreviewReady
-        guard !self.push.enabled || !httpPreviewReady || !self.push.isPayloadModeCurrent else { return }
+        let needsHTTPArchive = self.push.needsHTTPArchive
+        guard !self.push.enabled || needsHTTPArchive || !self.push.isPayloadModeCurrent else { return }
         self.ensurePushCapabilityDiscoveryIfNeeded()
-        self.requestPushRegistration(refreshHTTPGrant: !httpPreviewReady)
+        self.requestPushRegistration(refreshHTTPGrant: needsHTTPArchive)
     }
 
     func restorePushRegistrationAfterResume() {
@@ -4087,7 +4087,7 @@ final class Account: NSObject {
               self.xmppStream.myJID?.bare == self.jid,
               self.connectionGate.snapshot().phase == .online else { return }
         self.ensurePushCapabilityDiscoveryIfNeeded()
-        self.requestPushRegistration(refreshHTTPGrant: !self.push.httpPreviewReady)
+        self.requestPushRegistration(refreshHTTPGrant: self.push.needsHTTPArchive)
     }
 
     private func ensurePushCapabilityDiscoveryIfNeeded() {

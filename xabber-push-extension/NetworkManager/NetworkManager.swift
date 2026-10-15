@@ -34,20 +34,24 @@ final class NetworkManager {
 
     weak var delegate: PushPayloadDelegate?
 
-    init?(service url: String, jid: String, jwt: String) {
-        guard let url = URL(string: url),
-              let client = PushArchiveHTTPClient(baseURL: url, token: jwt, archiveOwner: jid) else { return nil }
+    init?(credentials: PushCredentialRecord) {
+        let now = Date()
+        guard let grant = credentials.httpArchive,
+              grant.isUsable(forAccount: credentials.jid, host: credentials.host, now: now),
+              credentials.tokenExpiresAt.map({ $0 > now }) == true,
+              let url = URL(string: grant.endpoint),
+              let client = PushArchiveHTTPClient(endpointURL: url, token: grant.token,
+                                                archiveOwner: credentials.jid) else { return nil }
         self.client = client
-        self.jid = jid
+        self.jid = credentials.jid
     }
 
-    func getMessage(host: String, messageId: String, by: String?, retry: Int? = nil) {
+    func getMessage(messageId: String, by: String?) {
         stateLock.lock()
         guard !cancelled, !hasStarted else { stateLock.unlock(); return }
         hasStarted = true
         stateLock.unlock()
-        // The server selects the account from the bearer token; Xmpp-Domain is
-        // not an authorization input. Retry is internal to the shared client.
+        // Use only the discovered by-id endpoint and its MAM-scoped token.
         client.fetch(id: messageId, by: by) { [weak self] outcome in
             self?.receive(outcome)
         }
@@ -92,7 +96,7 @@ final class NetworkManager {
             if isActive { delegate?.networkManagerDidRejectAuthorization(self) }
         case .cancelled:
             break
-        case .empty, .xmppError, .failure:
+        case .xmppError, .failure:
             if isActive { delegate?.networkManager(self, didDisconnectWithError: "archive unavailable") }
         }
     }

@@ -68,6 +68,30 @@ class PushNotificationsManager: AbstractXMPPManager {
         }
     }
 
+    private final class HTTPArchiveRequest {
+        let owner: String
+        let node: String
+        let domain: String
+        let epoch: UInt64
+        let streamJID: String
+        let key: [UInt8]
+        weak var stream: XMPPStream?
+        var id = ""
+        var endpoint: String?
+        var cancelTimeout: (() -> Void)?
+
+        init(owner: String, node: String, jid: XMPPJID, epoch: UInt64,
+             stream: XMPPStream, key: [UInt8]) {
+            self.owner = owner
+            self.node = node
+            self.domain = jid.domain
+            self.epoch = epoch
+            self.streamJID = jid.full
+            self.stream = stream
+            self.key = key
+        }
+    }
+
     private enum RegistrationError: Error {
         case invalidCredentials
         case randomGenerationFailed
@@ -80,7 +104,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     private var registrationRequest: RegistrationRequest?
     private var registrationState: EnableState = .disabled
     private var acknowledgedPayloadMode: PushPayloadMode?
-    private var unpublishedGrantRejection: (node: String, generation: String)?
+    private var httpArchiveRequest: HTTPArchiveRequest?
     // Account lifecycle explicitly defers full-auth registration until owner disco.
     // Direct managers retain the existing, server-confirmed profile by default.
     private var customPushSupported: Bool? = true
@@ -98,11 +122,12 @@ class PushNotificationsManager: AbstractXMPPManager {
         try CredentialsManager.shared.storePushCredentials(
             node: node, jid: record.jid, host: record.host, secret: record.secret,
             service: record.service, jwt: record.jwt, keyEncoding: record.keyEncoding,
-            grantRevision: record.grantRevision
+            grantRevision: record.grantRevision, httpArchive: record.httpArchive
         )
     }
     var tokenInvalidationStore: PushTokenInvalidationStore? = .live
     var payloadModeProvider: () -> PushPayloadMode = { PushPayloadPreferences.current }
+    var httpArchiveNow: () -> Date = { Date() }
     var diagnostics: PushRegistrationDiagnosticLogger = .live
     
     var enable: Bool = true
@@ -223,7 +248,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         enableState == .enabled
     }
 
-    /// The latest requested mode was acknowledged; the current server may ignore it.
+    /// The latest requested payload mode was acknowledged by the server.
     var isPayloadModeCurrent: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
@@ -242,26 +267,28 @@ class PushNotificationsManager: AbstractXMPPManager {
         guard let credentials = try? credentialReader(configuredNode),
               credentials.jid == owner,
               credentials.host == XMPPJID(string: owner)?.domain,
-              credentials.keyBytes != nil,
-              isSafeHTTPService(credentials.service),
-              !credentials.jwt.isEmpty else {
-            return false
-        }
-        if let rejection = unpublishedGrantRejection,
-           rejection.node == configuredNode, rejection.generation == credentials.tokenGeneration {
-            return false
-        }
-        guard let store = tokenInvalidationStore,
+              credentials.keyBytes != nil, let grant = credentials.httpArchive,
+              grant.isUsable(forAccount: owner, host: credentials.host, now: httpArchiveNow()),
+              credentials.tokenExpiresAt.map({ $0 > httpArchiveNow() }) == true,
+              let store = tokenInvalidationStore,
               (try? store.contains(node: configuredNode, generation: credentials.tokenGeneration)) == false else {
             return false
         }
-        return credentials.tokenExpiresAt.map { $0 > Date() } ?? true
+        return true
+    }
+
+    var needsHTTPArchive: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let isProvisioning = httpArchiveRequest.map(isCurrentHTTPArchiveRequestLocked) ?? false
+        return payloadModeProvider() == .summary && !httpPreviewReady && !isProvisioning
     }
 
     func awaitCustomPushSupport() {
         stateLock.lock()
         customPushSupported = nil
         configurationEpoch &+= 1
+        cancelHTTPArchiveRequestLocked()
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
         acknowledgedPayloadMode = nil
@@ -275,6 +302,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         customPushSupported = supported
         var callbacks: [(Bool) -> Void] = []
         if !supported {
+            cancelHTTPArchiveRequestLocked()
             if registrationRequest != nil {
                 diagnostics.record(.blocked(reason: .unsupportedServer))
             }
@@ -332,6 +360,7 @@ class PushNotificationsManager: AbstractXMPPManager {
             return
         }
         if registrationState == .enabled, !refresh, acknowledgedPayloadMode == payloadModeProvider() {
+            if needsHTTPArchive { startHTTPArchiveRequestLocked(xmppStream) }
             stateLock.unlock()
             callback(true)
             return
@@ -344,6 +373,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     private func startRegistrationLocked(
         xmppStream: XMPPStream, jid: XMPPJID, callbacks: [(Bool) -> Void]
     ) -> [(Bool) -> Void] {
+        cancelHTTPArchiveRequestLocked()
         let request = RegistrationRequest(
             id: xmppStream.generateUUID, owner: owner, node: configuredNode,
             service: configuredService, jid: jid, epoch: configurationEpoch,
@@ -446,6 +476,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     func disable(xmppStream: XMPPStream) {
         stateLock.lock()
         configurationEpoch &+= 1
+        cancelHTTPArchiveRequestLocked()
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
         acknowledgedPayloadMode = nil
@@ -471,12 +502,13 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
 
     override func read(withIQ iq: XMPPIQ) -> Bool {
-        return readPushRegistrationResult(iq)
+        return readPushRegistrationResult(iq) || readHTTPArchiveResult(iq)
     }
 
     override func clearSession() {
         stateLock.lock()
         configurationEpoch &+= 1
+        cancelHTTPArchiveRequestLocked()
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
         acknowledgedPayloadMode = nil
@@ -496,6 +528,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         configuredNode = nextNode
         configuredService = nextService
         configurationEpoch &+= 1
+        cancelHTTPArchiveRequestLocked()
         let callbacks = finishRequestLocked(success: false, preserveRegistration: false)
         registrationState = .disabled
         acknowledgedPayloadMode = nil
@@ -538,7 +571,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     ) -> (callbacks: [(Bool) -> Void], success: Bool) {
         let callbacks = finishRequestLocked(success: success, preserveRegistration: request.wasEnabled)
         let latestMode = payloadModeProvider()
-        // Consume an already-sent IQ and its grant before sending a successor.
+        // Consume the outstanding enable response before sending a successor.
         // A same-mode error/timeout stops here until a new explicit retry.
         guard let sentMode = request.payloadMode, request.hasBeenSent,
               sentMode != latestMode,
@@ -565,28 +598,6 @@ class PushNotificationsManager: AbstractXMPPManager {
             return false
         }
         let success = iq.iqType == .result
-        if success, let grant = httpGrant(iq),
-           let credentials = try? credentialReader(request.node),
-           credentials.jid == request.owner, credentials.host == request.domain,
-           credentials.keyBytes == request.keyBytes {
-            let refreshed = CredentialsManager.PushSecretData(
-                host: credentials.host, secret: credentials.secret, jid: credentials.jid,
-                service: grant.url, jwt: grant.jwt, keyEncoding: credentials.keyEncoding,
-                grantRevision: UUID().uuidString
-            )
-            do {
-                try credentialWriter(request.node, refreshed)
-                unpublishedGrantRejection = nil
-                try? tokenInvalidationStore?.remove(node: request.node, generation: refreshed.tokenGeneration)
-            } catch {
-                if credentials.jwt != grant.jwt {
-                    // The server retains only its newest device token hash. A superseded
-                    // token cannot remain usable when publishing its replacement failed.
-                    unpublishedGrantRejection = (request.node, credentials.tokenGeneration)
-                    try? tokenInvalidationStore?.invalidate(node: request.node, generation: credentials.tokenGeneration)
-                }
-            }
-        }
         if success { acknowledgedPayloadMode = request.payloadMode }
         if success {
             diagnostics.record(.enabled(request: request.diagnosticID, httpReady: httpPreviewReady))
@@ -595,6 +606,10 @@ class PushNotificationsManager: AbstractXMPPManager {
                                          condition: PushRegistrationErrorCondition.classify(iq)))
         }
         let completion = finishRequestAndReconcileModeLocked(request, success: success)
+        if success, registrationRequest == nil, request.payloadMode == .summary,
+           let stream = request.stream {
+            startHTTPArchiveRequestLocked(stream)
+        }
         stateLock.unlock()
         completion.callbacks.forEach { $0(completion.success) }
         return true
@@ -612,31 +627,122 @@ class PushNotificationsManager: AbstractXMPPManager {
             || (recipient.bare == request.owner && (recipient.resource == nil || recipient.resource?.isEmpty == true))
     }
 
-    private func httpGrant(_ iq: XMPPIQ) -> (url: String, jwt: String)? {
-        let forms = iq.elements(forName: "x").filter { $0.xmlns() == "jabber:x:data" }
-        guard forms.count == 1, let form = forms.first,
-              form.attributeStringValue(forName: "type") == "result" else { return nil }
-        let fields = form.elements(forName: "field")
-        func value(_ name: String) -> String? {
-            let matching = fields.filter { $0.attributeStringValue(forName: "var") == name }
-            guard matching.count == 1, let field = matching.first else { return nil }
-            let values = field.elements(forName: "value")
-            guard values.count == 1, let value = values.first?.stringValue,
-                  !value.isEmpty else { return nil }
-            return value
-        }
-        guard value("FORM_TYPE") == getPrimaryNamespace(), let url = value("url"),
-              isSafeHTTPService(url), let jwt = value("jwt") else { return nil }
-        return (url, jwt)
+    private func startHTTPArchiveRequestLocked(_ stream: XMPPStream) {
+        guard httpArchiveRequest == nil, registrationState == .enabled,
+              acknowledgedPayloadMode == .summary, payloadModeProvider() == .summary,
+              let jid = stream.myJID, jid.bare == owner,
+              let credentials = try? credentialReader(configuredNode),
+              credentials.jid == owner, credentials.host == jid.domain,
+              let key = credentials.keyBytes else { return }
+        let request = HTTPArchiveRequest(owner: owner, node: configuredNode, jid: jid,
+                                         epoch: configurationEpoch, stream: stream, key: key)
+        httpArchiveRequest = request
+        sendHTTPArchiveRequestLocked(request)
     }
 
-    private func isSafeHTTPService(_ value: String) -> Bool {
-        guard let url = URL(string: value), url.scheme?.lowercased() == "https",
-              url.host?.isEmpty == false, url.user == nil, url.password == nil,
-              url.fragment == nil else { return false }
+    private func sendHTTPArchiveRequestLocked(_ request: HTTPArchiveRequest) {
+        guard isCurrentHTTPArchiveRequestLocked(request), let stream = request.stream,
+              let jid = stream.myJID else { cancelHTTPArchiveRequestLocked(); return }
+        request.cancelTimeout?()
+        queryIds.remove(request.id)
+        request.id = stream.generateUUID
+        queryIds.insert(request.id)
+        let id = request.id
+        let cancel = registrationTimeoutScheduler(registrationTimeoutInterval) { [weak self, weak request] in
+            guard let self, let request else { return }
+            self.stateLock.lock()
+            defer { self.stateLock.unlock() }
+            guard self.httpArchiveRequest === request, request.id == id else { return }
+            DDLogInfo("HTTP_IQ_ARCHIVE event=timeout phase=\(request.endpoint == nil ? "endpoints" : "token")")
+            self.cancelHTTPArchiveRequestLocked()
+        }
+        guard httpArchiveRequest === request, request.id == id else { cancel(); return }
+        request.cancelTimeout = cancel
+        let iq = request.endpoint == nil
+            ? PushHTTPIQ.endpointsRequest(id: id, jid: jid)
+            : PushHTTPIQ.tokenRequest(id: id, jid: jid)
+        stream.send(iq)
+    }
+
+    private func isCurrentHTTPArchiveRequestLocked(_ request: HTTPArchiveRequest) -> Bool {
+        httpArchiveRequest === request && request.epoch == configurationEpoch
+            && request.owner == owner && request.node == configuredNode
+            && registrationState == .enabled && acknowledgedPayloadMode == .summary
+            && payloadModeProvider() == .summary && request.stream?.myJID?.full == request.streamJID
+    }
+
+    private func cancelHTTPArchiveRequestLocked() {
+        guard let request = httpArchiveRequest else { return }
+        httpArchiveRequest = nil
+        request.cancelTimeout?()
+        queryIds.remove(request.id)
+    }
+
+    private func readHTTPArchiveResult(_ iq: XMPPIQ) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let request = httpArchiveRequest else { return false }
+        guard isCurrentHTTPArchiveRequestLocked(request) else {
+            cancelHTTPArchiveRequestLocked()
+            return false
+        }
+        guard iq.elementID == request.id, queryIds.contains(request.id),
+              iq.iqType == .result || iq.iqType == .error,
+              iq.from == nil || (iq.from?.bare == request.domain && iq.from?.resource == nil),
+              iq.to == nil || iq.to?.full == request.streamJID || iq.to?.full == request.owner else { return false }
+        guard iq.iqType == .result else {
+            DDLogInfo("HTTP_IQ_ARCHIVE event=rejected condition=\(PushRegistrationErrorCondition.classify(iq).rawValue)")
+            cancelHTTPArchiveRequestLocked()
+            return true
+        }
+        if request.endpoint == nil {
+            guard let endpoint = PushHTTPIQ.archiveEndpoint(in: iq) else {
+                DDLogInfo("HTTP_IQ_ARCHIVE event=invalid_endpoints")
+                cancelHTTPArchiveRequestLocked()
+                return true
+            }
+            request.endpoint = endpoint
+            sendHTTPArchiveRequestLocked(request)
+            return true
+        }
+        guard let endpoint = request.endpoint,
+              let grant = PushHTTPIQ.archiveGrant(in: iq, endpoint: endpoint, owner: request.owner,
+                                                 domain: request.domain, now: httpArchiveNow()),
+              let credentials = try? credentialReader(request.node),
+              credentials.jid == request.owner, credentials.host == request.domain,
+              credentials.keyBytes == request.key else {
+            DDLogInfo("HTTP_IQ_ARCHIVE event=invalid_token_context")
+            cancelHTTPArchiveRequestLocked()
+            return true
+        }
+        let refreshed = CredentialsManager.PushSecretData(
+            host: credentials.host, secret: credentials.secret, jid: credentials.jid,
+            service: "", jwt: "", keyEncoding: credentials.keyEncoding,
+            grantRevision: UUID().uuidString, httpArchive: grant
+        )
+        guard refreshed.tokenExpiresAt.map({ $0 > httpArchiveNow() }) == true else {
+            DDLogInfo("HTTP_IQ_ARCHIVE event=expired_token")
+            cancelHTTPArchiveRequestLocked()
+            return true
+        }
+        do {
+            try credentialWriter(request.node, refreshed)
+            let stored = try credentialReader(request.node)
+            guard stored.jid == request.owner, stored.host == request.domain,
+                  stored.keyBytes == request.key, stored.httpArchive == grant,
+                  stored.grantRevision == refreshed.grantRevision else {
+                cancelHTTPArchiveRequestLocked()
+                return true
+            }
+            try? tokenInvalidationStore?.remove(node: request.node, generation: stored.tokenGeneration)
+            DDLogInfo("HTTP_IQ_ARCHIVE event=grant_stored ready=\(httpPreviewReady)")
+        } catch {
+            DDLogInfo("HTTP_IQ_ARCHIVE event=credential_publication_failed")
+        }
+        cancelHTTPArchiveRequestLocked()
         return true
     }
-    
+
     static public func removeDefaultsForPush(target: String, jid: String) {
         if let record = try? CredentialsManager.staticGetPushCredentials(for: target), record.jid == jid {
             CredentialsManager.shared.removePushCredentials(for: target)

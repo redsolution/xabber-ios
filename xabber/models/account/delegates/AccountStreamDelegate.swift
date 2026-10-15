@@ -577,7 +577,7 @@ extension Account: XMPPStreamDelegate {
             case self.mam.read(sender, withIQ: iq):
                 self.messages.scheduleQueuedMessagesDrainWithoutWaiting()
                 break
-            case self.push.read(withIQ: iq):
+            case sender === self.xmppStream && self.push.read(withIQ: iq):
                 break
             case self.devices.read(withIQ: iq):
                 self.omemo.checkInfo()

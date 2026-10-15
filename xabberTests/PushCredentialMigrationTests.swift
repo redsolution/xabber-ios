@@ -12,7 +12,7 @@ final class PushCredentialMigrationTests: XCTestCase {
         super.tearDown()
     }
 
-    func testLegacyCredentialRecordPreservesOpaqueSecretAndHTTPGrant() throws {
+    func testLegacyCredentialRecordPreservesOpaqueSecretButRequiresFreshHTTPDiscovery() throws {
         let node = try storeFixture([
             "jid": "romeo@example.invalid",
             "host": "example.invalid",
@@ -27,7 +27,109 @@ final class PushCredentialMigrationTests: XCTestCase {
         XCTAssertEqual(record.secret, "opaque-private-fixture")
         XCTAssertEqual(record.service, "https://archive.example.invalid")
         XCTAssertEqual(record.jwt, "opaque-jwt-fixture")
+        XCTAssertNil(record.httpArchive)
         XCTAssertEqual(try CredentialsManager.staticGetPushCredentials(for: node).secret, record.secret)
+    }
+
+    func testVersionThreeAtomicallyRoundTripsDiscoveredArchiveGrantAndBinaryKey() throws {
+        let node = "push-http-grant-\(UUID().uuidString)"
+        nodes.append(node)
+        let bytes = Array(UInt8(0)...UInt8(31))
+        let grant = archiveGrant()
+
+        try CredentialsManager.shared.storePushCredentials(
+            node: node, jid: "romeo@example.invalid", host: "example.invalid",
+            secret: Data(bytes).base64EncodedString(), service: "", jwt: "",
+            keyEncoding: .base64, grantRevision: "issuance-one", httpArchive: grant
+        )
+        let record = try CredentialsManager.staticGetPushCredentials(for: node)
+
+        XCTAssertEqual(record.version, 3)
+        XCTAssertEqual(record.keyBytes, bytes)
+        XCTAssertEqual(record.httpArchive, grant)
+        XCTAssertTrue(try XCTUnwrap(record.httpArchive).isUsable(
+            forAccount: record.jid, host: record.host, now: grantCheckTime
+        ))
+    }
+
+    func testVersionTwoRetainsBinaryKeyButNeverPromotesFlatLegacyValuesIntoHTTPGrant() throws {
+        var fixture = legacyFixture
+        let bytes = Array(UInt8(0)...UInt8(31))
+        fixture["version"] = 2
+        fixture["keyEncoding"] = "base64"
+        fixture["secret"] = Data(bytes).base64EncodedString()
+        fixture["httpArchive"] = ["endpoint": "https://example.invalid/untrusted"]
+        let node = try storeFixture(fixture)
+
+        let record = try CredentialsManager.staticGetPushCredentials(for: node)
+
+        XCTAssertEqual(record.keyBytes, bytes)
+        XCTAssertNil(record.httpArchive)
+        XCTAssertEqual(record.service, "https://archive.example.invalid")
+    }
+
+    func testDiscoveredArchiveEndpointCanUseAnExplicitlyAdvertisedDifferentHTTPSHost() {
+        let grant = archiveGrant(endpoint: "https://archive.example-cdn.invalid/custom/path?tenant=one")
+
+        XCTAssertTrue(grant.isUsable(forAccount: "romeo@example.invalid", host: "example.invalid", now: grantCheckTime))
+    }
+
+    func testArchiveGrantRequiresHTTPSAbsoluteEndpointWithoutCredentialsOrFragment() {
+        for endpoint in [
+            "/iq/archive/id", "http://example.invalid/iq/archive/id", "https:///iq/archive/id",
+            "https://user@example.invalid/iq/archive/id", "https://user:password@example.invalid/iq/archive/id",
+            "https://example.invalid/iq/archive/id#fragment", "https://example.invalid/path\nother",
+            "https://example.invalid/path\u{1}", "https://example.invalid/iq/archive/id?id=existing",
+            "https://example.invalid/iq/archive/id?by=other", "https://example.invalid/iq/archive/id?%69d=existing"
+        ] {
+            XCTAssertFalse(archiveGrant(endpoint: endpoint).isUsable(
+                forAccount: "romeo@example.invalid", host: "example.invalid", now: grantCheckTime
+            ), endpoint)
+        }
+    }
+
+    func testArchiveGrantRequiresUnexpiredMAMScopeAndOriginalDiscoveryDomain() {
+        let variants = [
+            archiveGrant(scopes: []), archiveGrant(scopes: ["vcard-temp"]),
+            archiveGrant(expiresAt: grantCheckTime), archiveGrant(expiresAt: grantCheckTime.addingTimeInterval(-1)),
+            archiveGrant(discoveryDomain: "other.invalid"), archiveGrant(token: ""),
+            archiveGrant(token: "token\r\nInjected: value"), archiveGrant(token: "token\u{0}tail"),
+            archiveGrant(token: "token\u{7f}tail")
+        ]
+        for grant in variants {
+            XCTAssertFalse(grant.isUsable(forAccount: "romeo@example.invalid", host: "example.invalid", now: grantCheckTime))
+        }
+        let grant = archiveGrant(scopes: ["vcard-temp", "urn:xmpp:mam:2"])
+        XCTAssertFalse(grant.isUsable(forAccount: "romeo@other.invalid", host: "example.invalid", now: grantCheckTime))
+        XCTAssertFalse(grant.isUsable(forAccount: "romeo@example.invalid", host: "other.invalid", now: grantCheckTime))
+        XCTAssertTrue(grant.isUsable(forAccount: "romeo@EXAMPLE.invalid/device", host: "example.invalid", now: grantCheckTime))
+    }
+
+    func testNewArchiveGrantExpirationUsesEffectiveServerExpiryAndEarlierJWTExpiryAsSchedulingHints() {
+        let serverExpiry = grantCheckTime.addingTimeInterval(3600)
+        let opaqueRecord = record(archiveGrant(expiresAt: serverExpiry))
+        let earlier = grantCheckTime.addingTimeInterval(1200)
+        let earlierJWTRecord = record(archiveGrant(token: jwt(expiration: earlier), expiresAt: serverExpiry))
+        let laterJWTRecord = record(archiveGrant(token: jwt(expiration: serverExpiry.addingTimeInterval(3600)), expiresAt: serverExpiry))
+
+        XCTAssertEqual(opaqueRecord.tokenExpiresAt, serverExpiry)
+        XCTAssertEqual(earlierJWTRecord.tokenExpiresAt, earlier)
+        XCTAssertEqual(laterJWTRecord.tokenExpiresAt, serverExpiry)
+    }
+
+    func testArchiveGrantGenerationCoversEveryDiscoveredCredentialFieldAndLocalRevision() {
+        let original = record(archiveGrant())
+        let variants = [
+            record(archiveGrant(endpoint: "https://archive.example.invalid/alternate")),
+            record(archiveGrant(token: "replacement-token")),
+            record(archiveGrant(scopes: ["urn:xmpp:mam:2", "vcard-temp"])),
+            record(archiveGrant(expiresAt: grantCheckTime.addingTimeInterval(7200))),
+            record(archiveGrant(discoveryDomain: "other.invalid")),
+            record(archiveGrant(), revision: "next-issuance"), record(nil)
+        ]
+
+        XCTAssertEqual(original.tokenGeneration, record(archiveGrant()).tokenGeneration)
+        for variant in variants { XCTAssertNotEqual(original.tokenGeneration, variant.tokenGeneration) }
     }
 
     func testUnknownFutureRecordVersionCannotBeReadAsLegacyCredentials() throws {
@@ -154,6 +256,29 @@ final class PushCredentialMigrationTests: XCTestCase {
 
     private final class FailingPushCredentialWriter: CredentialsManager {
         override func writePushCredential(_ json: String, node: String) -> Bool { false }
+    }
+
+    private var grantCheckTime: Date { Date(timeIntervalSince1970: 2_000_000_000) }
+
+    private func archiveGrant(endpoint: String = "https://archive.example.invalid/custom/by-id",
+                              token: String = "opaque-server-token", scopes: [String] = ["urn:xmpp:mam:2"],
+                              expiresAt: Date? = nil, discoveryDomain: String = "example.invalid") -> PushHTTPArchiveGrant {
+        PushHTTPArchiveGrant(endpoint: endpoint, token: token, scopes: scopes,
+                             expiresAt: expiresAt ?? grantCheckTime.addingTimeInterval(3600),
+                             discoveryDomain: discoveryDomain)
+    }
+
+    private func record(_ grant: PushHTTPArchiveGrant?, revision: String = "issuance-one") -> PushCredentialRecord {
+        PushCredentialRecord(host: "example.invalid", secret: String(repeating: "a", count: 32),
+                             jid: "romeo@example.invalid", service: "", jwt: "",
+                             grantRevision: revision, httpArchive: grant)
+    }
+
+    private func jwt(expiration: Date) -> String {
+        let payload = Data("{\"exp\":\(expiration.timeIntervalSince1970)}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        return "header.\(payload).signature"
     }
 
     private var legacyFixture: [String: Any] {

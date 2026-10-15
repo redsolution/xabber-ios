@@ -154,7 +154,10 @@ final class PushLifecycleCapabilityTests: XCTestCase {
         let saved = f.memory.record!
         f.memory.record = CredentialsManager.PushSecretData(
             host: saved.host, secret: saved.secret, jid: saved.jid,
-            service: saved.service, jwt: "fixture-opaque-jwt", keyEncoding: saved.keyEncoding
+            service: saved.service, jwt: "fixture-opaque-jwt", keyEncoding: saved.keyEncoding,
+            httpArchive: PushHTTPArchiveGrant(endpoint: "https://example.invalid/iq/archive/id",
+                token: "header.payload.signature", scopes: ["urn:xmpp:mam:2"],
+                expiresAt: Date().addingTimeInterval(3600), discoveryDomain: "example.invalid")
         )
         let originalKey = f.memory.record.keyBytes
         f.account.push.awaitCustomPushSupport()

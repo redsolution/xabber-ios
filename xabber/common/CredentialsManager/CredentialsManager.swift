@@ -1019,16 +1019,18 @@ class CredentialsManager: NSObject {
     public final func storePushCredentials(node: String, jid: String, host: String, secret: String,
                                           service: String, jwt: String,
                                           keyEncoding: PushCredentialKeyEncoding = .utf8,
-                                          grantRevision: String? = nil) throws {
+                                          grantRevision: String? = nil,
+                                          httpArchive: PushHTTPArchiveGrant? = nil) throws {
         let record = PushCredentialRecord(host: host, secret: secret, jid: jid, service: service,
-                                          jwt: jwt, keyEncoding: keyEncoding, grantRevision: grantRevision)
+                                          jwt: jwt, keyEncoding: keyEncoding, grantRevision: grantRevision,
+                                          httpArchive: httpArchive)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(record)
         guard let json = String(data: data, encoding: .utf8), writePushCredential(json, node: node) else {
             throw CredentialsError.pushStorageFailure
         }
-        credentialsDebugLog("CredentialsManager: push credential stored hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false)")
+        credentialsDebugLog("CredentialsManager: push credential stored hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false) httpArchivePresent=\(httpArchive != nil)")
     }
 
     /// Overridable transport boundary for deterministic storage-failure tests.

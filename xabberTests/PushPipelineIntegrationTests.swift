@@ -13,26 +13,42 @@ final class PushPipelineIntegrationTests: XCTestCase {
     func testAcknowledgedRegistrationSharedBinaryKeyHTTPAndExactMessageRoute() throws {
         let owner = "romeo@example.invalid"
         let node = "pipeline-\(UUID().uuidString)"
-        defer { CredentialsManager.shared.removePushCredentials(for: node) }
         let manager = PushNotificationsManager(withOwner: owner)
-        manager.configure(node: node, service: "push.example.invalid")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        manager.tokenInvalidationStore = PushTokenInvalidationStore(directory: directory)
+        defer {
+            manager.clearSession()
+            PushNotificationsManager.removeDefaultsForPush(target: node, jid: owner)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        manager.node = node
+        manager.service = "push.example.invalid"
+        manager.payloadModeProvider = { .summary }
         let stream = Stream()
         stream.myJID = XMPPJID(string: "\(owner)/ios")
         manager.awaitCustomPushSupport()
         manager.setCustomPushSupport(true, xmppStream: stream)
         manager.enable(xmppStream: stream) { XCTAssertTrue($0) }
-        let requestID = try XCTUnwrap(stream.sent.last?.attributeStringValue(forName: "id"))
-        // This is the server's actual optional grant form on successful push enable.
-        let response = try DDXMLDocument(xmlString: """
-        <iq type='result' id='\(requestID)' from='\(owner)'>
-          <x xmlns='jabber:x:data' type='result'>
-            <field var='FORM_TYPE' type='hidden'><value>https://xabber.com/protocol/push</value></field>
-            <field var='url'><value>https://archive.pipeline.invalid/iq</value></field>
-            <field var='jwt'><value>fixture-jwt</value></field>
-          </x>
-        </iq>
-        """, options: 0)
-        XCTAssertTrue(manager.read(withIQ: XMPPIQ(from: try XCTUnwrap(response.rootElement()))))
+        func requestID(_ child: String, namespace: String) throws -> String {
+            try XCTUnwrap(stream.sent.last(where: {
+                $0.element(forName: child, xmlns: namespace) != nil
+            })?.attributeStringValue(forName: "id"))
+        }
+        func result(_ id: String, body: String) throws -> XMPPIQ {
+            let document = try DDXMLDocument(xmlString: "<iq type='result' id='\(id)' from='example.invalid' to='\(owner)/ios'>\(body)</iq>", options: 0)
+            return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
+        }
+        XCTAssertTrue(manager.read(withIQ: try result(requestID("enable", namespace: manager.getPrimaryNamespace()), body: "")))
+        XCTAssertTrue(manager.enabled)
+        XCTAssertFalse(manager.httpPreviewReady)
+        let httpNamespace = "https://xabber.com/protocol/http-iq"
+        XCTAssertTrue(manager.read(withIQ: try result(requestID("endpoints", namespace: httpNamespace), body: """
+        <endpoints xmlns='\(httpNamespace)'><protocol var='urn:xmpp:mam:2'><endpoint name='by-id' url='https://archive.pipeline.invalid/custom/archive/by-id?deployment=ios'/></protocol></endpoints>
+        """)))
+        XCTAssertTrue(manager.read(withIQ: try result(requestID("token", namespace: httpNamespace), body: """
+        <token xmlns='\(httpNamespace)'><scope>urn:xmpp:mam:2</scope><ttl>3600</ttl><expires>2100-01-01T00:00:00Z</expires><value>\(PipelineArchiveProtocol.token)</value></token>
+        """)))
+        XCTAssertTrue(manager.httpPreviewReady)
         let record = try CredentialsManager.staticGetPushCredentials(for: node)
         let key = try XCTUnwrap(record.keyBytes)
         XCTAssertEqual(key.count, 32)
@@ -52,10 +68,11 @@ final class PushPipelineIntegrationTests: XCTestCase {
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [PipelineArchiveProtocol.self]
-        let client = try XCTUnwrap(PushArchiveHTTPClient(baseURL: try XCTUnwrap(URL(string: record.service)),
-            token: record.jwt, archiveOwner: record.jid, configuration: configuration))
+        let grant = try XCTUnwrap(record.httpArchive)
+        let client = try XCTUnwrap(PushArchiveHTTPClient(endpointURL: try XCTUnwrap(URL(string: grant.endpoint)),
+            token: grant.token, archiveOwner: record.jid, configuration: configuration))
         let delivered = expectation(description: "Validated archive preview")
-        client.fetch(id: identifier.id) { outcome in
+        client.fetch(id: identifier.id, by: identifier.by) { outcome in
             guard case .message(let message) = outcome,
                   let preview = PushNotificationArchiveParser.parseHTTPArchivedMessage(message, owner: record.jid) else {
                 delivered.fulfill()
@@ -74,20 +91,26 @@ final class PushPipelineIntegrationTests: XCTestCase {
 }
 
 private final class PipelineArchiveProtocol: URLProtocol {
+    static let token: String = {
+        let payload = Data("{\"iss\":\"example.invalid\",\"sub\":\"romeo@example.invalid/device-42\",\"scope\":[\"urn:xmpp:mam:2\"],\"exp\":4102444800}".utf8)
+            .base64EncodedString().replacingOccurrences(of: "=", with: "")
+        return "eyJhbGciOiJIUzI1NiJ9.\(payload).c2lnbmF0dXJl"
+    }()
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "archive.pipeline.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url else { return }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
-        XCTAssertEqual(url.path, "/iq/archive")
+        XCTAssertEqual(url.path, "/custom/archive/by-id")
+        XCTAssertEqual(query?.first(where: { $0.name == "deployment" })?.value, "ios")
+        XCTAssertEqual(query?.first(where: { $0.name == "by" })?.value, "romeo@example.invalid")
         XCTAssertEqual(query?.first(where: { $0.name == "id" })?.value, "123")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-jwt")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(Self.token)")
         let xml = """
-        <message from='romeo@example.invalid'><result xmlns='urn:xmpp:mam:2' id='123' queryid='q'><forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' type='chat' from='juliet@example.invalid/mobile' to='romeo@example.invalid' id='message-123'><body>Archive preview</body></message></forwarded></result></message>
-        <iq from='romeo@example.invalid' type='result' id='q'><fin xmlns='urn:xmpp:mam:2' complete='true'/></iq>
+        <message from='romeo@example.invalid'><result xmlns='urn:xmpp:mam:2' id='123' queryid='q'><forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' type='chat' from='juliet@example.invalid/mobile' to='romeo@example.invalid' id='message-123'><body>Archive preview</body><stanza-id xmlns='urn:xmpp:sid:0' by='romeo@example.invalid' id='123'/></message></forwarded></result></message>
         """
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-            headerFields: ["Content-Type": "text/html"])!, cacheStoragePolicy: .notAllowed)
+            headerFields: ["Content-Type": "application/xml; charset=utf-8"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(xml.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }

@@ -297,8 +297,10 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func canFetchArchive(_ record: CredentialsManager.PushSecretData) -> Bool {
-        guard let node = currentNode, !record.jwt.isEmpty,
-              record.tokenExpiresAt.map({ $0 > Date() }) ?? true,
+        let now = Date()
+        guard let node = currentNode, let grant = record.httpArchive,
+              grant.isUsable(forAccount: record.jid, host: record.host, now: now),
+              record.tokenExpiresAt.map({ $0 > now }) == true,
               let store = PushTokenInvalidationStore.live,
               let invalid = try? store.contains(node: node, generation: record.tokenGeneration) else { return false }
         return !invalid
@@ -564,11 +566,7 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
         let remoteArchiveJid = stanzaId.by == pushData.jid ? nil : stanzaId.by
-        guard let manager = NetworkManager(
-            service: pushData.service,
-            jid: pushData.jid,
-            jwt: pushData.jwt
-        ) else {
+        guard let manager = NetworkManager(credentials: pushData) else {
             fallbackVisibleNotification(for: notificationType, reason: "invalid archive service")
             return
         }
@@ -576,7 +574,7 @@ class NotificationService: UNNotificationServiceExtension {
         guard installArchiveManager(manager) else {
             return
         }
-        manager.getMessage(host: pushData.host, messageId: stanzaId.id, by: remoteArchiveJid)
+        manager.getMessage(messageId: stanzaId.id, by: remoteArchiveJid)
     }
     
     internal func onSubscribe(_ payload: PayloadData) {
