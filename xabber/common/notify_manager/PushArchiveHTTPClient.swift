@@ -36,6 +36,10 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
     private let clock: () -> TimeInterval
     private let scheduler: Scheduler
     private let callbackQueue: DispatchQueue
+    private let diagnostic: ((String) -> Void)?
+    // Diagnostic sinks may perform file IO or call cancel(). Keep them off the
+    // transport state queue and outside cancellation/state locks.
+    private let diagnosticQueue = DispatchQueue(label: "com.xabber.push-archive-http.diagnostics")
     private let stateQueue = DispatchQueue(label: "com.xabber.push-archive-http.state")
     private let cancellationLock = NSLock()
     private var cancellationRequested = false
@@ -63,7 +67,8 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         requestTimeout: TimeInterval = 6.5,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         scheduler: @escaping Scheduler = PushArchiveHTTPClient.liveScheduler,
-        callbackQueue: DispatchQueue = .global(qos: .utility)
+        callbackQueue: DispatchQueue = .global(qos: .utility),
+        diagnostic: ((String) -> Void)? = nil
     ) {
         guard Self.validEndpointURL(endpointURL), Self.validToken(token), !archiveOwner.isEmpty,
               maximumResponseSize > 0, totalBudget.isFinite, totalBudget > 0,
@@ -78,12 +83,14 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         self.clock = clock
         self.scheduler = scheduler
         self.callbackQueue = callbackQueue
+        self.diagnostic = diagnostic
         super.init()
     }
 
     func fetch(id: String, by: String? = nil, completion: @escaping (Outcome) -> Void) {
         stateQueue.async { [self] in
             guard !hasStarted else {
+                diagnose("event=busy id=\(id) by=\(by ?? "")")
                 callbackQueue.async { completion(.failure(.busy)) }
                 return
             }
@@ -91,6 +98,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
             self.completion = completion
             requestID = id
             requestBy = by
+            diagnose("event=start endpoint=\(endpointURL.absoluteString) id=\(id) by=\(by ?? "") owner=\(archiveOwner) budget=\(totalBudget)")
             guard !isCancellationRequested else { finish(.cancelled); return }
             guard Self.makeRequest(endpointURL: endpointURL, token: token, id: id, by: by) != nil else {
                 finish(.failure(.invalidRequest))
@@ -99,13 +107,17 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
             deadline = clock() + totalBudget
             deadlineWork = scheduler(totalBudget) { [weak self] in
                 guard let self else { return }
-                self.stateQueue.async { self.finish(.failure(.timeout)) }
+                self.stateQueue.async {
+                    if !self.hasFinished { self.diagnose("event=deadline budget=\(self.totalBudget)") }
+                    self.finish(.failure(.timeout))
+                }
             }
             startAttempt()
         }
     }
 
     func cancel() {
+        diagnose("event=cancel_requested")
         cancellationLock.lock()
         cancellationRequested = true
         cancellationLock.unlock()
@@ -130,6 +142,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
             return
         }
         request.timeoutInterval = min(requestTimeout, remaining)
+        diagnose("event=request attempt=\(attempt + 1) method=\(request.httpMethod ?? "") url=\(request.url?.absoluteString ?? "") timeout=\(request.timeoutInterval) bodyBytes=\(request.httpBody?.count ?? 0)\n\(Self.headers(request.allHTTPHeaderFields ?? [:]))\n\(Self.body(request.httpBody ?? Data()))")
         if session == nil {
             let configuration = (self.configuration.copy() as? URLSessionConfiguration) ?? self.configuration
             configuration.httpShouldSetCookies = false
@@ -158,6 +171,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
 
     private func handleFailure(_ outcome: Outcome, transient: Bool) {
         guard !hasFinished else { return }
+        diagnose("event=failure outcome=\(Self.outcomeName(outcome)) attempt=\(attempt + 1) transient=\(transient)")
         currentTask?.cancel()
         currentTask = nil
         response = nil
@@ -166,6 +180,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         // One transient retry shares the absolute budget with the first attempt.
         if transient, attempt == 0, deadline - clock() > 0.2 {
             attempt += 1
+            diagnose("event=retry attempt=\(attempt + 1) delay=0.2 remaining=\(deadline - clock())")
             retryWork = scheduler(0.2) { [weak self] in
                 guard let self else { return }
                 self.stateQueue.async { self.startAttempt() }
@@ -178,6 +193,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
     private func finish(_ outcome: Outcome) {
         guard !hasFinished else { return }
         hasFinished = true
+        diagnose("event=finish outcome=\(Self.outcomeName(outcome)) attempt=\(attempt + 1)")
         let completion = self.completion
         self.completion = nil
         deadlineWork?.cancel()
@@ -190,8 +206,18 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         session?.invalidateAndCancel()
         session = nil
         guard let completion else { return }
-        callbackQueue.async { [self] in
-            completion(isCancellationRequested ? .cancelled : outcome)
+        let deliver = { [self] in
+            callbackQueue.async { [self] in
+                completion(isCancellationRequested ? .cancelled : outcome)
+            }
+        }
+        if diagnostic != nil {
+            // The system may terminate an NSE as soon as it delivers content.
+            // Flush queued diagnostics before making the final result visible;
+            // never synchronously wait on a sink that may itself call cancel().
+            diagnosticQueue.async(execute: deliver)
+        } else {
+            deliver()
         }
     }
 
@@ -211,16 +237,20 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
                 return
             }
             guard let response = response as? HTTPURLResponse else {
+                diagnose("event=response_invalid value=\(response)")
                 completionHandler(.cancel)
                 finish(.failure(.invalidResponse))
                 return
             }
+            diagnose("event=response attempt=\(attempt + 1) status=\(response.statusCode) url=\(response.url?.absoluteString ?? "") mime=\(response.mimeType ?? "") expectedBytes=\(response.expectedContentLength)\n\(Self.headers(response.allHeaderFields))")
             guard response.url == dataTask.originalRequest?.url else {
+                diagnose("event=response_body_unavailable reason=unexpected_url_header_rejected")
                 completionHandler(.cancel)
                 finish(.failure(.redirect))
                 return
             }
             guard response.statusCode == 200 else {
+                diagnose("event=response_body_unavailable reason=status_header_rejected")
                 completionHandler(.cancel)
                 let outcome: Outcome
                 if response.statusCode == 401 { outcome = .unauthorized }
@@ -231,11 +261,13 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
                 return
             }
             guard response.mimeType?.lowercased() == "application/xml" else {
+                diagnose("event=response_body_unavailable reason=mime_header_rejected")
                 completionHandler(.cancel)
                 finish(.failure(.invalidResponse))
                 return
             }
             guard response.expectedContentLength <= Int64(maximumResponseSize) else {
+                diagnose("event=response_body_unavailable reason=declared_size_header_rejected")
                 completionHandler(.cancel)
                 finish(.failure(.oversizedResponse))
                 return
@@ -250,6 +282,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         // unbounded queue while parsing/state work is in progress.
         stateQueue.sync { [self] in
             guard accepts(dataTask) else { return }
+            diagnose("event=response_chunk attempt=\(attempt + 1) offset=\(buffer.count) \(Self.body(data))")
             guard !isCancellationRequested else { finish(.cancelled); return }
             guard deadline - clock() > 0 else { finish(.failure(.timeout)); return }
             guard data.count <= maximumResponseSize - buffer.count else {
@@ -267,6 +300,7 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
             guard deadline - clock() > 0 else { finish(.failure(.timeout)); return }
             if let error {
                 let nsError = error as NSError
+                diagnose("event=transport_error attempt=\(attempt + 1) domain=\(nsError.domain) code=\(nsError.code) description=\(nsError.localizedDescription) userInfo=\(nsError.userInfo)")
                 let transientCodes: Set<Int> = [
                     NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet,
                     NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed
@@ -278,10 +312,12 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
                 return
             }
             guard let response else { finish(.failure(.invalidResponse)); return }
+            diagnose("event=response_body attempt=\(attempt + 1) \(Self.body(buffer))")
             let result = Self.decodeResponse(
                 data: buffer, statusCode: response.statusCode, expectedID: requestID,
                 archiveOwner: requestBy ?? archiveOwner, maximumResponseSize: maximumResponseSize
             )
+            diagnose("event=parser outcome=\(Self.outcomeName(result))")
             finish(result)
         }
     }
@@ -295,7 +331,35 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
         completionHandler(nil)
         stateQueue.async { [self] in
             guard accepts(task) else { return }
+            diagnose("event=redirect status=\(response.statusCode) from=\(response.url?.absoluteString ?? "") to=\(request.url?.absoluteString ?? "")\n\(Self.headers(response.allHeaderFields))")
             finish(.failure(.redirect))
+        }
+    }
+
+    private func diagnose(_ event: @autoclosure () -> String) {
+        guard let diagnostic else { return }
+        let message = "HTTP_ARCHIVE " + event()
+        diagnosticQueue.async { diagnostic(message) }
+    }
+
+    private static func headers<Key: Hashable, Value>(_ headers: [Key: Value]) -> String {
+        headers.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "\n")
+    }
+
+    private static func body(_ data: Data) -> String {
+        if let text = String(data: data, encoding: .utf8) {
+            return "encoding=utf8 bytes=\(data.count)\n\(text)"
+        }
+        return "encoding=base64 bytes=\(data.count)\n\(data.base64EncodedString())"
+    }
+
+    private static func outcomeName(_ outcome: Outcome) -> String {
+        switch outcome {
+        case .message: return "message"
+        case .xmppError(let condition): return "xmppError.\(condition ?? "")"
+        case .unauthorized: return "unauthorized"
+        case .cancelled: return "cancelled"
+        case .failure(let failure): return "failure.\(failure)"
         }
     }
 

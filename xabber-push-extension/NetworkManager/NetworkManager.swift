@@ -41,12 +41,18 @@ final class NetworkManager {
               credentials.tokenExpiresAt.map({ $0 > now }) == true,
               let url = URL(string: grant.endpoint),
               let client = PushArchiveHTTPClient(endpointURL: url, token: grant.token,
-                                                archiveOwner: credentials.jid) else { return nil }
+                                                archiveOwner: credentials.jid,
+                                                diagnostic: PushExtensionDiagnostics.sink) else {
+            PushExtensionDiagnostics.log("event=archive_client_rejected owner=\(credentials.jid)")
+            return nil
+        }
         self.client = client
         self.jid = credentials.jid
+        PushExtensionDiagnostics.log("event=archive_client_ready endpoint=\(url.absoluteString)")
     }
 
     func getMessage(messageId: String, by: String?) {
+        PushExtensionDiagnostics.log("event=archive_adapter_fetch id=\(messageId) by=\(by ?? "none")")
         stateLock.lock()
         guard !cancelled, !hasStarted else { stateLock.unlock(); return }
         hasStarted = true
@@ -58,6 +64,7 @@ final class NetworkManager {
     }
 
     func cancel() {
+        PushExtensionDiagnostics.log("event=archive_adapter_cancel")
         stateLock.lock()
         cancelled = true
         let task = callbackTask
@@ -74,6 +81,7 @@ final class NetworkManager {
     }
 
     private func receive(_ outcome: PushArchiveHTTPClient.Outcome) {
+        PushExtensionDiagnostics.log("event=archive_adapter_outcome value=\(outcome)")
         stateLock.lock()
         guard !cancelled, !didReceiveOutcome else { stateLock.unlock(); return }
         didReceiveOutcome = true
@@ -81,9 +89,11 @@ final class NetworkManager {
         switch outcome {
         case .message(let message):
             guard let preview = PushNotificationArchiveParser.parseHTTPArchivedMessage(message, owner: jid) else {
+                PushExtensionDiagnostics.log("event=archive_preview_rejected\n\(message.xmlString(withOptions: 0))")
                 if isActive { delegate?.networkManager(self, didDisconnectWithError: "archive unavailable") }
                 return
             }
+            PushExtensionDiagnostics.log("event=archive_preview_parsed route=\(preview.route) body=\(preview.body)")
             stateLock.lock()
             guard !cancelled else { stateLock.unlock(); return }
             callbackTask = Task { [weak self] in

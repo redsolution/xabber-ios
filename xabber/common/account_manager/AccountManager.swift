@@ -880,6 +880,7 @@ public class AccountManager: NSObject {
     
     @objc
     private func willEnterBackground() {
+        PushExtensionDiagnostics.log("event=host_background_begin accounts=\(self.users.count) logFile=\(PushExtensionDiagnostics.shared.fileURL.path)")
         self.prepareForBackground()
 //        let appDelegate = UIApplication.shared.delegate as? AppDelegate
 //        appDelegate?.addBlurredScreen()
@@ -887,6 +888,8 @@ public class AccountManager: NSObject {
             $0.disconnect(hard: true, cause: .backgroundSuspension)
         }
         XMPPUIActionManager.shared.close(disconnect: true)
+        let primary = self.users.map { "\($0.jid):connected=\($0.xmppStream.isConnected),disconnected=\($0.xmppStream.isDisconnected)" }
+        PushExtensionDiagnostics.log("event=host_background_streams primary=\(primary) uiConnected=\(XMPPUIActionManager.shared.stream.isConnected) uiDisconnected=\(XMPPUIActionManager.shared.stream.isDisconnected)")
     }
     
     private func removeObservers() {

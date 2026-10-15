@@ -123,6 +123,119 @@ final class HTTPArchiveByIDTests: XCTestCase {
         wait(for: [received], timeout: 2)
     }
 
+    func testDiagnosticsPreserveRequestHeadersAndCompleteUnmodifiedResponseBody() throws {
+        let body = "\n" + message().replacingOccurrences(of: "Hello", with: "Hello &amp; привет") + "\n"
+        let received = expectation(description: "diagnosed archive result")
+        let finished = expectation(description: "diagnostics finish")
+        let diagnostics = ArchiveHTTPDiagnostics()
+        let client = try makeClient(diagnostic: { event in
+            diagnostics.append(event)
+            if event.contains("event=finish outcome=message") { finished.fulfill() }
+        }) { request, stub in
+            diagnostics.append("fixture-url=\(request.url!.absoluteString)")
+            let data = Data(body.utf8)
+            stub.begin(status: 200, headers: ["X-Archive-Test": "exact-header-value"])
+            stub.send(data.prefix(31))
+            stub.send(data.dropFirst(31))
+            stub.finish()
+        }
+        client.fetch(id: "123", by: owner) { outcome in
+            self.assertMessage(outcome, id: "123")
+            XCTAssertTrue(diagnostics.events.contains { $0.contains("event=finish outcome=message") },
+                          "An NSE may exit immediately after completion; transport logs must already be delivered")
+            received.fulfill()
+        }
+        wait(for: [received, finished], timeout: 2)
+
+        let events = diagnostics.events
+        let request = try XCTUnwrap(events.first { $0.contains("event=request ") })
+        let fixtureURL = try XCTUnwrap(events.first { $0.hasPrefix("fixture-url=") })
+            .replacingOccurrences(of: "fixture-url=", with: "")
+        XCTAssertTrue(request.contains("method=GET url=\(fixtureURL)"))
+        XCTAssertTrue(request.contains("Authorization: Bearer fixture-token"))
+        XCTAssertTrue(request.contains("Accept: application/xml"))
+        XCTAssertTrue(request.contains("Cache-Control: no-store"))
+        XCTAssertTrue(request.contains("bodyBytes=0"))
+        let response = try XCTUnwrap(events.first { $0.contains("event=response ") })
+        XCTAssertTrue(response.contains("status=200"))
+        XCTAssertTrue(response.lowercased().contains("x-archive-test: exact-header-value"))
+        let completeBody = try XCTUnwrap(events.first { $0.contains("event=response_body ") })
+        XCTAssertEqual(completeBody.components(separatedBy: "\n").dropFirst().joined(separator: "\n"), body)
+        XCTAssertTrue(completeBody.contains("encoding=utf8 bytes=\(body.utf8.count)"))
+        XCTAssertTrue(events.contains { $0.contains("event=parser outcome=message") })
+        XCTAssertLessThan(try XCTUnwrap(events.firstIndex { $0.contains("event=request ") }),
+                          try XCTUnwrap(events.firstIndex { $0.contains("event=response ") }))
+        XCTAssertLessThan(try XCTUnwrap(events.firstIndex { $0.contains("event=response_body ") }),
+                          try XCTUnwrap(events.firstIndex { $0.contains("event=parser ") }))
+    }
+
+    func testDiagnosticsPreserveNonUTF8BytesAndReportParserFailure() throws {
+        let data = Data([0xFF, 0xFE, 0x00, 0x81])
+        let received = expectation(description: "binary response rejected")
+        let finished = expectation(description: "binary diagnostics finish")
+        let diagnostics = ArchiveHTTPDiagnostics()
+        let client = try makeClient(diagnostic: { event in
+            diagnostics.append(event)
+            if event.contains("event=finish outcome=failure.invalidResponse") { finished.fulfill() }
+        }) { _, stub in
+            stub.respond(status: 200, body: data)
+        }
+        client.fetch(id: "123") { outcome in
+            self.assertFailure(outcome, .invalidResponse)
+            received.fulfill()
+        }
+        wait(for: [received, finished], timeout: 2)
+        let body = try XCTUnwrap(diagnostics.events.first { $0.contains("event=response_body ") })
+        XCTAssertTrue(body.contains("encoding=base64 bytes=4"))
+        XCTAssertEqual(body.components(separatedBy: "\n").last, data.base64EncodedString())
+        XCTAssertTrue(diagnostics.events.contains { $0.contains("event=parser outcome=failure.invalidResponse") })
+    }
+
+    func testDiagnosticsRecordRetryAndReentrantCancellationWithoutDeadlock() throws {
+        let scheduler = ArchiveHTTPControlledScheduler()
+        let retryScheduled = expectation(description: "diagnosed retry")
+        scheduler.onRetryScheduled = { retryScheduled.fulfill() }
+        let received = expectation(description: "reentrant cancel result")
+        let cancelled = expectation(description: "cancel diagnostics finish")
+        let diagnostics = ArchiveHTTPDiagnostics()
+        weak var cancellableClient: PushArchiveHTTPClient?
+        let client = try makeClient(scheduler: scheduler, diagnostic: { event in
+            diagnostics.append(event)
+            if event.contains("event=retry ") { cancellableClient?.cancel() }
+            if event.contains("event=finish outcome=cancelled") { cancelled.fulfill() }
+        }) { _, stub in
+            stub.fail(URLError(.networkConnectionLost))
+        }
+        cancellableClient = client
+        client.fetch(id: "123") { outcome in
+            guard case .cancelled = outcome else { return XCTFail("Expected cancellation from diagnostic callback") }
+            received.fulfill()
+        }
+        wait(for: [retryScheduled, received, cancelled], timeout: 2)
+        XCTAssertTrue(diagnostics.events.contains { $0.contains("event=transport_error ") })
+        XCTAssertTrue(diagnostics.events.contains { $0.contains("event=cancel_requested") })
+    }
+
+    func testDiagnosticsRecordAbsoluteDeadline() throws {
+        let scheduler = ArchiveHTTPControlledScheduler()
+        let started = expectation(description: "diagnosed held request")
+        let received = expectation(description: "diagnosed timeout result")
+        let finished = expectation(description: "timeout diagnostics finish")
+        let diagnostics = ArchiveHTTPDiagnostics()
+        let client = try makeClient(scheduler: scheduler, diagnostic: { event in
+            diagnostics.append(event)
+            if event.contains("event=finish outcome=failure.timeout") { finished.fulfill() }
+        }) { _, _ in started.fulfill() }
+        client.fetch(id: "123") { outcome in
+            self.assertFailure(outcome, .timeout)
+            received.fulfill()
+        }
+        wait(for: [started], timeout: 2)
+        scheduler.perform(delay: 8)
+        wait(for: [received, finished], timeout: 2)
+        XCTAssertTrue(diagnostics.events.contains { $0.contains("event=deadline ") })
+    }
+
     func testQueryEncodesEveryReservedCharacterAndUnicodeWithoutChangingEndpoint() throws {
         let id = "id +&?=/#%Ж"
         let by = "room+tag@example.com/ресурс"
@@ -377,6 +490,7 @@ final class HTTPArchiveByIDTests: XCTestCase {
     private func makeClient(
         maximumResponseSize: Int = 1024 * 1024,
         scheduler: ArchiveHTTPControlledScheduler? = nil,
+        diagnostic: ((String) -> Void)? = nil,
         handler: @escaping ArchiveHTTPURLProtocol.Handler
     ) throws -> PushArchiveHTTPClient {
         let host = "\(UUID().uuidString.lowercased()).http-archive-tests.invalid"
@@ -390,7 +504,8 @@ final class HTTPArchiveByIDTests: XCTestCase {
             configuration: configuration,
             maximumResponseSize: maximumResponseSize,
             scheduler: scheduler.map { controlled in { delay, work in controlled.schedule(delay: delay, work: work) } }
-                ?? PushArchiveHTTPClient.liveScheduler
+                ?? PushArchiveHTTPClient.liveScheduler,
+            diagnostic: diagnostic
         ))
     }
 
@@ -425,6 +540,23 @@ final class HTTPArchiveByIDTests: XCTestCase {
     private func assertFailure(_ outcome: PushArchiveHTTPClient.Outcome, _ expected: PushArchiveHTTPClient.Failure, file: StaticString = #filePath, line: UInt = #line) {
         guard case .failure(let failure) = outcome else { return XCTFail("Expected safe failure", file: file, line: line) }
         XCTAssertEqual(failure, expected, file: file, line: line)
+    }
+}
+
+private final class ArchiveHTTPDiagnostics {
+    private let lock = NSLock()
+    private var storage: [String] = []
+
+    var events: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ event: String) {
+        lock.lock()
+        storage.append(event)
+        lock.unlock()
     }
 }
 

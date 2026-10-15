@@ -4166,6 +4166,10 @@ final class Account: NSObject {
         forceReset: Bool = false,
         prepareStream: (() -> Void)? = nil
     ) -> Bool {
+        guard !PushExtensionDiagnostics.isOfflineHostRun() else {
+            PushExtensionDiagnostics.log("event=host_xmpp_connect_blocked stream=primary trigger=\(trigger.rawValue)")
+            return false
+        }
         let frameworkActivePhase = forceReset ? nil : self.frameworkActivePhase()
         let decision = AccountStreamConnectPreflight.decide(
             gate: self.connectionGate,

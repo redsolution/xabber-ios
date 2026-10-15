@@ -791,6 +791,12 @@ class XMPPUIActionManager: NSObject {
         attemptID: UInt64,
         trigger: AccountConnectTrigger
     ) {
+        guard !PushExtensionDiagnostics.isOfflineHostRun() else {
+            self.lifecycleCoordinator.markFailed()
+            self.failPendingPerformRequests(owner: owner, reason: "pushDiagnosticsOffline")
+            PushExtensionDiagnostics.log("event=host_xmpp_connect_blocked stream=ui_action trigger=\(trigger.rawValue)")
+            return
+        }
         guard preparedStream === self.stream else {
             self.logConnectionDiagnostics(
                 event: "ui_action_stale_attempt_ignored",

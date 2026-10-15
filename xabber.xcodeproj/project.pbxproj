@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B2CE15EA78AB4745BE05CB59 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
+		D3430E4AF2E644FAA6005EE9 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
+		5EB27ABAFF2946B8A9822250 /* PushExtensionDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */; };
 		DA2BEEBA3B894F7D87AB5780 /* LastChatsBackgroundAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5941656919486086B1CCE0 /* LastChatsBackgroundAppearanceTests.swift */; };
 		45D2355C411C465BBC440103 /* OMEMO2BundleDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */; };
 		45D2355C411C465BBC440105 /* OMEMO2BundleDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440106 /* OMEMO2BundleDiagnostics.swift */; };
@@ -1207,6 +1210,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnostics.swift; sourceTree = "<group>"; };
+		13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnosticsTests.swift; sourceTree = "<group>"; };
 		EF5941656919486086B1CCE0 /* LastChatsBackgroundAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsBackgroundAppearanceTests.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleDiagnosticsTests.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440106 /* OMEMO2BundleDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleDiagnostics.swift; sourceTree = "<group>"; };
@@ -3970,6 +3975,7 @@
 				89A2090CC0CA9DE904C4BE3A /* PushPayloadPreferences.swift */,
 				8FBF1A770A4FB81CEDDFC029 /* PushPayloadEnvelope.swift */,
 				DA529818B63996E9CC0087CE /* PushCredentialRecord.swift */,
+				4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */,
 				1367AC05AF90CAB82B8B6796 /* PushArchiveHTTPClient.swift */,
 				4E8140013B2D000000ABC001 /* RichNotificationPresentation.swift */,
 				4E8150013B2E000000ABC001 /* RichNotificationAttachmentLoader.swift */,
@@ -4460,6 +4466,7 @@
 				8673DC14349DEB8B6F2741FE /* PushCredentialMigrationTests.swift */,
 				EE9FD84A7A1BE04DC6DBE943 /* PushRegistrationContractTests.swift */,
 				33267BC06FD2B28EDA4F008C /* PushEnableDiagnosticsTests.swift */,
+				13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */,
 				8A1A6462045C26C622D62AC0 /* PushHTTPIQProvisioningTests.swift */,
 				4E8110013B2A000000ABC001 /* PushExtensionRichContentTests.swift */,
 				4E8120013B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift */,
@@ -6675,6 +6682,7 @@
 				811CC01C057E21E340053F5B /* PushPayloadPreferences.swift in Sources */,
 				DADA28B09EB4EA96308D7CB1 /* PushPayloadEnvelope.swift in Sources */,
 				88C18147443303CBA8CB8D69 /* PushCredentialRecord.swift in Sources */,
+				B2CE15EA78AB4745BE05CB59 /* PushExtensionDiagnostics.swift in Sources */,
 				73724EB0028B75508DC9463F /* PushArchiveHTTPClient.swift in Sources */,
 				4E8140023B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
 				4E8150023B2E000000ABC001 /* RichNotificationAttachmentLoader.swift in Sources */,
@@ -6714,6 +6722,7 @@
 				4E4100032F6B000000ABC001 /* PushNotificationRouting.swift in Sources */,
 				3FE5F6DB935EC70A57552A00 /* PushPayloadEnvelope.swift in Sources */,
 				18C1922466A6DD9D7E912F8D /* PushCredentialRecord.swift in Sources */,
+				D3430E4AF2E644FAA6005EE9 /* PushExtensionDiagnostics.swift in Sources */,
 				6FDFE4B6288DB2697E329823 /* PushArchiveHTTPClient.swift in Sources */,
 				4E8140033B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
 				4E8150033B2E000000ABC001 /* RichNotificationAttachmentLoader.swift in Sources */,
@@ -6825,6 +6834,7 @@
 				F6DDAF39FB1F074255165DA8 /* PushCredentialMigrationTests.swift in Sources */,
 				84AE75CB30A744751CBC2220 /* PushRegistrationContractTests.swift in Sources */,
 				7A2331297EC8D4E6996CE80D /* PushEnableDiagnosticsTests.swift in Sources */,
+				5EB27ABAFF2946B8A9822250 /* PushExtensionDiagnosticsTests.swift in Sources */,
 				8F7C39D9239751A2D1369696 /* PushHTTPIQProvisioningTests.swift in Sources */,
 				4E8110023B2A000000ABC001 /* PushExtensionRichContentTests.swift in Sources */,
 				4E8120023B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift in Sources */,

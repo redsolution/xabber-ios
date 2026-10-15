@@ -24,6 +24,14 @@ import CryptoSwift
 import Intents
 
 class NotificationService: UNNotificationServiceExtension {
+    override init() {
+        super.init()
+        PushExtensionDiagnostics.log("event=extension_init logFile=\(PushExtensionDiagnostics.shared.fileURL.path)")
+    }
+
+    private func trace(_ event: String, _ details: @autoclosure () -> String = "") {
+        PushExtensionDiagnostics.log("event=\(event) request=\(identifier) \(details())")
+    }
     private static let maxCredentialRetryCount = 5
     private static let credentialRetryDelay: TimeInterval = 0.1
     
@@ -141,7 +149,9 @@ class NotificationService: UNNotificationServiceExtension {
             if invalidated, !capturedInteractions.isEmpty {
                 INInteraction.delete(with: capturedInteractions, completion: nil)
             }
-            handler?(invalidated ? passcodeWipeNeutralContent() : snapshot)
+            let delivered = invalidated ? passcodeWipeNeutralContent() : snapshot
+            trace("complete", "neutralized=\(invalidated) title=\(delivered.title) subtitle=\(delivered.subtitle) body=\(delivered.body) category=\(delivered.categoryIdentifier) thread=\(delivered.threadIdentifier) attachments=\(delivered.attachments) userInfo=\(delivered.userInfo)")
+            handler?(delivered)
         }
     }
 
@@ -170,6 +180,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func cancelOutstandingWork() {
+        trace("cancel_outstanding_work")
         let work: (DispatchWorkItem?, Task<Void, Never>?, NetworkManager?) = completionQueue.sync {
             let work = (credentialRetryWorkItem, renderingTask, archiveManager)
             credentialRetryWorkItem = nil
@@ -312,12 +323,14 @@ class NotificationService: UNNotificationServiceExtension {
         retry: Int = 0,
         generation requestedGeneration: UInt? = nil
     ) {
+        trace("credentials_load", "node=\(node) attempt=\(retry)")
         let generation = requestedGeneration ?? completionQueue.sync { requestGeneration }
         guard isActiveRequest(generation: generation) else {
             return
         }
         do {
             let pushSecrets = try CredentialsManager.staticGetPushCredentials(for: node)
+            trace("credentials_loaded", "owner=\(pushSecrets.jid) keyBytes=\(pushSecrets.keyBytes?.count ?? 0) endpoint=\(pushSecrets.httpArchive?.endpoint ?? "none") expires=\(String(describing: pushSecrets.tokenExpiresAt))")
             Self.$handlingGeneration.withValue(generation) {
                 let installed = completionQueue.sync {
                     guard requestGeneration == generation, !didCompleteContent else { return false }
@@ -330,12 +343,14 @@ class NotificationService: UNNotificationServiceExtension {
                 if installed { self.action(for: payload) }
             }
         } catch {
+            trace("credentials_error", "attempt=\(retry) error=\(error)")
             guard isActiveRequest(generation: generation) else {
                 return
             }
             if retry >= Self.maxCredentialRetryCount {
                 Self.$handlingGeneration.withValue(generation) { fallbackVisibleNotification(for: .message) }
             } else {
+                trace("credentials_retry_scheduled", "attempt=\(retry + 1) delay=\(Self.credentialRetryDelay)")
                 let workItem = DispatchWorkItem { [weak self] in
                     guard let self,
                           self.isActiveRequest(generation: generation) else {
@@ -369,6 +384,10 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        PushExtensionDiagnostics.log("event=receive request=\(request.identifier) content=\(request.content) userInfo=\(request.content.userInfo)")
+        if let raw = request.content.userInfo["body"] as? String {
+            PushExtensionDiagnostics.log("event=payload_raw request=\(request.identifier)\n\(raw)")
+        }
         let wipeMarker = PasscodeWipeMarkerStore.live()
         let initialWipeGeneration = try? wipeMarker.readGeneration()
         let wipePendingAtStart = wipeMarker.isPendingOrUnavailable
@@ -400,6 +419,7 @@ class NotificationService: UNNotificationServiceExtension {
             return requestGeneration
         }
         guard mutableContent != nil else {
+            trace("fallback", "reason=immutable_content")
             completeContent(request.content)
             return
         }
@@ -407,16 +427,19 @@ class NotificationService: UNNotificationServiceExtension {
             startGeneration: initialWipeGeneration,
             startedPending: wipePendingAtStart
         ) else {
+            trace("fallback", "reason=passcode_wipe")
             completeBestAttemptContent()
             return
         }
         guard let body = request.content.userInfo["body"] as? String,
             let payload_decoded = parse(payload: body) else {
+            trace("fallback", "reason=missing_or_invalid_payload")
             completeBestAttemptContent()
             return
         }
         
         guard let node = request.content.userInfo["node"] as? String else {
+            trace("fallback", "reason=missing_node")
             completeBestAttemptContent()
             return
         }
@@ -429,23 +452,28 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     override func serviceExtensionTimeWillExpire() {
+        trace("time_will_expire")
         completeBestAttemptContent()
     }
     
     internal func action(for payload: PayloadData) {
         guard !hasCompletedContent, let key = pushData?.keyBytes,
               ownsCurrentCredentialSnapshot(), let event = payload.event(key: key) else {
+            trace("payload_rejected", "reason=completed_or_key_snapshot_or_decryption")
             fallbackVisibleNotification(for: .message)
             return
         }
+        trace("payload_decrypted", "\n\(payload.decrypt(by: key) ?? "")")
         // The encrypted server stanza owns dispatch. Metadata is an unauthenticated hint.
         switch event {
         case .message:
+            trace("dispatch", "mode=summary outgoing=\(payload.outgoing)")
             guard !payload.outgoing else { suppressCurrentNotification(); return }
             notificationType = .message
             applySoundPreference(for: .message)
             onMessage(payload)
         case .fullMessage(let message):
+            trace("dispatch", "mode=full outgoing=\(payload.outgoing)\n\(message.xmlString(withOptions: 0))")
             guard !payload.outgoing else {
                 suppressCurrentNotification()
                 return
@@ -464,13 +492,16 @@ class NotificationService: UNNotificationServiceExtension {
             }
             installRenderingTask(task)
         case .displayed:
+            trace("dispatch", "mode=displayed")
             notificationType = .marker
             onMarker(payload)
         case .subscription:
+            trace("dispatch", "mode=subscription")
             notificationType = .subscribe
             applySoundPreference(for: .subscribe)
             onSubscribe(payload)
         case .reconciliation:
+            trace("dispatch", "mode=reconciliation outgoing=\(payload.outgoing)")
             guard !payload.outgoing, let message = payload.payloadStanza(key: key),
                   let preview = PushNotificationArchiveParser.parsePushHeadline(message, owner: owner) else {
                 suppressCurrentNotification()
@@ -484,6 +515,7 @@ class NotificationService: UNNotificationServiceExtension {
             }
             installRenderingTask(task)
         case .call, .callUpdate:
+            trace("dispatch", "mode=call_suppressed")
             // Calls have a separate app/PushKit ingress. Never render their XML as a message.
             suppressCurrentNotification()
         }
@@ -515,6 +547,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func fallbackVisibleNotification(for action: Actions, reason: String? = nil) {
+        trace("fallback", "action=\(action) reason=\(reason ?? "none")")
         applySoundPreference(for: action)
         let body: String
         switch action {
@@ -540,6 +573,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func suppressCurrentNotification() {
+        trace("suppress")
         var requestIdentifier = ""
         guard mutateBestAttemptContent({ content in
             requestIdentifier = identifier
@@ -556,6 +590,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onMessage(_ payload: PayloadData) {
+        trace("archive_prepare", "grantPresent=\(pushData?.httpArchive != nil)")
         guard let pushData = self.pushData else {
             fallbackVisibleNotification(for: notificationType, reason: "missing push data")
             return
@@ -566,6 +601,7 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
         let remoteArchiveJid = stanzaId.by == pushData.jid ? nil : stanzaId.by
+        trace("archive_fetch", "id=\(stanzaId.id) by=\(remoteArchiveJid ?? "none")")
         guard let manager = NetworkManager(credentials: pushData) else {
             fallbackVisibleNotification(for: notificationType, reason: "invalid archive service")
             return
@@ -646,6 +682,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onMarker(_ payload: PayloadData) {
+        trace("displayed_begin")
         let context = completionQueue.sync { () -> (UInt, String, String, CredentialsManager.PushSecretData)? in
             let generation = Self.handlingGeneration ?? requestGeneration
             guard requestGeneration == generation, !didCompleteContent,
@@ -675,6 +712,7 @@ class NotificationService: UNNotificationServiceExtension {
                         messageID: info[PushNotificationUserInfoKey.messageId] as? String ?? info["messageId"] as? String)
                 }
                 let ids = PushDisplayedPolicy.removalIDs(marker: marker, owner: requestOwner, notifications: records)
+                self.trace("displayed_remove", "identifiers=\(ids)")
                 UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
                 self.suppressCurrentNotification()
             }
@@ -689,6 +727,7 @@ class NotificationService: UNNotificationServiceExtension {
 
 extension NotificationService: PushPayloadDelegate {
     func didReceiveSync(stanza: String) {
+        trace("sync_received", "\n\(stanza)")
         let defaults  = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup())
         defaults?.set(stanza, forKey: "com.xabber.sync.temporary.\(owner)")
     }
@@ -698,6 +737,7 @@ extension NotificationService: PushPayloadDelegate {
     }
 
     func networkManager(_ manager: NetworkManager, didDisconnectWithError error: String) {
+        trace("archive_error", "error=\(error)")
         guard let generation = generation(for: manager) else { return }
         Self.$handlingGeneration.withValue(generation) {
             mutateBestAttemptContent { content in
@@ -709,6 +749,7 @@ extension NotificationService: PushPayloadDelegate {
     }
 
     func networkManagerDidRejectAuthorization(_ manager: NetworkManager) {
+        trace("archive_unauthorized")
         let context = completionQueue.sync { () -> (UInt, String, CredentialsManager.PushSecretData)? in
             guard archiveManager === manager, !didCompleteContent, let generation = archiveGeneration,
                   let node = currentNode, let record = pushData else { return nil }
@@ -731,6 +772,7 @@ extension NotificationService: PushPayloadDelegate {
     }
 
     private func renderPreview(_ preview: PushNotificationPreview) async {
+        trace("render_begin", "route=\(preview.route) body=\(preview.body) media=\(preview.mediaItems)")
         guard !Task.isCancelled, !hasCompletedContent, ownsCurrentCredentialSnapshot() else { return }
         switch preview.route.kind {
         case .message: await renderMessage(preview)
@@ -795,6 +837,7 @@ extension NotificationService: PushPayloadDelegate {
             includePlayableMedia: false
         )
         let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates)
+        trace("attachments_loaded", "candidates=\(candidates) attachments=\(attachmentLease.attachments)")
         defer { attachmentLease.release() }
         let attachments = attachmentLease.attachments
         guard !Task.isCancelled,
@@ -863,6 +906,7 @@ extension NotificationService: PushPayloadDelegate {
     private final func completeCommunicationNotification(
         plan: RichNotificationPresentationPlan
     ) async {
+        trace("communication_notification", "plan=\(plan)")
         let sender = makeIntentPerson(plan: plan)
         let intent = INSendMessageIntent(
             recipients: nil,
@@ -933,7 +977,9 @@ extension NotificationService: PushPayloadDelegate {
         guard admitted else { return }
         let intendedContent = bestAttemptContentSnapshot()
         do {
+            trace("intent_donation_begin")
             try await interaction.donate()
+            trace("intent_donation_complete")
             guard !Task.isCancelled, mayExposePrivateContent else {
                 INInteraction.delete(with: [interactionID], completion: nil)
                 completeBestAttemptContent()
@@ -956,6 +1002,7 @@ extension NotificationService: PushPayloadDelegate {
             merged.userInfo = userInfo
             completeContent(merged)
         } catch {
+            trace("intent_donation_error", "error=\(error)")
             if mayExposePrivateContent { completeContent(intendedContent) }
             else {
                 INInteraction.delete(with: [interactionID], completion: nil)

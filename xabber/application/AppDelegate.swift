@@ -65,6 +65,7 @@ enum AppLaunchEnvironmentPolicy {
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
         guard !isPushKit else { return false }
+        guard !PushExtensionDiagnostics.isOfflineHostRun(environment: environment) else { return false }
 
         #if DEBUG || CHAT_PERFORMANCE_LAB
         if ChatPerformanceUITestLaunchPolicy.descriptor(
@@ -255,6 +256,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let shouldAutoconnectAccounts = AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(isPushKit: self.isPushKit)
         DDLogDebug("app didFinishLaunching accountAutoConnect=\(shouldAutoconnectAccounts) pushKit=\(self.isPushKit)")
         AccountManager.shared.load(shouldAutoconnectAccounts)
+        if PushExtensionDiagnostics.isOfflineHostRun() {
+            let streams = AccountManager.shared.users.map {
+                "\($0.jid):connected=\($0.xmppStream.isConnected),disconnected=\($0.xmppStream.isDisconnected)"
+            }
+            PushExtensionDiagnostics.log("event=host_offline_ready primary=\(streams) uiConnected=\(XMPPUIActionManager.shared.stream.isConnected) uiDisconnected=\(XMPPUIActionManager.shared.stream.isDisconnected) logFile=\(PushExtensionDiagnostics.shared.fileURL.path)")
+        }
         ApplicationStateManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
         
