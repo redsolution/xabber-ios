@@ -653,7 +653,7 @@ class PushNotificationsManager: AbstractXMPPManager {
             self.stateLock.lock()
             defer { self.stateLock.unlock() }
             guard self.httpArchiveRequest === request, request.id == id else { return }
-            DDLogInfo("HTTP_IQ_ARCHIVE event=timeout phase=\(request.endpoint == nil ? "endpoints" : "token")")
+            NSLog("HTTP_IQ_ARCHIVE event=timeout phase=\(request.endpoint == nil ? "endpoints" : "token")")
             self.cancelHTTPArchiveRequestLocked()
         }
         guard httpArchiveRequest === request, request.id == id else { cancel(); return }
@@ -661,6 +661,8 @@ class PushNotificationsManager: AbstractXMPPManager {
         let iq = request.endpoint == nil
             ? PushHTTPIQ.endpointsRequest(id: id, jid: jid)
             : PushHTTPIQ.tokenRequest(id: id, jid: jid)
+        NSLog("HTTP_IQ_ARCHIVE event=request_queued operation=\(request.endpoint == nil ? "endpoints" : "token") namespace=\(PushHTTPIQ.namespace)")
+        NSLog("HTTP_IQ_ARCHIVE request XML:\n%@", iq.prettyXMLString ?? iq.xmlString)
         stream.send(iq)
     }
 
@@ -690,14 +692,15 @@ class PushNotificationsManager: AbstractXMPPManager {
               iq.iqType == .result || iq.iqType == .error,
               iq.from == nil || (iq.from?.bare == request.domain && iq.from?.resource == nil),
               iq.to == nil || iq.to?.full == request.streamJID || iq.to?.full == request.owner else { return false }
+        NSLog("HTTP_IQ_ARCHIVE response XML:\n%@", iq.prettyXMLString ?? iq.xmlString)
         guard iq.iqType == .result else {
-            DDLogInfo("HTTP_IQ_ARCHIVE event=rejected condition=\(PushRegistrationErrorCondition.classify(iq).rawValue)")
+            NSLog("HTTP_IQ_ARCHIVE event=rejected condition=\(PushRegistrationErrorCondition.classify(iq).rawValue)")
             cancelHTTPArchiveRequestLocked()
             return true
         }
         if request.endpoint == nil {
             guard let endpoint = PushHTTPIQ.archiveEndpoint(in: iq) else {
-                DDLogInfo("HTTP_IQ_ARCHIVE event=invalid_endpoints")
+                NSLog("HTTP_IQ_ARCHIVE event=invalid_endpoints")
                 cancelHTTPArchiveRequestLocked()
                 return true
             }
@@ -711,7 +714,7 @@ class PushNotificationsManager: AbstractXMPPManager {
               let credentials = try? credentialReader(request.node),
               credentials.jid == request.owner, credentials.host == request.domain,
               credentials.keyBytes == request.key else {
-            DDLogInfo("HTTP_IQ_ARCHIVE event=invalid_token_context")
+            NSLog("HTTP_IQ_ARCHIVE event=invalid_token_context")
             cancelHTTPArchiveRequestLocked()
             return true
         }
@@ -721,10 +724,11 @@ class PushNotificationsManager: AbstractXMPPManager {
             grantRevision: UUID().uuidString, httpArchive: grant
         )
         guard refreshed.tokenExpiresAt.map({ $0 > httpArchiveNow() }) == true else {
-            DDLogInfo("HTTP_IQ_ARCHIVE event=expired_token")
+            NSLog("HTTP_IQ_ARCHIVE event=expired_token")
             cancelHTTPArchiveRequestLocked()
             return true
         }
+        NSLog("HTTP_IQ_ARCHIVE event=token_received scope=\(PushHTTPIQ.mamScope)")
         do {
             try credentialWriter(request.node, refreshed)
             let stored = try credentialReader(request.node)
@@ -735,9 +739,9 @@ class PushNotificationsManager: AbstractXMPPManager {
                 return true
             }
             try? tokenInvalidationStore?.remove(node: request.node, generation: stored.tokenGeneration)
-            DDLogInfo("HTTP_IQ_ARCHIVE event=grant_stored ready=\(httpPreviewReady)")
+            NSLog("HTTP_IQ_ARCHIVE event=grant_stored readback=matched ready=\(httpPreviewReady)")
         } catch {
-            DDLogInfo("HTTP_IQ_ARCHIVE event=credential_publication_failed")
+            NSLog("HTTP_IQ_ARCHIVE event=credential_publication_failed")
         }
         cancelHTTPArchiveRequestLocked()
         return true

@@ -2,6 +2,8 @@
 
 Дата: 2026-10-15. Исправление заменяет прежнее предположение, что успешный push-enable содержит URL/JWT для архива. Основание: актуальные `protocols/XEP-HTTPIQ.md` и `protocols/XEP-HTTPIQ-MAM.md` в xabber-knowledge и прямые требования пользователя. Локальный старый server checkout не определяет этот wire contract. Сервер не изменяется.
 
+Минимальная проверка пользователя на iPad пока не пройдена: после успешного summary push-enable сервер `xmppdev01.xabber.com` отклонил правильный endpoints IQ с `service-unavailable` и текстом `No module is handling this query`. До запроса и сохранения JWT цепочка не дошла. Ниже отдельно приведены результаты автоматических тестов и фактического запуска.
+
 ## Реализованная последовательность
 
 1. Клиент получает коррелированный успешный ответ на push-enable. Сам push считается включённым независимо от готовности HTTP. Если актуальный выбранный режим summary, клиент отправляет IQ get к XMPP domain с `<endpoints xmlns='https://xabber.com/protocol/http-iq'/>` и from текущего bound JID.
@@ -26,14 +28,20 @@ Shared record v3 содержит optional httpArchive {endpoint, token, scopes,
 
 ## Логи
 
-Полное pretty XML логирование стрима сохранено без redaction, escaping и подмен по прямому требованию пользователя. Поэтому endpoints/token IQ видны в CONNECTION_DIAGNOSTICS как обычные станзы. Дополнительный HTTP_IQ_ARCHIVE сообщает timeout/rejected/invalid context/credential publication и grant_stored ready=true|false. ready относится к локально проверенной HTTP-готовности, а не доказывает успешный запрос сообщения на устройстве.
+Полное pretty XML логирование стрима сохранено без redaction, escaping и подмен по прямому требованию пользователя. Поэтому endpoints/token IQ видны в CONNECTION_DIAGNOSTICS как обычные станзы. Дополнительный HTTP_IQ_ARCHIVE выводит через NSLog события и полные request/response XML для консоли физического устройства, сообщает timeout/rejected/invalid context/credential publication и grant_stored readback=matched ready=true|false. ready относится к локально проверенной HTTP-готовности, а не доказывает успешный запрос сообщения на устройстве. В этот отчёт значения ключей, JWT, push node и личное содержимое не копируются; сами XML-логи приложение не редактирует.
 
 ## Проверка
 
-Сначала написаны/обновлены соответствующие XCTest, затем production-код. Новый PushHTTPIQProvisioningTests содержит24 теста; HTTPArchiveByIDTests —32; PushCredentialMigrationTests —19. Также обновлены registration/mode/diagnostics/lifecycle и интеграционный pipeline enable → endpoints → token → reload shared credentials → HTTP → MAM preview/route. Эти количества обозначают написанные случаи, а не выполненные тесты.
+Сначала написаны/обновлены соответствующие XCTest, затем production-код. Реализация закреплена коммитом `ed871c73`. Узкий simulator run прошёл: **76/76 тестов**, без ошибок — PushHTTPIQProvisioningTests 24, HTTPArchiveByIDTests 32, PushCredentialMigrationTests 19, PushPipelineIntegrationTests 1. Интеграционный тест проходит enable → endpoints → token → reload shared credentials → HTTP → MAM preview/route на изолированном тестовом транспорте.
 
 Статическая проверка: `xcrun swiftc -frontend -parse` для17 изменённых Swift-файлов прошла; `plutil -lint xabber.xcodeproj/project.pbxproj` и `git diff --check` прошли. Независимые source reviews покрыли codec/manager и shared credentials/NSE. Проверка синтаксиса не проверяет типизацию и не заменяет сборку.
 
-По просьбе пользователя XCTest, xcodebuild и запуск на устройстве не выполнялись. Новый успешный live token/result и фактическое APNs summary → HTTP preview ещё не наблюдались. Ручная проверка: summary enable ACK → endpoints result с MAM by-id → token result с MAM scope/expires → grant_stored ready=true → входящий summary push и archive preview. Отдельно проверить full без HTTP, expiry/401 и logout во время запроса.
+В первом affected run два lifecycle-сценария содержали устаревшее предположение о повторном enable во время ожидающего endpoints. Fixtures исправлены: сначала отклоняется коррелированный endpoints IQ, затем проверяется foreground retry. Узкая перепроверка PushLifecycleCapabilityTests прошла 12/12. Итоговый единый affected run прошёл **80/80**, без ошибок: PushEnableDiagnosticsTests 19, PushLifecycleCapabilityTests 12, PushPayloadModeRegistrationTests 12, PushRegistrationContractTests 37. Итого **156 разных тестов (76 + 80)**; повторённые 12 lifecycle-тестов отдельно к сумме не прибавляются.
+
+Первоначальная оговорка об отсутствии сборки и запуска по желанию пользователя устарела: последующая прямая инструкция требует проверять на подключённом iPad. Debug simulator test action собрал приложение и extension. Подписанная Debug-сборка для физического iPad также прошла, включая `xabber` и встроенный `xabber-push-extension`; приложение установлено поверх существующего и запущено. Устройство: iPad (Redsolution), iPad Air 11-inch (M3), iOS 26.7.1. UUID последнего установленного `xabber.debug.dylib`: `62FA6DB4-BC79-3A3D-9C1B-32F4848C5401`.
+
+На iPad воспроизведено несколько раз: после принятого summary push-enable клиент посылает IQ `get` на `xmppdev01.xabber.com` с `<endpoints xmlns='https://xabber.com/protocol/http-iq'/>`; сервер отвечает IQ `error`, `service-unavailable`, `No module is handling this query`. Адресат — XMPP domain, from — текущий bound JID. Отдельный token IQ не отправлялся; новый JWT не получен и новый typed shared grant не опубликован. Успешная сборка и simulator pipeline не заменяют отсутствующее подтверждение на устройстве.
+
+Продолжение после доступности серверного обработчика: endpoints result с MAM by-id → token result с MAM scope и будущим expires → атомарная запись shared Keychain и `grant_stored readback=matched ready=true`. Именно получение JWT и его сохранение — обязательный минимум пользователя. Серверный код не изменялся; локальный checkout не доказывает версию развёрнутого обработчика. Реальную push-доставку пользователь проверяет самостоятельно.
 
 Оставшиеся отдельные ограничения XEP-PUSH (outgoing metadata, несколько XML payload fragments, lexical iv-length, subscribe JID) не объявляются исправленными этой задачей; они уже заведены отдельно в vault.

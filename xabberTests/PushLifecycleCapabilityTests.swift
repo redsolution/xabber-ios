@@ -132,6 +132,7 @@ final class PushLifecycleCapabilityTests: XCTestCase {
         XCTAssertTrue(f.account.push.read(withIQ: try iq("<iq type='result' id='\(firstID)' from='\(f.account.jid)'/>")))
         XCTAssertTrue(f.account.pushStatusMessage.value)
         XCTAssertFalse(f.account.push.httpPreviewReady)
+        try rejectPendingHTTPDiscovery(f)
         let originalKey = f.memory.record.keyBytes
 
         ApplicationStateManager().sceneDidBecomeActive()
@@ -243,6 +244,7 @@ final class PushLifecycleCapabilityTests: XCTestCase {
         f.account.configureExtensions()
         let initialID = try XCTUnwrap(f.stream.enables.last?.attributeStringValue(forName: "id"))
         XCTAssertTrue(f.account.push.read(withIQ: try iq("<iq type='result' id='\(initialID)' from='\(f.account.jid)'/>")))
+        try rejectPendingHTTPDiscovery(f)
         f.account.refreshPushHTTPGrantIfNeeded()
         let refreshID = try XCTUnwrap(f.stream.enables.last?.attributeStringValue(forName: "id"))
         f.account.push.configure(node: f.account.push.node, service: f.account.push.service)
@@ -250,6 +252,26 @@ final class PushLifecycleCapabilityTests: XCTestCase {
         XCTAssertTrue(f.account.push.read(withIQ: try iq("<iq type='error' id='\(refreshID)' from='\(f.account.jid)'/>")))
         XCTAssertTrue(f.account.push.enabled)
         XCTAssertTrue(f.account.pushStatusMessage.value)
+    }
+
+    private func rejectPendingHTTPDiscovery(_ fixture: Fixture) throws {
+        let request = try XCTUnwrap(fixture.stream.sent.last(where: {
+            $0.element(forName: "endpoints", xmlns: "https://xabber.com/protocol/http-iq") != nil
+        }))
+        let id = try XCTUnwrap(request.attributeStringValue(forName: "id"))
+        let domain = try XCTUnwrap(fixture.stream.myJID?.domain)
+        let recipient = try XCTUnwrap(fixture.stream.myJID?.full)
+        XCTAssertEqual(request.attributeStringValue(forName: "to"), domain)
+        XCTAssertFalse(fixture.account.push.needsHTTPArchive, "An active HTTP IQ chain must suppress foreground retries")
+
+        XCTAssertTrue(fixture.account.push.read(withIQ: try iq("""
+        <iq type='error' id='\(id)' from='\(domain)' to='\(recipient)'>
+          <error type='cancel'><service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error>
+        </iq>
+        """)))
+
+        XCTAssertTrue(fixture.account.push.needsHTTPArchive, "The completed failure must permit a later foreground retry")
+        XCTAssertTrue(fixture.account.push.enabled)
     }
 
     private func fixture() -> Fixture {
