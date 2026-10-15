@@ -49,15 +49,38 @@ final class LeftMenuSurfaceEffectFactoryTests: XCTestCase {
         backdrop.show(nextScreen)
         XCTAssertNil(firstScreen.superview)
         XCTAssertTrue(nextScreen.superview === backdrop)
-        XCTAssertEqual(backdrop.subviews.count, 2) // One capture and its blur.
+        XCTAssertEqual(backdrop.subviews.count, 1)
+        XCTAssertEqual(nextScreen.alpha, 0.5)
         backdrop.show(nil)
         XCTAssertNil(nextScreen.superview)
         XCTAssertTrue(backdrop.isHidden)
     }
 
     @MainActor
-    func testCompactContentBackdropUsesHeavyMaterialBlur() {
-        XCTAssertEqual(LeftMenuCompactBackdropView.blurStyle, .systemThickMaterial)
+    func testCompactBlurPreservesWallpaperColorInsteadOfAddingGrayMaterial() throws {
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
+            UIColor.green.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 24, height: 24))
+        }
+        let blurred = try XCTUnwrap(LeftMenuCompactBackdropView.blurredImage(source))
+        let cgImage = try XCTUnwrap(blurred.cgImage)
+        var pixel: [UInt8] = [0, 0, 0, 0]
+        try pixel.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1,
+                bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        XCTAssertLessThan(pixel[0], 10)
+        XCTAssertGreaterThan(pixel[1], 245)
+        XCTAssertLessThan(pixel[2], 10)
+        XCTAssertGreaterThan(pixel[3], 245)
+    }
+
+    func testPhoneCardLeavesAnExposedStripOfUnderlyingContent() {
+        let bounds = CGRect(x: 0, y: 0, width: 393, height: 852)
+        let frame = LeftMenuFloatingLayout.frame(in: bounds, safeArea: .zero, contentHeight: 540)
+        XCTAssertGreaterThan(bounds.maxX - frame.maxX, 40)
     }
 
     func testShortWindowConstrainsPanelInsteadOfClippingSettings() {

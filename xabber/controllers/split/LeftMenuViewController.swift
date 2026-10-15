@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import QuartzCore
+import CoreImage
 import ObjectiveC
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
@@ -25,7 +26,7 @@ enum LeftMenuFloatingLayout {
         if fillsColumn { return bounds }
         let available = bounds.inset(by: safeArea).insetBy(dx: 16, dy: 16)
         return CGRect(x: available.minX, y: available.minY,
-                      width: max(0, min(350, available.width)),
+                      width: max(0, min(350, available.width, bounds.width * 0.84)),
                       height: max(0, min(contentHeight, available.height)))
     }
 }
@@ -33,8 +34,16 @@ enum LeftMenuFloatingLayout {
 /// A transient on-screen capture keeps compact split navigation intact while the
 /// menu visually overlays the screen it replaced. Nothing is persisted to disk.
 final class LeftMenuCompactBackdropView: UIView {
-    static let blurStyle: UIBlurEffect.Style = .systemThickMaterial
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: LeftMenuCompactBackdropView.blurStyle))
+    private static let imageContext = CIContext()
+
+    static func blurredImage(_ image: UIImage) -> UIImage? {
+        guard let input = CIImage(image: image) else { return nil }
+        let output = input.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [
+            kCIInputRadiusKey: 14 * image.scale
+        ])
+        guard let result = imageContext.createCGImage(output, from: input.extent) else { return nil }
+        return UIImage(cgImage: result, scale: image.scale, orientation: image.imageOrientation)
+    }
     private var capturedView: UIView?
 
     override init(frame: CGRect) {
@@ -42,7 +51,6 @@ final class LeftMenuCompactBackdropView: UIView {
         isUserInteractionEnabled = false
         accessibilityElementsHidden = true
         isHidden = true
-        addSubview(blurView)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -51,7 +59,10 @@ final class LeftMenuCompactBackdropView: UIView {
         capturedView?.removeFromSuperview()
         capturedView = capture
         if let capture {
-            insertSubview(capture, belowSubview: blurView)
+            // Blend the softened screen with the active wallpaper, keeping white
+            // chat cards recognizable without turning the whole screen gray.
+            capture.alpha = 0.5
+            addSubview(capture)
         }
         isHidden = capture == nil
         setNeedsLayout()
@@ -60,7 +71,6 @@ final class LeftMenuCompactBackdropView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         capturedView?.frame = bounds
-        blurView.frame = bounds
     }
 }
 
@@ -584,7 +594,8 @@ class LeftMenuViewController: UIViewController {
     private var wasNavigationBarHidden = false
 
     private var floatingRowHeight: CGFloat {
-        max(54, UIFontMetrics(forTextStyle: .body).scaledValue(for: 54))
+        let height: CGFloat = surfaceFillsColumn == true ? 54 : 62
+        return max(height, UIFontMetrics(forTextStyle: .body).scaledValue(for: height))
     }
 
     class AccountView: UIView {
@@ -1189,7 +1200,7 @@ class LeftMenuViewController: UIViewController {
         dismissMenuControl.frame = view.bounds
         // On iPad the root backdrop spans all columns; phones need a local wallpaper.
         let sharedBackdrop = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
-        menuBackdropView.isHidden = sharedBackdrop || !compactContentBackdropView.isHidden
+        menuBackdropView.isHidden = sharedBackdrop
         let fillsColumn = splitViewController.map { split in
             LeftMenuSelectionPresentationPolicy.action(
                 isSplitCollapsed: split.isCollapsed,
@@ -1234,7 +1245,13 @@ class LeftMenuViewController: UIViewController {
               split.isViewLoaded else { return }
         if #available(iOS 26.0, *), split.isShowing(.primary) { return }
         // Capture before UIKit replaces the compact content column with primary.
-        let capture = split.view.snapshotView(afterScreenUpdates: false)
+        let source = split.view!
+        guard source.bounds.width > 0, source.bounds.height > 0 else { return }
+        let image = UIGraphicsImageRenderer(bounds: source.bounds).image { _ in
+            source.drawHierarchy(in: source.bounds, afterScreenUpdates: false)
+        }
+        let capture = UIImageView(image: LeftMenuCompactBackdropView.blurredImage(image) ?? image)
+        capture.contentMode = .scaleToFill
         loadViewIfNeeded()
         compactContentBackdropView.show(capture)
         view.setNeedsLayout()

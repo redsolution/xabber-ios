@@ -53,3 +53,11 @@ Compact sidebar buttons now capture the visible split content immediately before
 All explicit sidebar entry points use `showXabberSidebar()` so Chats, Contacts, Notifications, Calls, and their category/detail screens share the same behavior. Added capture replacement/release and heavy-blur regression checks alongside existing geometry and navigation policy tests. UI owns this work; configured external vault paths remain unavailable, so durable notes are kept here.
 
 Verification: 17 focused sidebar tests passed and the normal signed simulator build succeeded. Visually checked the iPhone menu over the captured chat list, selected Chats to restore the original list, and reopened the menu successfully. Left the updated phone menu open for review. Expanded-column geometry/effect and compact selection policy regressions passed.
+
+## Preserve the green floating-sidebar composition
+
+The full-screen thick-material blur made captured chat content appear gray/white, contrary to the original floating-sidebar reference. Replaced that material with a clamped Gaussian image blur (14 points) that preserves source colors. The transient blurred screen blends at 50% over the active wallpaper, leaving softened chat-card shapes visible while retaining the green field. Compact cards use 84% of screen width (350-point maximum) and 62-point rows; expanded sidebars retain 54-point rows and full-column geometry.
+
+Added a pixel regression proving a saturated green input stays green and opaque after blur, and a compact geometry assertion ensuring exposed content remains visible at the right edge. Previous capture lifetime and expanded-column checks remain. UI owns this correction; unavailable external vault paths are documented above.
+
+Verification: all 18 sidebar tests passed, including the color-preservation pixel check. Signed simulator build succeeded. Visually checked iPhone: green wallpaper remains visible around the narrower glass card, with softened current-screen content behind it and no full-screen gray material. Left the revised menu open for comparison with the supplied reference.
