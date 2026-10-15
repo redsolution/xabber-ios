@@ -46,6 +46,67 @@ final class LastChatsBackgroundAppearanceTests: XCTestCase {
         XCTAssertEqual(NavigationTitlePillSizing.width(columnWidth: 240, bottomPillWidth: 180), 128)
     }
 
+    func testNavigationShadowsCanCrossColumnBoundaryWithoutUnclippingScrollContent() {
+        let splitHost = UIView()
+        let column = UIView()
+        let navigationHost = UIView()
+        let bar = UINavigationBar()
+        let list = UITableView()
+        splitHost.addSubview(column)
+        column.addSubview(navigationHost)
+        navigationHost.addSubview(bar)
+        navigationHost.addSubview(list)
+        for view in [splitHost, column, navigationHost, bar] { view.clipsToBounds = true }
+        list.clipsToBounds = true
+        ContinuousSplitNavigationShadowPolicy.allowOverflow(from: bar, through: splitHost)
+        for view in [splitHost, column, navigationHost, bar] { XCTAssertFalse(view.clipsToBounds) }
+        XCTAssertTrue(list.clipsToBounds)
+    }
+
+    func testShadowClippingRestoresOriginalValuesForCompactLayout() {
+        let root = UIView()
+        let column = UIView()
+        let bar = UINavigationBar()
+        root.addSubview(column)
+        column.addSubview(bar)
+        root.clipsToBounds = false
+        column.clipsToBounds = true
+        bar.clipsToBounds = false
+        ContinuousSplitNavigationShadowPolicy.allowOverflow(from: bar, through: root)
+        ContinuousSplitNavigationShadowPolicy.allowOverflow(from: bar, through: root)
+        ContinuousSplitNavigationShadowPolicy.restoreClipping(in: root)
+        XCTAssertFalse(root.clipsToBounds)
+        XCTAssertTrue(column.clipsToBounds)
+        XCTAssertFalse(bar.clipsToBounds)
+    }
+
+    func testSharedBackdropHidesOnlyBoundaryDividerOutsideContentAndRestoresIt() {
+        let root = UIView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let left = UIView(frame: CGRect(x: 0, y: 0, width: 300, height: 600))
+        let right = UIView(frame: CGRect(x: 300, y: 0, width: 500, height: 600))
+        let divider = UIView(frame: CGRect(x: 299.5, y: 0, width: 1, height: 600))
+        let contentLine = UIView(frame: CGRect(x: 299, y: 0, width: 1, height: 600))
+        root.addSubview(left)
+        root.addSubview(right)
+        root.addSubview(divider)
+        left.addSubview(contentLine)
+        ContinuousSplitNavigationShadowPolicy.hideBoundaryDividers(in: root, columnViews: [left, right])
+        XCTAssertTrue(divider.isHidden)
+        XCTAssertFalse(contentLine.isHidden)
+        XCTAssertFalse(left.isHidden)
+        XCTAssertFalse(right.isHidden)
+        ContinuousSplitNavigationShadowPolicy.restoreClipping(in: root)
+        XCTAssertFalse(divider.isHidden)
+    }
+
+    func testShadowPolicyDoesNotModifyUnrelatedViewTrees() {
+        let bar = UINavigationBar()
+        let unrelatedRoot = UIView()
+        bar.clipsToBounds = true
+        ContinuousSplitNavigationShadowPolicy.allowOverflow(from: bar, through: unrelatedRoot)
+        XCTAssertTrue(bar.clipsToBounds)
+    }
+
     func testRecentChatsRendersActiveChatWallpaperBehindTransparentTable() throws {
         let controller = LastChatsViewController()
         controller.loadViewIfNeeded()

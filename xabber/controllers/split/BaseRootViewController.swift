@@ -349,6 +349,71 @@ enum ContinuousSplitBackgroundExperiment {
     }
 }
 
+/// Only the navigation chrome may overflow a shared-wallpaper column. Scroll
+/// views retain their own clipping so rows and messages stay in their columns.
+enum ContinuousSplitNavigationShadowPolicy {
+    private static let originalClipping = NSMapTable<UIView, NSNumber>(
+        keyOptions: .weakMemory, valueOptions: .strongMemory)
+
+    private static let originalDividerVisibility = NSMapTable<UIView, NSNumber>(
+        keyOptions: .weakMemory, valueOptions: .strongMemory)
+
+    static func hideBoundaryDividers(in splitRoot: UIView, columnViews: [UIView]) {
+        let contentRoots = Set(columnViews.map(ObjectIdentifier.init))
+        let boundaries = columnViews.flatMap { column -> [CGFloat] in
+            let frame = column.convert(column.bounds, to: splitRoot)
+            return [frame.minX, frame.maxX]
+        }.filter { $0 > splitRoot.bounds.minX + 1 && $0 < splitRoot.bounds.maxX - 1 }
+
+        func visit(_ view: UIView) {
+            // Stop at our content roots: separators and scroll indicators inside
+            // app screens are not split dividers and must remain untouched.
+            guard !contentRoots.contains(ObjectIdentifier(view)) else { return }
+            let frame = view.convert(view.bounds, to: splitRoot)
+            if view !== splitRoot, !(view is UIControl), !view.isAccessibilityElement,
+               frame.width > 0, frame.width <= 1,
+               frame.height >= splitRoot.bounds.height * 0.9,
+               boundaries.contains(where: { abs($0 - frame.midX) <= 1 }) {
+                if originalDividerVisibility.object(forKey: view) == nil {
+                    originalDividerVisibility.setObject(NSNumber(value: view.isHidden), forKey: view)
+                }
+                view.isHidden = true
+                return
+            }
+            view.subviews.forEach(visit)
+        }
+        visit(splitRoot)
+    }
+
+    static func restoreClipping(in splitRoot: UIView) {
+        for view in originalDividerVisibility.keyEnumerator().allObjects.compactMap({ $0 as? UIView }) {
+            guard view === splitRoot || view.isDescendant(of: splitRoot),
+                  let original = originalDividerVisibility.object(forKey: view) else { continue }
+            view.isHidden = original.boolValue
+            originalDividerVisibility.removeObject(forKey: view)
+        }
+        for view in originalClipping.keyEnumerator().allObjects.compactMap({ $0 as? UIView }) {
+            guard view === splitRoot || view.isDescendant(of: splitRoot),
+                  let original = originalClipping.object(forKey: view) else { continue }
+            view.clipsToBounds = original.boolValue
+            originalClipping.removeObject(forKey: view)
+        }
+    }
+
+    static func allowOverflow(from navigationBar: UIView, through splitRoot: UIView) {
+        guard navigationBar.isDescendant(of: splitRoot) else { return }
+        var current: UIView? = navigationBar
+        while let view = current {
+            if originalClipping.object(forKey: view) == nil {
+                originalClipping.setObject(NSNumber(value: view.clipsToBounds), forKey: view)
+            }
+            view.clipsToBounds = false
+            if view === splitRoot { break }
+            current = view.superview
+        }
+    }
+}
+
 final class ChatBackgroundBackdropView: UIView {
     private let gradientLayer = CAGradientLayer()
     private let patternImageView = UIImageView()
@@ -558,6 +623,9 @@ final class BackgroundRootContainerViewController: UIViewController {
             return
         }
 
+        if ContinuousSplitBackgroundExperiment.mode(for: self) != .sharedBackdrop {
+            ContinuousSplitNavigationShadowPolicy.restoreClipping(in: splitViewController.view)
+        }
         ContinuousSplitBackgroundExperiment.configureTransparentSplit(splitViewController)
         [
             UISplitViewController.Column.primary,
@@ -570,6 +638,12 @@ final class BackgroundRootContainerViewController: UIViewController {
             }
             applyColumnBackgroundMode(to: columnController)
         }
+        if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop {
+            let columnViews = [UISplitViewController.Column.primary, .supplementary, .secondary, .compact]
+                .compactMap { splitViewController.viewController(for: $0)?.viewIfLoaded }
+            ContinuousSplitNavigationShadowPolicy.hideBoundaryDividers(
+                in: splitViewController.view, columnViews: columnViews)
+        }
     }
 
     private func applyColumnBackgroundMode(to viewController: UIViewController) {
@@ -577,6 +651,11 @@ final class BackgroundRootContainerViewController: UIViewController {
 
         if let navigationController = viewController as? UINavigationController {
             SearchSectionNavigationContainerPolicy.applyTransparentSplitAppearanceIfAllowed(to: navigationController)
+            if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop,
+               let split = contentViewController as? UISplitViewController {
+                ContinuousSplitNavigationShadowPolicy.allowOverflow(
+                    from: navigationController.navigationBar, through: split.view)
+            }
             navigationController.viewControllers.forEach {
                 ContinuousSplitBackgroundExperiment.configureTransparentColumn($0)
             }
