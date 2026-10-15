@@ -18,6 +18,16 @@ import RxSwift
 import RxCocoa
 import RxRealm
 
+/// Geometry uses the current column bounds, including iPad multitasking windows.
+enum LeftMenuFloatingLayout {
+    static func frame(in bounds: CGRect, safeArea: UIEdgeInsets, contentHeight: CGFloat) -> CGRect {
+        let available = bounds.inset(by: safeArea).insetBy(dx: 16, dy: 16)
+        return CGRect(x: available.minX, y: available.minY,
+                      width: max(0, min(350, available.width)),
+                      height: max(0, min(contentHeight, available.height)))
+    }
+}
+
 enum LeftMenuSurfaceEffectFactory {
     static var fallbackBlurStyle: UIBlurEffect.Style {
         XabberGlassStyle.fallbackBlurStyle(for: .leftMenuSurface)
@@ -517,18 +527,15 @@ class LeftMenuViewController: UIViewController {
     internal var chatNavigationRouteResolver: (UIViewController) -> StackedNavigationRoute = {
         stackedNavigationRoute(for: $0)
     }
-    private enum ExperimentLayout {
-        static let menuSurfaceHorizontalInset: CGFloat = 16
-        static let menuSurfaceBottomInset: CGFloat = 16
-        static let menuSurfaceMinimumTopInset: CGFloat = 0
-        static let menuSurfaceSafeAreaTopOffset: CGFloat = 2
-        static let tableHeaderHeight: CGFloat = 112
-        static let titleSafeAreaTopOffset: CGFloat = 8
-        static let titleHeight: CGFloat = 28
-        static let titleHorizontalInset: CGFloat = 16
+    private let menuBackdropView = ChatBackgroundBackdropView()
+    private let dismissMenuControl = UIControl()
+    private let premiumButton = UIButton(type: .system)
+    private var wasNavigationBarHidden = false
+
+    private var floatingRowHeight: CGFloat {
+        max(54, UIFontMetrics(forTextStyle: .body).scaledValue(for: 54))
     }
 
-    
     class AccountView: UIView {
         
         internal let stack: UIStackView = {
@@ -669,7 +676,9 @@ class LeftMenuViewController: UIViewController {
         var showTriangle: Bool
     }
     
-    var datasource: [[Datasource]] = []
+    var datasource: [[Datasource]] = [] {
+        didSet { if isViewLoaded { view.setNeedsLayout() } }
+    }
     
     var chatsVc: LastChatsViewController? = nil
     var archivedVc: LastChatsViewController? = nil
@@ -689,17 +698,15 @@ class LeftMenuViewController: UIViewController {
         LastChatsViewController?
     
     internal let tableView: UITableView = {
-        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.usesSplitListChrome ? .insetGrouped : .grouped
-        let view = UITableView(frame: .zero, style: style)
-        
+        let view = UITableView(frame: .zero, style: .plain)
         view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
-//        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
-        view.applyContinuousSplitInsetGroupedAppearance()
-        if !ContinuousSplitBackgroundExperiment.usesSplitListChrome {
-            view.separatorStyle = .none
-        }
-        view.isScrollEnabled = false
-        
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.separatorStyle = .none
+        view.contentInsetAdjustmentBehavior = .never
+        view.sectionHeaderTopPadding = 0
+        view.showsVerticalScrollIndicator = false
+        view.alwaysBounceVertical = false
         return view
     }()
 
@@ -707,21 +714,22 @@ class LeftMenuViewController: UIViewController {
         let view = UIVisualEffectView(effect: LeftMenuSurfaceEffectFactory.makeEffect())
 
         view.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
-        view.layer.cornerRadius = 24
+        view.layer.cornerRadius = 30
         view.layer.cornerCurve = .continuous
         view.clipsToBounds = true
-        view.isUserInteractionEnabled = false
+        view.isUserInteractionEnabled = true
+        view.accessibilityIdentifier = "left_menu_glass_surface"
 
         return view
     }()
 
     private let menuTitleLabel: UILabel = {
         let label = UILabel()
-        let font = UIFont.systemFont(ofSize: 20, weight: .semibold)
+        let font = UIFont.systemFont(ofSize: 30, weight: .bold)
 
         label.font = UIFontMetrics(forTextStyle: .title3).scaledFont(for: font)
         label.adjustsFontForContentSizeCategory = true
-        label.textAlignment = .center
+        label.textAlignment = .natural
         label.textColor = .label
         label.backgroundColor = .clear
         label.isUserInteractionEnabled = false
@@ -1098,121 +1106,59 @@ class LeftMenuViewController: UIViewController {
 //    }()
     
     public func configure() {
-        let title = CommonConfigManager.shared.config.app_name.capitalized
-        if ContinuousSplitBackgroundExperiment.isActive {
-            self.title = nil
-            navigationItem.title = nil
-            menuTitleLabel.text = title
-        } else {
-            self.title = title
-        }
-        ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-
-        navigationItem.largeTitleDisplayMode = .automatic
-        navigationController?.navigationBar.prefersLargeTitles = true
+        title = nil
+        navigationItem.title = nil
+        menuTitleLabel.text = CommonConfigManager.shared.config.app_name.capitalized
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.addSubview(menuBackdropView)
+        view.addSubview(dismissMenuControl)
+        dismissMenuControl.addTarget(self, action: #selector(onTableViewEmptySpaceTap), for: .touchUpInside)
+        view.addSubview(menuSurfaceView)
+        menuSurfaceView.contentView.addSubview(tableView)
+        menuSurfaceView.contentView.addSubview(menuTitleLabel)
+        menuSurfaceView.contentView.addSubview(premiumButton)
+        premiumButton.accessibilityLabel = "Premium"
+        premiumButton.addTarget(self, action: #selector(onPremiumButton), for: .touchUpInside)
         self.navigationItem.backButtonDisplayMode = .minimal
-//        if CommonConfigManager.shared.config.use_large_title {
-//            navigationItem.largeTitleDisplayMode = .automatic
-//        } else {
-//            navigationItem.largeTitleDisplayMode = .never
-//        }
-//        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-
-        configureMenuSurfaceIfNeeded()
-        view.addSubview(tableView)
-        tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
-        configureExperimentTitleIfNeeded()
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
         updatePremiumBarButton()
 
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onTableViewEmptySpaceTap))
-        tapGesture.cancelsTouchesInView = false
-//        tableView.addGestureRecognizer(tapGesture)
 
     }
 
-    private func configureMenuSurfaceIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        guard menuSurfaceView.superview == nil else { return }
-
-        view.insertSubview(menuSurfaceView, at: 0)
-        configureExperimentTableHeaderIfNeeded()
-        layoutMenuSurfaceIfNeeded()
-    }
-
-    private func configureExperimentTitleIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        guard menuTitleLabel.superview == nil else {
-            view.bringSubviewToFront(menuTitleLabel)
-            return
+    private func layoutFloatingMenu() {
+        menuBackdropView.frame = view.bounds
+        dismissMenuControl.frame = view.bounds
+        // On iPad the root backdrop spans all columns; phones need a local wallpaper.
+        menuBackdropView.isHidden = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
+        let headerHeight = max(84, menuTitleLabel.font.lineHeight + 40)
+        let sectionSpacing = CGFloat(max(0, datasource.count - 1)) * 16
+        let contentHeight = headerHeight + CGFloat(datasource.flatMap { $0 }.count) * floatingRowHeight + sectionSpacing + 12
+        menuSurfaceView.frame = LeftMenuFloatingLayout.frame(in: view.bounds,
+                                                            safeArea: view.safeAreaInsets,
+                                                            contentHeight: contentHeight)
+        let bounds = menuSurfaceView.bounds
+        let showsPremium = !premiumButton.isHidden
+        let titleWidth = max(0, bounds.width - 44 - (showsPremium ? 54 : 0))
+        menuTitleLabel.frame = CGRect(x: 22, y: 20, width: titleWidth, height: headerHeight - 40)
+        premiumButton.frame = CGRect(x: bounds.width - 66, y: (headerHeight - 44) / 2, width: 44, height: 44)
+        tableView.frame = CGRect(x: 12, y: headerHeight, width: max(0, bounds.width - 24),
+                                 height: max(0, bounds.height - headerHeight - 12))
+        tableView.isScrollEnabled = contentHeight > bounds.height
+        if #available(iOS 26.0, *) {
+            menuSurfaceView.cornerConfiguration = .uniformCorners(radius: .fixed(30))
         }
-
-        view.addSubview(menuTitleLabel)
-        layoutMenuTitleIfNeeded()
-    }
-
-    private func configureExperimentTableHeaderIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        let headerFrame = CGRect(
-            x: 0,
-            y: 0,
-            width: max(tableView.bounds.width, view.bounds.width),
-            height: ExperimentLayout.tableHeaderHeight
-        )
-
-        if let headerView = tableView.tableHeaderView {
-            guard headerView.frame != headerFrame else { return }
-            headerView.frame = headerFrame
-            tableView.tableHeaderView = headerView
-            return
-        }
-
-        let headerView = UIView(frame: headerFrame)
-        headerView.backgroundColor = .clear
-        headerView.isUserInteractionEnabled = false
-        tableView.tableHeaderView = headerView
-    }
-
-    private func layoutMenuSurfaceIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
-        let topInset = max(
-            ExperimentLayout.menuSurfaceMinimumTopInset,
-            topSafeAreaInset + ExperimentLayout.menuSurfaceSafeAreaTopOffset
-        )
-        let surfaceFrame = CGRect(
-            x: ExperimentLayout.menuSurfaceHorizontalInset,
-            y: topInset,
-            width: max(0, view.bounds.width - ExperimentLayout.menuSurfaceHorizontalInset * 2),
-            height: max(0, view.bounds.height - topInset - ExperimentLayout.menuSurfaceBottomInset)
-        )
-
-        menuSurfaceView.frame = surfaceFrame
-    }
-
-    private func layoutMenuTitleIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
-        let surfaceFrame = menuSurfaceView.frame
-        menuTitleLabel.frame = CGRect(
-            x: surfaceFrame.minX + ExperimentLayout.titleHorizontalInset,
-            y: topSafeAreaInset + ExperimentLayout.titleSafeAreaTopOffset,
-            width: max(0, surfaceFrame.width - ExperimentLayout.titleHorizontalInset * 2),
-            height: ExperimentLayout.titleHeight
-        )
     }
 
     private func updatePremiumBarButton() {
         let iconName = isPremiumActive ? "star.fill" : "star"
-        let image = UIImage(systemName: iconName)
-        let button = UIBarButtonItem(image: image, style: .plain, target: self, action: #selector(onPremiumButton))
-        button.tintColor = isPremiumActive ? .systemYellow : .label
-        if CommonConfigManager.shared.config.support_subscribtions {
-            navigationItem.rightBarButtonItem = button
-        }
+        XabberGlassStyle.applyDetachedIconButtonStyle(to: premiumButton,
+            tintColor: isPremiumActive ? .systemYellow : .label, image: UIImage(systemName: iconName))
+        premiumButton.isHidden = !CommonConfigManager.shared.config.support_subscribtions
+        view.setNeedsLayout()
     }
 
     @objc
@@ -1246,6 +1192,9 @@ class LeftMenuViewController: UIViewController {
     }
 
     private func observer() {
+        NotificationCenter.default.addObserver(menuBackdropView,
+            selector: #selector(ChatBackgroundBackdropView.reloadFromSettings),
+            name: .chatBackgroundChanged, object: nil)
         NotificationCenter
             .default
             .addObserver(self,
@@ -1256,6 +1205,7 @@ class LeftMenuViewController: UIViewController {
 
     private func removeNotificationObserer() {
         NotificationCenter.default.removeObserver(self)
+        NotificationCenter.default.removeObserver(menuBackdropView)
     }
 
     deinit {
@@ -1265,6 +1215,11 @@ class LeftMenuViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        wasNavigationBarHidden = navigationController?.isNavigationBarHidden ?? false
+        navigationController?.setNavigationBarHidden(true, animated: false)
+        menuBackdropView.reloadFromSettings()
+        tableView.reloadData()
+        view.setNeedsLayout()
         let newPremiumState = SubscribtionsManager.shared.hasActiveSubsription()
         if newPremiumState != isPremiumActive {
             isPremiumActive = newPremiumState
@@ -1277,11 +1232,22 @@ class LeftMenuViewController: UIViewController {
         LeftMenuSplitColumnInstaller.restorePrimaryAccessibility(for: self)
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
+            tableView.reloadData()
+            view.setNeedsLayout()
+        }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        configureExperimentTableHeaderIfNeeded()
-        layoutMenuSurfaceIfNeeded()
-        layoutMenuTitleIfNeeded()
+        layoutFloatingMenu()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setNavigationBarHidden(wasNavigationBarHidden, animated: false)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -1318,7 +1284,16 @@ extension LeftMenuViewController: UITableViewDataSource {
         } else {
             cell.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
         }
-        cell.applyContinuousSplitSystemBackground()
+        cell.backgroundConfiguration = .clear()
+        cell.backgroundColor = .clear
+        cell.contentView.backgroundColor = item.key == previousSelectedKey
+            ? UIColor.systemGreen.withAlphaComponent(0.16) : .clear
+        cell.contentView.layer.cornerRadius = 17
+        cell.contentView.layer.cornerCurve = .continuous
+        cell.layer.cornerRadius = 17
+        cell.titleLabel.font = .preferredFont(forTextStyle: .body)
+        cell.titleLabel.adjustsFontForContentSizeCategory = true
+        if item.key == previousSelectedKey { cell.accessibilityTraits.insert(.selected) }
         cell.selectionStyle = .none
         return cell
     }
@@ -1644,7 +1619,7 @@ class MenuItemTableCell: UITableViewCell {
 
 extension LeftMenuViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        return floatingRowHeight
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
@@ -1660,7 +1635,7 @@ extension LeftMenuViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return 0
+        return section == 0 ? 0 : 16
     }
     
     private func selectionPresentationAction(for splitVC: UISplitViewController) -> LeftMenuSelectionPresentationPolicy.PresentationAction {
