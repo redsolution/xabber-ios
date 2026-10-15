@@ -24,6 +24,13 @@ import Network
 
 extension OmemoManager {
 
+    /// The existing devices capability also survives reconnect through the
+    /// registered device UUID. Xabber owns OMEMO nodes and list membership;
+    /// ordinary PEP servers retain the client-managed publication path.
+    internal var usesServerManagedOMEMO2Nodes: Bool {
+        AccountManager.shared.find(for: owner)?.devices.isAvailable == true
+    }
+
     internal var isOwnOMEMOEnabled: Bool {
         (try? WRealm.safe()).flatMap { $0.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.isEncryptionEnabled } ?? false
     }
@@ -115,6 +122,11 @@ extension OmemoManager {
         guard let storage = self.omemo2Storage else { throw OmemoManagerError.sessionCreationFailed }
         let value = OMEMO2PublishedBundle(try storage.replenishPreKeys(minimumCount: 100))
         let pubsub = try OMEMO2BundleCodec.publication(value)
+        if usesServerManagedOMEMO2Nodes {
+            // Server-owned Xabber nodes accept the bundle item without client
+            // configuration or the standard PEP publish-options form.
+            pubsub.element(forName: "publish-options")?.detach()
+        }
         if let signature = SignatureManager.shared.signatureElement,
            let certificate = SignatureManager.shared.certificate {
             var commonName: CFString?
@@ -175,7 +187,7 @@ extension OmemoManager {
         guard iq.iqType == .result else {
             self.shouldPublicate = true
             self.omemo2PublicationRetryAt = omemo2MaintenanceNow().addingTimeInterval(Self.omemo2PublicationRetryInterval)
-            if !self.omemo2PublicationReconfigured,
+            if !self.usesServerManagedOMEMO2Nodes, !self.omemo2PublicationReconfigured,
                iq.element(forName: "error")?.element(forName: "precondition-not-met", xmlns: "http://jabber.org/protocol/pubsub#errors") != nil {
                 self.omemo2PublicationReconfigured = true
                 if let stream = authenticatedOMEMO2PublicationStream() {
@@ -187,6 +199,7 @@ extension OmemoManager {
                         user.omemo.omemo2MaintenanceLock.lock()
                         defer { user.omemo.omemo2MaintenanceLock.unlock() }
                         guard user.omemo.isOwnOMEMOEnabled,
+                              !user.omemo.usesServerManagedOMEMO2Nodes,
                               user.omemo.omemo2PublicationReconfigured,
                               user.omemo.omemo2BundleConfigurationRequestID == nil else { return }
                         user.omemo.omemo2MaintenancePublicationStream = stream
@@ -339,6 +352,9 @@ extension OmemoManager {
     }
 
     internal final func sendOwnDevice(_ xmppStream: XMPPStream, createNode: Bool, excludingIDs: Set<Int> = []) throws {
+        // XEP-DEVICES servers publish membership after bundle publication or
+        // retraction. This also covers reannounce and device-removal callers.
+        guard !usesServerManagedOMEMO2Nodes else { return }
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let realm = try WRealm.safe()
         guard let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner), snapshot.isKnown else {
@@ -421,7 +437,7 @@ extension OmemoManager {
             return
         }
         let enabled = isOwnOMEMOEnabled
-        if createNode {
+        if createNode && !usesServerManagedOMEMO2Nodes {
             self.createNode(xmppStream, node: .device)
             self.configureNode(xmppStream, node: .device)
             if enabled {

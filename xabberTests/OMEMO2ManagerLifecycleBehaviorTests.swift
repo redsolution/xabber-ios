@@ -699,6 +699,188 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
         XCTAssertNotEqual(requests(f.stream, node: .bundle).first?.attributeStringValue(forName: "id"), canceledID)
     }
 
+    func testXabberRegistrationPublishesOnlyBundleAndWaitsForServerMembership() throws {
+        let f = try fixture()
+        advertiseXabberDevices(f)
+        try ownSnapshot(f, ids: [99])
+        let originalID = try f.storage.localBundle().deviceID
+        let originalIdentity = try f.storage.identity().publicKey
+
+        try f.manager.publicateOwnDevice(f.stream, createNode: true)
+
+        try assertXabberBundlePackets(f, count: 1)
+        XCTAssertFalse(try ownIdentity(f).isPublicated)
+        let requestID = try XCTUnwrap(Array(f.manager.omemo2BundlePublications.keys).only)
+        XCTAssertTrue(f.manager.onOMEMO2PublicationResult(XMPPIQ(iqType: .result, to: nil, elementID: requestID)))
+        XCTAssertTrue(try ownIdentity(f).isPublicated)
+        let realm = try WRealm.safe()
+        XCTAssertEqual(Array(try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: realm, owner: f.manager.owner, jid: f.manager.owner)).deviceIDs), [99])
+        XCTAssertFalse(OMEMO2DeviceListStorageItem.contains(in: realm, owner: f.manager.owner, jid: f.manager.owner, deviceID: originalID),
+            "A bundle ACK cannot fabricate server-owned device membership")
+        let local = try XCTUnwrap(realm.object(ofType: SignalDeviceStorageItem.self,
+            forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: f.manager.owner, jid: f.manager.owner, deviceId: originalID)))
+        XCTAssertEqual(local.state, .trusted)
+        XCTAssertFalse(local.isInDeviceList)
+        XCTAssertEqual(try f.storage.localBundle().deviceID, originalID)
+        XCTAssertEqual(try f.storage.identity().publicKey, originalIdentity)
+    }
+
+    func testXabberDirectBundlePublicationOmitsPublishOptions() throws {
+        let f = try fixture()
+        advertiseXabberDevices(f)
+        try ownSnapshot(f, ids: [42, 99])
+
+        try f.manager.sendOwnDeviceBundle(f.stream, createNode: false)
+
+        try assertXabberBundlePackets(f, count: 1)
+        XCTAssertEqual(f.manager.omemo2BundlePublications.count, 1)
+        XCTAssertFalse(try ownIdentity(f).isPublicated)
+    }
+
+    func testXabberPublicationErrorsRetrySameBundleWithoutNodeConfiguration() throws {
+        for condition in ["precondition-not-met", "resource-constraint", "item-not-found"] {
+            let f = try fixture()
+            advertiseXabberDevices(f)
+            try ownSnapshot(f, ids: [99])
+            f.stream.authenticated = true
+            let originalID = try f.storage.localBundle().deviceID
+            let originalIdentity = try f.storage.identity().publicKey
+            var now = Date(timeIntervalSince1970: 1_900_000_000)
+            f.manager.omemo2MaintenanceNow = { now }
+            try f.manager.sendOwnDeviceBundle(f.stream, createNode: false)
+            let requestID = try XCTUnwrap(Array(f.manager.omemo2BundlePublications.keys).only)
+            let errorXML = condition == "precondition-not-met"
+                ? "<precondition-not-met xmlns='http://jabber.org/protocol/pubsub#errors'/>"
+                : "<\(condition) xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>"
+            let error = try XMPPIQ(xmlString: "<iq xmlns='jabber:client' type='error' id='\(requestID)'><error type='wait'>\(errorXML)</error></iq>")
+
+            XCTAssertTrue(f.manager.onOMEMO2PublicationResult(error))
+            XCTAssertNil(f.manager.omemo2BundleConfigurationRequestID)
+            XCTAssertTrue(configurations(f.stream).isEmpty)
+            XCTAssertFalse(try ownIdentity(f).isPublicated)
+            now = now.addingTimeInterval(OmemoManager.omemo2PublicationRetryInterval + 1)
+            f.manager.retryOMEMO2BundlePublication(on: f.stream)
+
+            try assertXabberBundlePackets(f, count: 2)
+            let retryID = try XCTUnwrap(Array(f.manager.omemo2BundlePublications.keys).only)
+            XCTAssertNotEqual(requestID, retryID)
+            XCTAssertTrue(f.manager.onOMEMO2PublicationResult(XMPPIQ(iqType: .result, to: nil, elementID: retryID)))
+            XCTAssertTrue(try ownIdentity(f).isPublicated)
+            XCTAssertEqual(try f.storage.localBundle().deviceID, originalID)
+            XCTAssertEqual(try f.storage.identity().publicKey, originalIdentity)
+        }
+    }
+
+    func testXabberPreconditionFailureCannotQueueConfigurationThroughAccountFallback() throws {
+        let f = try fixture()
+        advertiseXabberDevices(f)
+        try ownSnapshot(f, ids: [42])
+        try f.manager.sendOwnDeviceBundle(f.stream, createNode: false)
+        let requestID = try XCTUnwrap(Array(f.manager.omemo2BundlePublications.keys).only)
+        f.manager.omemo2MaintenancePublicationStream = nil
+        f.manager.omemo2RegistrationStream = nil
+        f.stream.authenticated = true
+
+        XCTAssertTrue(f.manager.onOMEMO2PublicationResult(try preconditionError(id: requestID)))
+        drainAccount(f)
+
+        XCTAssertTrue(configurations(f.stream).isEmpty)
+        XCTAssertNil(f.manager.omemo2BundleConfigurationRequestID)
+        try assertXabberBundlePackets(f, count: 1)
+        XCTAssertTrue(f.manager.shouldPublicate)
+        XCTAssertFalse(try ownIdentity(f).isPublicated)
+    }
+
+    func testXabberDirectMembershipPublicationCannotReplaceOrExcludeServerDevices() throws {
+        let f = try fixture()
+        advertiseXabberDevices(f)
+        try ownSnapshot(f, ids: [42, 99])
+
+        try f.manager.sendOwnDevice(f.stream, createNode: true, excludingIDs: [99])
+
+        XCTAssertTrue(f.stream.elements.isEmpty)
+        XCTAssertEqual(Array(try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: WRealm.safe(), owner: f.manager.owner, jid: f.manager.owner)).deviceIDs), [42, 99])
+    }
+
+    func testXabberOwnListMissingLocalSIDDoesNotPublishClientMembership() throws {
+        let f = try fixture()
+        advertiseXabberDevices(f)
+        try ownSnapshot(f, ids: [99])
+        f.manager.shouldPublicate = false
+
+        f.manager.onOwnDeviceListUpdated(f.stream)
+
+        XCTAssertTrue(f.stream.elements.isEmpty)
+        XCTAssertFalse(OMEMO2DeviceListStorageItem.contains(in: try WRealm.safe(), owner: f.manager.owner, jid: f.manager.owner, deviceID: 42))
+    }
+
+    func testXabberDisableRetractsOnlyOwnBundleWithoutWritingDeviceMembership() throws {
+        let f = try fixture(enabled: false)
+        advertiseXabberDevices(f)
+        try ownSnapshot(f, ids: [42, 99])
+
+        try f.manager.publicateOwnDevice(f.stream, createNode: true)
+
+        let packet = try XCTUnwrap(f.stream.elements.only)
+        let wire = try DDXMLElement(xmlString: packet.xmlString)
+        let pubsub = try XCTUnwrap(wire.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"))
+        XCTAssertEqual((pubsub.children ?? []).compactMap { ($0 as? DDXMLElement)?.localName }, ["retract"])
+        let retract = try XCTUnwrap(pubsub.element(forName: "retract"))
+        XCTAssertEqual(retract.attributeStringValue(forName: "node"), OmemoManager.NodeType.bundle.rawValue)
+        XCTAssertEqual(retract.element(forName: "item")?.attributeStringValue(forName: "id"), "42")
+        XCTAssertFalse(f.manager.shouldPublicate)
+        XCTAssertEqual(Array(try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: WRealm.safe(), owner: f.manager.owner, jid: f.manager.owner)).deviceIDs), [42, 99])
+    }
+
+    func testStandardPEPRegistrationRetainsNodeSetupAndNormativePublicationOptions() throws {
+        let f = try fixture()
+        XCTAssertFalse(f.account.devices.isAvailable)
+        try ownSnapshot(f, ids: [99])
+
+        try f.manager.publicateOwnDevice(f.stream, createNode: true)
+
+        let packets = try f.stream.elements.map { try DDXMLElement(xmlString: $0.xmlString) }
+        XCTAssertEqual(packets.filter { $0.element(forName: "pubsub")?.element(forName: "create") != nil }.count, 2)
+        XCTAssertEqual(packets.filter { $0.element(forName: "pubsub")?.element(forName: "configure") != nil }.count, 2)
+        XCTAssertEqual(try publishedDeviceIDs(f.stream), [42, 99])
+        for (node, maxItems) in [(OmemoManager.NodeType.bundle, "max"), (.device, "1")] {
+            let packet = try XCTUnwrap(packets.first {
+                $0.element(forName: "pubsub")?.element(forName: "publish")?.attributeStringValue(forName: "node") == node.rawValue
+            })
+            let form = try XCTUnwrap(packet.element(forName: "pubsub")?.element(forName: "publish-options")?.element(forName: "x", xmlns: "jabber:x:data"))
+            let fields = Dictionary(uniqueKeysWithValues: form.elements(forName: "field").map {
+                ($0.attributeStringValue(forName: "var") ?? "", $0.element(forName: "value")?.stringValue ?? "")
+            })
+            XCTAssertEqual(fields["FORM_TYPE"], "http://jabber.org/protocol/pubsub#publish-options")
+            XCTAssertEqual(fields["pubsub#access_model"], "open")
+            XCTAssertEqual(fields["pubsub#max_items"], maxItems)
+        }
+    }
+
+    private func advertiseXabberDevices(_ f: Fixture) {
+        let features = DDXMLElement(name: "features")
+        features.addChild(DDXMLElement(name: "devices", xmlns: "https://xabber.com/protocol/devices"))
+        f.account.devices.setAvailable(features)
+        XCTAssertTrue(f.account.devices.isAvailable)
+    }
+
+    private func assertXabberBundlePackets(_ f: Fixture, count: Int,
+                                         file: StaticString = #filePath, line: UInt = #line) throws {
+        XCTAssertEqual(f.stream.elements.count, count, file: file, line: line)
+        for packet in f.stream.elements {
+            let wire = try DDXMLElement(xmlString: packet.xmlString)
+            XCTAssertEqual(wire.attributeStringValue(forName: "type"), "set", file: file, line: line)
+            let pubsub = try XCTUnwrap(wire.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"), file: file, line: line)
+            XCTAssertEqual((pubsub.children ?? []).compactMap { ($0 as? DDXMLElement)?.localName }, ["publish"], file: file, line: line)
+            let publish = try XCTUnwrap(pubsub.element(forName: "publish"), file: file, line: line)
+            XCTAssertEqual(publish.attributeStringValue(forName: "node"), OmemoManager.NodeType.bundle.rawValue, file: file, line: line)
+            XCTAssertEqual(publish.elements(forName: "item").count, 1, file: file, line: line)
+            let item = try XCTUnwrap(publish.element(forName: "item"), file: file, line: line)
+            XCTAssertEqual(item.attributeStringValue(forName: "id"), "42", file: file, line: line)
+            XCTAssertEqual(try OMEMO2BundleCodec.decode(item: item).identityKey, try f.storage.localBundle().identityKey, file: file, line: line)
+        }
+    }
+
     private func fixture(enabled: Bool = true, prepared: Bool = true) throws -> Fixture {
         let owner = "omemo-lifecycle-\(UUID().uuidString.lowercased())@example.test"
         let peer = "peer-\(UUID().uuidString.lowercased())@example.test"
