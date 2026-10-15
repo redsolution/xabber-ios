@@ -10661,8 +10661,8 @@ final class AccountManagerConnectingStateTests: XCTestCase {
 
 final class ConnectionDiagnosticsLoggerTests: XCTestCase {
 
-    func testRawXMLLoggingIsOptInEvenForDebugBuilds() {
-        XCTAssertFalse(ConnectionDiagnosticsLogger.rawXMLLoggingEnabled)
+    func testRawXMLLoggingIsEnabledByDefault() {
+        XCTAssertTrue(ConnectionDiagnosticsLogger.rawXMLLoggingEnabled)
     }
 
     func testLineContainsCoreConnectionFieldsInStableOrder() {

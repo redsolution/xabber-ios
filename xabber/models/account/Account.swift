@@ -3125,11 +3125,8 @@ struct ConnectionDiagnosticsLogger {
     static let prefix = "CONNECTION_DIAGNOSTICS"
     static let redactedValue = "[redacted]"
 
-    // Full XML is intentionally opt-in even in Debug. Per-stanza serialization,
-    // redaction and disk logging noticeably distort UI performance while a
-    // debugger is attached. Narrow diagnostics can still pass
-    // `includeRawXML: true` explicitly.
-    static let rawXMLLoggingEnabled = false
+    // Log stanza XML by default while preserving credential redaction.
+    static let rawXMLLoggingEnabled = true
 
     static func log(
         event: String,
