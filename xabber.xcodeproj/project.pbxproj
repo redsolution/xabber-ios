@@ -1155,6 +1155,8 @@
 		3797896C3A2E470E9E3D503A /* OMEMO2AccountDeletionBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */; };
 		C7672048B9F748DAA16476BA /* OMEMO2DependencyIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4988740A96D456CAF790ADD /* OMEMO2DependencyIsolationTests.swift */; };
 		92BAEDFA6C384EDEA5707AE4 /* FavoritesConcurrentCreationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82DAAE01C05E44108561C08C /* FavoritesConcurrentCreationTests.swift */; };
+		D9C4B5A8DAE27C0D5101F6C0 /* PushRegistrationDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93FD8855E55FA09CD76100F2 /* PushRegistrationDiagnostics.swift */; };
+		7A2331297EC8D4E6996CE80D /* PushEnableDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33267BC06FD2B28EDA4F008C /* PushEnableDiagnosticsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2343,6 +2345,8 @@
 		99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2AccountDeletionBehaviorTests.swift; sourceTree = "<group>"; };
 		B4988740A96D456CAF790ADD /* OMEMO2DependencyIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2DependencyIsolationTests.swift; sourceTree = "<group>"; };
 		82DAAE01C05E44108561C08C /* FavoritesConcurrentCreationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesConcurrentCreationTests.swift; sourceTree = "<group>"; };
+		93FD8855E55FA09CD76100F2 /* PushRegistrationDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrationDiagnostics.swift; sourceTree = "<group>"; };
+		33267BC06FD2B28EDA4F008C /* PushEnableDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushEnableDiagnosticsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4005,6 +4009,7 @@
 				6697DB63224D047B007E7584 /* APNSManager.swift */,
 				66F907192260B76400F64A37 /* APNSManager+Network.swift */,
 				66802901205A52B6005F0C9A /* PushNotificationsManager.swift */,
+				93FD8855E55FA09CD76100F2 /* PushRegistrationDiagnostics.swift */,
 			);
 			path = APNS;
 			sourceTree = "<group>";
@@ -4449,6 +4454,7 @@
 				9C3C57C04C72BA3479F4F645 /* HTTPArchiveByIDTests.swift */,
 				8673DC14349DEB8B6F2741FE /* PushCredentialMigrationTests.swift */,
 				EE9FD84A7A1BE04DC6DBE943 /* PushRegistrationContractTests.swift */,
+				33267BC06FD2B28EDA4F008C /* PushEnableDiagnosticsTests.swift */,
 				4E8110013B2A000000ABC001 /* PushExtensionRichContentTests.swift */,
 				4E8120013B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift */,
 				4E8130013B2C000000ABC001 /* LocalNotificationRichContentTests.swift */,
@@ -6506,6 +6512,7 @@
 				66E6A14A248FAE88006F6968 /* GroupchatInfoViewController+UITableViewDataSource.swift in Sources */,
 				1AA11F3B27E1CA4100E8C75A /* CloudStorageViewController+extensions.swift in Sources */,
 				66802902205A52B6005F0C9A /* PushNotificationsManager.swift in Sources */,
+				D9C4B5A8DAE27C0D5101F6C0 /* PushRegistrationDiagnostics.swift in Sources */,
 				6643F30521C2650E00333229 /* MessagesCollectionViewLayoutAttributes.swift in Sources */,
 				4E9100082FF100000ABC001 /* ChatMessageFrameGeometryValidator.swift in Sources */,
 				662D4A792489371D009E2B22 /* RoundedAvatarButton.swift in Sources */,
@@ -6810,6 +6817,7 @@
 				608FF5BF76399E3C5710CC70 /* HTTPArchiveByIDTests.swift in Sources */,
 				F6DDAF39FB1F074255165DA8 /* PushCredentialMigrationTests.swift in Sources */,
 				84AE75CB30A744751CBC2220 /* PushRegistrationContractTests.swift in Sources */,
+				7A2331297EC8D4E6996CE80D /* PushEnableDiagnosticsTests.swift in Sources */,
 				4E8110023B2A000000ABC001 /* PushExtensionRichContentTests.swift in Sources */,
 				4E8120023B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift in Sources */,
 				4E8130023B2C000000ABC001 /* LocalNotificationRichContentTests.swift in Sources */,

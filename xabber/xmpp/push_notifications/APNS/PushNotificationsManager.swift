@@ -36,6 +36,7 @@ class PushNotificationsManager: AbstractXMPPManager {
 
     private final class RegistrationRequest {
         let id: String
+        let diagnosticID: UUID
         let owner: String
         let node: String
         let service: String
@@ -49,10 +50,12 @@ class PushNotificationsManager: AbstractXMPPManager {
         var keyBytes: [UInt8]?
         var payloadMode: PushPayloadMode?
         var hasBeenSent = false
+        var didObserveSend = false
 
         init(id: String, owner: String, node: String, service: String, jid: XMPPJID,
              epoch: UInt64, wasEnabled: Bool, stream: XMPPStream, callback: @escaping (Bool) -> Void) {
             self.id = id
+            self.diagnosticID = UUID(uuidString: id) ?? UUID()
             self.owner = owner
             self.node = node
             self.service = service
@@ -100,6 +103,7 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
     var tokenInvalidationStore: PushTokenInvalidationStore? = .live
     var payloadModeProvider: () -> PushPayloadMode = { PushPayloadPreferences.current }
+    var diagnostics: PushRegistrationDiagnosticLogger = .live
     
     var enable: Bool = true
     var node: String {
@@ -271,6 +275,9 @@ class PushNotificationsManager: AbstractXMPPManager {
         customPushSupported = supported
         var callbacks: [(Bool) -> Void] = []
         if !supported {
+            if registrationRequest != nil {
+                diagnostics.record(.blocked(reason: .unsupportedServer))
+            }
             callbacks = finishRequestLocked(success: false, preserveRegistration: false)
             registrationState = .disabled
             acknowledgedPayloadMode = nil
@@ -296,8 +303,20 @@ class PushNotificationsManager: AbstractXMPPManager {
     private func beginRegistration(xmppStream: XMPPStream, refresh: Bool, callback: @escaping (Bool) -> Void) {
         stateLock.lock()
         guard let jid = xmppStream.myJID, jid.bare == owner,
-              jid.user?.isEmpty == false, configuredNode.isNotEmpty,
-              configuredService.isNotEmpty, customPushSupported != false else {
+              jid.user?.isEmpty == false else {
+            diagnostics.record(.blocked(reason: .invalidAccount))
+            stateLock.unlock()
+            callback(false)
+            return
+        }
+        guard configuredNode.isNotEmpty, configuredService.isNotEmpty else {
+            diagnostics.record(.blocked(reason: .missingConfiguration))
+            stateLock.unlock()
+            callback(false)
+            return
+        }
+        guard customPushSupported != false else {
+            diagnostics.record(.blocked(reason: .unsupportedServer))
             stateLock.unlock()
             callback(false)
             return
@@ -340,8 +359,13 @@ class PushNotificationsManager: AbstractXMPPManager {
             guard let self, let request else { return }
             self.registrationDidTimeout(request)
         }
-        return customPushSupported == true && registrationRequest === request
-            ? sendRequestLocked(request) : []
+        if customPushSupported == true, registrationRequest === request {
+            return sendRequestLocked(request)
+        }
+        if registrationRequest === request {
+            diagnostics.record(.waiting(request: request.diagnosticID))
+        }
+        return []
     }
 
     private func sendRequestLocked(_ request: RegistrationRequest) -> [(Bool) -> Void] {
@@ -369,9 +393,11 @@ class PushNotificationsManager: AbstractXMPPManager {
             publishNonsecretDefaults(request)
             request.hasBeenSent = true
             queryIds.insert(request.id)
+            diagnostics.record(.queued(request: request.diagnosticID, mode: mode))
             stream.send(XMPPIQ(iqType: .set, elementID: request.id, child: enableElement))
             return []
         } catch {
+            diagnostics.record(.blocked(reason: .credentialsUnavailable))
             return finishRequestLocked(success: false, preserveRegistration: request.wasEnabled)
         }
     }
@@ -433,6 +459,19 @@ class PushNotificationsManager: AbstractXMPPManager {
         callbacks.forEach { $0(false) }
     }
     
+    func didSend(_ iq: XMPPIQ, xmppStream: XMPPStream) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let request = registrationRequest, isCurrentRequestLocked(request),
+              request.stream === xmppStream, request.streamJID == xmppStream.myJID?.full,
+              request.hasBeenSent, !request.didObserveSend,
+              iq.elementID == request.id, iq.iqType == .set,
+              iq.element(forName: "enable", xmlns: getPrimaryNamespace()) != nil,
+              let mode = request.payloadMode else { return }
+        request.didObserveSend = true
+        diagnostics.record(.sent(request: request.diagnosticID, mode: mode))
+    }
+
     override func read(withIQ iq: XMPPIQ) -> Bool {
         return readPushRegistrationResult(iq)
     }
@@ -490,6 +529,7 @@ class PushNotificationsManager: AbstractXMPPManager {
         }
         // A sent request may have applied on the server despite a lost response.
         if request.hasBeenSent { acknowledgedPayloadMode = nil }
+        diagnostics.record(.timedOut(request: request.diagnosticID, sent: request.didObserveSend))
         let completion = finishRequestAndReconcileModeLocked(request, success: false)
         stateLock.unlock()
         completion.callbacks.forEach { $0(completion.success) }
@@ -550,6 +590,12 @@ class PushNotificationsManager: AbstractXMPPManager {
             }
         }
         if success { acknowledgedPayloadMode = request.payloadMode }
+        if success {
+            diagnostics.record(.enabled(request: request.diagnosticID, httpReady: httpPreviewReady))
+        } else {
+            diagnostics.record(.rejected(request: request.diagnosticID,
+                                         condition: PushRegistrationErrorCondition.classify(iq)))
+        }
         let completion = finishRequestAndReconcileModeLocked(request, success: success)
         stateLock.unlock()
         completion.callbacks.forEach { $0(completion.success) }

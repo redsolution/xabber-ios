@@ -511,6 +511,9 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
+        if sender === self.xmppStream {
+            self.push.didSend(iq, xmppStream: sender)
+        }
         self.notePrimaryStreamStanzaDidSend(iq)
         self.logConnectionDiagnostics(
             event: "stanza_send_iq",
