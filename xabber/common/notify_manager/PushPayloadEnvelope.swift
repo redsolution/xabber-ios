@@ -169,7 +169,7 @@ final class PushPayloadEnvelope {
 
     init?(_ body: String) {
         guard PushPayloadXML.allowed(body),
-              let document = try? DDXMLDocument(xmlString: "<push-envelope>\(body)</push-envelope>", options: 0),
+              let document = try? DDXMLDocument(xmlString: "<push-envelope xmlns='\(PushPayloadXML.namespace)'>\(body)</push-envelope>", options: 0),
               let wrapper = document.rootElement() else { return nil }
         let children = PushPayloadXML.children(wrapper)
         let container: DDXMLElement
@@ -204,7 +204,11 @@ final class PushPayloadEnvelope {
         guard ["true", "1", "false", "0"].contains(outgoingValue) else { return nil }
         self.outgoing = ["true", "1"].contains(outgoingValue)
         self.actionElement = types.first ?? "message"
-        self.encrypted = encryptedNode.xmlString
+        // Relay fragments inherit the notification namespace. Preserve it when
+        // serializing the encrypted child independently from its parent.
+        guard let encrypted = encryptedNode.copy() as? DDXMLElement else { return nil }
+        encrypted.addNamespace(DDXMLNode.namespace(withName: "", stringValue: PushPayloadXML.namespace) as! DDXMLNode)
+        self.encrypted = encrypted.xmlString
     }
 
     func event(key: [UInt8]) -> PushDecodedEvent? {

@@ -13,6 +13,54 @@ final class PushEventValidationTests: XCTestCase {
         XCTAssertEqual(result?.attributeStringValue(forName: "id"), "123")
     }
 
+    func testRelaySiblingPayloadWithoutEncryptedNamespaceDecryptsSummary() throws {
+        let plaintext = "<stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.invalid' id='relay-archive-1'/>"
+        let body = try envelope(plaintext: plaintext, namespace: nil)
+
+        let parsed = try XCTUnwrap(PushPayloadEnvelope(body))
+
+        XCTAssertEqual(parsed.decrypt(by: Array(key.utf8)), plaintext)
+        XCTAssertEqual(parsed.messageStanzaID(key: Array(key.utf8)),
+                       PushStanzaIdentifier(id: "relay-archive-1", by: "owner@example.invalid"))
+    }
+
+    func testRelaySiblingPayloadWithoutEncryptedNamespaceDecryptsFullMessage() throws {
+        let body = try envelope(plaintext: "<message xmlns='jabber:client' from='peer@example.invalid/device' type='chat' id='relay-message-1'><body>Relay full preview</body></message>", namespace: nil)
+
+        let parsed = try XCTUnwrap(PushPayloadEnvelope(body))
+        guard case .fullMessage(let message)? = parsed.event(key: Array(key.utf8)) else {
+            return XCTFail("Relay siblings must preserve full-message dispatch after decryption")
+        }
+
+        XCTAssertEqual(message.attribute(forName: "id")?.stringValue, "relay-message-1")
+        XCTAssertEqual(message.attribute(forName: "from")?.stringValue, "peer@example.invalid/device")
+        XCTAssertEqual(message.element(forName: "body")?.stringValue, "Relay full preview")
+    }
+
+    func testCanonicalNotificationInheritedEncryptedNamespaceDecryptsSummary() throws {
+        let plaintext = "<stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.invalid' id='canonical-archive-1'/>"
+        let siblings = try envelope(plaintext: plaintext, namespace: nil)
+        let body = "<notification xmlns='https://xabber.com/protocol/push'>\(siblings)</notification>"
+
+        let parsed = try XCTUnwrap(PushPayloadEnvelope(body))
+
+        XCTAssertEqual(parsed.decrypt(by: Array(key.utf8)), plaintext)
+        XCTAssertEqual(parsed.messageStanzaID(key: Array(key.utf8)),
+                       PushStanzaIdentifier(id: "canonical-archive-1", by: "owner@example.invalid"))
+    }
+
+    func testRelayExplicitlyEmptyEncryptedNamespaceIsRejected() throws {
+        let body = try envelope(plaintext: "<stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.invalid' id='rejected-archive-1'/>", namespace: "")
+
+        XCTAssertNil(PushPayloadEnvelope(body))
+    }
+
+    func testRelayExplicitlyForeignEncryptedNamespaceIsRejected() throws {
+        let body = try envelope(plaintext: "<stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.invalid' id='rejected-archive-1'/>", namespace: "https://foreign.invalid")
+
+        XCTAssertNil(PushPayloadEnvelope(body))
+    }
+
     func testMissingTypeUsesDefaultMessageHint() throws {
         let body = try envelope(plaintext: "<stanza-id xmlns='urn:xmpp:sid:0' by='romeo@example.invalid' id='123'/>", type: nil)
         XCTAssertEqual(EncryptedPushDate(body).payloadStanza(key: key)?.name, "stanza-id")
@@ -126,14 +174,15 @@ final class PushEventValidationTests: XCTestCase {
     }
 
     private func envelope(plaintext: String, type: String? = "message",
-                          namespace: String = "https://xabber.com/protocol/push",
+                          namespace: String? = "https://xabber.com/protocol/push",
                           formType: String = "https://xabber.com/protocol/push#info") throws -> String {
         let iv = Array(repeating: UInt8(7), count: 16)
         var bytes = Array(plaintext.utf8)
         bytes += Array(repeating: 0, count: 16 - bytes.count % 16)
         let encrypted = try AES(key: Array(key.utf8), blockMode: CBC(iv: iv), padding: .noPadding).encrypt(bytes)
         let payload = Data(iv + encrypted).base64EncodedString()
-        return "<encrypted xmlns='\(namespace)' iv-length='16'>\(payload)</encrypted>" + form(type: type, formType: formType)
+        let namespaceAttribute = namespace.map { " xmlns='\($0)'" } ?? ""
+        return "<encrypted\(namespaceAttribute) iv-length='16'>\(payload)</encrypted>" + form(type: type, formType: formType)
     }
 
     private func form(type: String?, formType: String = "https://xabber.com/protocol/push#info") -> String {
