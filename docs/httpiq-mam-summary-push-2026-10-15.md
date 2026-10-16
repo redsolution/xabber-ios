@@ -6,10 +6,12 @@
 
 1. После успешного summary push-enable клиент отправляет IQ get с `<endpoints xmlns="https://xabber.com/protocol/http-iq"/>`. В исходящем IQ нет `to` и `from`.
 2. Выбирается единственный MAM2 endpoint `by-id` с абсолютным HTTPS URL. Неизвестные ветви игнорируются; путь не строится по шаблону.
-3. По тому же аутентифицированному стриму отправляется IQ get с `<token/>`, scope `urn:xmpp:mam:2` и TTL3600, также без `to` и `from`.
+3. По тому же аутентифицированному стриму отправляется IQ get с `<token/>`, scope `urn:xmpp:mam:2` и запрашиваемым TTL2592000 (30 суток), также без `to` и `from`.
 4. Входящий `from` не проверяется и не переписывается. Сохраняются проверки ID и текущей фазы, primary stream/resource, конфигурации, режима, timeout и получателя. Scope/expiry/содержимое ответа проверяются отдельно.
 5. Полный grant (endpoint, token, scopes, expiresAt, discoveryDomain) публикуется атомарно в shared Keychain вместе с прежним AES-ключом и revision. Чтение после записи подтверждает сохранённый контекст.
-6. NSE использует точный discovered URL, HTTP GET с encoded id/optional by и Bearer. Принимается один XML document MAM message/result либо IQ error. Суффикс /archive и прежние XML stream fragments не используются.
+6. NSE использует точный discovered URL, HTTP GET с encoded id/optional by и Bearer. Принимается одиночный XML MAM message/result либо IQ error, а также проверенная согласованная пара `message + iq/fin` в `application/xml` или `text/xml`; подробнее — [совместимость с ответом сервера](push-http-mam-server-response-2026-10-16.md).
+
+С 2026-10-16 клиент запрашивает срок JWT 30 суток. Сервер может выдать меньший срок; приложение сохраняет фактический `<expires>` ответа. Уже выданные токены автоматически не продлеваются.
 
 Push-enable ACK и HTTP readiness разделены. Ошибка discovery/token не выключает подтверждённый push. Full mode не запускает provisioning; полный payload не зависит от HTTP. Повторный foreground не перезапускает активную цепочку; stale/duplicate/configuration results не публикуются. Shared record v3 сохраняет AES из v1/v2, но legacy flat URL/JWT не повышаются до современного HTTP grant. Expiry, scope/domain и generation-specific invalidation проверяются приложением и extension; redirects не разрешены. Более ранний JWT exp используется только как local scheduling hint.
 

@@ -5,7 +5,7 @@ import XMPPFramework
 enum PushHTTPIQ {
     static let namespace = "https://xabber.com/protocol/http-iq"
     static let mamScope = "urn:xmpp:mam:2"
-    static let requestedTTL = 3600
+    static let requestedTTL = 30 * 24 * 60 * 60
 
     static func endpointsRequest(id: String) -> XMPPIQ {
         request(id: id, child: DDXMLElement(name: "endpoints", xmlns: namespace))

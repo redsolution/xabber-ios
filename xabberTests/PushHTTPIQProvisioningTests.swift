@@ -112,7 +112,7 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
         XCTAssertNil(tokenRequest.attributeStringValue(forName: "to"))
         let token = try XCTUnwrap(tokenRequest.element(forName: "token", xmlns: httpNamespace))
         XCTAssertEqual(token.elements(forName: "scope").map { $0.stringValue ?? "" }, [mamNamespace])
-        XCTAssertEqual(token.element(forName: "ttl", xmlns: httpNamespace)?.stringValue, "3600")
+        XCTAssertEqual(token.element(forName: "ttl", xmlns: httpNamespace)?.stringValue, "2592000")
         XCTAssertFalse(f.manager.httpPreviewReady)
         let expires = Date().addingTimeInterval(3600)
         let jwt = bearer(expires: expires)
@@ -353,15 +353,20 @@ final class PushHTTPIQProvisioningTests: XCTestCase {
     }
 
     func testOptionalTTLMayBeAbsentAndServerMayClampIt() throws {
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let expires = now.addingTimeInterval(1800)
         for body in [
-            tokenResult().replacingOccurrences(of: "<ttl>3600</ttl>", with: ""),
-            tokenResult().replacingOccurrences(of: "<ttl>3600</ttl>", with: "<ttl>1800</ttl>")
+            tokenResult(expires: expires).replacingOccurrences(of: "<ttl>3600</ttl>", with: ""),
+            tokenResult(expires: expires).replacingOccurrences(of: "<ttl>3600</ttl>", with: "<ttl>1800</ttl>")
         ] {
             let f = fixture()
+            f.manager.httpArchiveNow = { now }
             try acknowledgeSummary(f)
             XCTAssertTrue(f.manager.read(withIQ: try reply(to: request(f, "endpoints"), body: endpoints())))
             XCTAssertTrue(f.manager.read(withIQ: try reply(to: request(f, "token"), body: body)))
-            XCTAssertNotNil(f.record.httpArchive)
+            XCTAssertEqual(try XCTUnwrap(f.record.httpArchive).expiresAt, expires)
+            XCTAssertEqual(f.record.tokenExpiresAt, expires)
+            XCTAssertEqual(f.writes, 1)
             XCTAssertTrue(f.manager.httpPreviewReady)
         }
     }
