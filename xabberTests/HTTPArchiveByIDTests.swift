@@ -42,8 +42,136 @@ final class HTTPArchiveByIDTests: XCTestCase {
         assertMessage(decode(message()), id: "123")
     }
 
-    func testLegacyConcatenatedMessageAndFinalIQSequenceIsRejected() {
+    func testLegacySequenceWithoutFinalQueryIDAndArchiveBoundsIsRejected() {
         assertFailure(decode(message() + fin()), .invalidResponse)
+    }
+
+    func testServerMAMMessageAndCorrelatedFinalIQProduceMessage() {
+        assertMessage(decode(serverMessage() + serverFinalIQ()), id: "123")
+    }
+
+    func testServerMAMSequenceRejectsMismatchedArchiveResultID() {
+        let xml = serverMessage().replacingOccurrences(of: "id='123'", with: "id='456'") + serverFinalIQ()
+        assertFailure(decode(xml), .invalidResponse)
+    }
+
+    func testServerMAMSequenceRejectsMismatchedMessageOwner() {
+        let message = serverMessage().replacingOccurrences(of: "from='\(owner)'", with: "from='other@example.com'")
+        assertFailure(decode(message + serverFinalIQ()), .invalidResponse)
+    }
+
+    func testServerMAMSequenceRejectsMismatchedFinalOwnerOrSender() {
+        for sender in ["other@example.com", "\(owner)/other-resource"] {
+            let final = serverFinalIQ().replacingOccurrences(of: "from='\(owner)'", with: "from='\(sender)'")
+            assertFailure(decode(serverMessage() + final), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsMismatchedFinalRecipient() {
+        let final = serverFinalIQ().replacingOccurrences(of: "to='\(owner)/query-1'", with: "to='\(owner)/other-resource'")
+        assertFailure(decode(serverMessage() + final), .invalidResponse)
+    }
+
+    func testServerMAMSequenceRejectsMissingOrMismatchedResultQueryID() {
+        for replacement in ["", "queryid='other-query'"] {
+            let message = serverMessage().replacingOccurrences(of: "queryid='query-1'", with: replacement)
+            assertFailure(decode(message + serverFinalIQ()), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsMissingOrMismatchedFinalIQID() {
+        for replacement in ["", "id='other-query'"] {
+            let final = serverFinalIQ().replacingOccurrences(of: " id='query-1'", with: " \(replacement)")
+            assertFailure(decode(serverMessage() + final), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsMissingOrMismatchedFinalQueryID() {
+        for replacement in ["", "queryid='other-query'"] {
+            let final = serverFinalIQ().replacingOccurrences(of: "queryid='query-1'", with: replacement)
+            assertFailure(decode(serverMessage() + final), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsForeignFinalNamespaces() {
+        let final = serverFinalIQ()
+        let variants = [
+            final.replacingOccurrences(of: "xmlns='jabber:client'", with: "xmlns='urn:foreign'"),
+            final.replacingOccurrences(of: "xmlns='urn:xmpp:mam:2'", with: "xmlns='urn:foreign'"),
+            final.replacingOccurrences(of: "xmlns='http://jabber.org/protocol/rsm'", with: "xmlns='urn:foreign'")
+        ]
+        for variant in variants {
+            assertFailure(decode(serverMessage() + variant), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsFinalIQThatIsNotACompleteResult() {
+        let final = serverFinalIQ()
+        let variants = [
+            final.replacingOccurrences(of: "type='result'", with: "type='error'"),
+            final.replacingOccurrences(of: "type='result'", with: "type='get'"),
+            final.replacingOccurrences(of: "complete='true'", with: "complete='false'"),
+            final.replacingOccurrences(of: "complete='true'", with: "")
+        ]
+        for variant in variants {
+            assertFailure(decode(serverMessage() + variant), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsMismatchedArchiveBounds() {
+        let final = serverFinalIQ()
+        for variant in [
+            final.replacingOccurrences(of: "<first>123</first>", with: "<first>456</first>"),
+            final.replacingOccurrences(of: "<last>123</last>", with: "<last>456</last>")
+        ] {
+            assertFailure(decode(serverMessage() + variant), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsSecondMessageOrAdditionalRoot() {
+        assertFailure(decode(serverMessage() + serverMessage() + serverFinalIQ()), .invalidResponse)
+        assertFailure(decode(serverMessage() + serverFinalIQ() + "<unexpected/>"), .invalidResponse)
+        assertFailure(decode(serverFinalIQ() + serverMessage()), .invalidResponse)
+    }
+
+    func testServerMAMSequenceRejectsTextOutsideStanzas() {
+        let message = serverMessage()
+        let final = serverFinalIQ()
+        for xml in ["text" + message + final, message + "text" + final, message + final + "text"] {
+            assertFailure(decode(xml), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsDTDAndEntityDeclarations() {
+        let xml = "<!DOCTYPE message [<!ENTITY secret 'value'>]>" + serverMessage() + serverFinalIQ()
+        assertFailure(decode(xml), .invalidResponse)
+    }
+
+    func testServerMAMSequenceAllowsWhitespaceAroundStanzas() {
+        assertMessage(decode(" \n" + serverMessage() + "\n\t" + serverFinalIQ() + "\n"), id: "123")
+    }
+
+    func testServerMAMSequenceRejectsCommentsInstructionsAndMetadataText() {
+        for separator in ["<!-- ignored -->", "<?probe value?>"] {
+            assertFailure(decode(serverMessage() + separator + serverFinalIQ()), .invalidResponse)
+        }
+        for final in [
+            serverFinalIQ().replacingOccurrences(of: "<set xmlns=", with: "junk<set xmlns="),
+            serverFinalIQ().replacingOccurrences(of: "<first>", with: "<!-- ignored --><first>"),
+            serverFinalIQ().replacingOccurrences(of: "<first>123", with: "<first><?probe value?>123")
+        ] {
+            assertFailure(decode(serverMessage() + final), .invalidResponse)
+        }
+    }
+
+    func testServerMAMSequenceRejectsDuplicateRSMAndExtraIQChildren() {
+        let extraSet = "<set xmlns='http://jabber.org/protocol/rsm'><first>123</first><last>123</last></set>"
+        for final in [
+            serverFinalIQ().replacingOccurrences(of: "</fin>", with: extraSet + "</fin>"),
+            serverFinalIQ().replacingOccurrences(of: "</iq>", with: "<unexpected/></iq>")
+        ] {
+            assertFailure(decode(serverMessage() + final), .invalidResponse)
+        }
     }
 
     func testFinalIQWithoutMAMMessageIsNotAByIDResponse() {
@@ -262,7 +390,7 @@ final class HTTPArchiveByIDTests: XCTestCase {
     }
 
     func testInvalidOrMissingXMLContentTypeIsRejectedWithoutRetry() throws {
-        for contentType in ["text/html", "text/xml", "application/json", ""] {
+        for contentType in ["text/html", "application/json", ""] {
             let received = expectation(description: "invalid MIME \(contentType)")
             let count = ArchiveHTTPLockedCounter()
             let client = try makeClient { _, stub in
@@ -288,8 +416,8 @@ final class HTTPArchiveByIDTests: XCTestCase {
         XCTAssertEqual(condition, "item-not-found")
     }
 
-    func testSuccessfulHTTPBodyMustBeOneXMLDocument() throws {
-        let received = expectation(description: "legacy multipart rejection")
+    func testHTTPClientRejectsLegacySequenceWithoutCorrelatedFinalMetadata() throws {
+        let received = expectation(description: "uncorrelated legacy final IQ rejection")
         let count = ArchiveHTTPLockedCounter()
         let client = try makeClient { _, stub in
             _ = count.increment()
@@ -301,6 +429,42 @@ final class HTTPArchiveByIDTests: XCTestCase {
         }
         wait(for: [received], timeout: 2)
         XCTAssertEqual(count.value, 1)
+    }
+
+    func testHTTPClientAcceptsCorrelatedServerMAMSequenceAcrossChunks() throws {
+        let body = Data((serverMessage() + serverFinalIQ()).utf8)
+        let received = expectation(description: "chunked server MAM sequence")
+        received.assertForOverFulfill = true
+        let count = ArchiveHTTPLockedCounter()
+        let client = try makeClient { _, stub in
+            XCTAssertEqual(count.increment(), 1)
+            stub.begin(status: 200, headers: ["Content-Length": String(body.count)])
+            // Split XML tags and stanza boundaries to verify transport buffering.
+            for offset in stride(from: 0, to: body.count, by: 7) {
+                stub.send(body.subdata(in: offset..<min(offset + 7, body.count)))
+            }
+            stub.finish()
+        }
+        client.fetch(id: "123") { outcome in
+            self.assertMessage(outcome, id: "123")
+            received.fulfill()
+        }
+        wait(for: [received], timeout: 2)
+        XCTAssertEqual(count.value, 1)
+    }
+
+    func testHTTPClientAcceptsServerTextXMLMAMSequence() throws {
+        let body = Data((serverMessage() + serverFinalIQ()).utf8)
+        let received = expectation(description: "deployed server text/xml MAM response")
+        received.assertForOverFulfill = true
+        let client = try makeClient { _, stub in
+            stub.respond(status: 200, body: body, headers: ["Content-Type": "text/xml; charset=utf-8"])
+        }
+        client.fetch(id: "123") { outcome in
+            self.assertMessage(outcome, id: "123")
+            received.fulfill()
+        }
+        wait(for: [received], timeout: 2)
     }
 
     func testHTTP401IsTypedUnauthorizedAndNeverRetried() throws {
@@ -529,6 +693,21 @@ final class HTTPArchiveByIDTests: XCTestCase {
     private func fin() -> String {
         """
         <iq from='\(owner)' to='\(owner)/query-1' type='result' id='query-1'><fin xmlns='urn:xmpp:mam:2' complete='true'/></iq>
+        """
+    }
+
+    /// Sanitized shape observed from the deployed by-id endpoint on the iPad.
+    private func serverMessage() -> String {
+        message().replacingOccurrences(of: "<message from=", with: "<message xmlns='jabber:client' from=")
+    }
+
+    private func serverFinalIQ() -> String {
+        """
+        <iq xmlns='jabber:client' from='\(owner)' to='\(owner)/query-1' type='result' id='query-1'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='query-1'>
+            <set xmlns='http://jabber.org/protocol/rsm'><first>123</first><last>123</last></set>
+          </fin>
+        </iq>
         """
     }
 

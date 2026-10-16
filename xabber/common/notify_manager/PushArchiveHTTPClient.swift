@@ -260,7 +260,8 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
                 handleFailure(outcome, transient: transient)
                 return
             }
-            guard response.mimeType?.lowercased() == "application/xml" else {
+            guard let mime = response.mimeType?.lowercased(),
+                  ["application/xml", "text/xml"].contains(mime) else {
                 diagnose("event=response_body_unavailable reason=mime_header_rejected")
                 completionHandler(.cancel)
                 finish(.failure(.invalidResponse))
@@ -410,10 +411,11 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
               !xml.localizedCaseInsensitiveContains("<!DOCTYPE"),
               !xml.localizedCaseInsensitiveContains("<!ENTITY") else { return .failure(.invalidResponse) }
 
-        // A profile response is one XML document, never a stream of MAM
-        // stanzas. Do not wrap malformed/multiple-root input to make it parse.
-        guard let document = try? DDXMLDocument(xmlString: xml, options: 0),
-              let root = document.rootElement(),
+        // Current servers can return the MAM result followed by its final IQ.
+        // Admit only that correlated pair, alongside the single-document profile.
+        let document = try? DDXMLDocument(xmlString: xml, options: 0)
+        guard let root = document?.rootElement()
+                ?? pairedMAMMessage(xml, expectedID: expectedID, archiveOwner: archiveOwner),
               stanza(root, name: "message") || stanza(root, name: "iq"),
               ownerMatches(root.attribute(forName: "from")?.stringValue, archiveOwner) else {
             return .failure(.invalidResponse)
@@ -444,6 +446,66 @@ final class PushArchiveHTTPClient: NSObject, URLSessionDataDelegate {
               [nil, "jabber:client", "urn:xmpp:forward:0"].contains(innerMessage.uri) else { return .failure(.invalidResponse) }
         guard let copy = message.copy() as? DDXMLElement else { return .failure(.invalidResponse) }
         return .message(copy)
+    }
+
+    private static func pairedMAMMessage(
+        _ xml: String, expectedID: String, archiveOwner: String
+    ) -> DDXMLElement? {
+        // This wrapper is only a bounded parsing aid. It is never a supported
+        // wire envelope and cannot make arbitrary XML streams valid responses.
+        guard let document = try? DDXMLDocument(xmlString: "<http-mam-pair>\(xml)</http-mam-pair>", options: 0),
+              let wrapper = document.rootElement() else { return nil }
+        guard let stanzas = structuralElements(wrapper), stanzas.count == 2 else { return nil }
+        let message = stanzas[0]
+        let iq = stanzas[1]
+        let mam = "urn:xmpp:mam:2"
+        let rsm = "http://jabber.org/protocol/rsm"
+        guard stanza(message, name: "message"), stanza(iq, name: "iq"),
+              ownerMatches(message.attribute(forName: "from")?.stringValue, archiveOwner),
+              message.attribute(forName: "from")?.stringValue == iq.attribute(forName: "from")?.stringValue,
+              let recipient = message.attribute(forName: "to")?.stringValue, !recipient.isEmpty,
+              recipient == iq.attribute(forName: "to")?.stringValue,
+              iq.attribute(forName: "type")?.stringValue == "result",
+              let queryID = iq.attribute(forName: "id")?.stringValue, !queryID.isEmpty,
+              let messageChildren = structuralElements(message), messageChildren.count == 1,
+              let result = messageChildren.first,
+              result.localName == "result", result.uri == mam,
+              result.attribute(forName: "id")?.stringValue == expectedID,
+              result.attribute(forName: "queryid")?.stringValue == queryID,
+              structuralElements(result)?.count == 1,
+              let iqChildren = structuralElements(iq), iqChildren.count == 1, let fin = iqChildren.first,
+              fin.localName == "fin", fin.uri == mam,
+              ["true", "1"].contains(fin.attribute(forName: "complete")?.stringValue ?? ""),
+              fin.attribute(forName: "queryid")?.stringValue == queryID,
+              let finChildren = structuralElements(fin), finChildren.count == 1, let set = finChildren.first,
+              set.localName == "set", set.uri == rsm else { return nil }
+        guard let bounds = structuralElements(set), bounds.count == 2 || bounds.count == 3,
+              bounds.allSatisfy({
+                  $0.uri == rsm && ["first", "last", "count"].contains($0.localName ?? "")
+                      && ($0.children ?? []).allSatisfy({ $0.kind == XMLTextKind })
+              }),
+              children(set, named: "first").count == 1,
+              children(set, named: "last").count == 1,
+              children(set, named: "first").first?.stringValue == expectedID,
+              children(set, named: "last").first?.stringValue == expectedID,
+              children(set, named: "count").count <= 1,
+              children(set, named: "count").first.map({ $0.stringValue == "1" }) ?? true else { return nil }
+        return message.copy() as? DDXMLElement
+    }
+
+    /// Service metadata admits only element children and formatting whitespace.
+    /// This is deliberately not applied to the forwarded message/body content.
+    private static func structuralElements(_ element: DDXMLElement) -> [DDXMLElement]? {
+        var result: [DDXMLElement] = []
+        for node in element.children ?? [] {
+            if let child = node as? DDXMLElement {
+                result.append(child)
+            } else if node.kind != XMLTextKind
+                        || !(node.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        return result
     }
 
     private static func elements(_ element: DDXMLElement) -> [DDXMLElement] {
