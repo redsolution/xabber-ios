@@ -451,7 +451,7 @@ final class PushNotificationAvatarStore {
             || fileManager.fileExists(atPath: identityDeletionMarkerURL(for: identity).path)
     }
 
-    private func isOwnerMarkedDeleted(_ owner: String) -> Bool {
+    func isOwnerMarkedDeleted(_ owner: String) -> Bool {
         fileManager.fileExists(atPath: ownerDeletionMarkerURL(for: owner).path)
     }
 
@@ -650,6 +650,7 @@ class CommonContactsMetadataManager: NSObject {
         let owner: String
         let username: String?
         let avatarUrl: String?
+        let avatarOriginalUrl: String?
     }
     
     let key: String = "contacts_metadata"
@@ -693,7 +694,7 @@ class CommonContactsMetadataManager: NSObject {
         }
     }
     
-    public func update(owner: String, jid: String, username: String?, avatarUrl: String?) {
+    public func update(owner: String, jid: String, username: String?, avatarUrl: String?, avatarOriginalUrl: String? = nil) {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
             return
         }
@@ -717,6 +718,11 @@ class CommonContactsMetadataManager: NSObject {
         } else {
             metadata.removeValue(forKey: "avatarUrl")
         }
+        if let original = normalizedAvatarUrl(avatarOriginalUrl) {
+            metadata["avatarOriginalUrl"] = original
+        } else if storedAvatarUrl != newAvatarUrl || newAvatarUrl == nil {
+            metadata.removeValue(forKey: "avatarOriginalUrl")
+        }
         userDefaults.setValue(metadata, forKey: metadataKey)
     }
 
@@ -730,7 +736,7 @@ class CommonContactsMetadataManager: NSObject {
     
     public func getItem(owner: String, jid: String) -> Metadata {
         guard let userDefaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) else {
-            return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil)
+            return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil, avatarOriginalUrl: nil)
         }
         if let metadata: [String: Any] = userDefaults.dictionary(forKey: ["contacts_metadata", owner, jid].prp()) {
             let avatarUrl = (metadata["avatarUrl"] as? String)?
@@ -739,9 +745,10 @@ class CommonContactsMetadataManager: NSObject {
                 jid: jid,
                 owner: owner,
                 username: metadata["username"] as? String,
-                avatarUrl: avatarUrl?.isEmpty == false ? avatarUrl : nil
+                avatarUrl: avatarUrl?.isEmpty == false ? avatarUrl : nil,
+                avatarOriginalUrl: normalizedAvatarUrl(metadata["avatarOriginalUrl"] as? String)
             )
         }
-        return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil)
+        return Metadata(jid: jid, owner: owner, username: nil, avatarUrl: nil, avatarOriginalUrl: nil)
     }
 }

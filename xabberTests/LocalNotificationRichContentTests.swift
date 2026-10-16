@@ -690,6 +690,48 @@ final class LocalNotificationRichContentTests: XCTestCase {
         )
     }
 
+    func testRemoteAvatarReturnsBoundedImageBytesWithoutNotificationAttachment() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 512, height: 384)).pngData { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 512, height: 384))
+        }
+        RichNotificationLoaderURLProtocol.install { _, transport in
+            transport.succeed(data: image, mimeType: "image/png", contentLength: image.count)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RichNotificationLoaderURLProtocol.self]
+        let loader = RichNotificationAttachmentLoader(
+            configuration: configuration,
+            rootDirectory: root,
+            limits: .init(maximumImageDimension: 256)
+        )
+
+        let data = await loader.avatarImageData(from: "https://cdn.example.com/avatar.png")
+
+        let result = try XCTUnwrap(data.flatMap(UIImage.init(data:)))
+        XCTAssertEqual(result.size.width, 256)
+        XCTAssertEqual(result.size.height, 192)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.path).isEmpty,
+                      "Request-local avatar bytes must not leave staged notification files")
+    }
+
+    func testRemoteAvatarRejectsInvalidImageBody() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        RichNotificationLoaderURLProtocol.install { _, transport in
+            transport.succeed(data: Data("invalid".utf8), mimeType: "image/png", contentLength: 7)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RichNotificationLoaderURLProtocol.self]
+        let loader = RichNotificationAttachmentLoader(configuration: configuration, rootDirectory: root)
+
+        let data = await loader.avatarImageData(from: "https://cdn.example.com/avatar.png")
+
+        XCTAssertNil(data)
+    }
+
     private func preview(
         route: PushNotificationRoutePayload,
         body: String,

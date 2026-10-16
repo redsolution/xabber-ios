@@ -1162,6 +1162,10 @@
 		7A2331297EC8D4E6996CE80D /* PushEnableDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33267BC06FD2B28EDA4F008C /* PushEnableDiagnosticsTests.swift */; };
 		B61939DBBA9E37A5B5081CDE /* PushHTTPIQ.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081BA03D194DA6FE9F6E3CC2 /* PushHTTPIQ.swift */; };
 		8F7C39D9239751A2D1369696 /* PushHTTPIQProvisioningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1A6462045C26C622D62AC0 /* PushHTTPIQProvisioningTests.swift */; };
+		B77000199B434A6098D30042 /* PushNotificationAvatarResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6967272CC24858B9816FEF /* PushNotificationAvatarResolver.swift */; };
+		62454883993043E580D5F182 /* PushNotificationAvatarResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6967272CC24858B9816FEF /* PushNotificationAvatarResolver.swift */; };
+		00A685F069114237AF4F5382 /* PushNotificationAvatarResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 427F184D98ED4E7BBF5676EF /* PushNotificationAvatarResolverTests.swift */; };
+		9CCF91998DB6488CA4150B02 /* PushNotificationAvatarDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2356,6 +2360,9 @@
 		33267BC06FD2B28EDA4F008C /* PushEnableDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushEnableDiagnosticsTests.swift; sourceTree = "<group>"; };
 		081BA03D194DA6FE9F6E3CC2 /* PushHTTPIQ.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushHTTPIQ.swift; sourceTree = "<group>"; };
 		8A1A6462045C26C622D62AC0 /* PushHTTPIQProvisioningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushHTTPIQProvisioningTests.swift; sourceTree = "<group>"; };
+		4B6967272CC24858B9816FEF /* PushNotificationAvatarResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarResolver.swift; sourceTree = "<group>"; };
+		427F184D98ED4E7BBF5676EF /* PushNotificationAvatarResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarResolverTests.swift; sourceTree = "<group>"; };
+		63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarDeviceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -3979,6 +3986,7 @@
 				1367AC05AF90CAB82B8B6796 /* PushArchiveHTTPClient.swift */,
 				4E8140013B2D000000ABC001 /* RichNotificationPresentation.swift */,
 				4E8150013B2E000000ABC001 /* RichNotificationAttachmentLoader.swift */,
+				4B6967272CC24858B9816FEF /* PushNotificationAvatarResolver.swift */,
 				4E8160013B2F000000ABC001 /* LocalRichNotificationScheduler.swift */,
 				660FBBBD2465A3180014B8FD /* UNNotificationAttachment+Download.swift */,
 				6697B13B24768C6300861AE8 /* ShowedNotificationRequests.swift */,
@@ -4469,6 +4477,8 @@
 				13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */,
 				8A1A6462045C26C622D62AC0 /* PushHTTPIQProvisioningTests.swift */,
 				4E8110013B2A000000ABC001 /* PushExtensionRichContentTests.swift */,
+				63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */,
+				427F184D98ED4E7BBF5676EF /* PushNotificationAvatarResolverTests.swift */,
 				4E8120013B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift */,
 				4E8130013B2C000000ABC001 /* LocalNotificationRichContentTests.swift */,
 				4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */,
@@ -6686,6 +6696,7 @@
 				73724EB0028B75508DC9463F /* PushArchiveHTTPClient.swift in Sources */,
 				4E8140023B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
 				4E8150023B2E000000ABC001 /* RichNotificationAttachmentLoader.swift in Sources */,
+				B77000199B434A6098D30042 /* PushNotificationAvatarResolver.swift in Sources */,
 				4E8160023B2F000000ABC001 /* LocalRichNotificationScheduler.swift in Sources */,
 				665D33D322D890DF0034F74E /* LastCallsViewController+Flow.swift in Sources */,
 				6660989D2E2A67EB00820A95 /* ModernContactsViewController.swift in Sources */,
@@ -6726,6 +6737,7 @@
 				6FDFE4B6288DB2697E329823 /* PushArchiveHTTPClient.swift in Sources */,
 				4E8140033B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
 				4E8150033B2E000000ABC001 /* RichNotificationAttachmentLoader.swift in Sources */,
+				62454883993043E580D5F182 /* PushNotificationAvatarResolver.swift in Sources */,
 				665A79612F1FCB0500709663 /* ArrayExtension.swift in Sources */,
 				6629C1822F3C6AF10051C625 /* SharedRosterUtils.swift in Sources */,
 				665A79622F1FCB2200709663 /* CommonContactsMetadataManager.swift in Sources */,
@@ -6837,6 +6849,8 @@
 				5EB27ABAFF2946B8A9822250 /* PushExtensionDiagnosticsTests.swift in Sources */,
 				8F7C39D9239751A2D1369696 /* PushHTTPIQProvisioningTests.swift in Sources */,
 				4E8110023B2A000000ABC001 /* PushExtensionRichContentTests.swift in Sources */,
+				9CCF91998DB6488CA4150B02 /* PushNotificationAvatarDeviceTests.swift in Sources */,
+				00A685F069114237AF4F5382 /* PushNotificationAvatarResolverTests.swift in Sources */,
 				4E8120023B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift in Sources */,
 				4E8130023B2C000000ABC001 /* LocalNotificationRichContentTests.swift in Sources */,
 				4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */,

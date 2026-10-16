@@ -175,6 +175,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
     private let requestTimeout: TimeInterval
     private let deadline: Date
     private let contentTypeValidator: ContentTypeValidator
+    private let diagnostics: ((String) -> Void)?
 
     private let stateLock = NSLock()
     private var continuation: CheckedContinuation<RichNotificationDownloadedFile?, Never>?
@@ -196,7 +197,8 @@ private final class RichNotificationBoundedDownloader: NSObject,
         maximumBytes: Int64,
         requestTimeout: TimeInterval,
         deadline: Date,
-        contentTypeValidator: @escaping ContentTypeValidator
+        contentTypeValidator: @escaping ContentTypeValidator,
+        diagnostics: ((String) -> Void)? = nil
     ) {
         self.sourceURL = sourceURL
         self.configuration = (configuration.copy() as? URLSessionConfiguration)
@@ -207,6 +209,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
         self.requestTimeout = requestTimeout
         self.deadline = deadline
         self.contentTypeValidator = contentTypeValidator
+        self.diagnostics = diagnostics
     }
 
     func download() async -> RichNotificationDownloadedFile? {
@@ -239,6 +242,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
 
         var request = URLRequest(url: sourceURL)
         request.timeoutInterval = transferTimeout
+        diagnostics?("http_request method=GET url=\(sourceURL.absoluteString) headers=\(request.allHTTPHeaderFields ?? [:]) body=nil timeout=\(transferTimeout) maximumBytes=\(maximumBytes)")
         let session = URLSession(
             configuration: configuration,
             delegate: self,
@@ -246,6 +250,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
         )
         let dataTask = session.dataTask(with: request)
         let timeoutWorkItem = DispatchWorkItem { [weak self] in
+            self?.diagnostics?("http_deadline url=\(self?.sourceURL.absoluteString ?? "")")
             self?.finish(result: nil, cancelTask: true)
         }
 
@@ -270,6 +275,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
     }
 
     private func cancel() {
+        diagnostics?("http_cancel url=\(sourceURL.absoluteString)")
         stateLock.lock()
         cancellationRequested = true
         let hasContinuation = continuation != nil
@@ -286,6 +292,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
+        diagnostics?("http_redirect status=\(response.statusCode) headers=\(response.allHeaderFields) url=\(request.url?.absoluteString ?? "")")
         guard deadline.timeIntervalSinceNow > 0,
               let url = request.url,
               PushNotificationMediaURLPolicy.remoteURLString(url.absoluteString) != nil else {
@@ -302,6 +309,9 @@ private final class RichNotificationBoundedDownloader: NSObject,
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        if let http = response as? HTTPURLResponse {
+            diagnostics?("http_response url=\(http.url?.absoluteString ?? "") status=\(http.statusCode) headers=\(http.allHeaderFields) expectedBytes=\(http.expectedContentLength)")
+        }
         guard deadline.timeIntervalSinceNow > 0,
               let response = response as? HTTPURLResponse,
               (200..<300).contains(response.statusCode),
@@ -370,6 +380,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
             }
         }
         stateLock.unlock()
+        if shouldCancel { diagnostics?("http_body_rejected url=\(sourceURL.absoluteString) chunkBytes=\(data.count)") }
         if shouldCancel {
             finish(result: nil, cancelTask: true)
         }
@@ -398,6 +409,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
             result = nil
         }
         stateLock.unlock()
+        diagnostics?("http_transfer_complete url=\(sourceURL.absoluteString) bytes=\(result?.size ?? 0) error=\(String(describing: error)) accepted=\(result != nil)")
         finish(result: result, cancelTask: result == nil)
     }
 
@@ -525,6 +537,7 @@ final class RichNotificationAttachmentLoader {
     private let limits: Limits
     private let sessionConfiguration: URLSessionConfiguration
     private let localFileURLsBySource: [String: URL]
+    private let diagnostics: ((String) -> Void)?
     private let directoryRegistry = RichNotificationAttachmentDirectoryRegistry.shared
 
     init(
@@ -532,7 +545,8 @@ final class RichNotificationAttachmentLoader {
         fileManager: FileManager = .default,
         rootDirectory: URL? = nil,
         limits: Limits = .standard,
-        localFileURLsBySource: [String: URL] = [:]
+        localFileURLsBySource: [String: URL] = [:],
+        diagnostics: ((String) -> Void)? = nil
     ) {
         self.fileManager = fileManager
         self.rootDirectory = rootDirectory
@@ -544,6 +558,46 @@ final class RichNotificationAttachmentLoader {
         self.sessionConfiguration = (configuration.copy() as? URLSessionConfiguration)
             ?? configuration
         self.localFileURLsBySource = localFileURLsBySource
+        self.diagnostics = diagnostics
+    }
+
+    /// Reuses the bounded HTTPS transfer and image normalization used for media,
+    /// returning owned bytes for INPerson rather than adding an attachment.
+    func avatarImageData(from source: String) async -> Data? {
+        guard !Task.isCancelled,
+              let safeURL = PushNotificationMediaURLPolicy.remoteURLString(source),
+              let url = URL(string: safeURL) else { return nil }
+        let directory = rootDirectory.appendingPathComponent("avatar-\(UUID().uuidString)", isDirectory: true)
+        let activity = directoryRegistry.acquire(directory: directory)
+        defer {
+            try? fileManager.removeItem(at: directory)
+            activity.release(protectionInterval: 0)
+        }
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch { return nil }
+        let deadline = Date().addingTimeInterval(limits.totalDeadline)
+        let downloader = RichNotificationBoundedDownloader(
+            sourceURL: url,
+            configuration: sessionConfiguration,
+            fileManager: fileManager,
+            requestDirectory: directory,
+            maximumBytes: min(limits.maximumImageBytes, limits.maximumTotalBytes),
+            requestTimeout: limits.requestTimeout,
+            deadline: deadline,
+            contentTypeValidator: { [weak self] in self?.contentType(for: .image, mimeType: $0) },
+            diagnostics: diagnostics
+        )
+        guard let downloaded = await downloader.download(),
+              !Task.isCancelled,
+              let data = try? Data(contentsOf: downloaded.url, options: .mappedIfSafe),
+              let normalized = normalizedImageData(from: data, deadline: deadline,
+                                                   remainingBytes: limits.maximumTotalBytes) else {
+            diagnostics?("image_decode_failed url=\(source)")
+            return nil
+        }
+        diagnostics?("image_ready url=\(source) normalizedBytes=\(normalized.data.count) maximumDimension=\(limits.maximumImageDimension)")
+        return normalized.data
     }
 
     /// Compatibility API for callers that do not need explicit ownership. The
@@ -725,7 +779,8 @@ final class RichNotificationAttachmentLoader {
             deadline: deadline,
             contentTypeValidator: { [weak self] mimeType in
                 self?.contentType(for: kind, mimeType: mimeType)
-            }
+            },
+            diagnostics: diagnostics
         )
         guard let downloaded = await downloader.download() else {
             return nil
@@ -841,6 +896,25 @@ final class RichNotificationAttachmentLoader {
         deadline: Date,
         remainingBytes: Int64
     ) -> StagedAttachment? {
+        guard let encoding = normalizedImageData(from: data, deadline: deadline, remainingBytes: remainingBytes),
+              let fileExtension = encoding.type.preferredFilenameExtension else { return nil }
+        let destination = requestDirectory.appendingPathComponent("image-\(UUID().uuidString).\(fileExtension)")
+        do {
+            try encoding.data.write(to: destination, options: .atomic)
+            guard deadline.timeIntervalSinceNow > 0, !Task.isCancelled else {
+                try? fileManager.removeItem(at: destination)
+                return nil
+            }
+            return makeAttachment(at: destination, contentType: encoding.type,
+                                  size: Int64(encoding.data.count), deadline: deadline)
+        } catch { return nil }
+    }
+
+    private func normalizedImageData(
+        from data: Data,
+        deadline: Date,
+        remainingBytes: Int64
+    ) -> (data: Data, type: UTType)? {
         guard deadline.timeIntervalSinceNow > 0,
               !Task.isCancelled,
               !data.isEmpty,
@@ -899,29 +973,10 @@ final class RichNotificationAttachmentLoader {
                 guard let data = $0.data else { return false }
                 return !data.isEmpty && Int64(data.count) <= maximumOutputBytes
               }),
-              let normalizedData = encoding.data,
-              let fileExtension = encoding.type.preferredFilenameExtension else {
+              let normalizedData = encoding.data else {
             return nil
         }
-
-        let destination = requestDirectory.appendingPathComponent(
-            "image-\(UUID().uuidString).\(fileExtension)"
-        )
-        do {
-            try normalizedData.write(to: destination, options: .atomic)
-            guard deadline.timeIntervalSinceNow > 0, !Task.isCancelled else {
-                try? fileManager.removeItem(at: destination)
-                return nil
-            }
-            return makeAttachment(
-                at: destination,
-                contentType: encoding.type,
-                size: Int64(normalizedData.count),
-                deadline: deadline
-            )
-        } catch {
-            return nil
-        }
+        return (normalizedData, encoding.type)
     }
 
     private func copiedMediaAttachment(

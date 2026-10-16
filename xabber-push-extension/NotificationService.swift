@@ -907,7 +907,25 @@ extension NotificationService: PushPayloadDelegate {
         plan: RichNotificationPresentationPlan
     ) async {
         trace("communication_notification", "plan=\(plan)")
-        let sender = makeIntentPerson(plan: plan)
+        guard !Task.isCancelled, mayExposePrivateContent else {
+            completeBestAttemptContent()
+            return
+        }
+        let requestID = identifier
+        let resolver = PushNotificationAvatarResolver.live { message in
+            PushExtensionDiagnostics.log("event=avatar request=\(requestID) \(message)")
+        }
+        let imageData = await resolver.imageData(
+            for: plan.route,
+            displayName: plan.senderDisplayName,
+            fallbackJid: plan.senderHandle
+        )
+        guard !Task.isCancelled, mayExposePrivateContent else {
+            completeBestAttemptContent()
+            return
+        }
+        let sender = makeIntentPerson(plan: plan, imageData: imageData)
+        trace("avatar_intent_ready", "bytes=\(imageData.count) senderHandle=\(plan.senderHandle)")
         let intent = INSendMessageIntent(
             recipients: nil,
             outgoingMessageType: .outgoingMessageText,
@@ -926,7 +944,8 @@ extension NotificationService: PushPayloadDelegate {
     }
 
     private final func makeIntentPerson(
-        plan: RichNotificationPresentationPlan
+        plan: RichNotificationPresentationPlan,
+        imageData: Data
     ) -> INPerson {
         return INPerson(
             personHandle: INPersonHandle(
@@ -935,31 +954,10 @@ extension NotificationService: PushPayloadDelegate {
             ),
             nameComponents: nil,
             displayName: plan.senderDisplayName,
-            image: intentImage(
-                route: plan.route,
-                displayName: plan.senderDisplayName,
-                fallbackJid: plan.senderHandle
-            ),
+            image: INImage(imageData: imageData),
             contactIdentifier: nil,
             customIdentifier: nil
         )
-    }
-
-    private final func intentImage(
-        route: PushNotificationRoutePayload,
-        displayName: String,
-        fallbackJid: String
-    ) -> INImage {
-        for identity in route.senderAvatarLookupIdentities {
-            if let imageData = PushNotificationAvatarStore.shared.imageData(for: identity) {
-                return INImage(imageData: imageData)
-            }
-        }
-        let fallbackData = PushNotificationInitialsRenderer.imageData(
-            displayName: displayName,
-            jid: fallbackJid
-        )
-        return INImage(imageData: fallbackData)
     }
 
     private final func completeContent(

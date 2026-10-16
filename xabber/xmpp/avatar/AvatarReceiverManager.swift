@@ -316,6 +316,13 @@ class XmppAvatarManager: AbstractXMPPManager {
                         if instance.oldschoolAvatarKey == id,
                            instance.avatarMaxUrl == maxUrl,
                            instance.avatarMinUrl == minUrl {
+                            CommonContactsMetadataManager.shared.update(
+                                owner: self.owner,
+                                jid: jid,
+                                username: instance.displayName,
+                                avatarUrl: instance.avatarUrl,
+                                avatarOriginalUrl: url
+                            )
                             return true
                         }
                         if instance.oldschoolAvatarKey != id {
@@ -336,7 +343,7 @@ class XmppAvatarManager: AbstractXMPPManager {
                         }
                         let username = instance.displayName
                         let avatarUrl = instance.avatarUrl
-                        CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
+                        CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl, avatarOriginalUrl: url)
                     }
                 }
                 
