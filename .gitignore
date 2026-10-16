@@ -14,3 +14,6 @@ Pods
 Podfile.lock
 !xabber.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 OptimizationProfiles
+
+# Xcode editor and window state is local to each developer.
+*.xcuserstate
