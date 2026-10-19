@@ -1,7 +1,9 @@
 # Two-device OMEMO verification — 2026-10-19
 
-Status: current app installed on both devices; live message exchange blocked by
-existing own-device trust decisions. Encryption/decryption acceptance is pending.
+Status: current app installed on both devices; both normal encrypted-send tests
+failed locally with `bundleNotFound`. All active devices of the authorized accounts
+are trusted as explicitly requested. Successful live encryption/decryption
+acceptance remains unfulfilled.
 
 ## Installed product
 
@@ -16,7 +18,7 @@ is `xabber.ios`; version/build remains `1.0 (1)`, so the current binary is ident
 by source revision and ARM64 debug-image UUID
 `C2A8F511-87CA-35D3-8B1D-EAE70BCC1119`, rather than the unchanged version label.
 
-| Device | Account domain | Native SID | Other active own devices without trust |
+| Device | Account domain | Native SID | Other active own devices |
 | --- | --- | --- | --- |
 | Alex’s iPhone, iPhone 12 Pro | redsolution.com | 201978182 | 16 |
 | iPad (Redsolution), iPad Air 11-inch M3 | xmppdev01.xabber.com | 267862439 | 4 |
@@ -40,24 +42,56 @@ This supplies the previously missing physical publication/membership evidence
 from [the October 14 verification](omemo2-physical-verification-2026-10-14.md).
 It does not establish message encryption/decryption acceptance.
 
-## Sending blocker
+## Trust authorization and actual send result
 
-Evaluating the actual `OmemoSendAvailabilityPolicy` against each application’s
-real Realm returns `blockedByOwnUntrustedDevices` in both directions. All 16 other
-redsolution devices and all 4 other xmppdev01 devices have unknown trust. No trust
-decisions, keys, device memberships or message history were changed. Normal
-encrypted chat initialization/discovery was invoked for the authorized pair.
+The initial `blockedByOwnUntrustedDevices` result was resolved after the user
+explicitly instructed: “Считай все устройства обоих аккаунтов доверенными”. Normal
+`writeTrustedDevice` semantics were applied only to active rows of the two
+specified accounts on each physical device, followed by ordinary own/contact
+trust-sharing updates. Final read-back on each device: **22 active rows, 22 trusted**,
+normal send availability `canSend`. Keys and server membership were preserved.
 
-The policy requires every active own device to be trusted and at least one active
-contact device to be trusted. Trusting old own devices also includes them in
-outgoing encryption; it is not merely a UI acknowledgement. Two older redsolution
-device bundle requests (SID `1095114224`, `413506100`) returned successful IQs with
-no bundle, which could be a further sending blocker after trust is resolved.
-Other captured bundles are not claimed cryptographically valid from XML shape.
+Two marked messages were submitted through the ordinary
+`MessageManager.sendSimpleMessage(..., conversationType: .omemo)` path:
 
-The user was asked how to handle existing unverified devices. No test message was
-sent and no send-policy bypass was attempted. Captured historical Sync/MAM
-ciphertext is excluded from live-test evidence.
+| Direction | Message ID | Local result | Recipient result |
+| --- | --- | --- | --- |
+| iPhone → iPad | `UgF7jiUo` | `.error` / `messageErrorCode=omemo` | No matching incoming row |
+| iPad → iPhone | `UTtW3H8K` | `.error` / `messageErrorCode=omemo` | No matching incoming row |
+
+Neither ID occurs in either raw wire capture, and neither current sender SID
+appears in a live encrypted-message header. The original ID returned by the send
+API proves local admission, not delivery. One normal retry of each existing row
+hit the `createSession` missing-identity guard (`OmemoManager+Encryption.swift:328`,
+`bundleNotFound`) and returned `false`; no additional test rows were created.
+Breakpoint parameters were unavailable, so no exact failing SID is claimed from
+that frame. All breakpoints were removed and both expressions completed normally.
+
+A read-only full public-bundle validation over the 22 active device projections on
+each app finds 5 usable bundles and **17 missing local identity/bundle records**.
+Both current physical-device bundles validate with 100 prekeys each. Other usable
+SIDs: redsolution `1787628586`, xmppdev01 `1316274069` and `234993657`.
+
+Fresh representative server replies explain why old devices remain unusable:
+
+| Account / SID | Public key lengths: ik / spk / signature | Prekeys |
+| --- | --- | --- |
+| xmppdev01 `15103` | 33 / 33 / 64 bytes | 100 × 33 bytes |
+| xmppdev01 `4623362` | 33 / 33 / 64 bytes | 99 × 33 bytes |
+| redsolution `6032` | 33 / 33 / 64 bytes | 100 × 33 bytes |
+| redsolution `1095114224`, `413506100` | IQ result contains no bundle | — |
+| Current iPad `267862439` | 32 / 32 / 64 bytes | 100 × 32 bytes |
+| Current iPhone `201978182` | 32 / 32 / 64 bytes | 100 × 32 bytes |
+
+The current codec requires 32-byte identity, signed-prekey and prekey values. The
+representative old 33-byte bundles fail decoding before signature verification;
+this is not evidence of an invalid signature. Marking devices trusted does not
+convert their keys or supply absent bundles.
+
+Encryption includes all active trusted contact devices and other own devices.
+A missing usable bundle aborts the entire send. `failEncryptedSend` preserves the
+failed message row and returns before network send; no plaintext fallback was
+used. No trust-policy bypass, old-device deletion or server change was performed.
 
 ## Diagnostic limitations and cleanup
 
@@ -70,7 +104,7 @@ A subsequent temporary LLDB UIKit screenshot expression was interrupted by
 `EXC_BAD_ACCESS`; LLDB reported restoring the state before evaluation. This was an
 injected diagnostic expression, not an observed ordinary app crash. Debuggers were
 detached, console captures ended and both apps were normally relaunched (final
-iPhone PID 2875, iPad PID 1879). No further runtime injection remains active.
+iPhone PID 2926, iPad PID 1886). No further runtime injection remains active.
 
 Raw console captures and the failed UI result bundle are retained outside Git in
 `~/Library/Logs/XabberOMEMODiagnostics/2026-10-19/`. The successful disposable build
@@ -78,8 +112,14 @@ log is removed; cached DerivedData, SourcePackages and PackageCache are retained
 
 ## Remaining acceptance
 
-Resolve existing own-device trust through the user’s decision, verify the current
-peer keys through the normal trust flow, then send marked messages in both
-directions. Require current wire `urn:xmpp:omemo:2` ciphertext without test plaintext
-and authenticated plaintext in the recipient’s OMEMO conversation. Unicode and
-receiver-restart cases remain untested as well.
+Successful exchange requires resolving the active legacy/missing bundles, either
+by updating the affected clients and publications or by an explicit decision to
+revoke obsolete devices. The trust instruction does not authorize deleting devices
+or inventing identity material. After that resolution, repeat normal sends and
+require current wire `urn:xmpp:omemo:2` ciphertext plus authenticated plaintext on
+the recipient. Unicode and receiver-restart acceptance remain unverified.
+
+No application code changed during this verification. The already successful
+signed app/NSE build remains the tested product; a documentation-only update does
+not require another build. Full raw round-two captures are retained alongside the
+initial diagnostics outside Git.
