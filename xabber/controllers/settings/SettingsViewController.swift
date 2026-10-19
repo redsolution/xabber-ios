@@ -1193,11 +1193,7 @@ class SettingsViewController: BaseViewController {
                                                selector: #selector(cloudStorageGalleryDidChange(_:)),
                                                name: .cloudStorageGalleryDidChange,
                                                object: nil)
-        AccountManager.shared.find(for: self.jid)?.action { user, stream in
-            if CredentialsManager.getXabberAccountUUID(for: self.jid) == nil {
-                XabberAccountManager.shared.registerAccount(stream, callback: nil)
-            }
-        }
+        XabberAccountManager.shared.requestTokenIfNeeded(for: self.jid)
 
     }
 

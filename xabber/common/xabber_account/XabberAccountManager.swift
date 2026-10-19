@@ -157,33 +157,8 @@ class XabberAccountManager: NSObject {
         }
     }
     
-    var tasks: [AuthTaskItem] = []
-    private let tasksLock = NSLock()
     private let tokenRequestTimeout: TimeInterval = 15
     private let tokenCorrelationStore = TokenCorrelationStore()
-
-    private func appendTask(_ task: AuthTaskItem) {
-        tasksLock.lock()
-        tasks.append(task)
-        tasksLock.unlock()
-    }
-
-    private func hasTask(requestId: String?) -> Bool {
-        guard let requestId = requestId else { return false }
-        tasksLock.lock()
-        defer { tasksLock.unlock() }
-        return tasks.contains(where: { $0.requestId == requestId })
-    }
-
-    private func takeTask(requestId: String?) -> AuthTaskItem? {
-        guard let requestId = requestId else { return nil }
-        tasksLock.lock()
-        let index = tasks.firstIndex(where: { $0.requestId == requestId })
-        let task = index.map { tasks.remove(at: $0) }
-        tasksLock.unlock()
-        task?.timeoutWorkItem?.cancel()
-        return task
-    }
 
     private func scheduleTokenRequestTimeout(for task: AuthTaskItem) {
         let workItem = DispatchWorkItem { [weak self, weak task] in
@@ -241,80 +216,14 @@ class XabberAccountManager: NSObject {
         CredentialsManager.shared.removeXabberAccountTokenExpire(for: account)
     }
     
-    static let xmlns: String = "https://services.xabber.com/protocol/api/services"
-    
-    public final func registerAccount(_ stream: XMPPStream, callback: ((String?) -> Void)? = nil) {
-        guard let services = XMPPJID(string: CommonConfigManager.shared.config.xabber_account_xmpp_jid) else {
-            return
+    @discardableResult
+    func requestTokenIfNeeded(for account: String) -> Bool {
+        guard !account.isEmpty, token(for: account) == nil else {
+            return false
         }
-        let requestId = "XA: \(NanoID.new(8))"
-        let account = DDXMLElement(name: "accounts", xmlns: XabberAccountManager.xmlns)
-        let create = DDXMLElement(name: "create")
-        account.addChild(create)
-        let iq = XMPPIQ(iqType: .set, to: services, elementID: requestId, child: account)
-        stream.send(iq)
-        appendTask(AuthTaskItem(requestId: requestId, callback: callback))
+        return requestToken(for: account)
     }
-    
-    struct AccountResponse: Decodable {
-        let accountId: String
-        let message: String
-        
-        enum CodingKeys: String, CodingKey {
-            case accountId = "apple_account"
-            case message = "message"
-        }
-        
-        static func decode(from base64String: String) throws -> AccountResponse {
-            guard let data = Data(base64Encoded: base64String) else {
-                throw DecodingError.dataCorrupted(
-                    .init(codingPath: [], debugDescription: "Invalid base64 string")
-                )
-            }
-            return try JSONDecoder().decode(AccountResponse.self, from: data)
-        }
-    }
-    
-    private func onRegisterAccount(_ stream: XMPPStream, iq: XMPPIQ) -> Bool {
-        guard hasTask(requestId: iq.elementID) else {
-            return false
-        }
-        let response_b64: String = ""
-        guard let response_b64 = iq.element(forName: "response", xmlns: XabberAccountManager.xmlns)?.stringValue,
-              let jid = stream.myJID?.bare,
-              let account = try? AccountResponse.decode(from: response_b64) else {
-            return false
-        }
-        
-        guard let task = takeTask(requestId: iq.elementID) else {
-            return false
-        }
-        task.callback?(account.accountId)
-        CredentialsManager.shared.setXabberAccountUUID(for: jid, uuid: account.accountId)
-        return true
-    }
-    
-    private func onFailToRegisterAccount(_ stream: XMPPStream, iq: XMPPIQ) -> Bool {
-        guard iq.iqType == .error else {
-            return false
-        }
-        guard hasTask(requestId: iq.elementID) else {
-            return false
-        }
-        let response_b64: String = ""
-        guard iq.element(forName: "accounts", xmlns: XabberAccountManager.xmlns)?.element(forName: "create") != nil,
-              let jid = stream.myJID?.bare else {
-            return false
-        }
-        
-        guard let task = takeTask(requestId: iq.elementID) else {
-            return false
-        }
-        task.callback?(nil)
-        CredentialsManager.shared.removeXabberAccountUUID(for: jid)
-        return true
-    }
-    
+
     func requestToken(for account: String, callback: ((String?) -> Void)? = nil) -> Bool {
         let accountAPIBaseURL = CommonConfigManager.shared.config.xabber_account_api_url
         let stringUrl = accountAPIBaseURL + "xmpp_auth/code_request/"
@@ -561,11 +470,6 @@ class XabberAccountManager: NSObject {
     }
     
     func read(_ stream: XMPPStream, with iq: XMPPIQ) -> Bool {
-        switch true {
-            case onRegisterAccount(stream, iq: iq): return true
-            case onFailToRegisterAccount(stream, iq: iq): return true
-            case onCodeResponse(stream, with: iq): return true
-            default: return false
-        }
+        onCodeResponse(stream, with: iq)
     }
 }

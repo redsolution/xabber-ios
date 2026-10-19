@@ -101,6 +101,7 @@
 		4EC100023A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */; };
 		5A1300023B3000000ABC0001 /* SubscriptionDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1300013B3000000ABC0001 /* SubscriptionDiagnosticsTests.swift */; };
 		5A1400023B3000000ABC0001 /* AccountProductsAuthorizationRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1400013B3000000ABC0001 /* AccountProductsAuthorizationRaceTests.swift */; };
+		5A1900023B3000000ABC0001 /* AccountTokenHTTPBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1900013B3000000ABC0001 /* AccountTokenHTTPBootstrapTests.swift */; };
 		7C2000023200000000ABC001 /* CloudStorageAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */; };
 		7C2100023200000000ABC001 /* CloudStorageManagementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2100013200000000ABC001 /* CloudStorageManagementTests.swift */; };
 		A71C00023200000000ABC001 /* AccountProductsAuthenticationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71C00013200000000ABC001 /* AccountProductsAuthenticationTests.swift */; };
@@ -1305,6 +1306,7 @@
 		4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNSManagerDiagnosticPrivacyTests.swift; sourceTree = "<group>"; };
 		5A1300013B3000000ABC0001 /* SubscriptionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionDiagnosticsTests.swift; sourceTree = "<group>"; };
 		5A1400013B3000000ABC0001 /* AccountProductsAuthorizationRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountProductsAuthorizationRaceTests.swift; sourceTree = "<group>"; };
+		5A1900013B3000000ABC0001 /* AccountTokenHTTPBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountTokenHTTPBootstrapTests.swift; sourceTree = "<group>"; };
 		7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageAvailabilityTests.swift; sourceTree = "<group>"; };
 		7C2100013200000000ABC001 /* CloudStorageManagementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageManagementTests.swift; sourceTree = "<group>"; };
 		A71C00013200000000ABC001 /* AccountProductsAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountProductsAuthenticationTests.swift; sourceTree = "<group>"; };
@@ -4442,6 +4444,7 @@
 				4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */,
 				5A1300013B3000000ABC0001 /* SubscriptionDiagnosticsTests.swift */,
 				5A1400013B3000000ABC0001 /* AccountProductsAuthorizationRaceTests.swift */,
+				5A1900013B3000000ABC0001 /* AccountTokenHTTPBootstrapTests.swift */,
 				7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */,
 				7C2100013200000000ABC001 /* CloudStorageManagementTests.swift */,
 				A71C00013200000000ABC001 /* AccountProductsAuthenticationTests.swift */,
@@ -6813,6 +6816,7 @@
 				4EC100023A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift in Sources */,
 				5A1300023B3000000ABC0001 /* SubscriptionDiagnosticsTests.swift in Sources */,
 				5A1400023B3000000ABC0001 /* AccountProductsAuthorizationRaceTests.swift in Sources */,
+				5A1900023B3000000ABC0001 /* AccountTokenHTTPBootstrapTests.swift in Sources */,
 				7C2000023200000000ABC001 /* CloudStorageAvailabilityTests.swift in Sources */,
 				7C2100023200000000ABC001 /* CloudStorageManagementTests.swift in Sources */,
 				A71C00023200000000ABC001 /* AccountProductsAuthenticationTests.swift in Sources */,
