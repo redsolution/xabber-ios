@@ -82,7 +82,8 @@ enum MediaGalleryVoiceDescriptorMapper {
     static func descriptor(
         for item: BaseMediaGalleryForChatViewController.Datasource
     ) -> VoiceMessageDescriptor {
-        VoiceMessageDescriptor(
+        let protection = storedProtection(for: item)
+        return VoiceMessageDescriptor(
             referencePrimary: item.primary,
             containerMessagePrimary: item.messagePrimary,
             remoteURL: item.url,
@@ -91,8 +92,39 @@ enum MediaGalleryVoiceDescriptorMapper {
             downloaded: item.isDownloaded || item.decodedURL != nil,
             pcm: item.pcm,
             sentDate: item.date,
-            archivedId: normalized(item.archiveId)
+            archivedId: normalized(item.archiveId),
+            encryptedAttachment: protection.0,
+            authenticatedAttachmentCacheIdentity: protection.1
         )
+    }
+
+    private static func storedProtection(for item: BaseMediaGalleryForChatViewController.Datasource)
+        -> (ChatEncryptedAttachmentDescriptor?, String?) {
+        guard let realm = try? WRealm.safe() else { return (nil, nil) }
+        realm.refresh()
+        if let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: item.primary) {
+            guard reference.owner == item.owner, reference.jid == item.jid,
+                  reference.conversationType == item.conversationType, reference.kind == .voice,
+                  reference.downloadUrl == item.url else {
+                return (ChatEncryptedAttachmentDescriptor(metadata: ["encryption-key": NSNull()],
+                    url: item.url, owner: item.owner, referenceIdentity: item.primary), nil)
+            }
+            return (ChatEncryptedAttachmentDescriptor(metadata: reference.metadata, url: reference.downloadUrl,
+                        owner: reference.owner, referenceIdentity: reference.primary),
+                    reference.metadata?["authenticated-media-cache-identity"] as? String)
+        }
+        if let stored = realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: item.primary),
+           stored.owner == item.owner, stored.jid == item.jid,
+           stored.conversationType == item.conversationType, stored.kind == .voice,
+           MessageReferenceURLPolicy.url(from: stored.url_) == item.url {
+            var metadata = stored.metadata ?? [:]
+            if stored.isEncrypted && metadata["encryption-key"] == nil && metadata["iv"] == nil {
+                metadata["encryption-key"] = NSNull()
+            }
+            return (ChatEncryptedAttachmentDescriptor(metadata: metadata, url: item.url,
+                        owner: item.owner, referenceIdentity: item.primary), nil)
+        }
+        return (nil, nil)
     }
 
     private static func normalized(_ value: String) -> String? {

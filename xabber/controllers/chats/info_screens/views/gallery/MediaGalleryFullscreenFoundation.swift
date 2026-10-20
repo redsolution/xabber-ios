@@ -68,11 +68,13 @@ final class MediaGalleryThreeColumnFlowLayout: UICollectionViewFlowLayout {
 
 struct MediaGalleryImageRequest: Hashable {
     let url: URL
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     let displaySize: CGSize
     let scale: CGFloat
 
-    init(url: URL, displaySize: CGSize, scale: CGFloat) {
+    init(url: URL, displaySize: CGSize, scale: CGFloat, encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil) {
         self.url = url
+        self.encryptedAttachment = encryptedAttachment
         self.displaySize = CGSize(
             width: max(1, displaySize.width),
             height: max(1, displaySize.height)
@@ -88,7 +90,23 @@ struct MediaGalleryImageRequest: Hashable {
     }
 
     var cacheKey: String {
-        "\(url.absoluteString)#media-gallery:\(pixelSize.cacheComponent)@\(scale.cacheComponent)"
+        let resource: String
+        if let descriptor = encryptedAttachment, descriptor.requiresAuthentication {
+            resource = "\(descriptor.state):\(descriptor.cacheIdentity)"
+        } else { resource = url.absoluteString }
+        return "\(resource)#media-gallery:\(pixelSize.cacheComponent)@\(scale.cacheComponent)"
+    }
+
+    var thumbnailRequest: ChatThumbnailRequest {
+        ChatThumbnailRequest(url: url,
+            displaySize: ChatCollectionPrefetchSize(width: Double(displaySize.width), height: Double(displaySize.height)),
+            scale: Double(scale), encryptedAttachment: encryptedAttachment)
+    }
+
+    var thumbnailConsumer: ChatThumbnailConsumer {
+        let identity = encryptedAttachment?.cacheIdentity ?? url.absoluteString
+        return ChatThumbnailConsumer(identity: ChatCollectionPrefetchIdentity(kind: .image,
+            messagePrimary: identity, referencePrimary: encryptedAttachment?.referenceIdentity ?? identity), role: .prefetch)
     }
 
     var resource: KF.ImageResource {
@@ -144,7 +162,8 @@ enum MediaGalleryImageRequestPlanner {
         return MediaGalleryImageRequest(
             url: url,
             displaySize: displaySize,
-            scale: scale
+            scale: scale,
+            encryptedAttachment: url == item.url ? item.encryptedAttachment : nil
         )
     }
 }
@@ -224,9 +243,32 @@ protocol MediaGalleryImagePrefetchTaskMaking: AnyObject {
 }
 
 final class KingfisherMediaGalleryImagePrefetchTaskFactory: MediaGalleryImagePrefetchTaskMaking {
-    func makeTask(for request: MediaGalleryImageRequest) -> MediaGalleryImagePrefetchTask {
-        KingfisherMediaGalleryImagePrefetchTask(request: request)
+    private let thumbnailPipeline: ChatThumbnailServing
+    init(thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared) {
+        self.thumbnailPipeline = thumbnailPipeline
     }
+    func makeTask(for request: MediaGalleryImageRequest) -> MediaGalleryImagePrefetchTask {
+        if request.encryptedAttachment?.requiresAuthentication == true {
+            return AuthenticatedMediaGalleryImagePrefetchTask(request: request, pipeline: thumbnailPipeline)
+        }
+        return KingfisherMediaGalleryImagePrefetchTask(request: request)
+    }
+}
+
+private final class AuthenticatedMediaGalleryImagePrefetchTask: MediaGalleryImagePrefetchTask {
+    private let request: MediaGalleryImageRequest
+    private let pipeline: ChatThumbnailServing
+    private var subscription: ChatThumbnailSubscription?
+    init(request: MediaGalleryImageRequest, pipeline: ChatThumbnailServing) {
+        self.request = request
+        self.pipeline = pipeline
+    }
+    func start() {
+        guard subscription == nil else { return }
+        subscription = pipeline.acquire(request.thumbnailRequest, consumer: request.thumbnailConsumer, completion: nil)
+    }
+    func stop() { subscription?.cancel(); subscription = nil }
+    deinit { subscription?.cancel() }
 }
 
 private final class KingfisherMediaGalleryImagePrefetchTask: MediaGalleryImagePrefetchTask {
@@ -325,6 +367,15 @@ final class MediaGalleryImagePrefetchCoordinator {
 }
 
 enum MediaGalleryDatasourceMapper {
+    static func attachmentDescriptor(for item: MessageMediaAttachmentStorageItem) -> ChatEncryptedAttachmentDescriptor {
+        var metadata = item.metadata ?? [:]
+        if item.isEncrypted && metadata["encryption-key"] == nil && metadata["iv"] == nil {
+            metadata["encryption-key"] = NSNull()
+        }
+        return ChatEncryptedAttachmentDescriptor(metadata: metadata, url: item.url,
+            owner: item.owner, referenceIdentity: item.primary)
+    }
+
     static func map(
         _ item: MessageMediaAttachmentStorageItem,
         revealedSensitiveMediaPrimaries: Set<String>
@@ -367,7 +418,8 @@ enum MediaGalleryDatasourceMapper {
             decodedURL: decodedURL,
             pcm: waveformLevels(from: metadata["pcm"]),
             isSensitive: item.isSensitive,
-            isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
+            isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary),
+            encryptedAttachment: attachmentDescriptor(for: item)
         )
     }
 

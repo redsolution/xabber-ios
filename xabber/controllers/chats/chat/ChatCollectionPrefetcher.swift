@@ -64,17 +64,20 @@ struct ChatCollectionPrefetchImageReference: Hashable {
     /// Optional bounded resource used by the thumbnail pipeline.
     let previewURL: URL?
     let size: ChatCollectionPrefetchSize?
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(
         primary: String,
         url: URL?,
         previewURL: URL? = nil,
-        size: ChatCollectionPrefetchSize? = nil
+        size: ChatCollectionPrefetchSize? = nil,
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
     ) {
         self.primary = primary
         self.url = url
         self.previewURL = previewURL
         self.size = size
+        self.encryptedAttachment = encryptedAttachment
     }
 }
 
@@ -366,7 +369,8 @@ enum ChatCollectionPrefetchPlanner {
                         width: Double(renderedSize.width),
                         height: Double(renderedSize.height)
                     ),
-                    context: context
+                    context: context,
+                    encryptedAttachment: sticker.encryptedAttachment
                 )
             ))
         }
@@ -376,7 +380,12 @@ enum ChatCollectionPrefetchPlanner {
             guard let url = image.previewURL ?? image.url else { return }
             resources.insert(.image(
                 identity: identity(.image, messagePrimary: item.messagePrimary, referencePrimary: image.primary),
-                request: imageRequest(url: url, displaySize: displaySize(at: index, in: imageFrames, fallback: context.mediaContainerSize), context: context)
+                request: imageRequest(
+                    url: url,
+                    displaySize: displaySize(at: index, in: imageFrames, fallback: context.mediaContainerSize),
+                    context: context,
+                    encryptedAttachment: url == image.url ? image.encryptedAttachment : nil
+                )
             ))
         }
 
@@ -443,13 +452,15 @@ enum ChatCollectionPrefetchPlanner {
     private static func imageRequest(
         url: URL,
         displaySize: ChatCollectionPrefetchSize,
-        context: ChatCollectionPrefetchContext
+        context: ChatCollectionPrefetchContext,
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
     ) -> ChatCollectionPrefetchImageRequest {
         ChatCollectionPrefetchImageRequest(
             url: url,
             displaySize: displaySize,
             scale: context.screenScale,
-            traitStyle: context.traitStyle
+            traitStyle: context.traitStyle,
+            encryptedAttachment: encryptedAttachment
         )
     }
 
@@ -675,7 +686,8 @@ extension ChatViewController.Datasource {
                 size: ChatCollectionPrefetchSize(
                     width: Double(attachment.size.width),
                     height: Double(attachment.size.height)
-                )
+                ),
+                encryptedAttachment: attachment.encryptedAttachment
             )
         } else {
             sticker = nil
@@ -694,7 +706,8 @@ extension ChatViewController.Datasource {
                 ChatCollectionPrefetchImageReference(
                     primary: $0.primary,
                     url: $0.url,
-                    previewURL: $0.previewUrl
+                    previewURL: $0.previewUrl,
+                    encryptedAttachment: $0.encryptedAttachment
                 )
             },
             videos: videos.map {

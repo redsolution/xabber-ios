@@ -24,12 +24,14 @@ struct ChatThumbnailRequest: Hashable {
     let displaySize: ChatCollectionPrefetchSize
     let scale: Double
     let traitStyle: ChatThumbnailTraitStyle
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(
         url: URL,
         displaySize: ChatCollectionPrefetchSize,
         scale: Double,
-        traitStyle: ChatThumbnailTraitStyle = .unspecified
+        traitStyle: ChatThumbnailTraitStyle = .unspecified,
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
     ) {
         self.url = url
         self.displaySize = ChatCollectionPrefetchSize(
@@ -38,6 +40,7 @@ struct ChatThumbnailRequest: Hashable {
         )
         self.scale = max(1, scale)
         self.traitStyle = traitStyle
+        self.encryptedAttachment = encryptedAttachment
     }
 
     var pixelSize: ChatCollectionPrefetchSize {
@@ -54,7 +57,13 @@ struct ChatThumbnailRequest: Hashable {
     }
 
     var cacheKey: String {
-        "\(url.absoluteString)#chat-thumbnail:\(pixelSize.cacheComponent)@\(scale.chatThumbnailCacheComponent):\(traitStyle.rawValue)"
+        let resource: String
+        if let descriptor = encryptedAttachment, descriptor.requiresAuthentication {
+            resource = "\(descriptor.state):\(descriptor.cacheIdentity)"
+        } else {
+            resource = url.absoluteString
+        }
+        return "\(resource)#chat-thumbnail:\(pixelSize.cacheComponent)@\(scale.chatThumbnailCacheComponent):\(traitStyle.rawValue)"
     }
 
     func accepts(pixelSize result: ChatCollectionPrefetchSize) -> Bool {
@@ -494,11 +503,18 @@ private struct ChatThumbnailDownsamplingProcessor: ImageProcessor {
 private final class KingfisherChatThumbnailLoadTask: ChatThumbnailLoadTask {
     private let lock = NSLock()
     private var task: DownloadTask?
-    private var isCancelled = false
+    private var attachmentTask: ChatEncryptedAttachmentReceiveTask?
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
 
     func update(_ task: DownloadTask?) {
         lock.lock()
-        if isCancelled {
+        if cancelled {
             lock.unlock()
             task?.cancel()
             return
@@ -507,24 +523,65 @@ private final class KingfisherChatThumbnailLoadTask: ChatThumbnailLoadTask {
         lock.unlock()
     }
 
+    func updateAttachmentTask(_ task: ChatEncryptedAttachmentReceiveTask) {
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        attachmentTask = task
+        lock.unlock()
+    }
+
     func cancel() {
         lock.lock()
-        isCancelled = true
+        cancelled = true
         let task = task
+        let attachmentTask = attachmentTask
         self.task = nil
+        self.attachmentTask = nil
         lock.unlock()
         task?.cancel()
+        attachmentTask?.cancel()
     }
 }
 
-private final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
+final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
     private static let memoryExpiration: StorageExpiration = .seconds(20 * 60)
+    private let attachmentReceiver: ChatEncryptedAttachmentReceiver
+
+    init(attachmentReceiver: ChatEncryptedAttachmentReceiver = .shared) {
+        self.attachmentReceiver = attachmentReceiver
+    }
 
     func load(
         _ request: ChatThumbnailRequest,
         completion: @escaping (Result<ChatThumbnailImage, ChatThumbnailPipelineError>) -> Void
     ) -> ChatThumbnailLoadTask {
         let token = KingfisherChatThumbnailLoadTask()
+        if let descriptor = request.encryptedAttachment, descriptor.requiresAuthentication {
+            guard descriptor.sourceURL == request.url else {
+                completion(.failure(.loadFailed))
+                return token
+            }
+            let task = attachmentReceiver.receive(descriptor) { [weak self] result in
+                guard let self, !token.isCancelled else { return }
+                switch result {
+                case .success(let file):
+                    self.decode(
+                        .provider(Kingfisher.LocalFileImageDataProvider(fileURL: file.fileURL, cacheKey: request.cacheKey)),
+                        request: request,
+                        token: token,
+                        completion: completion
+                    )
+                case .failure:
+                    completion(.failure(.loadFailed))
+                }
+            }
+            token.updateAttachmentTask(task)
+            return token
+        }
         let source: Kingfisher.Source
         if request.url.scheme?.lowercased() == "data" {
             guard let data = MessageMediaThumbnailDataURLPolicy.decodedData(
@@ -539,6 +596,8 @@ private final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
                     cacheKey: request.cacheKey
                 )
             )
+        } else if request.url.isFileURL {
+            source = .provider(Kingfisher.LocalFileImageDataProvider(fileURL: request.url, cacheKey: request.cacheKey))
         } else {
             source = .network(
                 Kingfisher.ImageResource(
@@ -547,6 +606,17 @@ private final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
                 )
             )
         }
+        decode(source, request: request, token: token, completion: completion)
+        return token
+    }
+
+    private func decode(
+        _ source: Kingfisher.Source,
+        request: ChatThumbnailRequest,
+        token: KingfisherChatThumbnailLoadTask,
+        completion: @escaping (Result<ChatThumbnailImage, ChatThumbnailPipelineError>) -> Void
+    ) {
+        guard !token.isCancelled else { return }
         let task = KingfisherManager.shared.retrieveImage(
             with: source,
             options: [
@@ -559,6 +629,7 @@ private final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
             ],
             downloadTaskUpdated: { token.update($0) }
         ) { result in
+            guard !token.isCancelled else { return }
             switch result {
             case .success(let value):
                 let image = value.image
@@ -580,6 +651,5 @@ private final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
             }
         }
         token.update(task)
-        return token
     }
 }

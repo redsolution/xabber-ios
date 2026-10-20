@@ -3112,6 +3112,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal func sharedVoiceDescriptor(referencePrimary: String) -> VoiceMessageDescriptor? {
         do {
             let realm = try WRealm.safe()
+            realm.refresh()
             guard let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) else {
                 return nil
             }
@@ -3123,7 +3124,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 duration: TimeInterval(reference.duration ?? 0),
                 downloaded: reference.isDownloaded || reference.decodedUrl != nil,
                 pcm: reference.meteringLevels ?? [],
-                sentDate: reference.sentDate
+                sentDate: reference.sentDate,
+                encryptedAttachment: ChatEncryptedAttachmentDescriptor(metadata: reference.metadata,
+                    url: reference.downloadUrl, owner: reference.owner, referenceIdentity: reference.primary),
+                authenticatedAttachmentCacheIdentity: reference.metadata?["authenticated-media-cache-identity"] as? String
             )
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")

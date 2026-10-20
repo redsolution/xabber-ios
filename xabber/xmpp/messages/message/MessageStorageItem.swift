@@ -1943,33 +1943,33 @@ class MessageStorageItem: Object {
         try? self.references.forEach {
             $0.messageId = self.primary
             $0.sentDate = Date()
-            if CommonConfigManager.shared.config.use_file_enryption_by_default {
-                
-                if $0.conversationType.isEncrypted && !$0.isUploaded && [.media, .voice].contains($0.kind) {
-                    
-                    var key = Data(count: 32)
-                    
-                    key.withUnsafeMutableBytes { (bytes) -> Void in
-                        _ = SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!)
-                    }
-                    
-                    let salt = Array<UInt8>(repeating: 0, count: 32)
-                    
-                    let hkdf = try HKDF(
-                        password: key.bytes,
-                        salt: salt,
-                        info: Array("Files encryption".data(using: .utf8)!),
-                        keyLength: key.bytes.count,
-                        variant: .sha256
-                    ).calculate()
-                    
-                    let encryptionKey: Array<UInt8> = Array(hkdf.prefix(16))
-                    let iv: Array<UInt8> = Array(hkdf.suffix(16))
-                    
-                    $0.metadata?["encryption-key"] = encryptionKey.toBase64()
-                    $0.metadata?["iv"] = iv.toBase64()
-                }
+            guard $0.conversationType.isEncrypted, !$0.isUploaded, [.media, .voice].contains($0.kind) else { return }
+            var key = Data(count: 32)
+
+            let randomStatus = key.withUnsafeMutableBytes { bytes in
+                SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!)
             }
+            guard randomStatus == errSecSuccess else {
+                $0.metadata?["encryption-key"] = nil
+                $0.metadata?["iv"] = nil
+                return
+            }
+
+            let salt = Array<UInt8>(repeating: 0, count: 32)
+
+            let hkdf = try HKDF(
+                password: key.bytes,
+                salt: salt,
+                info: Array("Files encryption".data(using: .utf8)!),
+                keyLength: key.bytes.count,
+                variant: .sha256
+            ).calculate()
+
+            let encryptionKey: Array<UInt8> = Array(hkdf.prefix(16))
+            let iv: Array<UInt8> = Array(hkdf.suffix(16))
+
+            $0.metadata?["encryption-key"] = encryptionKey.toBase64()
+            $0.metadata?["iv"] = iv.toBase64()
         }
         
     }

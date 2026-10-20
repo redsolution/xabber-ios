@@ -59,6 +59,13 @@ protocol MediaGalleryImageLoading: AnyObject {
 
 final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
     static let shared = KingfisherMediaGalleryImageLoader()
+    private let thumbnailPipeline: ChatThumbnailServing
+    init(thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared) {
+        self.thumbnailPipeline = thumbnailPipeline
+    }
+
+    private var subscriptions: [ObjectIdentifier: ChatThumbnailSubscription] = [:]
+    private var generations: [ObjectIdentifier: UUID] = [:]
 
     func load(
         request: MediaGalleryImageRequest,
@@ -66,6 +73,21 @@ final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
         placeholder: UIView?,
         completion: @escaping (MediaGalleryImageLoadOutcome) -> Void
     ) {
+        cancelLoad(in: imageView)
+        if request.encryptedAttachment?.requiresAuthentication == true {
+            let identifier = ObjectIdentifier(imageView), generation = UUID()
+            generations[identifier] = generation
+            let subscription = thumbnailPipeline.acquire(request.thumbnailRequest,
+                consumer: ChatThumbnailConsumer(identity: request.thumbnailConsumer.identity, role: .visible(generation))) { [weak self, weak imageView] result in
+                guard let self, let imageView, self.generations[identifier] == generation else { return }
+                switch result {
+                case .success(let delivery): imageView.image = delivery.image; completion(.success)
+                case .failure: completion(.failure)
+                }
+            }
+            if generations[identifier] == generation { subscriptions[identifier] = subscription } else { subscription.cancel() }
+            return
+        }
         imageView.kf.setImage(
             with: request.resource,
             placeholder: placeholder as? GalleryPlaceholderView,
@@ -81,8 +103,12 @@ final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
     }
 
     func cancelLoad(in imageView: UIImageView) {
+        let identifier = ObjectIdentifier(imageView)
+        generations.removeValue(forKey: identifier)
+        subscriptions.removeValue(forKey: identifier)?.cancel()
         imageView.kf.cancelDownloadTask()
     }
+    deinit { subscriptions.values.forEach { $0.cancel() } }
 }
 
 class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
@@ -299,12 +325,19 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             return
         }
 
-        let urls = datasource.compactMap(\.url)
-        let gallery = PhotoGallery(urls: urls, from: url)
-        let navigationController = UINavigationController(rootViewController: gallery)
-        navigationController.modalPresentationStyle = .fullScreen
-        gallery.initialPage = urls.firstIndex(of: url) ?? 0
-        present(navigationController, animated: true)
+        openGalleryPhoto(primary: item.primary)
+    }
+
+    private func openGalleryPhoto(primary: String) {
+        resolveGalleryMedia(datasource, selectedPrimary: primary) { [weak self] urls, selected in
+            guard let self, self.canPresentGalleryMedia else { return }
+            if let callback = self.mediaGalleryPresentationForTesting { callback(.photo, urls, selected); return }
+            let gallery = PhotoGallery(urls: urls, from: selected)
+            let navigationController = UINavigationController(rootViewController: gallery)
+            navigationController.modalPresentationStyle = .fullScreen
+            gallery.initialPage = urls.firstIndex(of: selected) ?? 0
+            self.present(navigationController, animated: true)
+        }
     }
 
     private var currentGridItemSize: CGSize {
@@ -357,10 +390,7 @@ extension PhotoGalleryForChatViewController: SensitiveContentFirstPaneViewContro
             revealedSensitiveMediaPrimaries.insert(referencePrimary)
             collectionView.reloadData()
         }
-        let gallery = PhotoGallery(urls: urls, from: url)
-        let navigationController = UINavigationController(rootViewController: gallery)
-        navigationController.modalPresentationStyle = .fullScreen
-        gallery.initialPage = urls.firstIndex(of: url) ?? 0
-        present(navigationController, animated: true)
+        guard let item = datasource.first(where: { $0.primary == referencePrimary && $0.url == url }) else { return }
+        openGalleryPhoto(primary: item.primary)
     }
 }

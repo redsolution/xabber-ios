@@ -449,6 +449,16 @@ struct ChatMessageReferenceSnapshot {
         Self.nonEmpty(name) ?? Self.nonEmpty(filename) ?? "file"
     }
 
+    var encryptedAttachment: ChatEncryptedAttachmentDescriptor? {
+        let descriptor = ChatEncryptedAttachmentDescriptor(
+            metadata: metadata,
+            url: downloadUrl,
+            owner: owner,
+            referenceIdentity: primary
+        )
+        return descriptor.requiresAuthentication ? descriptor : nil
+    }
+
     init(_ reference: MessageReferenceStorageItem) {
         let metadata = reference.metadata
         let kind = reference.kind
@@ -4380,6 +4390,7 @@ struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
     let size: CGSize
     let isSensitive: Bool
     let isSensitiveRevealed: Bool
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(_ attachment: ImageAttachment) {
         self.primary = attachment.primary
@@ -4388,6 +4399,7 @@ struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
         self.size = attachment.size
         self.isSensitive = attachment.isSensitive
         self.isSensitiveRevealed = attachment.isSensitiveRevealed
+        self.encryptedAttachment = attachment.encryptedAttachment
     }
 
     var description: String {
@@ -4404,6 +4416,7 @@ struct ChatVideoAttachmentSignature: Equatable, CustomStringConvertible {
     let downloaded: Bool
     let isSensitive: Bool
     let isSensitiveRevealed: Bool
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(_ attachment: VideoAttachment) {
         self.primary = attachment.primary
@@ -4414,6 +4427,7 @@ struct ChatVideoAttachmentSignature: Equatable, CustomStringConvertible {
         self.downloaded = attachment.downloaded
         self.isSensitive = attachment.isSensitive
         self.isSensitiveRevealed = attachment.isSensitiveRevealed
+        self.encryptedAttachment = attachment.encryptedAttachment
     }
 
     var description: String {
@@ -4480,6 +4494,7 @@ struct ChatFileAttachmentSignature: Equatable, CustomStringConvertible {
     let name: String
     let presentationRevision: String
     let downloaded: Bool
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(_ attachment: FileAttachment) {
         self.primary = attachment.primary
@@ -4488,6 +4503,7 @@ struct ChatFileAttachmentSignature: Equatable, CustomStringConvertible {
         self.name = attachment.name
         self.presentationRevision = attachment.presentation.revision
         self.downloaded = attachment.downloaded
+        self.encryptedAttachment = attachment.encryptedAttachment
     }
 
     var description: String {
@@ -4499,7 +4515,8 @@ struct ChatFileAttachmentSignature: Equatable, CustomStringConvertible {
             url == other.url &&
             size == other.size &&
             name == other.name &&
-            presentationRevision == other.presentationRevision
+            presentationRevision == other.presentationRevision &&
+            encryptedAttachment == other.encryptedAttachment
     }
 }
 
@@ -4511,6 +4528,7 @@ struct ChatAudioAttachmentSignature: Equatable, CustomStringConvertible {
     let duration: Double
     let downloaded: Bool
     let pcm: ChatVoicePCMSignature
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(_ attachment: AudioAttachment) {
         self.primary = attachment.primary
@@ -4520,6 +4538,7 @@ struct ChatAudioAttachmentSignature: Equatable, CustomStringConvertible {
         self.duration = attachment.duration
         self.downloaded = attachment.downloaded
         self.pcm = ChatVoicePCMSignature(attachment.pcm)
+        self.encryptedAttachment = attachment.encryptedAttachment
     }
 
     var description: String {
@@ -6472,7 +6491,8 @@ extension ChatViewController {
                     previewUrl: item.wireThumbnailUrl,
                     size: item.sizeInPx ?? CGSize(square: 128),
                     isSensitive: item.isSensitive,
-                    isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
+                    isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary),
+                    encryptedAttachment: item.encryptedAttachment
                 ))
             case .video:
                 videos.append(VideoAttachment(
@@ -6483,19 +6503,21 @@ extension ChatViewController {
                     duration: 0,
                     downloaded: item.isDownloaded,
                     isSensitive: item.isSensitive,
-                    isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary)
+                    isSensitiveRevealed: revealedSensitiveMediaPrimaries.contains(item.primary),
+                    encryptedAttachment: item.encryptedAttachment
                 ))
             case .unsupported:
                 if item.kindRaw == "voice" {
-                    audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels))
-                } else if item.kind == .media && MimeIcon(item.mimeType).value != .audio && item.kindRaw != "groupchat" {
+                    audio.append(AudioAttachment(primary: item.primary, url: item.decodedUrl, size: 10, name: "name", duration: Double(item.duration ?? 0), downloaded: item.isDownloaded, pcm: item.meteringLevels, encryptedAttachment: item.encryptedAttachment))
+                } else if item.kind == .media && item.kindRaw != "groupchat" {
                     files.append(FileAttachment(
                         primary: item.primary,
                         url: item.downloadUrl,
                         size: Double(item.sizeInBytesRaw),
                         name: item.displayFileName,
                         mimeType: item.mimeType,
-                        downloaded: item.isDownloaded
+                        downloaded: item.isDownloaded,
+                        encryptedAttachment: item.encryptedAttachment
                     ))
                 }
             }
@@ -6533,7 +6555,8 @@ extension ChatViewController {
             url: url,
             previewUrl: reference.wireThumbnailUrl,
             size: reference.sizeInPx ?? CGSize(square: 128),
-            isSensitive: reference.isSensitive
+            isSensitive: reference.isSensitive,
+            encryptedAttachment: reference.encryptedAttachment
         )
     }
 

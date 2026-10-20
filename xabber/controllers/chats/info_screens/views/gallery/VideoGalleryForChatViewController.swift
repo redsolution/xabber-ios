@@ -323,8 +323,8 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             viewController.referencePrimary = item.primary
             viewController.isVideo = true
             showModal(viewController, parent: self)
-        case .play(let url):
-            playVideo(at: url)
+        case .play:
+            openGalleryVideo(item)
         }
     }
 
@@ -365,7 +365,15 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         return coordinator
     }
 
+    private func openGalleryVideo(_ item: Datasource) {
+        resolveGalleryMedia([item], selectedPrimary: item.primary) { [weak self] _, local in
+            guard let self, self.canPresentGalleryMedia else { return }
+            self.playVideo(at: local)
+        }
+    }
+
     private func playVideo(at url: URL) {
+        if let callback = mediaGalleryPresentationForTesting { callback(.video, [url], url); return }
         let player = AVPlayer(url: url)
         let controller = AVPlayerViewController()
         controller.player = player
@@ -387,6 +395,7 @@ extension VideoGalleryForChatViewController: SensitiveContentFirstPaneViewContro
             revealedSensitiveMediaPrimaries.insert(referencePrimary)
             collectionView.reloadData()
         }
-        playVideo(at: url)
+        guard let item = datasource.first(where: { $0.primary == referencePrimary && $0.url == url }) else { return }
+        openGalleryVideo(item)
     }
 }

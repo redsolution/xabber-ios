@@ -27,6 +27,112 @@ import AVKit
 import AVFoundation
 import Alamofire
 import MapKit
+import QuickLook
+
+enum ChatMediaOpeningKind: Equatable { case photo, video, file }
+
+private struct ChatBoundMediaReference {
+    let primary: String
+    let descriptor: ChatEncryptedAttachmentDescriptor
+}
+
+extension ChatViewController {
+    internal func cancelMediaOpening() {
+        mediaOpenGeneration = UUID()
+        mediaOpenTasks.forEach { $0.cancel() }
+        mediaOpenTasks.removeAll()
+    }
+
+    private func boundMediaReference(url: URL, primary: String? = nil) -> ChatBoundMediaReference? {
+        guard owner.isNotEmpty, jid.isNotEmpty else { return nil }
+        do {
+            let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return nil }
+            realm.refresh()
+            let references: [MessageReferenceStorageItem]
+            if let primary {
+                guard primary.isNotEmpty, let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary) else { return nil }
+                references = [reference]
+            } else {
+                references = Array(realm.objects(MessageReferenceStorageItem.self).filter("owner == %@ AND jid == %@ AND conversationType_ == %@", owner, jid, conversationType.rawValue))
+            }
+            let matches = references.filter { reference in
+                reference.owner == owner && reference.jid == jid && reference.conversationType == conversationType &&
+                    [.media, .voice].contains(reference.kind) &&
+                    (reference.downloadUrl == url || reference.localFileUrl == url || reference.decodedUrl == url)
+            }
+            guard matches.count == 1, let reference = matches.first else { return nil }
+            let descriptor = ChatEncryptedAttachmentDescriptor(metadata: reference.metadata, url: reference.downloadUrl, owner: reference.owner, referenceIdentity: reference.primary)
+            return ChatBoundMediaReference(primary: reference.primary, descriptor: descriptor)
+        } catch { return nil }
+    }
+
+    internal func openBoundMedia(kind: ChatMediaOpeningKind, url: URL, urls: [URL], referencePrimary: String? = nil, messagePrimary: String? = nil) {
+        cancelMediaOpening()
+        let requested = kind == .photo ? urls : [url]
+        guard let selectedIndex = requested.firstIndex(of: url), !requested.isEmpty else { return }
+        var bindings: [ChatBoundMediaReference] = []
+        for (index, source) in requested.enumerated() {
+            guard let binding = boundMediaReference(url: source, primary: index == selectedIndex ? referencePrimary : nil),
+                  binding.descriptor.state != .invalid else { return }
+            bindings.append(binding)
+        }
+        let generation = mediaOpenGeneration, capturedOwner = owner, capturedJid = jid, capturedType = conversationType
+        let current: (ChatViewController) -> Bool = { chat in
+            guard chat.mediaOpenGeneration == generation, chat.owner == capturedOwner, chat.jid == capturedJid, chat.conversationType == capturedType else { return false }
+            return zip(requested, bindings).allSatisfy { source, binding in
+                chat.boundMediaReference(url: source, primary: binding.primary)?.descriptor == binding.descriptor
+            }
+        }
+        var resolved = requested
+        var remaining = bindings.filter { $0.descriptor.requiresAuthentication }.count
+        guard remaining > 0 else { presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex]); return }
+        for (index, binding) in bindings.enumerated() where binding.descriptor.requiresAuthentication {
+            guard mediaOpenGeneration == generation else { break }
+            let task = mediaAttachmentReceive(binding.descriptor) { [weak self] result in
+                guard let self, self.mediaOpenGeneration == generation else { return }
+                guard current(self) else { self.cancelMediaOpening(); return }
+                guard case let .success(file) = result, file.fileURL.isFileURL, file.cacheIdentity == binding.descriptor.cacheIdentity else {
+                    self.cancelMediaOpening()
+                    return
+                }
+                resolved[index] = file.fileURL
+                remaining -= 1
+                guard remaining == 0 else { return }
+                self.mediaOpenTasks.removeAll()
+                self.mediaOpenGeneration = UUID()
+                self.presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex])
+            }
+            if mediaOpenGeneration == generation { mediaOpenTasks.append(task) } else { task.cancel() }
+        }
+    }
+
+    internal func presentBoundMedia(kind: ChatMediaOpeningKind, urls: [URL], url: URL) {
+        if let callback = mediaPresentationForTesting { callback(kind, urls, url); return }
+        guard viewIfLoaded?.window != nil, UIApplication.shared.applicationState == .active else { return }
+        var context: UIViewController? = self
+        while let controller = context {
+            guard controller.presentedViewController == nil, !controller.isBeingDismissed, !controller.isMovingFromParent else { return }
+            context = controller.parent
+        }
+        switch kind {
+        case .photo: showGallery(urls: urls, from: url)
+        case .video: playVideo(withURL: url)
+        case .file:
+            if url.isFileURL {
+                documentPreviewURL = url
+                let preview = QLPreviewController()
+                preview.dataSource = self
+                present(preview, animated: true)
+            } else { openUnencryptedFile(url) }
+        }
+    }
+}
+
+extension ChatViewController: QLPreviewControllerDataSource {
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { documentPreviewURL == nil ? 0 : 1 }
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { documentPreviewURL! as NSURL }
+}
 
 extension ChatViewController: ContextMenuDelegate {
     func contextMenuDidSelect(_ contextMenu: ContextMenu, cell: ContextMenuCell, targetedView: UIView, didSelect value: String, primary: String?) -> Bool {
@@ -155,9 +261,9 @@ extension ChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
         }
 
         if isVideo {
-            playVideo(withURL: url)
+            openBoundMedia(kind: .video, url: url, urls: [url], referencePrimary: referencePrimary, messagePrimary: messagePrimary)
         } else {
-            showGallery(urls: urls, from: url)
+            openBoundMedia(kind: .photo, url: url, urls: urls, referencePrimary: referencePrimary, messagePrimary: messagePrimary)
         }
     }
 }
@@ -184,7 +290,7 @@ extension ChatViewController: MessageCellDelegate {
 //            let nvc = UINavigationController(rootViewController: vc)
             showModal(vc)
         } else {
-            self.showGallery(urls: urls, from: url)
+            self.openBoundMedia(kind: .photo, url: url, urls: urls, referencePrimary: referencePrimary, messagePrimary: messagePrimary)
         }
     }
     
@@ -201,7 +307,7 @@ extension ChatViewController: MessageCellDelegate {
             vc.isVideo = true
             showModal(vc)
         } else {
-            self.playVideo(withURL: url)
+            self.openBoundMedia(kind: .video, url: url, urls: [url], referencePrimary: referencePrimary, messagePrimary: messagePrimary)
         }
     }
 
@@ -943,6 +1049,11 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     internal func openFile(_ url: URL?) {
+        guard let url else { return }
+        openBoundMedia(kind: .file, url: url, urls: [url])
+    }
+
+    internal func openUnencryptedFile(_ url: URL?) {
         guard let url = url,
             UIApplication.shared.canOpenURL(url) else {
                 return

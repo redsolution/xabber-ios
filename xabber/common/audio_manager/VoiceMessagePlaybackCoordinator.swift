@@ -49,6 +49,8 @@ struct VoiceMessageDescriptor: Equatable {
     let pcm: [Float]
     let sentDate: Date
     let archivedId: String?
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
+    let authenticatedAttachmentCacheIdentity: String?
 
     init(
         referencePrimary: String,
@@ -59,7 +61,9 @@ struct VoiceMessageDescriptor: Equatable {
         downloaded: Bool,
         pcm: [Float],
         sentDate: Date,
-        archivedId: String? = nil
+        archivedId: String? = nil,
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
+        authenticatedAttachmentCacheIdentity: String? = nil
     ) {
         self.referencePrimary = referencePrimary
         self.containerMessagePrimary = containerMessagePrimary
@@ -70,10 +74,16 @@ struct VoiceMessageDescriptor: Equatable {
         self.pcm = pcm
         self.sentDate = sentDate
         self.archivedId = archivedId
+        self.encryptedAttachment = encryptedAttachment
+        self.authenticatedAttachmentCacheIdentity = authenticatedAttachmentCacheIdentity
     }
 
     var isLocallyAvailable: Bool {
-        downloaded || decodedURL != nil
+        if let encryptedAttachment, encryptedAttachment.requiresAuthentication {
+            return encryptedAttachment.state == .encrypted && downloaded && decodedURL?.isFileURL == true &&
+                authenticatedAttachmentCacheIdentity == encryptedAttachment.cacheIdentity
+        }
+        return downloaded || decodedURL != nil
     }
 }
 
@@ -106,6 +116,14 @@ struct VoiceMessageDownloadedFile {
     let decodedURL: URL
     let duration: TimeInterval
     let pcm: [Float]
+    let authenticatedAttachmentCacheIdentity: String?
+
+    init(decodedURL: URL, duration: TimeInterval, pcm: [Float], authenticatedAttachmentCacheIdentity: String? = nil) {
+        self.decodedURL = decodedURL
+        self.duration = duration
+        self.pcm = pcm
+        self.authenticatedAttachmentCacheIdentity = authenticatedAttachmentCacheIdentity
+    }
 }
 
 protocol VoiceMessageDownloadTask {
@@ -382,6 +400,22 @@ final class VoiceMessagePlaybackCoordinator {
     }
 
     private func register(_ descriptor: VoiceMessageDescriptor) {
+        if let previous = descriptors[descriptor.referencePrimary],
+           previous.encryptedAttachment != descriptor.encryptedAttachment {
+            downloadQueue.removeAll { $0.descriptor.referencePrimary == descriptor.referencePrimary }
+            if activeDownloadPrimary == descriptor.referencePrimary {
+                cancelDownload(referencePrimary: descriptor.referencePrimary)
+            }
+            if currentPlaybackPrimary == descriptor.referencePrimary { stopPlayback() }
+            playbackPositions.removeValue(forKey: descriptor.referencePrimary)
+            states[descriptor.referencePrimary] = .notDownloaded
+        } else if descriptor.encryptedAttachment?.requiresAuthentication == true,
+                  !descriptor.isLocallyAvailable,
+                  let previous = descriptors[descriptor.referencePrimary], previous.isLocallyAvailable {
+            // A view may still hold its pre-download snapshot. Keep the verified local result
+            // only while the entire protected resource binding remains identical.
+            return
+        }
         descriptors[descriptor.referencePrimary] = descriptor
         _ = route(for: descriptor)
         if descriptor.isLocallyAvailable {
@@ -468,7 +502,9 @@ final class VoiceMessagePlaybackCoordinator {
                 downloaded: true,
                 pcm: file.pcm,
                 sentDate: descriptor.sentDate,
-                archivedId: descriptor.archivedId
+                archivedId: descriptor.archivedId,
+                encryptedAttachment: descriptor.encryptedAttachment,
+                authenticatedAttachmentCacheIdentity: file.authenticatedAttachmentCacheIdentity
             )
             descriptors[descriptor.referencePrimary] = downloadedDescriptor
             setState(.downloaded, for: downloadedDescriptor)
@@ -479,6 +515,11 @@ final class VoiceMessagePlaybackCoordinator {
     }
 
     private func startPlayback(_ descriptor: VoiceMessageDescriptor) {
+        let descriptor = descriptors[descriptor.referencePrimary] ?? descriptor
+        if descriptor.encryptedAttachment?.requiresAuthentication == true && !descriptor.isLocallyAvailable {
+            enqueue(descriptor, source: .manual, front: true)
+            return
+        }
         guard let url = descriptor.decodedURL ?? descriptor.remoteURL else {
             setState(.failed(error: L10n.text("voice_message__playback__file_unavailable", fallback: "Audio file is unavailable")), for: descriptor)
             return
@@ -670,6 +711,29 @@ private final class URLSessionVoiceDownloadTask: VoiceMessageDownloadTask {
 }
 
 final class URLSessionVoiceMessageDownloader: NSObject, VoiceMessageDownloading {
+    private final class ProtectedTask: VoiceMessageDownloadTask {
+        private let lock = NSLock()
+        private var cancelled = false
+        private var receiveTask: ChatEncryptedAttachmentReceiveTask?
+        var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+        func bind(_ task: ChatEncryptedAttachmentReceiveTask) {
+            lock.lock(); receiveTask = task; let shouldCancel = cancelled; lock.unlock()
+            if shouldCancel { task.cancel() }
+        }
+        func cancel() {
+            lock.lock(); cancelled = true; let task = receiveTask; receiveTask = nil; lock.unlock()
+            task?.cancel()
+        }
+    }
+    private let attachmentReceiver: ChatEncryptedAttachmentReceiver
+    private let prepareAuthenticatedFile: ((URL, VoiceMessageDescriptor) throws -> VoiceMessageDownloadedFile)?
+
+    init(attachmentReceiver: ChatEncryptedAttachmentReceiver = .shared,
+         prepareAuthenticatedFile: ((URL, VoiceMessageDescriptor) throws -> VoiceMessageDownloadedFile)? = nil) {
+        self.attachmentReceiver = attachmentReceiver
+        self.prepareAuthenticatedFile = prepareAuthenticatedFile
+        super.init()
+    }
     private struct Context {
         let descriptor: VoiceMessageDescriptor
         let progress: (Double) -> Void
@@ -689,6 +753,32 @@ final class URLSessionVoiceMessageDownloader: NSObject, VoiceMessageDownloading 
         progress: @escaping (Double) -> Void,
         completion: @escaping (Result<VoiceMessageDownloadedFile, Error>) -> Void
     ) -> VoiceMessageDownloadTask {
+        if let protected = descriptor.encryptedAttachment, protected.requiresAuthentication {
+            let task = ProtectedTask()
+            task.bind(attachmentReceiver.receive(protected) { [weak self, task] result in
+                guard let self, !task.isCancelled else { return }
+                switch result {
+                case .failure(let error): completion(.failure(error))
+                case .success(let file):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        guard !task.isCancelled else { return }
+                        do {
+                            let decoded = try self.prepareAuthenticatedFile?(file.fileURL, descriptor) ??
+                                self.prepareDownloadedVoice(location: file.fileURL, descriptor: descriptor,
+                                    preserveSource: true, shouldContinue: { !task.isCancelled })
+                            guard !task.isCancelled else { return }
+                            let verified = VoiceMessageDownloadedFile(decodedURL: decoded.decodedURL,
+                                duration: decoded.duration, pcm: decoded.pcm,
+                                authenticatedAttachmentCacheIdentity: file.cacheIdentity)
+                            DispatchQueue.main.async { guard !task.isCancelled else { return }; progress(1); completion(.success(verified)) }
+                        } catch {
+                            DispatchQueue.main.async { guard !task.isCancelled else { return }; completion(.failure(error)) }
+                        }
+                    }
+                }
+            })
+            return task
+        }
         guard let remoteURL = descriptor.remoteURL ?? remoteURLFromRealm(referencePrimary: descriptor.referencePrimary) else {
             completion(.failure(AudioMessageReceiverError.urlNotFound))
             return URLSessionVoiceDownloadTask(cancelHandler: {})
@@ -739,33 +829,53 @@ final class URLSessionVoiceMessageDownloader: NSObject, VoiceMessageDownloading 
         return false
     }
 
-    private func prepareDownloadedVoice(location: URL, descriptor: VoiceMessageDescriptor) throws -> VoiceMessageDownloadedFile {
+    private func prepareDownloadedVoice(location: URL, descriptor: VoiceMessageDescriptor,
+                                        preserveSource: Bool = false,
+                                        shouldContinue: () -> Bool = { true }) throws -> VoiceMessageDownloadedFile {
+        guard shouldContinue() else { throw URLError(.cancelled) }
         guard let cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             throw AudioMessageReceiverError.urlNotFound
         }
         let localOGG = cacheDirectory.appendingPathComponent("\(NanoID.new(10)).ogg")
         try? FileManager.default.removeItem(at: localOGG)
-        try FileManager.default.moveItem(at: location, to: localOGG)
+        if preserveSource { try FileManager.default.copyItem(at: location, to: localOGG) }
+        else { try FileManager.default.moveItem(at: location, to: localOGG) }
+        defer { try? FileManager.default.removeItem(at: localOGG) }
         let decodedURL = try AudioMessageReceiver.shared.decode(url: localOGG)
         let pcm = try AudioMessageReceiver.shared.getPCM(decoded: decodedURL)
         let duration = TimeInterval(try AudioMessageReceiver.shared.getDuration(decoded: decodedURL))
+        guard shouldContinue() else { throw URLError(.cancelled) }
 
         do {
             let realm = try WRealm.safe()
             if let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: descriptor.referencePrimary) {
                 try realm.write {
+                    guard shouldContinue() else { throw URLError(.cancelled) }
+                    if let protected = descriptor.encryptedAttachment, protected.requiresAuthentication {
+                        let current = ChatEncryptedAttachmentDescriptor(metadata: reference.metadata,
+                            url: reference.downloadUrl, owner: reference.owner, referenceIdentity: reference.primary)
+                        guard current.state == .encrypted, current == protected else {
+                            throw ChatEncryptedAttachmentReceiveError.invalidMetadata
+                        }
+                        var metadata = reference.metadata ?? [:]
+                        metadata["authenticated-media-cache-identity"] = protected.cacheIdentity
+                        reference.metadata = metadata
+                    }
                     reference.decodedUrl = decodedURL
                     reference.meteringLevels = pcm
                     reference.duration = Int(duration)
                     reference.isDownloaded = true
                 }
+            } else if descriptor.encryptedAttachment?.requiresAuthentication == true {
+                throw ChatEncryptedAttachmentReceiveError.invalidMetadata
             }
         } catch {
             DDLogDebug("URLSessionVoiceMessageDownloader: \(#function). \(error.localizedDescription)")
             throw error
         }
 
-        return VoiceMessageDownloadedFile(decodedURL: decodedURL, duration: duration, pcm: pcm)
+        return VoiceMessageDownloadedFile(decodedURL: decodedURL, duration: duration, pcm: pcm,
+            authenticatedAttachmentCacheIdentity: descriptor.encryptedAttachment?.requiresAuthentication == true ? descriptor.encryptedAttachment?.cacheIdentity : nil)
     }
 }
 

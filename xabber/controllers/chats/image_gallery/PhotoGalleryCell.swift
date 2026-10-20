@@ -51,6 +51,9 @@ class PhotoGalleryCell: UICollectionViewCell {
 //        }
 //    }
 
+    private var imageLoadGeneration = UUID()
+    private var localImageWork: DispatchWorkItem?
+
     var imageUrl: URL? {
         didSet {
             
@@ -160,34 +163,50 @@ class PhotoGalleryCell: UICollectionViewCell {
     }
 
     func configureForNewImageUrl(animated: Bool = true) {
+        localImageWork?.cancel()
+        localImageWork = nil
+        imageLoadGeneration = UUID()
+        let generation = imageLoadGeneration
+        imageView.image = nil
+        errorImageView.removeFromSuperview()
+        errorLabel.removeFromSuperview()
         guard let url = imageUrl else { return }
+        if url.isFileURL {
+            // The attachment receiver already authenticated these local bytes;
+            // their URL need not have a legacy Kingfisher network-cache entry.
+            imageView.kf.indicatorType = .none
+            let work = DispatchWorkItem { [weak self] in
+                let image = UIImage(contentsOfFile: url.path)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.imageLoadGeneration == generation, self.imageUrl == url else { return }
+                    self.localImageWork = nil
+                    self.applyGalleryImage(image)
+                }
+            }
+            localImageWork = work
+            DispatchQueue.global(qos: .userInitiated).async(execute: work)
+            return
+        }
         imageView.kf.indicatorType = .activity
         let resource = KF.ImageResource(downloadURL: url)
-        ImageCache.default.retrieveImage(forKey: resource.cacheKey) { result in
+        ImageCache.default.retrieveImage(forKey: resource.cacheKey) { [weak self] result in
+            guard let self, self.imageLoadGeneration == generation, self.imageUrl == url else { return }
+            self.imageView.kf.indicatorType = .none
             switch result {
-            case .success(let value):
-                if value.image != nil {
-                    self.imageView.image = value.image
-                    self.imageView.sizeToFit() //SIGABRT
-
-                    self.setZoomScale()
-                    self.scrollViewDidZoom(self.scrollView)
-                } else {
-                    self.activateErrorImage()
-                }
-            case .failure(let value):
+            case .success(let value): self.applyGalleryImage(value.image)
+            case .failure(let error):
                 self.activateErrorImage()
-                DDLogDebug("PhotoGalleryCell: \(#function). \(value.localizedDescription)")
+                DDLogDebug("PhotoGalleryCell: \(#function). \(error.localizedDescription)")
             }
         }
-        
-//        imageView.kf.setImage(with: ImageResource(downloadURL: url)) {
-//            (_) in
-//            self.imageView.sizeToFit() //SIGABRT
-//
-//            self.setZoomScale()
-//            self.scrollViewDidZoom(self.scrollView)
-//        }
+    }
+
+    private func applyGalleryImage(_ image: UIImage?) {
+        guard let image else { activateErrorImage(); return }
+        imageView.image = image
+        imageView.sizeToFit()
+        setZoomScale()
+        scrollViewDidZoom(scrollView)
     }
 
     internal func setupGestureRecognizer() {
@@ -200,6 +219,7 @@ class PhotoGalleryCell: UICollectionViewCell {
     internal func setZoomScale() {
         let imageViewSize = imageView.bounds.size
         let scrollViewSize = scrollView.bounds.size
+        guard imageViewSize.width > 0, imageViewSize.height > 0, scrollViewSize.width > 0, scrollViewSize.height > 0 else { return }
         let widthScale = scrollViewSize.width / imageViewSize.width
         let heightScale = scrollViewSize.height / imageViewSize.height
 
@@ -224,6 +244,10 @@ class PhotoGalleryCell: UICollectionViewCell {
     
     override func prepareForReuse() {
         super.prepareForReuse()
+        imageLoadGeneration = UUID()
+        localImageWork?.cancel()
+        localImageWork = nil
+        imageUrl = nil
         imageView.image = nil
         errorImageView.removeFromSuperview()
         errorLabel.removeFromSuperview()

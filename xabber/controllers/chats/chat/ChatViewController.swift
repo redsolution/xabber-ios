@@ -2580,15 +2580,15 @@ class ChatViewController: MessagesViewController {
     let datasourcePageSize: Int = ArchivePageSizing.history
         
     override var owner: String {
-        didSet { if owner != oldValue { setComposerForwardSelection([], intent: .forward) } }
+        didSet { if owner != oldValue { cancelMediaOpening(); setComposerForwardSelection([], intent: .forward) } }
     }
 
     override var jid: String {
-        didSet { if jid != oldValue { setComposerForwardSelection([], intent: .forward) } }
+        didSet { if jid != oldValue { cancelMediaOpening(); setComposerForwardSelection([], intent: .forward) } }
     }
 
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
-        didSet { if conversationType != oldValue { setComposerForwardSelection([], intent: .forward) } }
+        didSet { if conversationType != oldValue { cancelMediaOpening(); setComposerForwardSelection([], intent: .forward) } }
     }
 
     var timelineInteractionState = ChatTimelineInteractionState()
@@ -2769,6 +2769,14 @@ class ChatViewController: MessagesViewController {
     
 // attachments
     var chatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating? = nil
+    internal var mediaAttachmentReceive: (ChatEncryptedAttachmentDescriptor, @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask = { descriptor, completion in
+        ChatEncryptedAttachmentReceiver.shared.receive(descriptor, completion: completion)
+    }
+    internal var mediaPresentationForTesting: ((ChatMediaOpeningKind, [URL], URL) -> Void)?
+    internal var mediaOpenTasks: [ChatEncryptedAttachmentReceiveTask] = []
+    internal var mediaOpenGeneration = UUID()
+    internal var documentPreviewURL: URL?
+
 #if DEBUG
     internal var chatAttachmentPickerEntryHandlerForTesting: (() -> Void)?
 #endif
@@ -8553,6 +8561,7 @@ class ChatViewController: MessagesViewController {
     /// test teardown may both reach it without reviving or double-finishing
     /// work. Cancelled navigation transitions must never enter this boundary.
     internal func performTerminalChatResourceTeardown() {
+        self.cancelMediaOpening()
         self.cancelActiveAudioRecordingForLifecycle()
         self.cancelChatOpenPerformanceTrace()
         self.invalidateTimelineStoreSnapshotBinding()
@@ -8742,6 +8751,7 @@ class ChatViewController: MessagesViewController {
     }
     
     deinit {
+        self.mediaOpenTasks.forEach { $0.cancel() }
         // Do not initialize lazy coordinators while the object is already in
         // deallocation. Normal disappearance runs the complete policy above;
         // this fallback touches only resources that already exist eagerly.
@@ -8929,12 +8939,13 @@ extension ChatViewController {
         let fallback = VoiceMessageDescriptor(
             referencePrimary: audio.primary,
             containerMessagePrimary: containerPrimary,
-            remoteURL: nil,
-            decodedURL: audio.url,
+            remoteURL: audio.encryptedAttachment?.sourceURL,
+            decodedURL: audio.encryptedAttachment?.requiresAuthentication == true ? nil : audio.url,
             duration: TimeInterval(audio.duration),
-            downloaded: audio.downloaded || audio.url != nil,
+            downloaded: audio.encryptedAttachment?.requiresAuthentication == true ? false : (audio.downloaded || audio.url != nil),
             pcm: audio.pcm,
-            sentDate: sentDate
+            sentDate: sentDate,
+            encryptedAttachment: audio.encryptedAttachment
         )
         return voiceMessageDescriptorFromRealm(
             referencePrimary: audio.primary,
@@ -8950,13 +8961,26 @@ extension ChatViewController {
         sentDate: Date,
         fallback: VoiceMessageDescriptor? = nil
     ) -> VoiceMessageDescriptor? {
+        let fallback = fallback.flatMap { value -> VoiceMessageDescriptor? in
+            guard value.referencePrimary == referencePrimary else { return nil }
+            if let attachment = value.encryptedAttachment {
+                guard attachment.owner == owner, attachment.referenceIdentity == referencePrimary else { return nil }
+            }
+            return value
+        }
         do {
             let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return nil }
+            realm.refresh()
             guard let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: referencePrimary) else {
                 return fallback
             }
-            let decodedURL = reference.decodedUrl ?? fallback?.decodedURL
-            let downloaded = reference.isDownloaded || decodedURL != nil || fallback?.downloaded == true
+            guard reference.owner == owner, reference.jid == jid, reference.conversationType == conversationType else { return nil }
+            let attachment = ChatEncryptedAttachmentDescriptor(metadata: reference.metadata, url: reference.downloadUrl, owner: reference.owner, referenceIdentity: reference.primary)
+            let authenticatedCacheIdentity = reference.metadata?["authenticated-media-cache-identity"] as? String
+            let authenticatedLocal = attachment.state == .encrypted && authenticatedCacheIdentity == attachment.cacheIdentity && reference.isDownloaded && reference.decodedUrl?.isFileURL == true
+            let decodedURL = attachment.requiresAuthentication ? (authenticatedLocal ? reference.decodedUrl : nil) : (reference.decodedUrl ?? fallback?.decodedURL)
+            let downloaded = attachment.requiresAuthentication ? authenticatedLocal : (reference.isDownloaded || decodedURL != nil || fallback?.downloaded == true)
             return VoiceMessageDescriptor(
                 referencePrimary: reference.primary,
                 containerMessagePrimary: containerPrimary ?? reference.messageId,
@@ -8965,7 +8989,9 @@ extension ChatViewController {
                 duration: TimeInterval(reference.duration ?? Int(fallback?.duration ?? 0)),
                 downloaded: downloaded,
                 pcm: reference.meteringLevels ?? fallback?.pcm ?? [],
-                sentDate: sentDate == Date.distantPast ? reference.sentDate : sentDate
+                sentDate: sentDate == Date.distantPast ? reference.sentDate : sentDate,
+                encryptedAttachment: attachment.requiresAuthentication ? attachment : nil,
+                authenticatedAttachmentCacheIdentity: authenticatedCacheIdentity
             )
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

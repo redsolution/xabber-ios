@@ -90,6 +90,7 @@ class ImageAttachment {
     var size: CGSize
     var isSensitive: Bool
     var isSensitiveRevealed: Bool
+    var encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     
     init(
         primary: String,
@@ -97,7 +98,8 @@ class ImageAttachment {
         previewUrl: URL? = nil,
         size: CGSize,
         isSensitive: Bool = false,
-        isSensitiveRevealed: Bool = false
+        isSensitiveRevealed: Bool = false,
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
     ) {
         self.primary = primary
         self.url = url
@@ -105,6 +107,7 @@ class ImageAttachment {
         self.size = size
         self.isSensitive = isSensitive
         self.isSensitiveRevealed = isSensitiveRevealed
+        self.encryptedAttachment = encryptedAttachment
     }
     
 }
@@ -118,8 +121,9 @@ class VideoAttachment {
     var downloaded: Bool
     var isSensitive: Bool
     var isSensitiveRevealed: Bool
+    var encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     
-    init(primary: String, url: URL?, size: CGSize, previewUrl: URL? = nil, duration: Double, downloaded: Bool, isSensitive: Bool = false, isSensitiveRevealed: Bool = false) {
+    init(primary: String, url: URL?, size: CGSize, previewUrl: URL? = nil, duration: Double, downloaded: Bool, isSensitive: Bool = false, isSensitiveRevealed: Bool = false, encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil) {
         self.primary = primary
         self.url = url
         self.size = size
@@ -128,6 +132,7 @@ class VideoAttachment {
         self.downloaded = downloaded
         self.isSensitive = isSensitive
         self.isSensitiveRevealed = isSensitiveRevealed
+        self.encryptedAttachment = encryptedAttachment
     }
 }
 
@@ -229,6 +234,7 @@ final class FileAttachment {
     let name: String
     let downloaded: Bool
     let presentation: ChatFileAttachmentPresentation
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
 
     init(
         primary: String,
@@ -236,13 +242,15 @@ final class FileAttachment {
         size: Double,
         name: String,
         mimeType: String? = nil,
-        downloaded: Bool
+        downloaded: Bool,
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
     ) {
         self.primary = primary
         self.url = url
         self.size = size
         self.name = name
         self.downloaded = downloaded
+        self.encryptedAttachment = encryptedAttachment
         self.presentation = ChatFileAttachmentPresentation(
             name: name,
             size: size,
@@ -262,7 +270,8 @@ final class FileAttachment {
         ChatFileAttachmentRequest(
             containerPrimary: containerPrimary,
             referencePrimary: primary,
-            resourceIdentity: url?.absoluteString ?? "",
+            resourceIdentity: encryptedAttachment?.requiresAuthentication == true
+                ? encryptedAttachment!.cacheIdentity : (url?.absoluteString ?? ""),
             presentationRevision: presentation.revision
         )
     }
@@ -276,9 +285,10 @@ class AudioAttachment {
     var duration: Double
     var downloaded: Bool
     var pcm: [Float]
+    var encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     
     
-    init(primary: String, url: URL?, size: Double, name: String, duration: Double, downloaded: Bool, pcm: [Float]) {
+    init(primary: String, url: URL?, size: Double, name: String, duration: Double, downloaded: Bool, pcm: [Float], encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil) {
         self.primary = primary
         self.url = url
         self.size = size
@@ -286,6 +296,7 @@ class AudioAttachment {
         self.duration = duration
         self.downloaded = downloaded
         self.pcm = pcm
+        self.encryptedAttachment = encryptedAttachment
     }
     
     var prettySize: String {

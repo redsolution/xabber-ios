@@ -43,6 +43,7 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         
         static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool {
             return a.primary == b.primary &&
+                a.encryptedAttachment == b.encryptedAttachment &&
                 a.kind == b.kind &&
                 a.url == b.url &&
                 a.filename == b.filename &&
@@ -59,6 +60,7 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
                 a.isSensitiveRevealed == b.isSensitiveRevealed
         }
         
+        let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
         let kind: MessageMediaAttachmentStorageItem.Kind
         let primary: String
         let owner: String
@@ -112,8 +114,10 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
             decodedURL: URL?,
             pcm: [Float],
             isSensitive: Bool,
-            isSensitiveRevealed: Bool
+            isSensitiveRevealed: Bool,
+            encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
         ) {
+            self.encryptedAttachment = encryptedAttachment
             self.kind = kind
             self.primary = primary
             self.owner = owner
@@ -141,12 +145,112 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         }
     }
     
+    var galleryAttachmentReceive: (ChatEncryptedAttachmentDescriptor, @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask = { descriptor, completion in
+        ChatEncryptedAttachmentReceiver.shared.receive(descriptor, completion: completion)
+    }
+    var mediaGalleryPresentationForTesting: ((ChatMediaOpeningKind, [URL], URL) -> Void)?
+    private var galleryMediaGeneration = UUID()
+    private var galleryMediaTasks: [ChatEncryptedAttachmentReceiveTask] = []
+
+    override var owner: String { didSet { if owner != oldValue { cancelGalleryMediaOpening() } } }
+    override var jid: String { didSet { if jid != oldValue { cancelGalleryMediaOpening() } } }
+
+    func cancelGalleryMediaOpening() {
+        galleryMediaGeneration = UUID()
+        galleryMediaTasks.forEach { $0.cancel() }
+        galleryMediaTasks.removeAll()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        cancelGalleryMediaOpening()
+        super.viewWillDisappear(animated)
+    }
+
+    /// Bind gallery snapshots to the current account and stored reference before
+    /// handing any protected bytes to a viewer or a sharing activity.
+    private func currentGalleryDescriptor(for item: Datasource) -> ChatEncryptedAttachmentDescriptor? {
+        guard item.owner == owner, item.jid == jid, item.conversationType == conversationType,
+              let source = item.url else { return nil }
+        do {
+            let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return nil }
+            realm.refresh()
+            if let reference = realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: item.primary) {
+                guard reference.owner == owner, reference.jid == jid, reference.conversationType == conversationType,
+                      [.media, .voice].contains(reference.kind), reference.downloadUrl == source else { return nil }
+                return ChatEncryptedAttachmentDescriptor(metadata: reference.metadata, url: source,
+                    owner: owner, referenceIdentity: item.primary)
+            }
+            if let stored = realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: item.primary) {
+                guard stored.owner == owner, stored.jid == jid, stored.conversationType == conversationType,
+                      stored.kind == item.kind, stored.url == source, !stored.isLocallyHiddenByReport else { return nil }
+                return MediaGalleryDatasourceMapper.attachmentDescriptor(for: stored)
+            }
+        } catch { return nil }
+        // Existing unencrypted, nonpersisted gallery items keep their ordinary route.
+        guard item.encryptedAttachment == nil, !conversationType.isEncrypted else { return nil }
+        return ChatEncryptedAttachmentDescriptor(metadata: nil, url: source, owner: owner, referenceIdentity: item.primary)
+    }
+
+    func resolveGalleryMedia(_ items: [Datasource], selectedPrimary: String,
+                             completion: @escaping ([URL], URL) -> Void) {
+        cancelGalleryMediaOpening()
+        guard !items.isEmpty, let selected = items.firstIndex(where: { $0.primary == selectedPrimary }) else { return }
+        var descriptors: [ChatEncryptedAttachmentDescriptor] = []
+        for item in items {
+            guard let descriptor = currentGalleryDescriptor(for: item), descriptor.state != .invalid,
+                  item.encryptedAttachment == nil || item.encryptedAttachment == descriptor else { return }
+            descriptors.append(descriptor)
+        }
+        var resolved = items.compactMap(\.url)
+        guard resolved.count == items.count else { return }
+        let generation = galleryMediaGeneration, capturedOwner = owner, capturedJid = jid, capturedType = conversationType
+        let current: (BaseMediaGalleryForChatViewController) -> Bool = { controller in
+            controller.galleryMediaGeneration == generation && controller.owner == capturedOwner &&
+                controller.jid == capturedJid && controller.conversationType == capturedType &&
+                zip(items, descriptors).allSatisfy { item, descriptor in controller.currentGalleryDescriptor(for: item) == descriptor }
+        }
+        var remaining = descriptors.filter(\.requiresAuthentication).count
+        guard remaining > 0 else { completion(resolved, resolved[selected]); return }
+        var completed = Set<Int>()
+        for (index, descriptor) in descriptors.enumerated() where descriptor.requiresAuthentication {
+            guard galleryMediaGeneration == generation else { break }
+            let task = galleryAttachmentReceive(descriptor) { [weak self] result in
+                guard let self, self.galleryMediaGeneration == generation, !completed.contains(index) else { return }
+                guard current(self), case let .success(file) = result,
+                      file.fileURL.isFileURL, FileManager.default.fileExists(atPath: file.fileURL.path),
+                      file.cacheIdentity == descriptor.cacheIdentity else { self.cancelGalleryMediaOpening(); return }
+                completed.insert(index); resolved[index] = file.fileURL; remaining -= 1
+                guard remaining == 0 else { return }
+                self.galleryMediaTasks.removeAll()
+                self.galleryMediaGeneration = UUID()
+                completion(resolved, resolved[selected])
+            }
+            if galleryMediaGeneration == generation { galleryMediaTasks.append(task) } else { task.cancel() }
+        }
+    }
+
+    var canPresentGalleryMedia: Bool {
+        if mediaGalleryPresentationForTesting != nil { return true }
+        guard viewIfLoaded?.window != nil, UIApplication.shared.applicationState == .active else { return false }
+        var context: UIViewController? = self
+        while let controller = context {
+            guard controller.presentedViewController == nil, !controller.isBeingDismissed, !controller.isMovingFromParent else { return false }
+            context = controller.parent
+        }
+        return true
+    }
+
+    deinit { galleryMediaTasks.forEach { $0.cancel() } }
+
     internal var datasource: [Datasource] = []
     internal var revealedSensitiveMediaPrimaries: Set<String> = Set<String>()
     var messageNavigationRouter: MediaGalleryMessageNavigationRouting = MediaGalleryMessageNavigationRouter.shared
     
     open var kind: MessageMediaAttachmentStorageItem.Kind = .file
-    open var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+    open var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
+        didSet { if conversationType != oldValue { cancelGalleryMediaOpening() } }
+    }
     open var collectionObserver: Results<MessageMediaAttachmentStorageItem>? = nil
     
     

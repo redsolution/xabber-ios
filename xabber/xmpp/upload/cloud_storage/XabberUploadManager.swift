@@ -3085,10 +3085,13 @@ class XabberUploadManager: AbstractXMPPManager {
                     let encryptionKeyb64 = reference.metadata?["encryption-key"] as? String
                     let ivb64 = reference.metadata?["iv"] as? String
                     var encryptedFiles = false
-                    if CommonConfigManager.shared.config.use_file_enryption_by_default,
-                       reference.conversationType.isEncrypted {
+                    if reference.conversationType.isEncrypted {
                         guard let encryptionKeyb64 = encryptionKeyb64,
-                              let ivb64 = ivb64 else {
+                              let ivb64 = ivb64,
+                              let keyBytes = Data(base64Encoded: encryptionKeyb64),
+                              [16, 32].contains(keyBytes.count), keyBytes.base64EncodedString() == encryptionKeyb64,
+                              let ivBytes = Data(base64Encoded: ivb64), ivBytes.count == 16,
+                              ivBytes.base64EncodedString() == ivb64 else {
                             logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
                                 ("filename", filename),
                                 ("mediaType", mediaType),
@@ -3098,8 +3101,8 @@ class XabberUploadManager: AbstractXMPPManager {
                             failOnce("Selected file could not be encrypted. Please try again.".localizeString(id: "upload_error_encryption_failed", arguments: []), code: 400)
                             return
                         }
-                        let encryptionKey = Array<UInt8>(base64: encryptionKeyb64)
-                        let iv = Array<UInt8>(base64: ivb64)
+                        let encryptionKey = Array(keyBytes)
+                        let iv = Array(ivBytes)
                         guard let encrypted = try data.encrypt(key: encryptionKey, iv: iv) else {
                             logMediaUploadTrace("media_reference_prepare_failed", details: mediaUploadTraceDetails(context: traceContext, extra: [
                                 ("filename", filename),

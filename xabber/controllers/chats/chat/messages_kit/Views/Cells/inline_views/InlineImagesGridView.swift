@@ -42,6 +42,7 @@ class InlineImagesGridView: InlineAttachmentView {
         private(set) var preferredThumbnailURL: URL?
         /// Full source retained for gallery/open/download callbacks.
         var sourceURL: URL?
+        var encryptedAttachment: ChatEncryptedAttachmentDescriptor?
         var representedRequest: InlineAttachmentRepresentedRequest
         var representedThumbnailRequest: ChatThumbnailRequest?
         var representedThumbnailConsumer: ChatThumbnailConsumer?
@@ -303,6 +304,7 @@ class InlineImagesGridView: InlineAttachmentView {
                 isSensitive: item.isSensitive && !item.isSensitiveRevealed,
                 representedRequest: request
             )
+            view.encryptedAttachment = item.encryptedAttachment
             self.contentViews.append(view)
             self.addSubview(view)
             self.views.append(view)
@@ -336,6 +338,7 @@ class InlineImagesGridView: InlineAttachmentView {
             )
             view.frame = rect
             view.primary = item.primary
+            view.encryptedAttachment = item.encryptedAttachment
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
             view.representedRequest = request
             view.updateThumbnailResources(
@@ -363,7 +366,8 @@ class InlineImagesGridView: InlineAttachmentView {
                     height: Double(view.frame.height)
                 ),
                 scale: scale,
-                traitStyle: style
+                traitStyle: style,
+                encryptedAttachment: url == view.sourceURL ? view.encryptedAttachment : nil
             )
             let consumer = ChatThumbnailConsumer(
                 identity: ChatCollectionPrefetchIdentity(

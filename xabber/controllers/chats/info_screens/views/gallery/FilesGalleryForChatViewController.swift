@@ -7,6 +7,7 @@
 //
 
 import UIKit
+import QuickLook
 
 struct MediaGalleryFileListLayoutPolicy: Equatable {
     let sectionInset: UIEdgeInsets
@@ -170,6 +171,11 @@ final class DefaultMediaGalleryFileActionRouter: MediaGalleryFileActionRouting {
     private init() {}
 
     func open(_ url: URL, from presenter: UIViewController) {
+        if url.isFileURL {
+            guard let gallery = presenter as? FilesGalleryForChatViewController else { return }
+            gallery.previewAuthenticatedFile(url)
+            return
+        }
         guard UIApplication.shared.canOpenURL(url) else { return }
         YesNoPresenter().present(
             in: presenter,
@@ -204,6 +210,8 @@ final class DefaultMediaGalleryFileActionRouter: MediaGalleryFileActionRouting {
 }
 
 final class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewController {
+    fileprivate var authenticatedPreviewURL: URL?
+
     final class GalleryItemCell: UICollectionViewListCell {
         static let cellName = "MediaGalleryFileRowCell"
 
@@ -373,10 +381,16 @@ final class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewContro
         sourceView: UIView?
     ) {
         switch action {
-        case .open(let url):
-            fileActionRouter.open(url, from: self)
-        case .share(let url):
-            fileActionRouter.share(url, from: self, sourceView: sourceView)
+        case .open(let url), .share(let url):
+            guard item.url == url else { return }
+            resolveGalleryMedia([item], selectedPrimary: item.primary) { [weak self, weak sourceView] _, resolved in
+                guard let self, item.encryptedAttachment?.requiresAuthentication != true || self.canPresentGalleryMedia else { return }
+                switch action {
+                case .open: self.fileActionRouter.open(resolved, from: self)
+                case .share: self.fileActionRouter.share(resolved, from: self, sourceView: sourceView)
+                case .goToMessage: break
+                }
+            }
         case .goToMessage:
             openContainingMessage(for: item)
         }
@@ -426,4 +440,17 @@ final class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewContro
         emptyStateLabel.isHidden = !datasource.isEmpty
         collectionView.isHidden = datasource.isEmpty
     }
+}
+
+
+extension FilesGalleryForChatViewController: QLPreviewControllerDataSource {
+    func previewAuthenticatedFile(_ url: URL) {
+        guard url.isFileURL, canPresentGalleryMedia else { return }
+        authenticatedPreviewURL = url
+        let controller = QLPreviewController()
+        controller.dataSource = self
+        present(controller, animated: true)
+    }
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { authenticatedPreviewURL == nil ? 0 : 1 }
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { authenticatedPreviewURL! as NSURL }
 }
