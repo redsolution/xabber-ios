@@ -131,10 +131,10 @@ final class XENTrustTransportInteroperabilityTests: XCTestCase {
         XCTAssertEqual(session.state, .sentRequest)
     }
 
-    func testServerCarrierCannotChangePinnedInnerResource() throws {
+    func testAuthenticatedCarrierWithInconsistentPinnedInnerResourceAbortsSession() throws {
         let session = try pendingSession()
-        XCTAssertFalse(account.akeManager.didReceivedVerificationMessage(message: try deliveredAbort(carrier: service, original: "peer@example.test", inner: "peer@example.test/other")))
-        XCTAssertEqual(session.state, .sentRequest)
+        XCTAssertTrue(account.akeManager.didReceivedVerificationMessage(message: try deliveredAbort(carrier: service, original: "peer@example.test", inner: "peer@example.test/other")))
+        XCTAssertEqual(session.state, .failed)
     }
 
     func testDirectPinnedPeerDoesNotRequireANotificationService() throws {

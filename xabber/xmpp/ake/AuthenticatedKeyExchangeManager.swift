@@ -86,11 +86,17 @@ struct XEPTrustEnvelope {
         guard let value, let id = Int(value), id > 0, id <= Int(Int32.max), String(id) == value else { return nil }
         return id
     }
-    static func parse(from message: XMPPMessage) -> XEPTrustEnvelope? {
+    static func payload(in message: XMPPMessage) -> DDXMLElement? {
         let names = Set(["request", "accept", "challenge", "response", "verify", "success", "abort"])
         let payloads = (message.children ?? []).compactMap { $0 as? DDXMLElement }
             .filter { names.contains($0.localName ?? "") && $0.uri == xmlns }
-        guard payloads.count == 1, let element = payloads.first,
+        return payloads.count == 1 ? payloads.first : nil
+    }
+    static func sessionID(in message: XMPPMessage) -> String? {
+        binary(payload(in: message)?.attributeStringValue(forName: "session-id"), size: 16)
+    }
+    static func parse(from message: XMPPMessage) -> XEPTrustEnvelope? {
+        guard let element = payload(in: message),
               let sid = binary(element.attributeStringValue(forName: "session-id"), size: 16) else { return nil }
         let children = (element.children ?? []).compactMap { $0 as? DDXMLElement }
         func child(_ name: String) -> DDXMLElement? {
@@ -216,7 +222,9 @@ struct XEPTrustForwardedExtractor {
     }
 
     private static func containsTrust(in message: XMPPMessage) -> Bool {
-        return XEPTrustEnvelope.parse(from: message) != nil
+        // Carrier authentication precedes parsing so malformed crypto values
+        // in a known session can fail that session instead of escaping it.
+        return XEPTrustEnvelope.payload(in: message) != nil
     }
 
     private static func addressMap(from element: DDXMLElement?) -> [String: String]? {
@@ -283,7 +291,7 @@ private struct VerificationSessionTimeoutSnapshot {
         primary = VerificationSessionStorageItem.genPrimary(owner: session.owner, sid: session.sid)
         peerRaw = session.peerFullJid.isEmpty ? (session.fullJID.isEmpty ? session.jid : session.fullJID) : session.peerFullJid
         expires = Int(session.expires)
-        shouldNotifyPeer = session.role == .initiator || session.state == .sentRequest
+        shouldNotifyPeer = session.role == .initiator || session.role == .responder || session.state == .sentRequest
     }
 
     var peer: XMPPJID? {
@@ -358,24 +366,40 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         guard from.user != nil else { return nil }
         do {
             let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return nil }
+            realm.refresh()
             let session = realm.object(ofType: VerificationSessionStorageItem.self,
                 forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: envelope.sid))
-            if case .request = envelope.kind {
-                // A replay must never reset another exchange, its nonce, or its peer binding.
-                return session == nil ? envelope : nil
+            if case let .request(deviceID, _) = envelope.kind {
+                guard let session else { return envelope }
+                guard !isTerminal(session.state) else { return nil }
+                let pinned = session.peerFullJid.isEmpty ? session.fullJID : session.peerFullJid
+                // A consistent retransmission cannot reset the exchange.
+                // A known SID with a different initiator must abort (§6).
+                if session.role != .responder || from.bare != session.jid ||
+                    (!pinned.isEmpty && pinned != from.full) || session.opponentDeviceId != deviceID {
+                    failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                }
+                return nil
             }
             guard let session, !isTerminal(session.state) else { return nil }
             if case .accept = envelope.kind {
-                guard from.bare == owner, session.role == .responder, session.state == .receivedRequest else { return nil }
+                guard from.bare == owner else {
+                    failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                    return nil
+                }
+                guard session.role == .responder, session.state == .receivedRequest else { return nil }
                 guard session.expires > Date().timeIntervalSince1970 else {
                     closeExpiredSessionIfNeeded(sid: session.sid)
                     return nil
                 }
                 return envelope
             }
-            guard from.bare == session.jid else { return nil }
             let pinned = session.peerFullJid.isEmpty ? session.fullJID : session.peerFullJid
-            guard pinned.isEmpty || pinned == from.full else { return nil }
+            guard from.bare == session.jid, pinned.isEmpty || pinned == from.full else {
+                failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                return nil
+            }
             guard session.expires > Date().timeIntervalSince1970 else {
                 closeExpiredSessionIfNeeded(sid: session.sid)
                 return nil
@@ -383,20 +407,32 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             let kind: XEPTrustEnvelope.Kind
             switch envelope.kind {
             case let .challenge(deviceID, ciphertext, iv):
-                guard session.role == .initiator, session.state == .sentRequest,
-                      session.opponentDeviceId == 0 || session.opponentDeviceId == deviceID else { return nil }
+                guard session.opponentDeviceId == 0 || session.opponentDeviceId == deviceID else {
+                    failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                    return nil
+                }
+                guard session.role == .initiator, session.state == .sentRequest else { return nil }
                 kind = .challenge(deviceId: deviceID, ciphertext: ciphertext, iv: iv)
             case let .response(_, ciphertext, iv, hmac):
-                guard session.role == .responder, session.state == .acceptedRequest,
-                      verificationKeysUnchanged(session) else { return nil }
+                guard session.role == .responder, session.state == .acceptedRequest else { return nil }
+                guard verificationKeysUnchanged(session) else {
+                    failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                    return nil
+                }
                 kind = .response(deviceId: session.opponentDeviceId, ciphertext: ciphertext, iv: iv, hmac: hmac)
             case let .verify(_, hmac):
-                guard session.role == .initiator, session.state == .responseSent,
-                      verificationKeysUnchanged(session) else { return nil }
+                guard session.role == .initiator, session.state == .responseSent else { return nil }
+                guard verificationKeysUnchanged(session) else {
+                    failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                    return nil
+                }
                 kind = .verify(deviceId: session.opponentDeviceId, hmac: hmac)
             case .success:
-                guard session.role == .responder, session.state == .verifySent,
-                      verificationKeysUnchanged(session) else { return nil }
+                guard session.role == .responder, session.state == .verifySent else { return nil }
+                guard verificationKeysUnchanged(session) else {
+                    failSession(sid: session.sid, reason: .fail, shouldNotifyPeer: true)
+                    return nil
+                }
                 kind = .success(deviceId: session.opponentDeviceId)
             case let .abort(reason): kind = .abort(reason: reason)
             case .request, .accept: return nil
@@ -460,9 +496,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         let notificationSenders = XEPTrustForwardedExtractor.notificationSenders(
             owner: owner, configuredService: AccountManager.shared.find(for: owner)?.notifications.node)
         guard let innerMessage = XEPTrustForwardedExtractor.trustMessage(from: message, trustedNotificationSenders: notificationSenders, owner: owner),
-              let received = XEPTrustEnvelope.parse(from: innerMessage),
-              let from = innerMessage.from,
-              let envelope = admittedEnvelope(received, from: from) else {
+              let from = innerMessage.from, from.user != nil else {
             return false
         }
 
@@ -470,6 +504,26 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
            innerMessage.from?.full == myFullJid {
             return true
         }
+
+        guard let received = XEPTrustEnvelope.parse(from: innerMessage) else {
+            // Unsupported contexts are rejected rather than reinterpreted as
+            // this session. Broken required crypto fields in a known context
+            // must abort after the carrier has been authenticated (§§5,19).
+            guard let payload = XEPTrustEnvelope.payload(in: innerMessage),
+                  payload.localName != "request" || payload.attributeStringValue(forName: "protocol") == XEPTrustEnvelope.protocolNamespace,
+                  let sid = XEPTrustEnvelope.sessionID(in: innerMessage),
+                  let realm = try? WRealm.safe(), !realm.isInWriteTransaction else { return false }
+            realm.refresh()
+            guard let session = realm.object(ofType: VerificationSessionStorageItem.self,
+                forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)), !isTerminal(session.state) else { return false }
+            if session.expires <= Date().timeIntervalSince1970 {
+                closeExpiredSessionIfNeeded(sid: sid)
+            } else {
+                failSession(sid: sid, reason: .fail, shouldNotifyPeer: true)
+            }
+            return true
+        }
+        guard let envelope = admittedEnvelope(received, from: from) else { return true }
 
         let key = "\(innerMessage.elementID ?? "no-id")|\(innerMessage.from?.full ?? "unknown")|\(envelope.sid)|\(envelope.kind.name)"
         if processedStanzas.contains(key) {
@@ -546,6 +600,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
     @discardableResult
     func acceptVerificationRequest(jid: String, sid: String) -> String? {
+        closeExpiredSessionIfNeeded(sid: sid)
         guard let account = AccountManager.shared.find(for: owner),
               let toJid = bestKnownJid(for: sid, fallback: jid) else {
             return nil
@@ -566,6 +621,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
         do {
             let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return nil }
+            realm.refresh()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
                   !isTerminal(instance.state),
                   instance.state == .receivedRequest, instance.expires > Date().timeIntervalSince1970,
@@ -577,7 +634,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             expires = Int(instance.expires)
 
             let encrypted = try encrypt(jid: instance.jid, sid: sid, deviceId: remoteDeviceId, code: code, data: localNonce)
+            var accepted = false
             try realm.write {
+                guard instance.role == .responder, instance.state == .receivedRequest,
+                      instance.myDeviceId == localDeviceId, instance.opponentDeviceId == remoteDeviceId,
+                      instance.expires > Date().timeIntervalSince1970,
+                      verificationKeysUnchanged(instance) else { return }
                 instance.code = code
                 instance.byteSequence = base64(localNonce)
                 instance.localNonce = base64(localNonce)
@@ -587,6 +649,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 instance.encryptedChallengeIV = base64(encrypted.iv)
                 instance.state = .acceptedRequest
                 instance.role = .responder
+                accepted = true
+            }
+            guard accepted else { closeExpiredSessionIfNeeded(sid: sid); return nil }
+
+            // Sibling coordination precedes the challenge (§§11–12).
+            if let ownJid = XMPPJID(string: owner) {
+                let accept = XEPTrustEnvelope.makeTrustElement(sid: sid, expires: expires, kind: .accept(deviceId: localDeviceId))
+                sendTrustElement(accept, to: ownJid, ttl: max(expires - Int(Date().timeIntervalSince1970), 1))
             }
 
             let trust = XEPTrustEnvelope.makeTrustElement(
@@ -598,13 +668,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             makeSystemMessage(jid: instance.jid, event: .acceptedVerificationRequest)
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-            sendAbort(to: toJid, sid: sid, expires: expires, reason: .fail)
+            failSession(sid: sid, reason: .fail, shouldNotifyPeer: true)
             return nil
-        }
-
-        if let ownJid = XMPPJID(string: owner) {
-            let accept = XEPTrustEnvelope.makeTrustElement(sid: sid, expires: expires, kind: .accept(deviceId: localDeviceId))
-            sendTrustElement(accept, to: ownJid, ttl: 300)
         }
 
         postOnMain(AuthenticatedKeyExchangeManager.showCodeOutputViewNotification, userInfo: ["owner": owner, "sid": sid])
@@ -612,6 +677,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     }
 
     func processSecretCode(code: String, sid: String) {
+        closeExpiredSessionIfNeeded(sid: sid)
         do {
             let realm = try WRealm.safe()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
@@ -633,11 +699,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             )
 
             guard remoteNonce.count == 32 else { throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial }
+            var stored = false
             try realm.write {
+                guard instance.role == .initiator, instance.state == .receivedRequestAccept,
+                      instance.expires > Date().timeIntervalSince1970,
+                      verificationKeysUnchanged(instance) else { return }
                 instance.code = code
                 instance.opponentByteSequence = base64(remoteNonce)
                 instance.remoteNonce = base64(remoteNonce)
+                stored = true
             }
+            guard stored else { closeExpiredSessionIfNeeded(sid: sid); return }
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
             failSession(sid: sid, reason: .fail, shouldNotifyPeer: true)
@@ -651,11 +723,15 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     }
 
     func sendHashToOpponent(jid: XMPPJID, sid: String) {
+        closeExpiredSessionIfNeeded(sid: sid)
         do {
             let realm = try WRealm.safe()
             guard let account = AccountManager.shared.find(for: owner),
                   let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
                   !isTerminal(instance.state),
+                  instance.role == .initiator, instance.state == .receivedRequestAccept,
+                  instance.expires > Date().timeIntervalSince1970,
+                  verificationKeysUnchanged(instance),
                   let remoteNonce = try? (instance.remoteNonce.isEmpty ? instance.opponentByteSequence : instance.remoteNonce).base64decoded() else {
                 return
             }
@@ -678,11 +754,17 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 return
             }
 
+            var responded = false
             try realm.write {
+                guard instance.role == .initiator, instance.state == .receivedRequestAccept,
+                      instance.expires > Date().timeIntervalSince1970,
+                      verificationKeysUnchanged(instance) else { return }
                 instance.byteSequence = base64(localNonce)
                 instance.localNonce = base64(localNonce)
                 instance.state = .responseSent
+                responded = true
             }
+            guard responded else { closeExpiredSessionIfNeeded(sid: sid); return }
 
             let trust = XEPTrustEnvelope.makeTrustElement(
                 sid: sid,
@@ -893,14 +975,20 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             let existing = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: envelope.sid))
             let instance = existing ?? VerificationSessionStorageItem()
 
+            var created = false
             try realm.write {
+                guard realm.object(ofType: VerificationSessionStorageItem.self,
+                    forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: envelope.sid)) == nil,
+                    envelope.expires > Int(Date().timeIntervalSince1970) else { return }
                 fillNewSession(instance, sid: envelope.sid, owner: owner, jid: peerBare, localDeviceId: localDeviceId, remoteDeviceId: remoteDeviceId, role: .responder, state: .receivedRequest, timestamp: envelope.timestamp, expires: envelope.expires)
                 instance.fullJID = from.full
                 instance.peerFullJid = from.full
                 if existing == nil {
                     realm.add(instance, update: .modified)
                 }
+                created = true
             }
+            guard created else { return }
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
             return
@@ -935,6 +1023,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             }
 
             try realm.write {
+                guard instance.role == .responder, instance.state == .receivedRequest,
+                      instance.expires > Date().timeIntervalSince1970 else { return }
                 instance.remoteDeviceId = remoteDeviceId
                 instance.state = .cancelled
             }
@@ -955,7 +1045,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 return
             }
 
+            var challenged = false
             try realm.write {
+                let pinned = instance.peerFullJid.isEmpty ? instance.fullJID : instance.peerFullJid
+                guard instance.role == .initiator, instance.state == .sentRequest,
+                      instance.expires > Date().timeIntervalSince1970,
+                      instance.jid == from.bare, pinned.isEmpty || pinned == from.full,
+                      instance.opponentDeviceId == 0 || instance.opponentDeviceId == remoteDeviceId else { return }
                 instance.jid = from.bare
                 instance.peerBareJid = from.bare
                 instance.fullJID = from.full
@@ -967,7 +1063,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 instance.opponentByteSequenceIv = iv
                 instance.encryptedChallengeIV = iv
                 instance.state = .receivedRequestAccept
+                challenged = true
             }
+            guard challenged else { closeExpiredSessionIfNeeded(sid: envelope.sid); return }
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
             return
@@ -1003,11 +1101,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             ),
                   let received = try? hmac.base64decoded(),
                   constantTimeEquals(expected, received) else {
-                try realm.write {
-                    instance.state = .failed
-                }
-                sendAbort(to: from, sid: envelope.sid, expires: Int(instance.expires), reason: .fail)
-                postOnMain(AuthenticatedKeyExchangeManager.closeViewNotification, userInfo: ["owner": owner, "sid": envelope.sid])
+                failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
                 return
             }
 
@@ -1026,7 +1120,13 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 return
             }
 
+            var responded = false
             try realm.write {
+                guard instance.role == .responder, instance.state == .acceptedRequest,
+                      instance.expires > Date().timeIntervalSince1970,
+                      instance.jid == from.bare, instance.peerFullJid == from.full,
+                      instance.opponentDeviceId == remoteDeviceId,
+                      verificationKeysUnchanged(instance) else { return }
                 instance.fullJID = from.full
                 instance.peerFullJid = from.full
                 instance.opponentDeviceId = remoteDeviceId
@@ -1034,6 +1134,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 instance.opponentByteSequence = base64(remoteNonce)
                 instance.remoteNonce = base64(remoteNonce)
                 instance.state = .responseReceived
+                responded = true
+            }
+            guard responded else {
+                closeExpiredSessionIfNeeded(sid: envelope.sid)
+                failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
+                return
             }
 
             let trust = XEPTrustEnvelope.makeTrustElement(
@@ -1041,13 +1147,20 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 expires: Int(instance.expires),
                 kind: .verify(deviceId: localDeviceId, hmac: base64(verifyHMAC))
             )
-            sendTrustElement(trust, to: from, ttl: max(Int(instance.expires) - Int(Date().timeIntervalSince1970.rounded()), 1))
             try realm.write {
+                guard instance.state == .responseReceived, instance.expires > Date().timeIntervalSince1970,
+                      verificationKeysUnchanged(instance) else { responded = false; return }
                 instance.state = .verifySent
             }
+            guard responded else {
+                closeExpiredSessionIfNeeded(sid: envelope.sid)
+                failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
+                return
+            }
+            sendTrustElement(trust, to: from, ttl: max(Int(instance.expires) - Int(Date().timeIntervalSince1970.rounded()), 1))
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-            sendAbort(to: from, sid: envelope.sid, expires: envelope.expires, reason: .fail)
+            failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
         }
     }
 
@@ -1076,11 +1189,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             ),
                   let received = try? hmac.base64decoded(),
                   constantTimeEquals(expected, received) else {
-                try realm.write {
-                    instance.state = .failed
-                }
-                sendAbort(to: from, sid: envelope.sid, expires: Int(instance.expires), reason: .fail)
-                postOnMain(AuthenticatedKeyExchangeManager.closeViewNotification, userInfo: ["owner": owner, "sid": envelope.sid])
+                failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
                 return
             }
 
@@ -1218,7 +1327,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
         let peer = sessionPeerJid(sid: sid)
         let expires = sessionExpires(sid: sid)
-        markSession(sid: sid, state: state)
+        guard markSession(sid: sid, state: state) else { return }
         if shouldNotifyPeer, let peer {
             sendAbort(to: peer, sid: sid, expires: expires, reason: reason)
         }
@@ -1228,6 +1337,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     private func closeExpiredSessionIfNeeded(sid: String) {
         do {
             let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return }
+            realm.refresh()
             let primary = VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)
             guard let existing = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: primary),
                   !existing.isInvalidated else {
@@ -1235,18 +1346,21 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             }
 
             let now = Date().timeIntervalSince1970
-            guard let markedTimeout = try markExpiredSessionTimeout(VerificationSessionTimeoutSnapshot(existing), realm: realm, now: now),
-                  markedTimeout.shouldNotifyPeer,
-                  let peer = markedTimeout.peer else {
+            guard let markedTimeout = try markExpiredSessionTimeout(VerificationSessionTimeoutSnapshot(existing), realm: realm, now: now) else {
                 return
             }
-            sendAbort(to: peer, sid: markedTimeout.sid, expires: markedTimeout.expires, reason: .timeout)
+            if markedTimeout.shouldNotifyPeer, let peer = markedTimeout.peer {
+                sendAbort(to: peer, sid: markedTimeout.sid, expires: markedTimeout.expires, reason: .timeout)
+            }
+            postOnMain(AuthenticatedKeyExchangeManager.closeViewNotification, userInfo: ["owner": owner, "sid": sid])
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
         }
     }
 
-    private func markSession(sid: String, state: VerificationSessionStorageItem.VerififcationState) {
+    @discardableResult
+    private func markSession(sid: String, state: VerificationSessionStorageItem.VerififcationState) -> Bool {
+        var marked = false
         do {
             let realm = try WRealm.safe()
             let primary = VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)
@@ -1257,10 +1371,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                     return
                 }
                 instance.state = state
+                marked = true
             }
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
         }
+        return marked
     }
 
     private func markExpiredSessionTimeout(_ snapshot: VerificationSessionTimeoutSnapshot, realm: Realm, now: TimeInterval) throws -> VerificationSessionTimeoutSnapshot? {
@@ -1545,6 +1661,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     static func checkVerificationSessionsTTL() {
         do {
             let realm = try WRealm.safe()
+            guard !realm.isInWriteTransaction else { return }
+            realm.refresh()
             let now = Date().timeIntervalSince1970
             let terminal = [
                 VerificationSessionStorageItem.VerififcationState.trusted.rawValue,

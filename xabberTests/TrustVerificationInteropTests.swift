@@ -92,21 +92,21 @@ final class TrustVerificationInteropTests: XCTestCase {
     func testInvalidTargetIsRejectedRatherThanBroadcast() throws {
         XCTAssertNil(XEPTrustEnvelope.parse(from: try message(request("target='bad'"))))
     }
-    func testWrongSenderCannotReplacePinnedChallengePeer() throws {
+    func testInconsistentSenderAbortsWithoutReplacingPinnedChallengePeer() throws {
         let value = try session(role: .initiator, state: .sentRequest)
         let manager = AuthenticatedKeyExchangeManager(withOwner: owner)
         _ = manager.didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(iv)'>\(cipher)</nonce></challenge>", from: "attacker@example.test/phone"))
-        XCTAssertEqual(value.jid, peer); XCTAssertEqual(value.state, .sentRequest)
+        XCTAssertEqual(value.jid, peer); XCTAssertEqual(value.state, .failed)
     }
-    func testWrongDeviceCannotReplaceTargetedChallengePeer() throws {
+    func testInconsistentDeviceAbortsWithoutReplacingTargetedChallengePeer() throws {
         let value = try session(role: .initiator, state: .sentRequest)
         _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='99'><nonce iv='\(iv)'>\(cipher)</nonce></challenge>"))
-        XCTAssertEqual(value.opponentDeviceId, 42); XCTAssertEqual(value.state, .sentRequest)
+        XCTAssertEqual(value.opponentDeviceId, 42); XCTAssertEqual(value.state, .failed)
     }
-    func testUnrelatedSenderCannotAbortSession() throws {
+    func testInconsistentAbortSenderFailsRatherThanCancelsCurrentSession() throws {
         let value = try session(role: .initiator, state: .sentRequest)
         _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<abort xmlns='urn:xabber:trust' session-id='\(sid)' reason='cancel'/>", from: "attacker@example.test/phone"))
-        XCTAssertEqual(value.state, .sentRequest)
+        XCTAssertEqual(value.state, .failed)
     }
     func testEarlySuccessCannotEstablishTrust() throws {
         let value = try session(role: .responder, state: .receivedRequest)
@@ -175,6 +175,139 @@ final class TrustVerificationInteropTests: XCTestCase {
         }
         try body(account, peerKey, peerDevice, bundle)
     }
+
+    private final class RecordingManager: AuthenticatedKeyExchangeManager {
+        var sent: [XMPPMessage] = []
+        override func getSignalMessagePacket(message: XMPPMessage, to: XMPPJID, ttl: Int) -> DDXMLElement {
+            sent.append(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(message)))
+            return super.getSignalMessagePacket(message: message, to: to, ttl: ttl)
+        }
+        var kinds: [String] {
+            sent.compactMap { ($0.children ?? []).compactMap { $0 as? DDXMLElement }
+                .first { $0.uri == XEPTrustEnvelope.xmlns }?.localName }
+        }
+    }
+
+    func testResponderBroadcastsAcceptBeforeSendingChallenge() throws {
+        try withPreparedPeer { account, _, _, _ in
+            let manager = RecordingManager(withOwner: owner)
+            account.akeManager = manager
+            let value = try session(role: .responder, state: .receivedRequest)
+            try realm.write { value.myDeviceId = 11; value.localDeviceId = 11 }
+            XCTAssertNotNil(manager.acceptVerificationRequest(jid: peer, sid: sid))
+            XCTAssertEqual(manager.kinds, ["accept", "challenge"], "XEP-TRUST §§11–12 coordinate responder siblings before challenging the initiator")
+            XCTAssertEqual(manager.sent.first?.to?.full, owner)
+            XCTAssertEqual(manager.sent.last?.to?.full, "\(peer)/phone")
+        }
+    }
+
+    func testInvalidDecryptedResponseNonceAbortsLocalSessionAndNotifiesPinnedPeer() throws {
+        try withPreparedPeer { account, peerKey, device, bundle in
+            let manager = RecordingManager(withOwner: owner)
+            account.akeManager = manager
+            let value = try session(role: .responder, state: .receivedRequest)
+            try realm.write { value.myDeviceId = 11; value.localDeviceId = 11 }
+            let code = try XCTUnwrap(manager.acceptVerificationRequest(jid: peer, sid: sid))
+            let shared = try Omemo2IdentityRepresentation.sharedSecret(privateKey: peerKey.rawRepresentation, peerIdentity: bundle.identityKey)
+            let key = Data(SHA256.hash(data: shared + Data(code.utf8) + Data(sid.utf8)))
+            let remoteIV = Data(repeating: 29, count: 16)
+            // Valid CBC and padding, but not the required 32-octet nonce.
+            let ciphertext = try AES(key: Array(key), blockMode: CBC(iv: Array(remoteIV)))
+                .encrypt(Array(Data(repeating: 23, count: 35)))
+            XCTAssertEqual(ciphertext.count, 48)
+            let payload = "<response xmlns='urn:xabber:trust' session-id='\(sid)'><nonce iv='\(remoteIV.base64EncodedString())'>\(Data(ciphertext).base64EncodedString())</nonce><key-mac>\(mac)</key-mac></response>"
+            _ = manager.didReceivedVerificationMessage(message: try message(payload))
+            XCTAssertEqual(value.state, .failed)
+            XCTAssertEqual(device.state, .unknown)
+            XCTAssertEqual(manager.kinds.last, "abort")
+            XCTAssertEqual(manager.sent.last?.to?.full, "\(peer)/phone")
+            XCTAssertEqual(manager.sent.last?.element(forName: "abort", xmlns: XEPTrustEnvelope.xmlns)?.attributeStringValue(forName: "reason"), "fail")
+        }
+    }
+
+    func testInconsistentPinnedResourceAbortsToOriginalPeerOnly() throws {
+        let value = try session(role: .initiator, state: .sentRequest)
+        let manager = RecordingManager(withOwner: owner)
+        _ = manager.didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(iv)'>\(cipher)</nonce></challenge>", from: "\(peer)/other"))
+        XCTAssertEqual(value.state, .failed)
+        XCTAssertEqual(value.peerFullJid, "\(peer)/phone")
+        XCTAssertEqual(manager.kinds, ["abort"])
+        XCTAssertEqual(manager.sent.last?.to?.full, "\(peer)/phone")
+    }
+
+    func testReusedCurrentSessionIDWithDifferentInitiatorAbortsRatherThanReplacingSession() throws {
+        let value = try session(role: .responder, state: .receivedRequest)
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message(request(), from: "other@example.test/device"))
+        XCTAssertEqual(value.state, .failed)
+        XCTAssertEqual(value.jid, peer)
+        XCTAssertEqual(value.opponentDeviceId, 42)
+    }
+
+    func testReusedCurrentSessionIDWithDifferentInitiatorDeviceAborts() throws {
+        let value = try session(role: .responder, state: .receivedRequest)
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message(request().replacingOccurrences(of: "device-id='42'", with: "device-id='99'")))
+        XCTAssertEqual(value.state, .failed)
+        XCTAssertEqual(value.opponentDeviceId, 42)
+    }
+
+    func testLocalRequestEchoDoesNotAbortOwnDeviceVerification() throws {
+        try withPreparedPeer { account, _, _, _ in
+            account.xmppStream.myJID = XMPPJID(string: "\(owner)/tablet")
+            let value = try session(role: .initiator, state: .sentRequest)
+            try realm.write { value.jid = owner; value.peerBareJid = owner; value.peerFullJid = ""; value.fullJID = "" }
+            let local = request("target='42'").replacingOccurrences(of: "device-id='42'", with: "device-id='11'")
+            _ = account.akeManager.didReceivedVerificationMessage(message: try message(local, from: "\(owner)/tablet"))
+            XCTAssertEqual(value.state, .sentRequest)
+        }
+    }
+
+    func testUnknownSessionIDDoesNotAbortAnUnrelatedCurrentSession() throws {
+        let value = try session(role: .initiator, state: .sentRequest)
+        let unknown = Data(repeating: 99, count: 16).base64EncodedString()
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<abort xmlns='urn:xabber:trust' session-id='\(unknown)' reason='fail'/>"))
+        XCTAssertEqual(value.state, .sentRequest)
+    }
+
+    func testMalformedChallengeNonceAbortsKnownSessionWithoutReplacingPeer() throws {
+        let value = try session(role: .initiator, state: .sentRequest)
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(iv)'>not-base64!</nonce></challenge>"))
+        XCTAssertEqual(value.state, .failed)
+        XCTAssertEqual(value.peerFullJid, "\(peer)/phone")
+    }
+
+    func testMalformedVerifyMACAbortsKnownSession() throws {
+        let value = try session(role: .initiator, state: .responseSent)
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<verify xmlns='urn:xabber:trust' session-id='\(sid)'><key-mac>bad!</key-mac></verify>"))
+        XCTAssertEqual(value.state, .failed)
+    }
+
+    func testReusedSessionIDWithUnsupportedProtocolIsRejectedWithoutChangingItsContext() throws {
+        let value = try session(role: .responder, state: .receivedRequest)
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message(request().replacingOccurrences(of: "urn:xmpp:omemo:2", with: "urn:unsupported")))
+        XCTAssertEqual(value.state, .receivedRequest)
+        XCTAssertEqual(value.jid, peer)
+    }
+
+    func testAcceptingAnExpiredExistingRequestImmediatelyAbortsAsTimeout() throws {
+        try withPreparedPeer { account, _, device, _ in
+            let manager = RecordingManager(withOwner: owner)
+            account.akeManager = manager
+            let value = try session(role: .responder, state: .receivedRequest)
+            try realm.write { value.myDeviceId = 11; value.localDeviceId = 11; value.expires = Date().timeIntervalSince1970 - 1 }
+            XCTAssertNil(account.akeManager.acceptVerificationRequest(jid: peer, sid: sid))
+            XCTAssertEqual(value.state, .timeout)
+            XCTAssertEqual(device.state, .unknown)
+            XCTAssertEqual(manager.kinds, ["abort"])
+            XCTAssertEqual(manager.sent.last?.element(forName: "abort", xmlns: XEPTrustEnvelope.xmlns)?.attributeStringValue(forName: "reason"), "timeout")
+        }
+    }
+
+    func testEnteringCodeAfterDeadlineImmediatelyAbortsAsTimeout() throws {
+        let value = try session(role: .initiator, state: .receivedRequestAccept)
+        try realm.write { value.expires = Date().timeIntervalSince1970 - 1 }
+        AuthenticatedKeyExchangeManager(withOwner: owner).processSecretCode(code: "123456", sid: sid)
+        XCTAssertEqual(value.state, .timeout)
+    }
     private func exchangeAsResponder(account: Account, peerKey: CryptoKit.Curve25519.Signing.PrivateKey,
                                      peerDevice: SignalDeviceStorageItem, bundle: OMEMO2LocalBundle, corruptMAC: Bool = false) throws -> VerificationSessionStorageItem {
         let value = try session(role: .responder, state: .receivedRequest)
@@ -239,11 +372,11 @@ final class TrustVerificationInteropTests: XCTestCase {
         _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(iv)'>\(cipher)</nonce></challenge>"))
         XCTAssertEqual(value.state, .timeout)
     }
-    func testUnrelatedSenderCannotMutateExpiredBoundSession() throws {
+    func testInconsistentSenderCannotKeepExpiredCurrentSessionOpen() throws {
         let value = try session(role: .initiator, state: .sentRequest)
         try realm.write { value.expires = Date().timeIntervalSince1970 - 10 }
         _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(iv)'>\(cipher)</nonce></challenge>", from: "attacker@example.test/p"))
-        XCTAssertEqual(value.state, .sentRequest)
+        XCTAssertEqual(value.state, .failed)
     }
     func testLocalTrustDecisionAdvancesBeyondPriorClockWithoutResettingPublisherCursor() throws {
         try withPreparedPeer { account, _, device, _ in
@@ -259,6 +392,52 @@ final class TrustVerificationInteropTests: XCTestCase {
         private var error: Error?
         func record(_ value: Error) { lock.lock(); error = value; lock.unlock() }
         func rethrowError() throws { lock.lock(); defer { lock.unlock() }; if let error { throw error } }
+    }
+
+    private func cancelSessionOnBackgroundRealm(primary: String) throws {
+        let configuration = realm.configuration
+        let done = DispatchSemaphore(value: 0)
+        let result = BackgroundRotationResult()
+        Thread {
+            autoreleasepool {
+                do {
+                    let background = try Realm(configuration: configuration)
+                    let value = try XCTUnwrap(background.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: primary))
+                    try background.write { value.state = .cancelled }
+                } catch { result.record(error) }
+            }
+            done.signal()
+        }.start()
+        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        try result.rethrowError()
+    }
+
+    func testStaleRealmChallengeCannotResurrectCancelledSession() throws {
+        let value = try session(role: .initiator, state: .sentRequest)
+        realm.autorefresh = false
+        defer { realm.autorefresh = true }
+        try cancelSessionOnBackgroundRealm(primary: value.primary)
+        XCTAssertEqual(value.state, .sentRequest, "Prove the foreground read is stale")
+        _ = AuthenticatedKeyExchangeManager(withOwner: owner).didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(iv)'>\(cipher)</nonce></challenge>"))
+        realm.refresh()
+        XCTAssertEqual(value.state, .cancelled)
+    }
+
+    func testStaleRealmAcceptCannotResurrectCancelledSessionOrSendChallenge() throws {
+        try withPreparedPeer { account, _, _, _ in
+            let manager = RecordingManager(withOwner: owner)
+            account.akeManager = manager
+            let value = try session(role: .responder, state: .receivedRequest)
+            try realm.write { value.myDeviceId = 11; value.localDeviceId = 11 }
+            realm.autorefresh = false
+            defer { realm.autorefresh = true }
+            try cancelSessionOnBackgroundRealm(primary: value.primary)
+            XCTAssertEqual(value.state, .receivedRequest, "Prove the foreground read is stale")
+            XCTAssertNil(manager.acceptVerificationRequest(jid: peer, sid: sid))
+            realm.refresh()
+            XCTAssertEqual(value.state, .cancelled)
+            XCTAssertTrue(manager.sent.isEmpty)
+        }
     }
 
     /// Keep the foreground read version stale while a genuinely different
