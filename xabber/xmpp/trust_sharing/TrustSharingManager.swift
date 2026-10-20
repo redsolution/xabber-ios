@@ -713,13 +713,23 @@ class TrustSharingManager: AbstractXMPPManager {
     }
 
     private func trustedItemsElement(owner itemOwner: String?, devices: [SignalDeviceStorageItem]) -> DDXMLElement? {
-        let decisions: [(device: SignalDeviceStorageItem, type: String, timestamp: Int64)] = devices.compactMap { device in
-            guard let type = elementName(for: device.state) else { return nil }
+        let decisions: [(key: String, type: String, timestamp: Int64)] = devices.compactMap { device in
+            let fingerprint = device.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
+            guard let type = elementName(for: device.state),
+                  device.deviceId > 0, device.deviceId <= Int(Int32.max),
+                  fingerprint.utf8.count == 64,
+                  fingerprint.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdef").contains($0) }) else { return nil }
+            if device.state == .trusted {
+                let primary = SignalIdentityStorageItem.genRpimary(owner: owner, jid: device.jid, deviceId: device.deviceId)
+                guard let encoded = device.realm?.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: primary)?.identityKey,
+                      let identity = Data(base64Encoded: encoded), identity.count == 32,
+                      (try? Omemo2IdentityRepresentation.fingerprint(for: identity).replacingOccurrences(of: " ", with: "").lowercased()) == fingerprint else { return nil }
+            }
             let trustTime = device.trustDate.timeIntervalSince1970.rounded(.down)
             let localTimestamp = trustTime.isFinite && trustTime > 0 && trustTime < Double(Int64.max) ? Int64(trustTime) : 0
             let timestamp = device.lastTrustSharingTimestamp > 0 ? device.lastTrustSharingTimestamp : localTimestamp
             guard timestamp > 0 else { return nil }
-            return (device, type, timestamp)
+            return ("\(device.deviceId)::\(fingerprint)", type, timestamp)
         }
         guard let timestamp = decisions.map({ $0.timestamp }).max() else { return nil }
         let items = DDXMLElement(name: "trust-list", xmlns: getPrimaryNamespace())
@@ -728,8 +738,7 @@ class TrustSharingManager: AbstractXMPPManager {
             items.addAttribute(withName: "owner", stringValue: itemOwner)
         }
 
-        for (device, name, decisionTimestamp) in decisions {
-            let key = "\(device.deviceId)::\(device.fingerprint.replacingOccurrences(of: " ", with: "").lowercased())"
+        for (key, name, decisionTimestamp) in decisions {
             let entry = DDXMLElement(name: name, xmlns: getPrimaryNamespace())
             entry.stringValue = key.toBase64()
             entry.addAttribute(withName: "timestamp", stringValue: String(decisionTimestamp))

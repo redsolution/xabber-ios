@@ -389,6 +389,77 @@ final class TrustSharingTimestampAdmissionTests: XCTestCase {
         }
     }
 
+    func testOwnPublicationOmitsMalformedOrUnboundSavedTrustWithoutMigratingRows() throws {
+        try useLocalPublisher(localID: publisherID, publisherJID: account.jid)
+        try realm.write { publisher.state = .trusted; publisher.lastTrustSharingTimestamp = 100 }
+        let malformed = device(owner: account.jid, jid: account.jid, id: 6032)
+        malformed.state = .trusted
+        malformed.lastTrustSharingTimestamp = 123
+        let unbound = device(owner: account.jid, jid: account.jid, id: 6033)
+        unbound.state = .trusted
+        unbound.fingerprint = target.fingerprint
+        unbound.lastTrustSharingTimestamp = 124
+        let invalidSID = device(owner: account.jid, jid: account.jid, id: 0)
+        invalidSID.state = .trusted
+        invalidSID.fingerprint = target.fingerprint
+        invalidSID.lastTrustSharingTimestamp = 125
+        let malformedNegative = device(owner: account.jid, jid: account.jid, id: 6035)
+        malformedNegative.state = .distrusted
+        malformedNegative.lastTrustSharingTimestamp = 126
+        let oversizedNegative = device(owner: account.jid, jid: account.jid, id: Int(Int32.max) + 1)
+        oversizedNegative.state = .distrusted
+        oversizedNegative.fingerprint = target.fingerprint
+        oversizedNegative.lastTrustSharingTimestamp = 127
+        try realm.write { realm.add([malformed, unbound, invalidSID, malformedNegative, oversizedNegative]) }
+
+        let share = try XCTUnwrap(publishOwnShare())
+        let list = try XCTUnwrap(share.element(forName: "trust-list"))
+
+        XCTAssertEqual(list.elements(forName: "trust").count, 1)
+        XCTAssertEqual(list.elements(forName: "distrust").count, 0)
+        XCTAssertEqual(list.attributeStringValue(forName: "timestamp"), "100")
+        XCTAssertEqual(malformed.state, .trusted)
+        XCTAssertEqual(malformed.fingerprint, "")
+        XCTAssertEqual(malformed.lastTrustSharingTimestamp, 123)
+        XCTAssertEqual(unbound.state, .trusted)
+        XCTAssertEqual(invalidSID.deviceId, 0)
+        XCTAssertEqual(malformedNegative.state, .distrusted)
+        XCTAssertEqual(malformedNegative.lastTrustSharingTimestamp, 126)
+        XCTAssertEqual(oversizedNegative.deviceId, Int(Int32.max) + 1)
+        XCTAssertNotNil(realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: malformed.primary))
+    }
+
+    func testEncryptedContactPublicationOmitsHistoricalEmptyFingerprintsAndRetainsValidDecisions() throws {
+        try useLocalPublisher(localID: publisherID, publisherJID: account.jid)
+        let historical = device(owner: account.jid, jid: target.jid, id: 6032)
+        historical.state = .trusted
+        historical.lastTrustSharingTimestamp = 123
+        let negative = device(owner: account.jid, jid: target.jid, id: 6034)
+        negative.state = .distrusted
+        negative.fingerprint = target.fingerprint
+        negative.lastTrustSharingTimestamp = 124
+        try realm.write {
+            publisher.state = .trusted
+            publisher.lastTrustSharingTimestamp = 100
+            target.state = .trusted
+            target.lastTrustSharingTimestamp = 101
+            realm.add([historical, negative])
+        }
+
+        let share = try publishContactShare()
+        let list = try XCTUnwrap(share.element(forName: "trust-list"))
+
+        XCTAssertEqual(list.attributeStringValue(forName: "owner"), target.jid)
+        XCTAssertEqual(list.elements(forName: "trust").count, 1, "A historical empty fingerprint cannot poison the signed atomic list")
+        XCTAssertEqual(list.elements(forName: "distrust").count, 1, "A valid explicit negative does not need a currently discovered identity")
+        XCTAssertEqual(list.element(forName: "trust")?.stringValue,
+                       Data("\(targetID)::\(target.fingerprint.replacingOccurrences(of: " ", with: "").lowercased())".utf8).base64EncodedString())
+        XCTAssertEqual(historical.fingerprint, "")
+        XCTAssertEqual(historical.state, .trusted)
+        XCTAssertEqual(historical.lastTrustSharingTimestamp, 123)
+        XCTAssertFalse(historical.isInDeviceList)
+    }
+
     func testEmptySignedListAdvancesPublisherCursorWithoutChangingDecisions() throws {
         let packet = try share(timestamp: 100, entryTimestamp: 90)
         packet.element(forName: "trust-list")?.element(forName: "trust")?.detach()
@@ -492,6 +563,47 @@ final class TrustSharingTimestampAdmissionTests: XCTestCase {
         account.queue.sync { }
         return stream.elements.first?.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?
             .element(forName: "publish")?.element(forName: "item")?.element(forName: "share", xmlns: TrustSharingSignature.xmlns)
+    }
+
+    private func publishContactShare() throws -> DDXMLElement {
+        let receiver = try XabberOMEMO2Storage(owner: account.jid, persistence: Memory())
+        let bundle = try receiver.prepare(deviceID: 43, preKeyCount: 2)
+        _ = try account.omemo.ensureOMEMO2Prepared(attemptPublication: false)
+        let items = DDXMLElement(name: "items", xmlns: "http://jabber.org/protocol/pubsub")
+        items.addAttribute(withName: "node", stringValue: OmemoManager.xmlns + ":bundles")
+        items.addChild(try OMEMO2BundleCodec.encode(OMEMO2PublishedBundle(bundle)))
+        XCTAssertTrue(try account.omemo.onContactBundleReceive(items: items, jid: account.jid))
+        let sibling = try XCTUnwrap(realm.object(ofType: SignalDeviceStorageItem.self,
+            forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: account.jid, jid: account.jid, deviceId: 43)))
+        try realm.write { sibling.state = .trusted }
+        let advertised = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(account.jid)'><event xmlns='http://jabber.org/protocol/pubsub#event'><items node='urn:xmpp:omemo:2:devices'><item id='current'><devices xmlns='urn:xmpp:omemo:2'><device id='41'/><device id='43'/></devices></item></items></event></message>")
+        XCTAssertTrue(account.omemo.onContactDeviceListReceiveHeadline(advertised))
+        let stream = Stream()
+        account.xmppStream = stream
+
+        manager.sendListOfContactsDevices()
+        account.queue.sync { }
+
+        func encryptedDescendant(_ element: DDXMLElement) -> DDXMLElement? {
+            if SCEReceivePolicy.matches(element, name: "encrypted", namespace: OmemoManager.xmlns) { return element }
+            for child in element.children?.compactMap({ $0 as? DDXMLElement }) ?? [] {
+                if let encrypted = encryptedDescendant(child) { return encrypted }
+            }
+            return nil
+        }
+        let encrypted = try XCTUnwrap(stream.elements.compactMap(encryptedDescendant).first)
+        let payload = try Omemo2PayloadCodec.decodeBase64(XCTUnwrap(encrypted.element(forName: "payload")?.stringValue))
+        let key = try XCTUnwrap(encrypted.element(forName: "header")?.elements(forName: "keys")
+            .first { $0.attributeStringValue(forName: "jid") == account.jid }?.elements(forName: "key")
+            .first { $0.attributeStringValue(forName: "rid") == "43" })
+        let cipher = try OMEMO2Ciphertext(data: Omemo2PayloadCodec.decodeBase64(XCTUnwrap(key.stringValue)),
+            keyExchange: key.attributeBoolValue(forName: "kex"))
+        let material = try receiver.decrypt(cipher, jid: account.jid, deviceID: publisherID) {
+            _ = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: $0, expectedFrom: account.jid, expectedTo: account.jid)
+        }
+        let opened = try XCTUnwrap(Omemo2PayloadCodec.openVerified(payload, keyAndMAC: material,
+            expectedFrom: account.jid, expectedTo: account.jid))
+        return try XCTUnwrap(opened.content.element(forName: "share", xmlns: TrustSharingSignature.xmlns))
     }
 
     private func receive(_ share: DDXMLElement, itemID: String? = nil) throws {

@@ -254,6 +254,97 @@ final class TrustVerificationInteropTests: XCTestCase {
             XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "1234")
         }
     }
+    private final class BackgroundRotationResult: @unchecked Sendable {
+        private let lock = NSLock()
+        private var error: Error?
+        func record(_ value: Error) { lock.lock(); error = value; lock.unlock() }
+        func rethrowError() throws { lock.lock(); defer { lock.unlock() }; if let error { throw error } }
+    }
+
+    /// Keep the foreground read version stale while a genuinely different
+    /// Realm/thread rotates both public identity and its displayed fingerprint.
+    private func rotatePeerOnBackgroundRealm(primary: String) throws -> Data {
+        let replacement = CryptoKit.Curve25519.Signing.PrivateKey().publicKey.rawRepresentation
+        let replacementFingerprint = try Omemo2IdentityRepresentation.fingerprint(for: replacement)
+        let configuration = realm.configuration
+        let done = DispatchSemaphore(value: 0)
+        let result = BackgroundRotationResult()
+        Thread {
+            autoreleasepool {
+                do {
+                    let background = try Realm(configuration: configuration)
+                    let identity = try XCTUnwrap(background.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: primary))
+                    let device = try XCTUnwrap(background.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: primary))
+                    try background.write {
+                        identity.identityKey = replacement.base64EncodedString()
+                        device.fingerprint = replacementFingerprint
+                        device.state = .unknown
+                    }
+                } catch { result.record(error) }
+            }
+            done.signal()
+        }.start()
+        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        try result.rethrowError()
+        return replacement
+    }
+
+    func testStaleRealmManualTrustCannotAuthorizeRotatedIdentity() throws {
+        try withPreparedPeer { account, peerKey, device, _ in
+            realm.autorefresh = false
+            defer { realm.autorefresh = true }
+            let oldFingerprint = device.fingerprint
+            _ = try rotatePeerOnBackgroundRealm(primary: device.primary)
+            XCTAssertEqual(device.fingerprint, oldFingerprint)
+            XCTAssertEqual(account.akeManager.getUsersIdentityKey(jid: peer, deviceId: 42), peerKey.publicKey.rawRepresentation)
+            XCTAssertFalse(account.akeManager.writeTrustedDevice(jid: peer, deviceId: 42))
+            realm.refresh()
+            XCTAssertEqual(device.state, .unknown)
+            XCTAssertNotEqual(device.fingerprint, oldFingerprint)
+        }
+    }
+
+    func testStaleRealmSuccessCannotTrustRotatedIdentity() throws {
+        try withPreparedPeer { account, peerKey, device, bundle in
+            let value = try exchangeAsResponder(account: account, peerKey: peerKey, peerDevice: device, bundle: bundle)
+            XCTAssertEqual(value.state, .verifySent)
+            realm.autorefresh = false
+            defer { realm.autorefresh = true }
+            _ = try rotatePeerOnBackgroundRealm(primary: device.primary)
+            XCTAssertEqual(account.akeManager.getUsersIdentityKey(jid: peer, deviceId: 42), peerKey.publicKey.rawRepresentation)
+            _ = account.akeManager.didReceivedVerificationMessage(message: try message("<success xmlns='urn:xabber:trust' session-id='\(sid)'/>"))
+            realm.refresh()
+            XCTAssertEqual(device.state, .unknown)
+            XCTAssertEqual(value.state, .failed)
+        }
+    }
+
+    func testStaleRealmVerifyCannotTrustRotatedIdentity() throws {
+        try withPreparedPeer { account, peerKey, device, bundle in
+            let value = try session(role: .initiator, state: .sentRequest)
+            try realm.write { value.myDeviceId = 11; value.localDeviceId = 11 }
+            let code = "123456", remoteNonce = Data(repeating: 23, count: 32), remoteIV = Data(repeating: 29, count: 16)
+            let shared = try Omemo2IdentityRepresentation.sharedSecret(privateKey: peerKey.rawRepresentation, peerIdentity: bundle.identityKey)
+            let encryptionKey = Data(SHA256.hash(data: shared + Data(code.utf8) + Data(sid.utf8)))
+            let encrypted = try AES(key: Array(encryptionKey), blockMode: CBC(iv: Array(remoteIV))).encrypt(Array(remoteNonce))
+            _ = account.akeManager.didReceivedVerificationMessage(message: try message("<challenge xmlns='urn:xabber:trust' session-id='\(sid)' device-id='42'><nonce iv='\(remoteIV.base64EncodedString())'>\(Data(encrypted).base64EncodedString())</nonce></challenge>"))
+            account.akeManager.processSecretCode(code: code, sid: sid)
+            XCTAssertEqual(value.state, .responseSent)
+            let localNonce = try XCTUnwrap(Data(base64Encoded: value.localNonce))
+            let trustedKey = Data("42::\(device.fingerprint.replacingOccurrences(of: " ", with: ""))".utf8)
+            let mac = Data(CryptoKit.HMAC<SHA256>.authenticationCode(for: trustedKey + remoteNonce + localNonce,
+                using: SymmetricKey(data: encryptionKey)))
+            realm.autorefresh = false
+            defer { realm.autorefresh = true }
+            _ = try rotatePeerOnBackgroundRealm(primary: device.primary)
+            XCTAssertEqual(account.akeManager.getUsersIdentityKey(jid: peer, deviceId: 42), peerKey.publicKey.rawRepresentation)
+            _ = account.akeManager.didReceivedVerificationMessage(message: try message("<verify xmlns='urn:xabber:trust' session-id='\(sid)'><key-mac>\(mac.base64EncodedString())</key-mac></verify>"))
+            realm.refresh()
+            XCTAssertEqual(device.state, .unknown)
+            XCTAssertEqual(value.state, .failed)
+        }
+    }
+
     private final class Memory: OMEMO2StatePersistence {
         var records: [String: Data] = [:]
         func load(owner: String) throws -> Data? { records[owner] }

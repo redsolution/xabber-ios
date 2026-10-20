@@ -21025,6 +21025,15 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Queue completion proves the writer committed. Explicitly advance the
+    /// test-thread Realm before observing that commit, independent of run-loop
+    /// auto-refresh timing.
+    private func persistedMessageCount() throws -> Int {
+        let realm = try WRealm.safe()
+        realm.refresh()
+        return realm.objects(MessageStorageItem.self).count
+    }
+
     private func makeElement(xml: String) throws -> DDXMLElement {
         let document = try DDXMLDocument(xmlString: xml, options: 0)
         guard let root = document.rootElement() else {
@@ -21688,7 +21697,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
             ["chunk:100", "chunk:1", "interactive-finished", "chunk:100", "chunk:5"],
             "query-scoped interactive persistence must run before the second ordinary first-login chunk"
         )
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 206)
+        XCTAssertEqual(try self.persistedMessageCount(), 206)
     }
 
     func testInteractiveArchivePersistenceFinishesAllChunksBeforeOrdinaryDrainResumes() throws {
@@ -22447,7 +22456,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
             1,
             "late ingress must be coalesced into the single bounded page persistence pass"
         )
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, transportDeliveredResultCount)
+        XCTAssertEqual(try self.persistedMessageCount(), transportDeliveredResultCount)
         XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
         XCTAssertNotEqual(
@@ -22657,7 +22666,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
 
         XCTAssertTrue(
             waitUntil {
-                (try? WRealm.safe().objects(MessageStorageItem.self).count) == 1
+                (try? self.persistedMessageCount()) == 1
             },
             "a parked archive request has no runnable Realm work and must yield to the ordinary queue"
         )
@@ -22681,7 +22690,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
 
         XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(try self.persistedMessageCount(), 1)
 
         let completed = expectation(description: "late terminal joiners completed")
         completed.expectedFulfillmentCount = 2
@@ -22889,7 +22898,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
             },
             81
         )
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 0)
+        XCTAssertEqual(try self.persistedMessageCount(), 0)
 
         let summary = manager.finishArchiveQueryBatchSummary(queryId: queryId)
 
@@ -22897,7 +22906,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(manager.messagePersistenceChunkSizes, [81])
         XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 81)
+        XCTAssertEqual(try self.persistedMessageCount(), 81)
     }
 
     func testSameArchivedStanzaHasIndependentPersistenceTerminalForEachActiveQuery() throws {
@@ -22940,7 +22949,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(secondSummary.savedNew, 0)
         XCTAssertEqual(secondSummary.updatedExisting, 1)
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: secondQueryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(try self.persistedMessageCount(), 1)
 
         let stored = try XCTUnwrap(
             WRealm.safe()
@@ -22981,7 +22990,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
 
         XCTAssertEqual(summary.persistedRows, 1)
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 2)
+        XCTAssertEqual(try self.persistedMessageCount(), 2)
     }
 
     func testArchiveBatchFailureCleanupPersistsPartialPageAsynchronously() throws {
@@ -23002,7 +23011,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         wait(for: [flushed], timeout: 2)
         XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 5)
+        XCTAssertEqual(try self.persistedMessageCount(), 5)
     }
 
 
@@ -23021,7 +23030,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
 
         XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 7)
+        XCTAssertEqual(try self.persistedMessageCount(), 7)
     }
 
     func testArchivePersistenceSummaryCountsDuplicateExistingRows() throws {
@@ -23234,7 +23243,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(summary.updatedExisting, 0)
         XCTAssertEqual(summary.failed, 0)
         XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 2)
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 2)
+        XCTAssertEqual(try self.persistedMessageCount(), 2)
     }
 
     func testStoreMessagesNowPersistsLargeArchiveQueryInConfiguredChunks() throws {
@@ -23264,7 +23273,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(summary.failed, 0)
         XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 5)
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 5)
+        XCTAssertEqual(try self.persistedMessageCount(), 5)
     }
 
     func testStoreMessagesNowChunkingDrainsOnlyRequestedQuery() throws {
@@ -23291,7 +23300,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertFalse(manager.hasPendingMessages(forQueryId: requestedQueryId))
         XCTAssertTrue(manager.hasPendingMessages(forQueryId: unrelatedQueryId))
         XCTAssertEqual(manager.performMessageQueueSync { manager.queuedMessages.count }, 2)
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 3)
+        XCTAssertEqual(try self.persistedMessageCount(), 3)
     }
 
     func testChunkFallbackDoesNotPoisonLaterChunks() throws {
@@ -23323,7 +23332,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(summary.savedNew, 5)
         XCTAssertEqual(summary.failed, 0)
         XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 5)
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 5)
+        XCTAssertEqual(try self.persistedMessageCount(), 5)
     }
 
     func testChunkedPersistencePreservesChronologicalOrder() throws {

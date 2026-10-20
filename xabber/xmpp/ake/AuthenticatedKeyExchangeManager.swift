@@ -373,10 +373,21 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         } catch { return nil }
     }
 
+    /// Call only while holding the write transaction that authors trust.
+    /// Realm.beginWrite refreshes stale readers, so no previously validated
+    /// managed object may carry authority across that boundary.
     private func validatedTrustTarget(realm: Realm, jid: String, deviceId: Int,
-                                      expectedIdentity: Data? = nil) -> SignalDeviceStorageItem? {
-        guard let identity = getUsersIdentityKey(jid: jid, deviceId: deviceId), identity.count == 32,
-              expectedIdentity == nil || identity == expectedIdentity,
+                                      expectedIdentity: Data, expectedOwnIdentity: Data,
+                                      localDeviceId: Int) -> SignalDeviceStorageItem? {
+        guard realm.isInWriteTransaction, localDeviceId > 0,
+              let account = AccountManager.shared.find(for: owner),
+              account.omemo.localStore.localDeviceId() == localDeviceId,
+              let bundle = try? account.omemo.omemo2Storage?.localBundle(),
+              bundle.deviceID == localDeviceId, bundle.identityKey == expectedOwnIdentity,
+              let stored = realm.object(ofType: SignalIdentityStorageItem.self,
+                  forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: owner, jid: jid, deviceId: deviceId)),
+              let encoded = stored.identityKey, let identity = Data(base64Encoded: encoded),
+              identity.count == 32, identity == expectedIdentity,
               let fingerprint = try? Omemo2IdentityRepresentation.fingerprint(for: identity),
               let device = realm.object(ofType: SignalDeviceStorageItem.self,
                   forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceId)),
@@ -385,16 +396,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         return device
     }
 
-    private func applyLocalTrust(_ device: SignalDeviceStorageItem) throws {
+    private func applyLocalTrust(_ device: SignalDeviceStorageItem, localDeviceId: Int) throws {
         let now = Date()
-        guard let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(
+        guard localDeviceId > 0, let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(
             previous: device.lastTrustSharingTimestamp, at: now) else {
             throw AuthenticatedKeyExchangeManagerError.invalidDecisionTimestamp
         }
         device.trustDate = now
         device.lastTrustSharingTimestamp = timestamp
         device.state = .trusted
-        device.trustedByDeviceId = String(AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() ?? 0)
+        device.trustedByDeviceId = String(localDeviceId)
     }
 
     private var processedStanzas: Set<String> = []
@@ -685,9 +696,19 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     @discardableResult
     func writeTrustedDevice(jid: String, deviceId: Int) -> Bool {
         do {
+            guard let expectedIdentity = getUsersIdentityKey(jid: jid, deviceId: deviceId),
+                  let account = AccountManager.shared.find(for: owner),
+                  let bundle = try account.omemo.omemo2Storage?.localBundle() else { return false }
+            let localDeviceId = account.omemo.localStore.localDeviceId()
             let realm = try WRealm.safe()
-            guard let target = validatedTrustTarget(realm: realm, jid: jid, deviceId: deviceId) else { return false }
-            try realm.write { try applyLocalTrust(target) }
+            try realm.write {
+                guard let target = validatedTrustTarget(realm: realm, jid: jid, deviceId: deviceId,
+                    expectedIdentity: expectedIdentity, expectedOwnIdentity: bundle.identityKey,
+                    localDeviceId: localDeviceId) else {
+                    throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial
+                }
+                try applyLocalTrust(target, localDeviceId: localDeviceId)
+            }
             return true
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
@@ -1029,11 +1050,22 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             }
 
             let localDeviceId = account.omemo.localStore.localDeviceId()
-            guard let binding = keyBinding(for: instance.sid),
-                  let target = validatedTrustTarget(realm: realm, jid: instance.jid, deviceId: remoteDeviceId,
-                      expectedIdentity: binding.peerIdentity) else { return }
+            guard let binding = keyBinding(for: instance.sid) else { return }
             try realm.write {
-                try applyLocalTrust(target)
+                let pinned = instance.peerFullJid.isEmpty ? instance.fullJID : instance.peerFullJid
+                guard instance.role == .initiator, instance.state == .responseSent,
+                      instance.expires > Date().timeIntervalSince1970,
+                      instance.myDeviceId == localDeviceId,
+                      instance.jid == binding.peer, remoteDeviceId == binding.deviceID,
+                      instance.opponentDeviceId == remoteDeviceId,
+                      pinned.isEmpty || pinned == from.full,
+                      verificationKeysUnchanged(instance),
+                      let target = validatedTrustTarget(realm: realm, jid: instance.jid, deviceId: remoteDeviceId,
+                          expectedIdentity: binding.peerIdentity, expectedOwnIdentity: binding.ownIdentity,
+                          localDeviceId: localDeviceId) else {
+                    throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial
+                }
+                try applyLocalTrust(target, localDeviceId: localDeviceId)
                 instance.opponentDeviceId = remoteDeviceId
                 instance.remoteDeviceId = remoteDeviceId
                 instance.state = .trusted
@@ -1044,7 +1076,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             onVerificationTrusted(jid: instance.jid, deviceId: remoteDeviceId, sid: envelope.sid)
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-            sendAbort(to: from, sid: envelope.sid, expires: envelope.expires, reason: .fail)
+            failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
         }
     }
 
@@ -1058,10 +1090,23 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             }
 
             guard let binding = keyBinding(for: instance.sid),
-                  let target = validatedTrustTarget(realm: realm, jid: instance.jid, deviceId: remoteDeviceId,
-                      expectedIdentity: binding.peerIdentity) else { return }
+                  let account = AccountManager.shared.find(for: owner) else { return }
+            let localDeviceId = account.omemo.localStore.localDeviceId()
             try realm.write {
-                try applyLocalTrust(target)
+                let pinned = instance.peerFullJid.isEmpty ? instance.fullJID : instance.peerFullJid
+                guard instance.role == .responder, instance.state == .verifySent,
+                      instance.expires > Date().timeIntervalSince1970,
+                      instance.myDeviceId == localDeviceId,
+                      instance.jid == binding.peer, remoteDeviceId == binding.deviceID,
+                      instance.opponentDeviceId == remoteDeviceId,
+                      pinned.isEmpty || pinned == from.full,
+                      verificationKeysUnchanged(instance),
+                      let target = validatedTrustTarget(realm: realm, jid: instance.jid, deviceId: remoteDeviceId,
+                          expectedIdentity: binding.peerIdentity, expectedOwnIdentity: binding.ownIdentity,
+                          localDeviceId: localDeviceId) else {
+                    throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial
+                }
+                try applyLocalTrust(target, localDeviceId: localDeviceId)
                 instance.fullJID = from.full
                 instance.peerFullJid = from.full
                 instance.opponentDeviceId = remoteDeviceId
@@ -1071,6 +1116,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             onVerificationTrusted(jid: instance.jid, deviceId: remoteDeviceId, sid: envelope.sid)
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+            failSession(sid: envelope.sid, reason: .fail, shouldNotifyPeer: true)
         }
     }
 
