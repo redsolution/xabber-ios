@@ -803,6 +803,7 @@ extension OmemoManager {
         if jid == self.owner {
             AccountManager.shared.find(for: self.owner)?.action { user, stream in user.devices.requestList(stream) }
         }
+        AccountManager.shared.find(for: owner)?.trustSharingManager.didCommitContactBundle(jid: jid, deviceID: cDeviceId)
         return true
     }
 

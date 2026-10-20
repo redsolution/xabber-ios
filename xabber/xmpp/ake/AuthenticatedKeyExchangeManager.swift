@@ -467,8 +467,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
     private func applyLocalTrust(_ device: SignalDeviceStorageItem, localDeviceId: Int) throws {
         let now = Date()
+        guard let realm = device.realm, realm.isInWriteTransaction,
+              let account = AccountManager.shared.find(for: owner) else {
+            throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial
+        }
+        let fingerprint = device.fingerprint.filter { !$0.isWhitespace }.lowercased()
+        let acceptedFloor = try account.trustSharingManager.acceptedDecisionTimestamp(in: realm,
+            jid: device.jid, deviceID: device.deviceId, fingerprint: fingerprint)
+        let currentFloor = device.state == .fingerprintChanged ? 0 : device.lastTrustSharingTimestamp
         guard localDeviceId > 0, let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(
-            previous: device.lastTrustSharingTimestamp, at: now) else {
+            previous: max(currentFloor, acceptedFloor), at: now) else {
             throw AuthenticatedKeyExchangeManagerError.invalidDecisionTimestamp
         }
         device.trustDate = now

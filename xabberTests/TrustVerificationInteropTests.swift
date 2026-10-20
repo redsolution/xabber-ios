@@ -387,6 +387,22 @@ final class TrustVerificationInteropTests: XCTestCase {
             XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "1234")
         }
     }
+    func testChangedFingerprintLocalDecisionDoesNotInheritPreviousTargetClock() throws {
+        try withPreparedPeer { account, _, device, _ in
+            try realm.write {
+                device.state = .fingerprintChanged
+                device.lastTrustSharingTimestamp = 5_000_000_000
+            }
+            let before = Int64(Date().timeIntervalSince1970)
+
+            XCTAssertTrue(account.akeManager.writeTrustedDevice(jid: peer, deviceId: 42))
+
+            XCTAssertEqual(device.state, .trusted)
+            XCTAssertGreaterThanOrEqual(device.lastTrustSharingTimestamp, before)
+            XCTAssertLessThanOrEqual(device.lastTrustSharingTimestamp, Int64(Date().timeIntervalSince1970) + 1,
+                "A different full SID/fingerprint target has an independent decision clock")
+        }
+    }
     private final class BackgroundRotationResult: @unchecked Sendable {
         private let lock = NSLock()
         private var error: Error?

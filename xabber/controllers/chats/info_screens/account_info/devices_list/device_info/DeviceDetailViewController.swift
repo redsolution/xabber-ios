@@ -36,12 +36,17 @@ enum DeviceDetailLocalTrustDecision {
     static func apply(to device: SignalDeviceStorageItem,
                       state: SignalDeviceStorageItem.TrustState,
                       at date: Date = Date()) -> Bool {
-        guard state == .unknown || state == .distrusted,
-              let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(
-                previous: device.lastTrustSharingTimestamp, at: date
-              ) else {
-            return false
+        guard state == .unknown || state == .distrusted else { return false }
+        var previous = device.state == .fingerprintChanged ? 0 : device.lastTrustSharingTimestamp
+        if let realm = device.realm {
+            guard realm.isInWriteTransaction,
+                  let account = AccountManager.shared.find(for: device.owner),
+                  let acceptedFloor = try? account.trustSharingManager.acceptedDecisionTimestamp(in: realm,
+                    jid: device.jid, deviceID: device.deviceId,
+                    fingerprint: device.fingerprint.filter { !$0.isWhitespace }.lowercased()) else { return false }
+            previous = max(previous, acceptedFloor)
         }
+        guard let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(previous: previous, at: date) else { return false }
         device.state = state
         device.trustDate = Date(timeIntervalSince1970: -1)
         device.trustedByDeviceId = nil
