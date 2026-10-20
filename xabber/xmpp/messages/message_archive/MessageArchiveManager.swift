@@ -1147,6 +1147,45 @@ class MessageArchiveManager: AbstractXMPPManager {
         var omemo2CleanupResetEpoch: UInt64 = 0
     }
 
+    private struct StanzaReferenceResolution {
+        let request: ArchiveStanzaReferenceResolutionRequest
+        var boundArchiveIDs = Set<String>()
+        var rejectedResult = false
+
+        mutating func record(_ envelope: XMPPMessage, resultID: String?) {
+            let conversation = request.conversation
+            let archiveAuthority = [.group, .channel].contains(conversation.conversationType)
+                ? conversation.jid : conversation.owner
+            guard envelope.from == nil || envelope.from?.bare == archiveAuthority,
+                  envelope.to == nil || envelope.to?.bare == conversation.owner,
+                  let message = getArchivedMessageContainer(envelope),
+                  let from = message.from?.bare,
+                  let to = message.to?.bare,
+                  (from == conversation.owner && to == conversation.jid)
+                    || (from == conversation.jid && to == conversation.owner),
+                  let resultID,
+                  ArchiveCursor(rawValue: resultID) != nil else {
+                rejectedResult = true
+                return
+            }
+            let identities = SCEReceivePolicy.children(
+                of: message, named: "stanza-id", xmlns: "urn:xmpp:sid:0"
+            ).filter { $0.attributeStringValue(forName: "by") == archiveAuthority }
+            let encrypted = message.elements(forName: "encrypted")
+            let typeMatches = conversationTypeByMessage(message) == conversation.conversationType
+                && (conversation.conversationType.isEncrypted
+                    ? encrypted.count == 1 && encrypted.first?.xmlns == conversation.conversationTypeRaw
+                    : encrypted.isEmpty)
+            guard identities.count == 1,
+                  identities.first?.attributeStringValue(forName: "id") == request.reference,
+                  typeMatches else {
+                rejectedResult = true
+                return
+            }
+            boundArchiveIDs.insert(resultID)
+        }
+    }
+
     struct DeferredArchiveTransportProof {
         var deliveredResultCount: Int = 0
         var deliveredResultIds: Set<String> = []
@@ -1340,6 +1379,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     private var persistedMessageCountsByQueryId: [String: Int] = [:]
     private let deferredArchiveCommitLock = NSLock()
     private var deferredArchiveTransportProofsByQueryId: [String: DeferredArchiveTransportProof] = [:]
+    private var stanzaReferenceResolutions: [String: StanzaReferenceResolution] = [:]
     private var sealedArchiveTransportProofsByQueryId: [String: DeferredArchiveTransportProof] = [:]
     private var sealedArchiveTransportProofOrder: [String] = []
     private var persistenceIngressExpectationsByQueryId: [String: Int] = [:]
@@ -2740,6 +2780,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             deferredArchiveTransportProofsByQueryId[queryId] ??
             DeferredArchiveTransportProof()
         proof.record(resultId: result.attributeStringValue(forName: "id"))
+        if var resolution = stanzaReferenceResolutions[queryId] {
+            resolution.record(message, resultID: result.attributeStringValue(forName: "id"))
+            stanzaReferenceResolutions[queryId] = resolution
+        }
         deferredArchiveTransportProofsByQueryId[queryId] = proof
         deferredArchiveCommitLock.unlock()
         return true
@@ -2856,6 +2900,35 @@ class MessageArchiveManager: AbstractXMPPManager {
         let intentionallyConsumedArchiveIDs: Set<String>
     }
 
+    internal func registerStanzaReferenceResolution(
+        _ request: ArchiveStanzaReferenceResolutionRequest
+    ) -> Bool {
+        guard request.conversation.owner == owner,
+              request.reference.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+            return false
+        }
+        deferredArchiveCommitLock.lock()
+        defer { deferredArchiveCommitLock.unlock() }
+        guard stanzaReferenceResolutions[request.queryID] == nil else { return false }
+        stanzaReferenceResolutions[request.queryID] = StanzaReferenceResolution(request: request)
+        return true
+    }
+
+    internal func resolvedStanzaReferenceCursor(
+        queryID: String,
+        deliveredArchiveIDs: [String]
+    ) throws -> ArchiveCursor? {
+        deferredArchiveCommitLock.lock()
+        defer { deferredArchiveCommitLock.unlock() }
+        guard let resolution = stanzaReferenceResolutions[queryID],
+              !resolution.rejectedResult,
+              resolution.boundArchiveIDs == Set(deliveredArchiveIDs),
+              resolution.boundArchiveIDs.count <= 1 else {
+            throw ArchiveTransportError.protocolViolation
+        }
+        return resolution.boundArchiveIDs.first.flatMap(ArchiveCursor.init(rawValue:))
+    }
+
     internal func archiveTransportAccountingSnapshot(
         queryId: String
     ) -> ArchiveTransportAccountingSnapshot? {
@@ -2887,6 +2960,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         deferredArchiveCommitLock.lock()
         deferredArchiveTransportProofsByQueryId.removeValue(forKey: queryId)
+        stanzaReferenceResolutions.removeValue(forKey: queryId)
         sealedArchiveTransportProofsByQueryId.removeValue(forKey: queryId)
         sealedArchiveTransportProofOrder.removeAll { $0 == queryId }
         persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
@@ -3571,6 +3645,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         // Only proofs for requests still on the wire belong to the discarded
         // session.
         self.deferredArchiveTransportProofsByQueryId.removeAll()
+        self.stanzaReferenceResolutions = self.stanzaReferenceResolutions.filter {
+            self.sealedArchiveTransportProofsByQueryId[$0.key] != nil
+        }
         self.deferredArchiveCommitLock.unlock()
         self.clearArchiveQueryPurposeRegistry()
         // Invoke callbacks after all old-session state has been cleared. A

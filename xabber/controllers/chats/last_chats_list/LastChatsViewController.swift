@@ -1241,6 +1241,18 @@ enum LastChatMessagePreviewPolicy {
         let isItalic: Bool
     }
 
+    /// A persisted freshness hint cannot replace content that is already
+    /// available for this row, including a cold materialized/list-only preview.
+    static func shouldShowEmptyEncryptedPlaceholder(
+        for chat: LastChatsStorageItem,
+        message: MessageStorageItem?,
+        synchronizedProjection: LastChatListSyncPreviewProjection? = nil
+    ) -> Bool {
+        chat.conversationType.isEncrypted &&
+            chat.isFreshNotEmptyEncryptedChat &&
+            message == nil && synchronizedProjection == nil
+    }
+
     static func preview(
         for message: MessageStorageItem?,
         synchronizedProjection: LastChatListSyncPreviewProjection? = nil,
@@ -4264,7 +4276,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 if isAttachmentPreviewItalic {
                     isSystemMessage = true
                 }
-                if item.isFreshNotEmptyEncryptedChat {
+                if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                    for: item,
+                    message: presentationLastMessage,
+                    synchronizedProjection: synchronizedPreview
+                ) {
                     message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                     isSystemMessage = true
                 }

@@ -1167,11 +1167,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return fallback
     }
 
-    static func archivedMessageDate(from messageElement: DDXMLElement?, fallbackSyncStamp: Double) -> Date {
-        guard let messageElement = messageElement else {
-            return dateFromSyncStamp(fallbackSyncStamp)
-        }
-        return dateFromSyncStamp(syncStamp(from: messageElement, fallback: fallbackSyncStamp))
+    static func archivedMessageDate(from messageElement: DDXMLElement?, owner: String? = nil) -> Date? {
+        guard let messageElement else { return nil }
+        let message = XMPPMessage(from: messageElement)
+        // A sync preview contains the original stanza, not another transport
+        // envelope. Reuse qualified time/delay validation without accepting a
+        // nested archive/rewrite timestamp or the conversation's event stamp.
+        guard let path = try? OmemoManager.incomingPath(message, owner: owner),
+              path.count == 1 else { return nil }
+        return try? OmemoManager.originalSendingTime(for: message, owner: owner)?.date
     }
 
     private static func syncMetadata(from conversation: DDXMLElement) -> DDXMLElement? {
@@ -1706,25 +1710,32 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let syncStamp = conversation.attributeDoubleValue(forName: "stamp")
         if let messageElement {
             let message = XMPPMessage(from: messageElement)
+            let previousLastMessageID = instance.lastMessageId
             instance.lastMessageId = getOriginId(message) ??
                 message.elementID ??
                 getStanzaId(message, owner: owner) ??
                 ""
-            instance.messageDate = Self.archivedMessageDate(
+            if let messageDate = Self.archivedMessageDate(
                 from: messageElement,
-                fallbackSyncStamp: syncStamp
-            )
+                owner: owner
+            ) {
+                instance.messageDate = messageDate
+            } else if previousLastMessageID.isEmpty || previousLastMessageID != instance.lastMessageId {
+                // A retained date belongs only to the same known message.
+                instance.messageDate = Date(timeIntervalSince1970: 0)
+            }
             if let lastMessage = instance.lastMessage,
                lastMessage.messageId != instance.lastMessageId,
                lastMessage.archivedId != instance.lastMessageId {
                 instance.lastMessage = nil
             }
-        } else if existing == nil {
-            instance.messageDate = Self.dateFromSyncStamp(syncStamp)
         }
         instance.updateTS = syncStamp
+        // A list-only sync can omit last-message XML for an established chat.
+        // Its known identity/link must not become a new-chat invitation.
         instance.isFreshNotEmptyEncryptedChat =
-            conversationType.isEncrypted && messageElement == nil
+            conversationType.isEncrypted && messageElement == nil &&
+            instance.lastMessageId.isEmpty && instance.lastMessage == nil
         instance.isPrereaded = false
 
         if existing == nil {

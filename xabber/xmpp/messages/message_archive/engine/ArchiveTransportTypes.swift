@@ -13,6 +13,14 @@ struct ArchiveTransportRequest: Hashable, Sendable {
     let producesContinuousCoverage: Bool
 }
 
+/// A raw protocol reference is a lookup input, never an archive cursor.
+struct ArchiveStanzaReferenceResolutionRequest: Hashable, Sendable {
+    let queryID: String
+    let conversation: ArchiveConversationKey
+    let reference: String
+    let connectionGeneration: UInt64
+}
+
 struct ArchiveTransportReceipt: Hashable, Sendable {
     var queryID: String
     var connectionGeneration: UInt64
@@ -27,6 +35,7 @@ struct ArchiveTransportReceipt: Hashable, Sendable {
     var intentionallyConsumedResultCount: Int
     var failedPersistenceCount: Int
     var finalReceived: Bool
+    var resolvedStanzaReference: ArchiveCursor? = nil
 }
 
 struct ArchiveSearchTransportRequest: Hashable, Sendable {
@@ -364,6 +373,11 @@ enum ArchiveRepositoryAdmission: Hashable, Sendable {
 }
 
 protocol ArchiveCoverageRepository: Sendable {
+    func firstIncomingAnchor(
+        conversation: ArchiveConversationKey,
+        after boundary: ArchiveCursor,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor?
     func verifiedAdmission(
         for intent: ArchiveWindowIntent,
         freshnessToken: ArchiveFreshnessToken
@@ -393,6 +407,16 @@ protocol ArchiveCoverageRepository: Sendable {
     ) async throws -> ArchiveWindowSnapshot?
 }
 
+extension ArchiveCoverageRepository {
+    func firstIncomingAnchor(
+        conversation: ArchiveConversationKey,
+        after boundary: ArchiveCursor,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor? {
+        nil
+    }
+}
+
 protocol ArchiveMessageMaterializationResolving: Sendable {
     func materializedMessages(
         conversation: ArchiveConversationKey,
@@ -401,6 +425,10 @@ protocol ArchiveMessageMaterializationResolving: Sendable {
 }
 
 protocol ArchiveTransport: Sendable {
+    func resolveStanzaReference(
+        _ request: ArchiveStanzaReferenceResolutionRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveCursor?
     func request(
         _ request: ArchiveTransportRequest,
         priority: ArchiveIntentPriority
@@ -416,6 +444,15 @@ protocol ArchiveTransport: Sendable {
     ) async throws -> ArchiveSearchTransportReceipt
 }
 
+extension ArchiveTransport {
+    func resolveStanzaReference(
+        _ request: ArchiveStanzaReferenceResolutionRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveCursor? {
+        throw ArchiveTransportError.protocolViolation
+    }
+}
+
 enum ArchiveTransportError: Error, Equatable, Sendable {
     case disconnected
     case timeout
@@ -424,12 +461,14 @@ enum ArchiveTransportError: Error, Equatable, Sendable {
     case authentication
     case protocolViolation
     case malformedCursor
+    case targetNotFound
+    case targetSearchLimit
 
     var isRetryable: Bool {
         switch self {
-        case .disconnected, .timeout, .serverError, .storage:
+        case .disconnected, .timeout, .serverError, .storage, .targetSearchLimit:
             return true
-        case .authentication, .protocolViolation, .malformedCursor:
+        case .authentication, .protocolViolation, .malformedCursor, .targetNotFound:
             return false
         }
     }

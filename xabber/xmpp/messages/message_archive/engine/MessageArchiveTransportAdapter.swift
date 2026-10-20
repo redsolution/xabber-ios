@@ -185,6 +185,77 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
         _ request: ArchiveTransportRequest,
         priority: ArchiveIntentPriority
     ) async throws -> ArchiveTransportReceipt {
+        let receipt = try await requestPage(
+            request,
+            priority: priority,
+            timestampDirection: .atOrAfter
+        )
+        guard case .timestamp = request.locator,
+              receipt.deliveredResultCount == 0 else {
+            return receipt
+        }
+        // A timestamp after the newest message still needs a nearby anchor.
+        // Validate the empty forward page before trying the last bounded page
+        // at/before the date. A new query identity rejects late forward replies.
+        _ = try ArchiveTransportReceiptValidator.validate(receipt, for: request)
+        let fallback = ArchiveTransportRequest(
+            queryID: "\(request.queryID).before.\(UUID().uuidString)",
+            conversation: request.conversation,
+            locator: request.locator,
+            connectionGeneration: request.connectionGeneration,
+            pageSize: request.pageSize,
+            contextBefore: request.contextBefore,
+            contextAfter: request.contextAfter,
+            proofFingerprint: request.proofFingerprint,
+            isUnfiltered: request.isUnfiltered,
+            producesContinuousCoverage: request.producesContinuousCoverage
+        )
+        var fallbackReceipt = try await requestPage(
+            fallback,
+            priority: priority,
+            timestampDirection: .atOrBefore
+        )
+        _ = try ArchiveTransportReceiptValidator.validate(fallbackReceipt, for: fallback)
+        fallbackReceipt.queryID = request.queryID
+        return fallbackReceipt
+    }
+
+    func resolveStanzaReference(
+        _ request: ArchiveStanzaReferenceResolutionRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveCursor? {
+        guard let account else { throw ArchiveTransportError.disconnected }
+        guard request.conversation.owner == account.jid else {
+            throw ArchiveTransportError.authentication
+        }
+        let lookup = ArchiveTransportRequest(
+            queryID: request.queryID,
+            conversation: request.conversation,
+            locator: .latest,
+            connectionGeneration: request.connectionGeneration,
+            pageSize: 1,
+            contextBefore: 0,
+            contextAfter: 0,
+            proofFingerprint: "reference-resolution",
+            isUnfiltered: false,
+            producesContinuousCoverage: false
+        )
+        let receipt = try await requestPage(
+            lookup,
+            priority: priority,
+            timestampDirection: .atOrAfter,
+            referenceResolution: request
+        )
+        _ = try ArchiveTransportReceiptValidator.validate(receipt, for: lookup)
+        return receipt.resolvedStanzaReference
+    }
+
+    private func requestPage(
+        _ request: ArchiveTransportRequest,
+        priority: ArchiveIntentPriority,
+        timestampDirection: ArchiveTimestampLookupDirection,
+        referenceResolution: ArchiveStanzaReferenceResolutionRequest? = nil
+    ) async throws -> ArchiveTransportReceipt {
         guard let account else {
             throw ArchiveTransportError.disconnected
         }
@@ -194,7 +265,8 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
             account.xmppTaskScheduler.enqueueAccountTask(
                 priority: Self.schedulerPriority(priority),
                 resource: .mamArchive,
-                deduplicationKey: Self.deduplicationKey(for: request),
+                deduplicationKey: referenceResolution.map { "archive-reference.\($0.queryID)" }
+                    ?? Self.deduplicationKey(for: request),
                 unavailable: {
                     continuationBox.resume(throwing: ArchiveTransportError.disconnected)
                 }
@@ -206,6 +278,8 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                 }
                 let transaction = ArchiveTransportTransaction(
                     request: request,
+                    timestampDirection: timestampDirection,
+                    referenceResolution: referenceResolution,
                     account: user,
                     materializationResolver: self.materializationResolver,
                     continuationBox: continuationBox,
@@ -435,8 +509,15 @@ final class ArchiveTransportContinuationBox: @unchecked Sendable {
     }
 }
 
+private enum ArchiveTimestampLookupDirection: Equatable, Sendable {
+    case atOrAfter
+    case atOrBefore
+}
+
 private final class ArchiveTransportTransaction: @unchecked Sendable {
     private let request: ArchiveTransportRequest
+    private let timestampDirection: ArchiveTimestampLookupDirection
+    private let referenceResolution: ArchiveStanzaReferenceResolutionRequest?
     private let account: Account
     private let materializationResolver: ArchiveMessageMaterializationResolving
     private let continuationBox: ArchiveTransportContinuationBox
@@ -452,6 +533,8 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
 
     init(
         request: ArchiveTransportRequest,
+        timestampDirection: ArchiveTimestampLookupDirection,
+        referenceResolution: ArchiveStanzaReferenceResolutionRequest?,
         account: Account,
         materializationResolver: ArchiveMessageMaterializationResolving,
         continuationBox: ArchiveTransportContinuationBox,
@@ -460,6 +543,8 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         finishSchedulerSlot: @escaping () -> Void
     ) {
         self.request = request
+        self.timestampDirection = timestampDirection
+        self.referenceResolution = referenceResolution
         self.account = account
         self.materializationResolver = materializationResolver
         self.continuationBox = continuationBox
@@ -476,6 +561,11 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         guard stream.isAuthenticated,
               account.sendReadiness.snapshot.canFlushApplicationStanzas else {
             finish(.failure(ArchiveTransportError.disconnected))
+            return
+        }
+        if let referenceResolution,
+           !account.mam.registerStanzaReferenceResolution(referenceResolution) {
+            finish(.failure(ArchiveTransportError.protocolViolation))
             return
         }
 
@@ -682,6 +772,15 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                             ("accountedFailedResultCount", persistenceAccounting.failedPersistenceCount)
                         ]
                     )
+                    let resolvedReference: ArchiveCursor?
+                    if self.referenceResolution != nil {
+                        resolvedReference = try self.account.mam.resolvedStanzaReferenceCursor(
+                            queryID: self.request.queryID,
+                            deliveredArchiveIDs: accounting.resultArchiveIDs
+                        )
+                    } else {
+                        resolvedReference = nil
+                    }
                     let receipt = ArchiveTransportReceipt(
                         queryID: queryID,
                         connectionGeneration: self.request.connectionGeneration,
@@ -700,9 +799,12 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                                 .intentionallyConsumedResultCount,
                         failedPersistenceCount:
                             persistenceAccounting.failedPersistenceCount,
-                        finalReceived: true
+                        finalReceived: true,
+                        resolvedStanzaReference: resolvedReference
                     )
                     self.finish(.success(receipt))
+                } catch let error as ArchiveTransportError {
+                    self.finish(.failure(error))
                 } catch {
                     self.finish(.failure(ArchiveTransportError.storage))
                 }
@@ -839,6 +941,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
     }
 
     private var purpose: MessageArchiveManager.RequestPurpose {
+        if referenceResolution != nil { return .jump }
         switch request.locator {
         case .latest, .firstUnread(.none): return .bootstrap
         case .firstUnread(.some), .newer: return .pageNewer
@@ -850,22 +953,27 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
     }
 
     private var ids: [String]? {
+        if let referenceResolution { return [referenceResolution.reference] }
         guard case .archiveID(let cursor) = request.locator else { return nil }
         return [cursor.rawValue]
     }
 
     private var nextPage: String? {
+        if referenceResolution != nil { return nil }
         switch request.locator {
         case .latest, .firstUnread(.none), .gap:
             return ""
         case .older(let cursor):
             return cursor.rawValue
+        case .timestamp where timestampDirection == .atOrBefore:
+            return ""
         default:
             return nil
         }
     }
 
     private var previousPage: String? {
+        if referenceResolution != nil { return nil }
         switch request.locator {
         case .newer(let cursor), .firstUnread(.some(let cursor)):
             return cursor.rawValue
@@ -885,13 +993,17 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
     }
 
     private var startDate: Date? {
-        guard case .timestamp(let date) = request.locator else { return nil }
-        return date.addingTimeInterval(-43_200)
+        guard case .timestamp(let date) = request.locator,
+              timestampDirection == .atOrAfter else { return nil }
+        // Default RSM paging starts at the earliest matching result. A broad
+        // date window would select its oldest page instead of a nearby anchor.
+        return date
     }
 
     private var endDate: Date? {
-        guard case .timestamp(let date) = request.locator else { return nil }
-        return date.addingTimeInterval(43_200)
+        guard case .timestamp(let date) = request.locator,
+              timestampDirection == .atOrBefore else { return nil }
+        return date
     }
 
     private static func persistencePriority(

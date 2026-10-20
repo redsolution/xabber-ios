@@ -23,3 +23,9 @@
 - C CTest3/3 обычный и ASan, независимый reference vector, strict Clang syntax и narrow analyzer0 diagnostics (agent verification). Legacy Check suite не запускалась: Check pkg-config/library отсутствует.
 
 Live interoperability не выполнялся. История без прежнего локального authenticated proof не объявляется duplicate по одному архивному ID. Полного journal и глобального cache нет.
+
+## 2026-10-20 — Sync preview before first archive history
+
+A protected authenticated fingerprint may originate from a synchronization preview before history persistence. The new optional pending-sync record retains the exact payload-opening material and canonical message identity in the same ratchet save, bounded and pruned with the 4096-entry ledger. Only archive ingress with no durable authenticated history can reopen this exact pending content, and MAC/SCE/address/time/identity checks run again. Live/carbon, durable-history and control duplicates stay consumed. Sync creates no fake MAM history or coverage. See the [receive contract](omemo2-sce-receive.md#sync-preview-recovery-before-first-history-admission-2026-10-20).
+
+The new receive/cleanup component passes45/45 after meaningful RED; final signed integration passes1463/1463 with zero failures/unexpected/skips. The new final-code300-ID cold test passes with exact native/authenticated/MAM/date/wire evidence, including ordinary relaunch. Previously consumed pre-cache content is not recoverable from a fingerprint alone.

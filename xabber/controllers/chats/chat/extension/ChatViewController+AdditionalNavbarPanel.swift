@@ -181,7 +181,7 @@ extension ChatViewController {
         let messageId: String?
         let authorId: String?
         let bodyFingerprint: String?
-        let sourceDate: Date
+        let sourceDate: Date?
     }
 
     private func pinnedMessagePanelPresentation(messageId pinnedArchivedId: String) -> PinnedMessagePanelPresentation {
@@ -224,7 +224,7 @@ extension ChatViewController {
             messageId: nil,
             authorId: nil,
             bodyFingerprint: nil,
-            sourceDate: Date()
+            sourceDate: nil
         )
     }
 

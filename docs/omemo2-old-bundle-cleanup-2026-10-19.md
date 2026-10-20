@@ -126,3 +126,12 @@ revoke auth devices, device-query update omits `omemo_id`, and PubSub purge/node
 deletion do not clear it. A self-retract from each old device or a server-side
 metadata correction is needed if those references must be removed without
 revocation. Neither auth revocation nor server changes were performed here.
+
+## Current-pair continuation
+
+This report preserves the original redsolution ↔ xmppdev01 cleanup evidence. The
+user subsequently changed the iPad account to `test.omemo.igor@dxs.xabber.com`
+and explicitly authorized revoking the iPhone account's other devices. Current
+membership, authorized revocation and clean-test results are tracked separately
+in [redsolution ↔ DXS verification](omemo2-redsolution-dxs-verification-2026-10-19.md).
+The old xmppdev01 authentication timeout is not a blocker for that current pair.

@@ -130,6 +130,17 @@ final class XabberOMEMO2Storage {
         let retiredAt: Date
     }
 
+    /// Sync authenticates previews before normal history persistence. Keep the
+    /// packet-opening material in the same protected transaction as its ratchet
+    /// so a later MAM ingress can materialize that exact logical message.
+    private struct PendingSyncReceive: Codable {
+        let fingerprint: Data
+        let address: OMEMO2PeerAddress
+        let messageIdentityDigest: Data
+        let keyAndMAC: Data
+        let identity: Data
+    }
+
     private struct State: Codable {
         var version: Int
         var profile: String
@@ -151,6 +162,7 @@ final class XabberOMEMO2Storage {
         var controlsNeeded: Set<OMEMO2PeerAddress>
         // Optional for additive decoding within the native protected aggregate.
         var authenticatedReceiveFingerprints: [Data]? = nil
+        var pendingSyncReceives: [PendingSyncReceive]? = nil
         var sessionReplacements: [String: SessionReplacement]? = nil
         // Realm only mirrors these protected decisions.
         var optOutDecisions: [String: OMEMO2OptOutRecord]? = nil
@@ -324,6 +336,9 @@ final class XabberOMEMO2Storage {
     func decrypt(_ ciphertext: OMEMO2Ciphertext, jid: String, deviceID: Int,
                  replayFingerprint: Data? = nil,
                  previouslyAuthenticated: () -> Bool = { false },
+                 retainingSyncContent: Bool = false,
+                 recoveringSyncContent: Bool = false,
+                 materializationIdentity: () -> String? = { nil },
                  updatingIdentity: (Data) throws -> Void = { _ in },
                  recordingOptOut: () throws -> OMEMO2OptOutRequest? = { nil },
                  authenticatedIdentity: (Data) -> Void = { _ in },
@@ -335,7 +350,19 @@ final class XabberOMEMO2Storage {
             if let replayFingerprint {
                 guard replayFingerprint.count == 32 else { throw OMEMO2StorageError.invalidState }
                 if state.authenticatedReceiveFingerprints?.contains(replayFingerprint) == true {
-                    throw OMEMO2StorageError.authenticatedDuplicate
+                    // Durable history and non-archive replay remain consumed.
+                    // Recovery never advances/rewinds a ratchet or grants trust.
+                    guard recoveringSyncContent, !previouslyAuthenticated(),
+                          let pending = state.pendingSyncReceives?.first(where: {
+                              $0.fingerprint == replayFingerprint && $0.address == address
+                          }) else { throw OMEMO2StorageError.authenticatedDuplicate }
+                    try validating(pending.keyAndMAC)
+                    guard let messageID = materializationIdentity(),
+                          Self.syncMaterializationIdentityDigest(messageID) == pending.messageIdentityDigest else {
+                        throw OMEMO2StorageError.authenticatedDuplicate
+                    }
+                    authenticatedIdentityKey = pending.identity
+                    return pending.keyAndMAC
                 }
             }
             if ciphertext.isKeyExchange {
@@ -360,7 +387,9 @@ final class XabberOMEMO2Storage {
                         state.controlsNeeded.insert(address)
                     }
                     try recordOptOut(recordingOptOut(), state: &state)
-                    recordAuthenticatedReceive(replayFingerprint, state: &state)
+                    recordAuthenticatedReceive(replayFingerprint, address: address, plaintext: plaintext,
+                        identity: session.remoteIdentityKey,
+                        messageID: retainingSyncContent ? materializationIdentity() : nil, state: &state)
                     try save(state)
                     authenticatedIdentityKey = session.remoteIdentityKey
                     return plaintext
@@ -403,7 +432,9 @@ final class XabberOMEMO2Storage {
                 }
                 pruneSessions(&state, address: address)
                 try recordOptOut(recordingOptOut(), state: &state)
-                recordAuthenticatedReceive(replayFingerprint, state: &state)
+                recordAuthenticatedReceive(replayFingerprint, address: address, plaintext: plaintext,
+                    identity: session.remoteIdentityKey,
+                    messageID: retainingSyncContent ? materializationIdentity() : nil, state: &state)
                 try save(state)
                 authenticatedIdentityKey = session.remoteIdentityKey
                 return plaintext
@@ -428,7 +459,9 @@ final class XabberOMEMO2Storage {
                 observeIncoming(ciphertext, stored: &stored, state: &state)
                 state.sessions[key] = stored
                 try recordOptOut(recordingOptOut(), state: &state)
-                recordAuthenticatedReceive(replayFingerprint, state: &state)
+                recordAuthenticatedReceive(replayFingerprint, address: address, plaintext: plaintext,
+                    identity: session.remoteIdentityKey,
+                    messageID: retainingSyncContent ? materializationIdentity() : nil, state: &state)
                 try save(state)
                 authenticatedIdentityKey = session.remoteIdentityKey
                 return plaintext
@@ -712,7 +745,8 @@ final class XabberOMEMO2Storage {
         return true
     }
 
-    private func recordAuthenticatedReceive(_ fingerprint: Data?, state: inout State) {
+    private func recordAuthenticatedReceive(_ fingerprint: Data?, address: OMEMO2PeerAddress, plaintext: Data,
+                                            identity: Data, messageID: String?, state: inout State) {
         guard let fingerprint else { return }
         var fingerprints = state.authenticatedReceiveFingerprints ?? []
         fingerprints.append(fingerprint)
@@ -720,6 +754,14 @@ final class XabberOMEMO2Storage {
             fingerprints.removeFirst(fingerprints.count - Self.maximumAuthenticatedReceiveFingerprints)
         }
         state.authenticatedReceiveFingerprints = fingerprints
+        let retained = Set(fingerprints)
+        var pending = (state.pendingSyncReceives ?? []).filter { retained.contains($0.fingerprint) }
+        if let messageID, !messageID.isEmpty, plaintext.count == 48 {
+            pending.append(PendingSyncReceive(fingerprint: fingerprint,
+                address: address, messageIdentityDigest: Self.syncMaterializationIdentityDigest(messageID),
+                keyAndMAC: plaintext, identity: identity))
+        }
+        state.pendingSyncReceives = pending
     }
 
     private func observeIncoming(_ ciphertext: OMEMO2Ciphertext, stored: inout StoredSession, state: inout State) {
@@ -801,6 +843,27 @@ final class XabberOMEMO2Storage {
         }
     }
 
+    private static func syncMaterializationIdentityDigest(_ identifier: String) -> Data {
+        let bytes = Data(identifier.utf8)
+        var framed = Data("Xabber OMEMO2 sync materialization identity v1".utf8)
+        var length = UInt64(bytes.count).bigEndian
+        withUnsafeBytes(of: &length) { framed.append(contentsOf: $0) }
+        framed.append(bytes)
+        return Data(SHA256.hash(data: framed))
+    }
+
+    private static func validPendingSyncReceives(_ pending: [PendingSyncReceive], fingerprints: Set<Data>) -> Bool {
+        guard pending.count <= maximumAuthenticatedReceiveFingerprints,
+              Set(pending.map(\.fingerprint)).count == pending.count else { return false }
+        return pending.allSatisfy {
+            $0.fingerprint.count == 32 && fingerprints.contains($0.fingerprint)
+                && $0.messageIdentityDigest.count == 32 && $0.keyAndMAC.count == 48
+                && $0.address.deviceID > 0 && $0.address.deviceID <= Int(Int32.max)
+                && (try? OMEMO2OptOutPolicy.bareJID($0.address.jid)) == $0.address.jid
+                && (try? Omemo2IdentityRepresentation.rawX25519(identityKey: $0.identity)) != nil
+        }
+    }
+
     private func loadState() throws -> State? {
         guard let data = try persistence.load(owner: owner) else { return nil }
         let state: State
@@ -833,6 +896,8 @@ final class XabberOMEMO2Storage {
               (state.authenticatedReceiveFingerprints ?? []).count <= Self.maximumAuthenticatedReceiveFingerprints,
               (state.authenticatedReceiveFingerprints ?? []).allSatisfy({ $0.count == 32 }),
               Set(state.authenticatedReceiveFingerprints ?? []).count == (state.authenticatedReceiveFingerprints ?? []).count,
+              Self.validPendingSyncReceives(state.pendingSyncReceives ?? [],
+                  fingerprints: Set(state.authenticatedReceiveFingerprints ?? [])),
               (state.sessionReplacements ?? [:]).allSatisfy({ key, value in
                   key == addressKey(value.address) && !value.address.jid.isEmpty
                       && value.address.deviceID > 0 && value.address.deviceID <= Int(Int32.max)

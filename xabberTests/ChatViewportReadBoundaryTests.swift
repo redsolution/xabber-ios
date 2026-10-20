@@ -117,6 +117,68 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
         XCTAssertEqual(chat.lastReadId, "200")
     }
 
+    func testArchiveErrorFallbackCannotFlushDisplayedReadStateDespiteActivePresentationReceipt() throws {
+        let account = Account(jid: owner, queue: DispatchQueue(label: "ChatViewportReadBoundaryTests.archive-failure"))
+        AccountManager.shared.users.append(account)
+        let controller = makeController()
+        try seedOutOfOrderDateUnreadChat()
+        let unreadBeforeFailure = try storedChat().syncUnreadCount
+        controller.datasource = [
+            makeDatasource(primary: "incoming-old", archivedId: "100", sentDate: Date(timeIntervalSince1970: 300)),
+            makeDatasource(primary: "incoming-new", archivedId: "200", sentDate: Date(timeIntervalSince1970: 100))
+        ]
+        controller.messagesToReadObserver.accept(["incoming-old", "incoming-new"])
+        authorizeReadVisiblePresentation(controller)
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true), target: .latest
+        )
+        controller.showSkeletonObserver.accept(false)
+
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        XCTAssertFalse(controller.flushPendingVisibleReadTarget())
+        XCTAssertEqual(controller.messagesToReadObserver.value, ["incoming-old", "incoming-new"])
+        let chat = try storedChat()
+        XCTAssertNotEqual(chat.lastReadId, "200")
+        XCTAssertEqual(chat.syncUnreadCount, unreadBeforeFailure)
+    }
+
+    func testArchiveErrorFallbackCannotAdvanceLocalReadBoundaryDespiteActivePresentationReceipt() throws {
+        let controller = makeController()
+        controller.datasource = [makeDatasource(primary: "incoming-new", archivedId: "200", sentDate: Date(timeIntervalSince1970: 100))]
+        authorizeReadVisiblePresentation(controller)
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true), target: .latest
+        )
+        controller.showSkeletonObserver.accept(false)
+        let target = try XCTUnwrap(controller.scrollResidentMetadata.capture(indexPaths: [IndexPath(item: 0, section: 0)]).rows.first)
+
+        XCTAssertFalse(controller.advanceReadBoundary(to: target))
+        XCTAssertNil(controller.currentViewportReadBoundaryPosition())
+        XCTAssertTrue(controller.messagesToReadObserver.value.isEmpty)
+    }
+
+    func testOfflineArchiveCannotFlushReadStateBeforeAcceptedFallbackHasCommitted() throws {
+        let account = Account(jid: owner, queue: DispatchQueue(label: "ChatViewportReadBoundaryTests.offline"))
+        AccountManager.shared.users.append(account)
+        let controller = makeController()
+        try seedOutOfOrderDateUnreadChat()
+        let unreadBefore = try storedChat().syncUnreadCount
+        controller.datasource = [
+            makeDatasource(primary: "incoming-old", archivedId: "100", sentDate: Date(timeIntervalSince1970: 300)),
+            makeDatasource(primary: "incoming-new", archivedId: "200", sentDate: Date(timeIntervalSince1970: 100))
+        ]
+        controller.messagesToReadObserver.accept(["incoming-old", "incoming-new"])
+        authorizeReadVisiblePresentation(controller)
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+        controller.showSkeletonObserver.accept(true)
+
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        XCTAssertFalse(controller.flushPendingVisibleReadTarget())
+        XCTAssertEqual(controller.messagesToReadObserver.value, ["incoming-old", "incoming-new"])
+        XCTAssertEqual(try storedChat().syncUnreadCount, unreadBefore)
+        XCTAssertNotEqual(try storedChat().lastReadId, "200")
+    }
+
     func testPendingFlushWaitsForStructurallyVisiblePresentationReceipt() throws {
         let account = Account(jid: owner, queue: DispatchQueue(label: "ChatViewportReadBoundaryTests.pending"))
         AccountManager.shared.users.append(account)
@@ -2413,7 +2475,7 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
         primary: String
     ) throws -> ChatTimelineSession {
         let session = try XCTUnwrap(controller.timelineSession)
-        let archivedID = try XCTUnwrap(storedMessage(primary: primary).archivedId)
+        let archivedID = try XCTUnwrap(storedMessage(primary: primary).mamArchiveId)
         let cursor = try XCTUnwrap(ArchiveCursor(rawValue: archivedID))
         let segment = try XCTUnwrap(ArchiveCoverageSegment(
             oldest: cursor,
@@ -2691,6 +2753,7 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
         message.displayAs = .text
         message.messageId = primary
         message.archivedId = archivedId
+        message.mamArchiveId = archivedId
         message.date = date
         message.sentDate = date
         message.outgoing = false

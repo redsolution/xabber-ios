@@ -421,6 +421,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         message.body = "group search needle"
         message.date = Date(timeIntervalSince1970: 10)
         message.archivedId = "archive-group-message"
+        message.mamArchiveId = "archive-group-message"
 
         try realm.write {
             realm.add(chat, update: .modified)
@@ -788,6 +789,115 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         )
 
         assertImage(cell.avatarView.image, matches: cachedImage)
+    }
+
+    func testStaleFreshEncryptedFlagCannotReplaceLinkedRecentMessage() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([fixture.chat.owner])
+        controller.showSkeleton.accept(false)
+        controller.runDatasetUpdateTask()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
+        let row = try XCTUnwrap(controller.datasource.first { $0.jid == fixture.chat.jid })
+        XCTAssertEqual(row.message, fixture.message.body)
+        XCTAssertFalse(row.isSystemMessage)
+        XCTAssertEqual(row.unread, 94)
+        XCTAssertTrue(fixture.chat.isFreshNotEmptyEncryptedChat, "Presentation must repair no persisted state.")
+    }
+
+    func testStaleFreshEncryptedFlagCannotReplaceColdMaterializedRecentMessage() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: false)
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([fixture.chat.owner])
+        controller.showSkeleton.accept(false)
+        controller.runDatasetUpdateTask()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
+        let row = try XCTUnwrap(controller.datasource.first { $0.jid == fixture.chat.jid })
+        XCTAssertEqual(row.message, fixture.message.body)
+        XCTAssertFalse(row.isSystemMessage)
+        XCTAssertNil(fixture.chat.lastMessage)
+    }
+
+    func testStaleFreshEncryptedFlagCannotReplaceShareTargetMessage() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
+        let controller = ShareDialogController()
+        controller.owner = fixture.chat.owner
+        controller.load()
+        controller.updateDatasource()
+
+        let row = try XCTUnwrap(controller.datasource.first { $0.jid == fixture.chat.jid })
+        XCTAssertEqual(row.message, fixture.message.body)
+        XCTAssertFalse(row.isSystemMessage)
+    }
+
+    func testStaleFreshEncryptedFlagCannotReplaceSpecificSearchMessage() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: false)
+        let controller = SearchChatListViewController()
+        let rows = try controller.mapDatasource([fixture.message])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row.message, fixture.message.body)
+        XCTAssertFalse(row.isSystemMessage)
+
+        let updater = ChatSearchResultsController()
+        try updater.replaceMessageStorageItemsForTesting([fixture.message])
+        let projected = try XCTUnwrap(updater.messagesDatasource.first)
+        XCTAssertEqual(projected.message, fixture.message.body)
+        XCTAssertFalse(projected.isSystemMessage)
+    }
+
+    func testGenuineEmptyEncryptedRecentChatKeepsInvitationWithoutInventingUnreadText() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: false)
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.delete(fixture.message)
+            fixture.chat.lastMessageId = ""
+        }
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([fixture.chat.owner])
+        controller.showSkeleton.accept(false)
+        controller.runDatasetUpdateTask()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
+        let row = try XCTUnwrap(controller.datasource.first { $0.jid == fixture.chat.jid })
+        XCTAssertEqual(row.message, L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here"))
+        XCTAssertTrue(row.isSystemMessage)
+        XCTAssertEqual(row.unread, 94)
+    }
+
+    private func makeStaleFreshEncryptedPreviewFixture(
+        linkMessage: Bool
+    ) throws -> (chat: LastChatsStorageItem, message: MessageStorageItem) {
+        let owner = "stale-preview-owner@example.com"
+        let jid = "stale-preview-peer@example.com"
+        let message = MessageStorageItem()
+        message.primary = "stale-preview-native-message"
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .omemo
+        message.messageId = "stale-preview-origin"
+        message.archivedId = "stale-preview-protocol-id"
+        message.mamArchiveId = "stale-preview-mam-id"
+        message.body = "Accepted encrypted message remains visible"
+        message.date = Date(timeIntervalSince1970: 1_792_413_798.701)
+        let chat = LastChatsStorageItem()
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .omemo
+        chat.setPrimary(withOwner: owner)
+        chat.messageDate = message.date
+        chat.lastMessageId = message.messageId
+        chat.lastMessage = linkMessage ? message : nil
+        chat.isFreshNotEmptyEncryptedChat = true
+        chat.unread = 94
+        chat.syncUnreadCount = 94
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(message)
+            realm.add(chat)
+        }
+        return (chat, message)
     }
 
     func testLastChatPreviewUsesItalicLocationLabelInsteadOfGeoFallback() {
@@ -1978,7 +2088,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         let remoteURL = "https://gallery.example/files/photo.jpg"
         let document = try DDXMLDocument(
             xmlString: """
-            <message from='juliet@example.com/mobile'
+            <message xmlns='jabber:client' from='juliet@example.com/mobile'
                      to='owner@example.com'
                      type='chat'
                      id='sync-forward-message'>
@@ -1989,7 +2099,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
                          end='\(fallback.unicodeScalars.count)'>
                 <forwarded xmlns='urn:xmpp:forward:0'>
                   <delay xmlns='urn:xmpp:delay' stamp='2026-08-26T10:00:00.000Z'/>
-                  <message from='alice@example.com/mobile'
+                  <message xmlns='jabber:client' from='alice@example.com/mobile'
                            to='owner@example.com'
                            type='chat'
                            id='forwarded-photo-message'>
@@ -2063,7 +2173,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         }.joined(separator: "\n")
         let document = try DDXMLDocument(
             xmlString: """
-            <message from='juliet@example.com/mobile'
+            <message xmlns='jabber:client' from='juliet@example.com/mobile'
                      to='owner@example.com'
                      type='chat'
                      id='sync-preview-message'>

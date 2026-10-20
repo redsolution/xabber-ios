@@ -7,8 +7,15 @@ import XCTest
 final class OMEMO2SCEReceiveTests: XCTestCase {
     private final class Memory: OMEMO2StatePersistence {
         var records: [String: Data] = [:]
+        var failNextSaveForOwner: String?
         func load(owner: String) throws -> Data? { records[owner] }
-        func save(_ data: Data, owner: String) throws { records[owner] = data }
+        func save(_ data: Data, owner: String) throws {
+            if failNextSaveForOwner == owner {
+                failNextSaveForOwner = nil
+                throw NSError(domain: "OMEMOSyncRecoveryFixture", code: 1)
+            }
+            records[owner] = data
+        }
         func remove(owner: String) throws { records.removeValue(forKey: owner) }
         func legacyIdentity(owner: String) throws -> (publicKey: Data, privateKey: Data)? { nil }
         func legacyDeviceID(owner: String) -> Int? { nil }
@@ -578,7 +585,305 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         }
     }
 
+    func testAuthenticatedSyncPreviewRemainsMaterializableByMAMWithoutSyncHistory() throws {
+        let f = try fixture()
+        let realm = try WRealm.safe()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+
+        let preview = f.bob.prepareSyncConversation(try timedConversation(f, message: message))
+
+        XCTAssertTrue(preview.lastMessageEncryption.isAuthenticated)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0)
+        XCTAssertEqual(realm.objects(MessageStanzaStorageItem.self).count, 0)
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case let .verified(clean, proof, sender) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Authenticated Sync preview must not consume the only future MAM materialization")
+        }
+        XCTAssertTrue(proof.isAuthenticated)
+        XCTAssertEqual(getArchivedMessageContainer(clean)?.body, "historical authenticated content")
+        XCTAssertEqual(sender?.owner, f.bob.owner)
+        XCTAssertEqual(sender?.jid, f.alice.owner)
+        XCTAssertEqual(sender?.deviceID, 41)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0, "Preparation is not MAM persistence or coverage")
+    }
+
+    func testSyncRecoverySurvivesStorageRecreationAndConsumedPreKeyCleanup() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        let conversation = try timedConversation(f, message: message)
+        let query = try DDXMLElement(xmlString: "<query xmlns='https://xabber.com/protocol/synchronization'>\(conversation.xmlString)</query>")
+        XCTAssertTrue(try XCTUnwrap(f.bob.prepareSyncConversations(query).first).lastMessageEncryption.isAuthenticated)
+        XCTAssertTrue(try XCTUnwrap(f.bob.omemo2Storage).consumedPreKeyIDs().isEmpty)
+        let reopened = OmemoManager(withOwner: f.bob.owner)
+        reopened.omemo2Storage = try XabberOMEMO2Storage(owner: f.bob.owner, persistence: f.memory)
+        _ = try reopened.ensureOMEMO2Prepared(attemptPublication: false)
+
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case let .verified(clean, proof, sender) = reopened.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Recovery must be in the same durable protected aggregate as the committed ratchet")
+        }
+        XCTAssertTrue(proof.isAuthenticated)
+        XCTAssertEqual(getArchivedMessageContainer(clean)?.body, "historical authenticated content")
+        XCTAssertEqual(sender?.jid, f.alice.owner)
+    }
+
+    func testSyncRecoveryRevalidatesCiphertextRoutingAndTimeWithoutDestroyingGoodRecovery() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let before = f.memory.records[f.bob.owner]
+        for change in ["payload", "from", "to", "time"] {
+            let changed = XMPPMessage(from: message.copy() as! DDXMLElement)
+            var forwardedAt = historicalSendingTime
+            if change == "payload" {
+                let payload = try XCTUnwrap(changed.element(forName: "encrypted", xmlns: OmemoManager.xmlns)?.element(forName: "payload", xmlns: OmemoManager.xmlns))
+                var bytes = try Omemo2PayloadCodec.decodeBase64(try XCTUnwrap(payload.stringValue))
+                bytes[0] ^= 1
+                payload.stringValue = bytes.base64EncodedString()
+            } else if change == "time" {
+                changed.elements(forName: "time").forEach { $0.detach() }
+                forwardedAt = historicalSendingTime.addingTimeInterval(301)
+                changed.addChild(try deliveryTime(forwardedAt))
+            } else {
+                changed.removeAttribute(forName: change)
+                changed.addAttribute(withName: change, stringValue: "attacker@example.test")
+            }
+            let invalid = try timedTransport(f, kind: "mam", message: changed, forwardedAt: forwardedAt)
+            guard case .failed = f.bob.prepareIncoming(invalid, context: .archive) else {
+                return XCTFail("Cached Sync authentication must not authorize changed \(change)")
+            }
+            XCTAssertTrue(f.memory.records[f.bob.owner] == before, "Failure must not alter protected recovery or ratchet")
+        }
+        let original = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case .verified = f.bob.prepareIncoming(original, context: .archive) else {
+            return XCTFail("The exact authentic MAM packet remains recoverable after rejected variants")
+        }
+    }
+
+    func testSyncRecoveryDoesNotAuthorizeLiveOrCarbonReplay() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        guard case .consumed(.duplicate) = f.bob.prepareIncoming(message, context: .live) else {
+            return XCTFail("A Sync preview is not permission to replay live content")
+        }
+        let carbon = try timedTransport(f, kind: "received", message: message, forwardedAt: historicalSendingTime)
+        guard case .consumed(.duplicate) = f.bob.prepareIncoming(carbon, context: .carbon) else {
+            return XCTFail("Carbon replay must remain consumed")
+        }
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case .verified = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Rejected replay routes must not discard pending archive recovery")
+        }
+    }
+
+    func testSyncRecoveryCannotReopenAlreadyDurableAuthenticatedHistory() throws {
+        let f = try fixture()
+        let realm = try WRealm.safe()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let stanza = MessageStanzaStorageItem()
+        stanza.set("message-id", for: f.bob.owner, with: message.xmlString, at: historicalSendingTime, primary: "durable-sync-content")
+        stanza.omemo2ReplayFingerprint = try XCTUnwrap(OMEMO2ReplayProtection.fingerprint(for: message, owner: f.bob.owner, localDeviceID: f.bobID))
+        try realm.write { realm.add(stanza) }
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case .consumed(.duplicate) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Existing durable authenticated history has priority over recovery")
+        }
+    }
+
+    func testSyncControlDoesNotRetainContentRecoveryOrCreateAnArchiveBubble() throws {
+        let f = try fixture()
+        let message = try packet(f, content: "<opt-out xmlns='urn:xmpp:omemo:2'/>")
+        let preview = f.bob.prepareSyncConversation(try timedConversation(f, message: message))
+        XCTAssertTrue(preview.lastMessageWasConsumed)
+        let state = try protectedState(f)
+        XCTAssertTrue((state["pendingSyncReceives"] as? [[String: Any]] ?? []).isEmpty)
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case .consumed(.duplicate) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Consumed Sync control must not be resurrected as message content")
+        }
+    }
+
+    func testSyncRecoveryProtectedEntriesAreValidatedAndBackwardCompatible() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let state = try protectedState(f)
+        let entries = try XCTUnwrap(state["pendingSyncReceives"] as? [[String: Any]], "Sync content recovery must be persisted atomically with the ratchet")
+        XCTAssertEqual(entries.count, 1)
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual((entry["fingerprint"] as? Data)?.count, 32)
+        XCTAssertEqual((entry["keyAndMAC"] as? Data)?.count, 48)
+        for malformed in ["fingerprint", "keyAndMAC", "identity", "messageIdentityDigest", "membership", "duplicate"] {
+            var changed = state
+            var broken = entry
+            if ["fingerprint", "keyAndMAC", "identity"].contains(malformed) {
+                broken[malformed] = Data(repeating: 0, count: malformed == "identity" ? 32 : 1)
+            }
+            if malformed == "messageIdentityDigest" { broken["messageIdentityDigest"] = Data() }
+            changed["pendingSyncReceives"] = malformed == "duplicate" ? [entry, entry] : [broken]
+            if malformed == "membership" { changed["authenticatedReceiveFingerprints"] = [Data(repeating: 7, count: 32)] }
+            f.memory.records[f.bob.owner] = try PropertyListSerialization.data(fromPropertyList: changed, format: .binary, options: 0)
+            let reopened = try XabberOMEMO2Storage(owner: f.bob.owner, persistence: f.memory)
+            XCTAssertThrowsError(try reopened.localBundle(), "Reject malformed recovery \(malformed)")
+        }
+        var legacy = state
+        legacy.removeValue(forKey: "pendingSyncReceives")
+        f.memory.records[f.bob.owner] = try PropertyListSerialization.data(fromPropertyList: legacy, format: .binary, options: 0)
+        XCTAssertNoThrow(try XabberOMEMO2Storage(owner: f.bob.owner, persistence: f.memory).localBundle(), "The additive field must remain optional")
+    }
+
+    func testPendingSyncRecoveryRejectsDifferentMessageIDBeforeAnyHistoryCommit() throws {
+        let f = try fixture()
+        let realm = try WRealm.safe()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let alias = XMPPMessage(from: message.copy() as! DDXMLElement)
+        alias.removeAttribute(forName: "id")
+        alias.addAttribute(withName: "id", stringValue: "different-logical-message")
+        let forged = try timedTransport(f, kind: "mam", message: alias, forwardedAt: historicalSendingTime)
+        guard case .consumed(.duplicate) = f.bob.prepareIncoming(forged, context: .archive) else {
+            return XCTFail("Pending recovery is bound to the original Sync leaf ID, even before any Realm commit")
+        }
+        XCTAssertEqual(realm.objects(MessageStanzaStorageItem.self).count, 0)
+        let original = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        for _ in 0..<2 {
+            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(original, context: .archive) else {
+                return XCTFail("A failed or not-yet-completed Realm write must allow the same logical packet to retry")
+            }
+            XCTAssertEqual(getArchivedMessageContainer(clean)?.elementID, "message-id")
+            XCTAssertEqual(getArchivedMessageContainer(clean)?.body, "historical authenticated content")
+        }
+    }
+
+    func testSyncRecoveryIsPrunedWithTheBoundedAuthenticatedReceiveLedger() throws {
+        let f = try fixture()
+        let original = try timedPacket(f, encryptedAt: historicalSendingTime)
+        original.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: original)).lastMessageEncryption.isAuthenticated)
+        var state = try protectedState(f)
+        let entries = try XCTUnwrap(state["pendingSyncReceives"] as? [[String: Any]])
+        let old = try XCTUnwrap(entries.first?["fingerprint"] as? Data)
+        var fingerprints = [old]
+        for i in 1..<XabberOMEMO2Storage.maximumAuthenticatedReceiveFingerprints {
+            fingerprints.append(Data([UInt8(truncatingIfNeeded: i), UInt8(truncatingIfNeeded: i >> 8)] + Array(repeating: 0, count: 30)))
+        }
+        state["authenticatedReceiveFingerprints"] = fingerprints
+        f.memory.records[f.bob.owner] = try PropertyListSerialization.data(fromPropertyList: state, format: .binary, options: 0)
+        let newest = try timedPacket(f, encryptedAt: historicalSendingTime)
+        newest.removeAttribute(forName: "id")
+        newest.addAttribute(withName: "id", stringValue: "newest-sync-message")
+        newest.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: newest)).lastMessageEncryption.isAuthenticated)
+        let pruned = try protectedState(f)
+        let retainedLedger = try XCTUnwrap(pruned["authenticatedReceiveFingerprints"] as? [Data])
+        XCTAssertEqual(retainedLedger.count, XabberOMEMO2Storage.maximumAuthenticatedReceiveFingerprints)
+        XCTAssertFalse(retainedLedger.contains(old))
+        let pending = try XCTUnwrap(pruned["pendingSyncReceives"] as? [[String: Any]])
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertTrue(pending.allSatisfy { ($0["fingerprint"] as? Data).map(retainedLedger.contains) == true })
+    }
+
+    func testSyncRecoveryAndRatchetAreNotPartiallyCommittedWhenProtectedSaveFails() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.addChild(try deliveryTime(historicalSendingTime))
+        let before = f.memory.records[f.bob.owner]
+        f.memory.failNextSaveForOwner = f.bob.owner
+        let preview = f.bob.prepareSyncConversation(try timedConversation(f, message: message))
+        XCTAssertEqual(preview.lastMessageEncryption, .failedOMEMO)
+        XCTAssertTrue(f.memory.records[f.bob.owner] == before, "A failed protected save must retain the original ratchet and no partial recovery")
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("The original native packet must still decrypt after an uncommitted Sync receive")
+        }
+        XCTAssertTrue(proof.isAuthenticated)
+        XCTAssertEqual(getArchivedMessageContainer(clean)?.body, "historical authenticated content")
+    }
+
+    func testSyncRecoveryUsesProtectedOriginIdentityAndDropsUnprotectedAliases() throws {
+        let f = try fixture()
+        let message = try packet(f, content: "<body xmlns='jabber:client'>protected identity</body><origin-id xmlns='urn:xmpp:sid:0' id='protected-message-id'/>")
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let alias = XMPPMessage(from: message.copy() as! DDXMLElement)
+        alias.removeAttribute(forName: "id")
+        alias.addAttribute(withName: "id", stringValue: "unprotected-outer-alias")
+        alias.addChild(try DDXMLElement(xmlString: "<origin-id xmlns='urn:xmpp:sid:0' id='unprotected-origin-alias'/>"))
+        let archive = try timedTransport(f, kind: "mam", message: alias, forwardedAt: historicalSendingTime)
+        guard case let .verified(clean, _, _) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Only the canonical authenticated identity decides logical materialization")
+        }
+        let leaf = try XCTUnwrap(getArchivedMessageContainer(clean))
+        XCTAssertEqual(getUniqueMessageId(leaf, owner: f.bob.owner), "protected-message-id")
+        XCTAssertEqual(SCEReceivePolicy.children(of: leaf, named: "origin-id", xmlns: "urn:xmpp:sid:0").count, 1)
+    }
+
+    func testSyncRecoveryUsesTheSameOwnerStanzaIdentityFallbackAsPersistence() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.removeAttribute(forName: "id")
+        message.addChild(try DDXMLElement(xmlString: "<stanza-id xmlns='urn:xmpp:sid:0' by='\(f.bob.owner)' id='owner-stanza-reference'/>") )
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case let .verified(clean, _, _) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("A valid stanza-ID-only message must not lose its future MAM content")
+        }
+        XCTAssertEqual(getUniqueMessageId(try XCTUnwrap(getArchivedMessageContainer(clean)), owner: f.bob.owner), "owner-stanza-reference")
+    }
+
+    func testSyncRecoveryRetainsFixedSizeIdentityForLongOpaqueMessageIDs() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        message.removeAttribute(forName: "id")
+        message.addAttribute(withName: "id", stringValue: String(repeating: "opaque-reference-", count: 8192))
+        message.addChild(try deliveryTime(historicalSendingTime))
+        XCTAssertTrue(f.bob.prepareSyncConversation(try timedConversation(f, message: message)).lastMessageEncryption.isAuthenticated)
+        let state = try protectedState(f)
+        let entries = try XCTUnwrap(state["pendingSyncReceives"] as? [[String: Any]])
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertFalse(entry.keys.contains("messageID"), "Protected recovery must not retain arbitrary-length protocol identifiers")
+        XCTAssertEqual((entry["messageIdentityDigest"] as? Data)?.count, 32)
+        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        guard case let .verified(clean, _, _) = f.bob.prepareIncoming(archive, context: .archive) else {
+            return XCTFail("Fixed-size retention must preserve exact opaque identity without imposing a new ID length limit")
+        }
+        XCTAssertEqual(getUniqueMessageId(try XCTUnwrap(getArchivedMessageContainer(clean)), owner: f.bob.owner).utf8.count,
+                       "opaque-reference-".utf8.count * 8192)
+    }
+
+    private func protectedState(_ f: Fixture) throws -> [String: Any] {
+        try XCTUnwrap(PropertyListSerialization.propertyList(from: XCTUnwrap(f.memory.records[f.bob.owner]), format: nil) as? [String: Any])
+    }
+
     private var historicalSendingTime: Date { Date(timeIntervalSince1970: 1_577_934_245) }
+
+    func testFederatedDeliveryMetadataAllowsAuthenticatedNativeReceive() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        let senderTime = try deliveryTime(historicalSendingTime)
+        senderTime.addAttribute(withName: "by", stringValue: f.alice.owner)
+        let recipientTime = try deliveryTime(historicalSendingTime.addingTimeInterval(0.037))
+        recipientTime.addAttribute(withName: "by", stringValue: f.bob.owner)
+        message.addChild(recipientTime)
+        message.addChild(senderTime)
+        message.addChild(try DDXMLElement(xmlString: "<delay xmlns='urn:xmpp:delay' from='example.test' stamp='\(historicalSendingTime.addingTimeInterval(3600).XMPPFormattedDate)'>Resent</delay>"))
+
+        guard case let .verified(clean, proof, sender) = f.bob.prepareIncoming(message) else {
+            return XCTFail("Federated account timestamps must not prevent authenticated decryption")
+        }
+        XCTAssertEqual(clean.body, "historical authenticated content")
+        XCTAssertTrue(proof.isAuthenticated)
+        XCTAssertEqual(sender?.jid, f.alice.owner)
+    }
 
     /// A historical peer packet is sealed directly, rather than invoking the
     /// outgoing writer that intentionally refreshes encryption time on new sends.

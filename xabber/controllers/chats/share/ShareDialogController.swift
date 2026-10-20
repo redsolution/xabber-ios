@@ -315,7 +315,10 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
             if isSystemMessage == false {
                 isSystemMessage = item.lastMessage?.shouldShowAsSystemMessage() ?? false
             }
-            if item.isFreshNotEmptyEncryptedChat {
+            if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                for: item,
+                message: item.lastMessage
+            ) {
                 message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }

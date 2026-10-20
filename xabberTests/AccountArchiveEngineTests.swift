@@ -1,4 +1,5 @@
 import XCTest
+import RealmSwift
 @testable import xabber
 
 final class AccountArchiveEngineTests: XCTestCase {
@@ -7,6 +8,211 @@ final class AccountArchiveEngineTests: XCTestCase {
         jid: "juliet@example.org",
         conversationType: .regular
     )
+
+    @MainActor
+    func testUnreadTargetContinuesFullOutgoingPagesAndCentersFirstProvenIncoming() async throws {
+        let result = try await unreadContinuationFixture(firstIncomingID: "105")
+        guard case .verified(let snapshot) = result.state else {
+            return XCTFail("Unread context must finish around the first incoming row")
+        }
+        XCTAssertTrue(snapshot.messagePrimaryIDs.contains("unread-primary-105"))
+        XCTAssertLessThanOrEqual(snapshot.messagePrimaryIDs.count, 5,
+                                 "Scanning a long outgoing prefix must not expand the resident window")
+        XCTAssertEqual(snapshot.target, .firstUnread(after: ArchiveCursor(rawValue: "100")))
+        XCTAssertLessThanOrEqual(snapshot.verifiedSegment.oldest, ArchiveCursor(rawValue: "100")!,
+                                 "Re-centering must retain the privately validated boundary-to-incoming chain")
+        XCTAssertTrue(result.requests.contains { $0.locator == .newer(after: ArchiveCursor(rawValue: "102")!) })
+        XCTAssertTrue(result.requests.contains { $0.locator == .newer(after: ArchiveCursor(rawValue: "104")!) })
+        XCTAssertTrue(result.published.allSatisfy {
+            $0.messagePrimaryIDs.contains("unread-primary-105")
+        }, "Do not publish a verified window while its incoming target is unresolved")
+        XCTAssertEqual(result.published.count, 1)
+    }
+
+    @MainActor
+    func testUnreadTargetEndingWithOnlyOutgoingRowsTerminatesWithShowLatest() async throws {
+        let result = try await unreadContinuationFixture(firstIncomingID: nil)
+        guard case .retryableFailure(let failure, _) = result.state else {
+            return XCTFail("An exhausted unread target needs a terminal latest recovery")
+        }
+        XCTAssertFalse(failure.canRetry)
+        XCTAssertEqual(failure.recoveryAction, .showLatest)
+        XCTAssertTrue(result.published.isEmpty,
+                      "An outgoing-only window cannot satisfy first incoming after unread boundary")
+        XCTAssertLessThanOrEqual(result.requests.count, 6, "Exhaustion must terminate bounded pages")
+    }
+
+    @MainActor
+    func testUnreadTargetDoesNotReuseVerifiedOutgoingOnlyPrefixAsIncomingTarget() async throws {
+        let result = try await unreadContinuationFixture(firstIncomingID: "105", seedVerifiedOutgoingPrefix: true)
+        guard case .verified(let snapshot) = result.state else {
+            return XCTFail("A cached outgoing prefix must repair towards its incoming target")
+        }
+        XCTAssertTrue(snapshot.messagePrimaryIDs.contains("unread-primary-105"))
+        XCTAssertFalse(result.requests.isEmpty, "Coverage of the boundary alone cannot admit an unresolved unread target")
+        XCTAssertTrue(result.published.allSatisfy { $0.messagePrimaryIDs.contains("unread-primary-105") })
+    }
+
+    @MainActor
+    func testUnreadTargetSkipsTombstonedAndExpiredIncomingRows() async throws {
+        let result = try await unreadContinuationFixture(firstIncomingID: "105", hiddenIncomingPrefix: true)
+        guard case .verified(let snapshot) = result.state else {
+            return XCTFail("Hidden rows must not prevent finding the next visible incoming target")
+        }
+        XCTAssertTrue(snapshot.messagePrimaryIDs.contains("unread-primary-105"))
+        XCTAssertTrue(result.published.allSatisfy { $0.messagePrimaryIDs.contains("unread-primary-105") })
+    }
+
+    @MainActor
+    func testUnreadTargetBudgetsForwardPagesAndResumesWithoutRepeatingOutgoingPrefix() async throws {
+        let result = try await unreadContinuationFixture(firstIncomingID: "170", archiveUpperBound: 172)
+        guard case .verified(let snapshot) = result.state else {
+            return XCTFail("A bounded retry must resume towards the incoming target")
+        }
+        XCTAssertTrue(snapshot.messagePrimaryIDs.contains("unread-primary-170"))
+        XCTAssertEqual(result.backoffs.count, 1, "Each attempt has a budget of 32 bounded newer pages")
+        if let count = result.backoffs.first { XCTAssertLessThanOrEqual(count, 34) }
+        XCTAssertEqual(result.requests.filter {
+            $0.locator == .newer(after: ArchiveCursor(rawValue: "100")!)
+        }.count, 1, "Retry must resume from proven progress instead of replaying the same prefix")
+        XCTAssertTrue(result.published.allSatisfy { $0.messagePrimaryIDs.contains("unread-primary-170") })
+    }
+
+    @MainActor
+    private func unreadContinuationFixture(
+        firstIncomingID: String?, seedVerifiedOutgoingPrefix: Bool = false,
+        hiddenIncomingPrefix: Bool = false, archiveUpperBound: Int = 106
+    ) async throws -> (
+        state: ArchiveWindowState?, requests: [ArchiveTransportRequest],
+        published: [ArchiveWindowSnapshot], backoffs: [Int]
+    ) {
+        let configuration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current,
+            inMemoryIdentifier: "unread-continuation-\(UUID().uuidString)"
+        )
+        let retainedRealm = try await Realm(configuration: configuration)
+        let ids = (100...archiveUpperBound).map(String.init)
+        try retainedRealm.write {
+            for (index, id) in ids.enumerated() {
+                let message = MessageStorageItem()
+                message.primary = "unread-primary-\(id)"
+                message.owner = conversation.owner
+                message.opponent = conversation.jid
+                message.conversationType = conversation.conversationType
+                message.mamArchiveId = id
+                message.archivedId = String(7_000 + index)
+                message.messageId = "unread-message-\(index)"
+                message.date = Date(timeIntervalSince1970: 1_792_405_900 + Double(index))
+                message.outgoing = id != firstIncomingID
+                if hiddenIncomingPrefix, id == "101" {
+                    message.outgoing = false
+                    message.deleteState = .autoDeleted
+                }
+                if hiddenIncomingPrefix, id == "102" {
+                    message.outgoing = false
+                    message.autoDeleteExpiresAt = Date().addingTimeInterval(-60).timeIntervalSince1970
+                }
+                retainedRealm.add(message)
+            }
+            if seedVerifiedOutgoingPrefix {
+                let storage = ConversationArchiveCoverageStorageItem.ensure(key: conversation, in: retainedRealm)
+                let fingerprint = ArchiveFreshnessToken.sessionMAM(
+                    connectionGeneration: 820, queryID: "cached-unread-prefix"
+                ).fingerprint
+                storage.segments = [ArchiveCoverageSegment(
+                    oldest: ArchiveCursor(rawValue: "100")!, newest: ArchiveCursor(rawValue: "102")!,
+                    reachesArchiveStart: true, reachesLiveEdge: false,
+                    fingerprint: fingerprint, isVerified: true
+                )!]
+                storage.archiveFreshnessFingerprint = fingerprint
+                storage.coverageGeneration = 1
+            }
+        }
+        let transport = UnreadContinuationFixtureTransport(archiveIDs: ids)
+        let backoffs = UnreadContinuationFixtureBackoffs()
+        let repository = RealmArchiveCoverageRepository { try Realm(configuration: configuration) }
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner, repository: repository,
+            transport: transport,
+            retryClock: ArchiveRetryClock(
+                sleep: { _ in await backoffs.record(await transport.requests.count) },
+                jitter: { _ in 0 }
+            )
+        )
+        let stream = await engine.states(for: conversation)
+        let recorder = UnreadContinuationFixtureRecorder()
+        let recording = Task {
+            for await state in stream { await recorder.record(state) }
+        }
+        defer { recording.cancel() }
+        await engine.connectionDidBecomeReady(generation: 820)
+        await engine.attachPresentationDemand(for: conversation, demandID: UUID())
+        await engine.submit(ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .firstUnread(after: ArchiveCursor(rawValue: "100")),
+            contextBefore: 2, contextAfter: 2, priority: .target
+        ))
+        for _ in 0..<1_000 {
+            let state = await engine.currentState(for: conversation)
+            if case .verified = state { break }
+            if case .retryableFailure = state { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        await engine.waitUntilIdleForTesting()
+        for _ in 0..<20 { await Task.yield() }
+        let state = await engine.currentState(for: conversation)
+        let requests = await transport.requests
+        let published = await recorder.published
+        withExtendedLifetime(retainedRealm) {}
+        return (state, requests, published, await backoffs.counts)
+    }
+
+    func testStanzaReferenceResolutionUsesCurrentGenerationWithoutPublishingCoverage() async throws {
+        let transport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner, repository: ArchiveEngineRepositorySpy(),
+            transport: transport, retryClock: .immediate
+        )
+        await engine.connectionDidBecomeReady(generation: 810)
+
+        let cursor = try await engine.resolveStanzaReference("7002", conversation: conversation)
+
+        XCTAssertEqual(cursor?.rawValue, "2002")
+        let requests = await transport.referenceRequests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.reference, "7002")
+        XCTAssertEqual(requests.first?.conversation, conversation)
+        XCTAssertEqual(requests.first?.connectionGeneration, 810)
+        let state = await engine.currentState(for: conversation)
+        XCTAssertNil(state, "A resolved reference is an identity, not archive-window coverage")
+    }
+
+    func testStanzaReferenceResolutionRejectsDisconnectedAndForeignOwner() async {
+        let transport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner, repository: ArchiveEngineRepositorySpy(),
+            transport: transport, retryClock: .immediate
+        )
+        do {
+            _ = try await engine.resolveStanzaReference("7002", conversation: conversation)
+            XCTFail("Disconnected reference resolution must fail")
+        } catch {
+            XCTAssertEqual(error as? ArchiveTransportError, .disconnected)
+        }
+        await engine.connectionDidBecomeReady(generation: 811)
+        do {
+            _ = try await engine.resolveStanzaReference(
+                "7002", conversation: ArchiveConversationKey(
+                    owner: "foreign@example.org", jid: conversation.jid, conversationType: .regular
+                )
+            )
+            XCTFail("The account must not resolve another owner's reference")
+        } catch {
+            XCTAssertEqual(error as? ArchiveTransportError, .authentication)
+        }
+        let requests = await transport.referenceRequests
+        XCTAssertTrue(requests.isEmpty)
+    }
 
     func testLocalOutgoingAdmissionsReplayRowsPublishedBeforeSubscription()
         async {
@@ -2084,7 +2290,66 @@ private actor ArchiveEngineRepositorySpy: ArchiveCoverageRepository {
     }
 }
 
+private actor UnreadContinuationFixtureBackoffs {
+    private(set) var counts: [Int] = []
+    func record(_ count: Int) { counts.append(count) }
+}
+
+private actor UnreadContinuationFixtureRecorder {
+    private(set) var published: [ArchiveWindowSnapshot] = []
+
+    func record(_ state: ArchiveWindowState) {
+        if case .verified(let snapshot) = state { published.append(snapshot) }
+    }
+}
+
+private actor UnreadContinuationFixtureTransport: ArchiveTransport {
+    let archiveIDs: [String]
+    private(set) var requests: [ArchiveTransportRequest] = []
+
+    init(archiveIDs: [String]) { self.archiveIDs = archiveIDs }
+
+    func request(_ request: ArchiveTransportRequest, priority: ArchiveIntentPriority) async throws -> ArchiveTransportReceipt {
+        requests.append(request)
+        let matching: [String]
+        let selected: [String]
+        switch request.locator {
+        case .archiveID(let cursor):
+            matching = archiveIDs.filter { $0 == cursor.rawValue }
+            selected = matching
+        case .older(let cursor):
+            matching = archiveIDs.filter { ArchiveCursor(rawValue: $0)! < cursor }
+            selected = Array(matching.suffix(request.pageSize))
+        case .newer(let cursor):
+            matching = archiveIDs.filter { ArchiveCursor(rawValue: $0)! > cursor }
+            selected = Array(matching.prefix(request.pageSize))
+        default:
+            throw ArchiveTransportError.protocolViolation
+        }
+        return ArchiveTransportReceipt(
+            queryID: request.queryID,
+            connectionGeneration: request.connectionGeneration,
+            resultArchiveIDs: selected,
+            messagePrimaryIDs: selected.map { "unread-primary-\($0)" },
+            first: selected.first ?? "", last: selected.last ?? "",
+            complete: selected.count == matching.count,
+            cheapPageCount: matching.count,
+            deliveredResultCount: selected.count,
+            persistedResultCount: selected.count,
+            intentionallyConsumedResultCount: 0, failedPersistenceCount: 0,
+            finalReceived: true
+        )
+    }
+
+    func searchPage(_ request: ArchiveSearchTransportRequest, priority: ArchiveIntentPriority) async throws -> ArchiveSearchTransportReceipt {
+        throw ArchiveTransportError.protocolViolation
+    }
+
+    func promote(descriptor: ArchiveIntentDescriptor, connectionGeneration: UInt64, to priority: ArchiveIntentPriority) async {}
+}
+
 private actor ArchiveEngineTransportSpy: ArchiveTransport {
+    private(set) var referenceRequests: [ArchiveStanzaReferenceResolutionRequest] = []
     private(set) var requestCount = 0
     private(set) var promotedPriorities: [ArchiveIntentPriority] = []
     private(set) var promotedConnectionGenerations: [UInt64] = []
@@ -2093,6 +2358,14 @@ private actor ArchiveEngineTransportSpy: ArchiveTransport {
     private var isSuspended = false
     private var continuation: CheckedContinuation<ArchiveTransportReceipt, Error>?
     private var immediateReceipt: ArchiveTransportReceipt?
+
+    func resolveStanzaReference(
+        _ request: ArchiveStanzaReferenceResolutionRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveCursor? {
+        referenceRequests.append(request)
+        return ArchiveCursor(rawValue: "2002")
+    }
 
     func suspendRequests() {
         isSuspended = true

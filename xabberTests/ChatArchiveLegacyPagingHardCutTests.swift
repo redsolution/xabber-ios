@@ -342,7 +342,7 @@ final class ChatArchiveLegacyPagingHardCutTests: XCTestCase {
         }
 
         let liveTerminal = try sourceMethod(
-            named: "private func finishCommittedArchiveLiveEdgeAdmission(",
+            named: "internal func finishCommittedArchiveLiveEdgeAdmission(",
             in: archiveSource
         )
         let authoritativeEmpty = try XCTUnwrap(
@@ -376,7 +376,7 @@ final class ChatArchiveLegacyPagingHardCutTests: XCTestCase {
         )
 
         let receive = try sourceMethod(
-            named: "private func receiveArchiveWindowState(",
+            named: "internal func receiveArchiveWindowState(",
             in: archiveSource
         )
         let compactReceive = receive

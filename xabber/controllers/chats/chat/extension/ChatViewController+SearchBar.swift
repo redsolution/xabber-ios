@@ -138,7 +138,6 @@ enum ChatInitialPositionPolicy {
            ChatInitialAutomaticOpenPolicy.shouldOpenUnreadBoundaryOnChatOpen(),
            chat.syncUnreadCount > 0,
            let boundaryId = normalizedUnreadBoundaryId(chat.syncUnreadAfterId) {
-            let sourceDate = archiveDate(from: boundaryId) ?? chat.messageDate
             return .open(
                 ChatOpenMessageRequest(
                     chatJid: chat.jid,
@@ -150,7 +149,7 @@ enum ChatInitialPositionPolicy {
                         messageId: nil,
                         authorId: nil,
                         bodyFingerprint: nil,
-                        sourceDate: sourceDate
+                        sourceDate: nil
                     ),
                     highlight: false,
                     markReadOnVisible: false,
@@ -198,14 +197,6 @@ enum ChatInitialPositionPolicy {
         }
 
         return normalized
-    }
-
-    static func archiveDate(from archivedId: String) -> Date? {
-        guard let value = Double(archivedId) else {
-            return nil
-        }
-
-        return Date(timeIntervalSince1970: value / 1_000_000)
     }
 
     static func normalizedId(_ value: String?) -> String? {
@@ -5269,7 +5260,7 @@ extension ChatViewController {
                     messageId: target.messageId,
                     authorId: target.authorId,
                     bodyFingerprint: nil,
-                    sourceDate: target.date
+                    sourceDate: target.date.timeIntervalSince1970 == 0 ? nil : target.date
                 ),
                 highlight: false,
                 markReadOnVisible: false,

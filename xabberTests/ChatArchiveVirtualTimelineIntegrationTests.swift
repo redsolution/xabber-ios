@@ -810,11 +810,13 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         let messages = makeMessages(1...1_003)
         let localOutgoing = messages[1_000]
         localOutgoing.archivedId = ""
+        localOutgoing.mamArchiveId = ""
         localOutgoing.outgoing = true
         localOutgoing.state = .sending
         let unknownIncoming = messages[1_001]
         let secondLocalOutgoing = messages[1_002]
         secondLocalOutgoing.archivedId = ""
+        secondLocalOutgoing.mamArchiveId = ""
         secondLocalOutgoing.outgoing = true
         secondLocalOutgoing.state = .sending
         let store = BlockingVirtualTimelineSessionStore(messages: messages)
@@ -923,6 +925,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         )
 
         localOutgoing.archivedId = "1001"
+        localOutgoing.mamArchiveId = "1001"
         localOutgoing.state = .sended
         localOutgoing.messageError = nil
         store.emit(.incremental(
@@ -965,6 +968,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         let messages = makeMessages(1...1_001)
         let outgoing = messages[1_000]
         outgoing.archivedId = ""
+        outgoing.mamArchiveId = ""
         outgoing.outgoing = true
         let store = BlockingVirtualTimelineSessionStore(messages: messages)
         let session = makeSession(store: store)
@@ -1005,6 +1009,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         let messages = makeMessages(1...1_001)
         let outgoing = messages[1_000]
         outgoing.archivedId = ""
+        outgoing.mamArchiveId = ""
         outgoing.outgoing = true
         outgoing.state = .sending
         let store = BlockingVirtualTimelineSessionStore(messages: messages)
@@ -1035,6 +1040,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         XCTAssertEqual(local.authoritativeEmptyLiveTailAuthority?.connectionGeneration, 42)
 
         outgoing.archivedId = "1001"
+        outgoing.mamArchiveId = "1001"
         outgoing.state = .sended
         let prepared = try XCTUnwrap(session.prepareArchiveLiveEdgeAdmission(
             try makeLiveEdgeAdmission(
@@ -1057,6 +1063,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         let messages = makeMessages(1...1_001)
         let provisional = messages[1_000]
         provisional.archivedId = ""
+        provisional.mamArchiveId = ""
         provisional.messageId = "1"
         provisional.outgoing = true
         provisional.state = .sending
@@ -1125,6 +1132,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         let messages = makeMessages(1...1_001)
         let outgoing = messages[1_000]
         outgoing.archivedId = ""
+        outgoing.mamArchiveId = ""
         outgoing.outgoing = true
         let store = BlockingVirtualTimelineSessionStore(messages: messages)
         let session = makeSession(store: store)
@@ -1183,6 +1191,7 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
 
         let malformed = makeMessages(1_000...1_000)[0]
         malformed.archivedId = ""
+        malformed.mamArchiveId = ""
         malformed.body = "must not replace proof"
         store.emit(.incremental(
             ChatIncrementalMessageMutationBatch(
@@ -1494,6 +1503,9 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
             item.owner = owner
             item.opponent = jid
             item.archivedId = String(value)
+            // These fixture rows have actual outer-MAM provenance; local
+            // provisional/malformed cases explicitly clear it above.
+            item.mamArchiveId = String(value)
             item.messageId = "message-\(value)"
             item.date = Date(timeIntervalSince1970: TimeInterval(value))
             item.sentDate = item.date

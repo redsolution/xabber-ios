@@ -84,6 +84,13 @@ final class RealmArchiveCoverageRepository:
             guard primaryIDs.isNotEmpty else {
                 return nil
             }
+            if case .firstUnread(.some(let boundary)) = intent.locator {
+                guard let incoming = durableMessages.first(where: {
+                    $0.cursor > boundary && $0.cursor <= segment.newest && $0.isVisibleIncoming
+                }), primaryIDs.contains(incoming.primary) else {
+                    return nil
+                }
+            }
             return .verified(
                 ArchiveWindowSnapshot(
                     messagePrimaryIDs: primaryIDs,
@@ -479,6 +486,33 @@ final class RealmArchiveCoverageRepository:
         }
     }
 
+    func firstIncomingAnchor(
+        conversation: ArchiveConversationKey,
+        after boundary: ArchiveCursor,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor? {
+        guard candidateArchiveIDs.isNotEmpty else { return nil }
+        return try await perform { realm in
+            let incoming = realm.objects(MessageStorageItem.self).filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId IN %@ AND outgoing == false AND isDeleted == false AND isLocallyHiddenByReport == false",
+                conversation.owner, conversation.jid, conversation.conversationTypeRaw,
+                candidateArchiveIDs
+            ).compactMap { message -> ArchiveMaterializedAnchor? in
+                let expiresAt = message.effectiveAutoDeleteExpiresAt
+                guard let cursor = Self.archiveCursor(for: message), cursor > boundary,
+                      message.deleteState == .visible,
+                      expiresAt <= 0 || expiresAt > Date().timeIntervalSince1970 else { return nil }
+                return ArchiveMaterializedAnchor(cursor: cursor, primaryID: message.primary)
+            }
+            guard Dictionary(grouping: incoming, by: \.cursor).values.allSatisfy({
+                Set($0.map(\.primaryID)).count == 1
+            }) else {
+                throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+            }
+            return incoming.min { $0.cursor < $1.cursor }
+        }
+    }
+
     func materializedAnchor(
         conversation: ArchiveConversationKey,
         locator: ArchiveWindowLocator,
@@ -765,6 +799,7 @@ final class RealmArchiveCoverageRepository:
         let primary: String
         let cursor: ArchiveCursor
         let date: Date
+        let isVisibleIncoming: Bool
     }
 
     private struct VisibleRowDiagnostics {
@@ -886,7 +921,10 @@ final class RealmArchiveCoverageRepository:
                 return MessageIdentity(
                     primary: message.primary,
                     cursor: cursor,
-                    date: message.date
+                    date: message.date,
+                    isVisibleIncoming: !message.outgoing && message.deleteState == .visible
+                        && (message.effectiveAutoDeleteExpiresAt <= 0
+                            || message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970)
                 )
             }
             .sorted { $0.cursor < $1.cursor }

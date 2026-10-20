@@ -24264,10 +24264,86 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         """)
 
         let normalizedStamp = ClientSynchronizationManager.syncStamp(from: message, fallback: 1_700_000_000_000_000)
-        let archivedDate = ClientSynchronizationManager.archivedMessageDate(from: message, fallbackSyncStamp: 1_700_000_000_000_000)
+        let archivedDate = try XCTUnwrap(ClientSynchronizationManager.archivedMessageDate(from: message))
 
         XCTAssertEqual(normalizedStamp, 1_774_355_696_000_000, accuracy: 1)
         XCTAssertEqual(archivedDate.timeIntervalSince1970, 1_774_355_696, accuracy: 0.001)
+    }
+
+    func testArchivedMessageDateUsesQualifiedDelayWithoutDeliveryTime() throws {
+        let message = try makeElement(xml: """
+        <message xmlns='jabber:client'>
+          <delay xmlns='urn:xmpp:delay' stamp='2026-03-24T12:34:56.123456Z'/>
+        </message>
+        """)
+
+        let date = try XCTUnwrap(ClientSynchronizationManager.archivedMessageDate(
+            from: message
+        ))
+
+        XCTAssertEqual(date.timeIntervalSince1970, 1_774_355_696.123456, accuracy: 0.000001)
+    }
+
+    func testArchivedMessageDateDoesNotSubstituteSynchronizationStampForMissingTags() throws {
+        let message = try makeElement(xml: """
+        <message xmlns='jabber:client'>
+          <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1774355696000000'/>
+          <body>No message time</body>
+        </message>
+        """)
+
+        XCTAssertNil(ClientSynchronizationManager.archivedMessageDate(
+            from: message
+        ))
+        XCTAssertNil(ClientSynchronizationManager.archivedMessageDate(
+            from: nil
+        ))
+    }
+
+    func testArchivedMessageDateIgnoresForeignTimestampNamespaces() throws {
+        let message = try makeElement(xml: """
+        <message xmlns='jabber:client'>
+          <time xmlns='urn:foreign:delivery' stamp='2026-03-24T12:34:56Z'/>
+          <delay xmlns='urn:foreign:delay' stamp='2026-03-24T12:34:56Z'/>
+        </message>
+        """)
+
+        XCTAssertNil(ClientSynchronizationManager.archivedMessageDate(
+            from: message
+        ))
+    }
+
+    func testArchivedMessageDateRejectsMalformedOrAmbiguousTimestampMetadata() throws {
+        let delivery = "<time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>"
+        let delay = "<delay xmlns='urn:xmpp:delay' stamp='2026-03-24T12:34:56Z'/>"
+        for metadata in [
+            "<time xmlns='https://xabber.com/protocol/delivery' stamp='invalid'/>",
+            "<delay xmlns='urn:xmpp:delay' stamp='2026-02-30T12:34:56Z'/>",
+            delivery + delivery,
+            delay + delay,
+            delivery + "<delay xmlns='urn:xmpp:delay' stamp='invalid'/>",
+        ] {
+            let message = try makeElement(xml: "<message xmlns='jabber:client'>\(metadata)</message>")
+
+            XCTAssertNil(ClientSynchronizationManager.archivedMessageDate(
+                from: message
+            ), metadata)
+        }
+    }
+
+    func testArchivedMessageDatePrefersDeliveryTimeOverValidQueueDelay() throws {
+        let message = try makeElement(xml: """
+        <message xmlns='jabber:client'>
+          <delay xmlns='urn:xmpp:delay' stamp='2026-03-24T13:34:56Z'/>
+          <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+        </message>
+        """)
+
+        let date = try XCTUnwrap(ClientSynchronizationManager.archivedMessageDate(
+            from: message
+        ))
+
+        XCTAssertEqual(date.timeIntervalSince1970, 1_774_355_696, accuracy: 0.001)
     }
 
     func testReadSnapshotRejectsNonHttpsNamespace() throws {
@@ -29160,6 +29236,31 @@ final class ListEmptyStateTests: XCTestCase {
 }
 
 final class MessageRoutingRegressionTests: XCTestCase {
+
+    private let conversationTypes: [ClientSynchronizationManager.ConversationType] = [
+        .regular, .group, .channel, .omemo, .omemo1, .axolotl, .notifications, .saved
+    ]
+
+    func testAllConversationTypesIgnoreRosterResourceWhenAddressingMessages() {
+        for type in conversationTypes {
+            let jid = MessageManager.outboundDestinationJID(
+                for: "romeo@example.com", conversationType: type, resource: "stale-iPhone"
+            )
+            XCTAssertEqual(jid?.full, "romeo@example.com", type.rawValue)
+        }
+    }
+
+    func testQualifiedOpponentCannotPinMessagesToAResource() {
+        let resources: [String?] = [nil, "roster-resource"]
+        for type in conversationTypes {
+            for resource in resources {
+                let jid = MessageManager.outboundDestinationJID(
+                    for: "romeo@example.com/old-device", conversationType: type, resource: resource
+                )
+                XCTAssertEqual(jid?.full, "romeo@example.com", type.rawValue)
+            }
+        }
+    }
 
     func testGroupOutboundDestinationJIDUsesBareJID() {
         let jid = MessageManager.outboundDestinationJID(

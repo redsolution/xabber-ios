@@ -7,6 +7,17 @@ struct ChatArchiveBoundaryPresentationAnchor {
     let anchor: ChatHistoryPageAnchor
 }
 
+/// Visibility only: retaining a rendered conversation never grants archive,
+/// paging or read-marker authority after its session proof has been revoked.
+struct ChatArchiveFailureVisibleSnapshot {
+    let conversation: ChatTimelineConversationKey
+    let items: [ChatViewController.Datasource]
+    let layouts: ChatMessageLayoutSnapshot
+    /// Real persisted rows must be read again before restoring their plaintext.
+    /// Empty is used only by in-memory presentations with no persisted source.
+    let persistedPrimaries: [String]
+}
+
 enum ChatArchiveVerifiedMaterializationFailurePresentation: Equatable {
     case preserveContent
     case fullSkeleton
@@ -495,8 +506,11 @@ enum ChatArchiveWindowPresentationPolicy {
         verifiedScope: ChatTimelineVerifiedScope? = nil
     ) -> Bool {
         switch state {
-        case .skeleton, .retryableFailure:
+        case .skeleton:
             return true
+        case .retryableFailure:
+            guard let verifiedScope, let committedCoverageGeneration else { return true }
+            return committedCoverageGeneration != verifiedScope.coverageGeneration
         case .verified(let snapshot):
             if let verifiedScope {
                 return !hasCommittedVerifiedScope(
@@ -701,6 +715,440 @@ enum ChatArchiveVerifiedTimelineStateFactory {
 }
 
 extension ChatViewController {
+    /// Offline is a normal unavailable archive state, not an instruction to
+    /// erase accepted local content or acknowledge it without current proof.
+    internal var isArchiveHistoryUnavailable: Bool {
+        guard let state = archiveWindowState else { return false }
+        switch state {
+        case .retryableFailure, .skeleton(reason: .offline, target: _): return true
+        default: return false
+        }
+    }
+
+    /// Receiving a verified result starts materialization; only its winning
+    /// UIKit commit replaces visibility fallback and restores authority.
+    internal var hasVisibleArchiveFallbackAwaitingCommit: Bool {
+        guard archiveHistoryFailureFallbackIsVisible, !showSkeletonObserver.value,
+              archiveHistoryFailureVisibleSnapshot?.conversation == chatTimelineConversationKey else { return false }
+        switch archiveWindowState {
+        case .verified?, .authoritativeEmpty?: return true
+        default: return false
+        }
+    }
+
+    private func ownsArchiveReferenceResolution(
+        request: ChatOpenMessageRequest, resolutionID: UUID, expectedIntentID: UUID
+    ) -> Bool {
+        archiveReferenceResolutionID == resolutionID &&
+            pendingOpenMessageRequest == request &&
+            request.owner == owner && request.chatJid == jid &&
+            request.conversationType == conversationType &&
+            archiveWindowIntent?.id == expectedIntentID &&
+            archiveWindowIntent?.conversation == archiveEngineConversationKey
+    }
+
+    internal func completeArchiveReferenceResolution(
+        _ cursor: ArchiveCursor?, request: ChatOpenMessageRequest,
+        resolutionID: UUID, expectedIntentID: UUID
+    ) -> ArchiveWindowIntent? {
+        guard ownsArchiveReferenceResolution(request: request, resolutionID: resolutionID,
+            expectedIntentID: expectedIntentID) else { return nil }
+        archiveReferenceResolutionID = nil
+        archiveReferenceResolutionTask = nil
+        let locator: ArchiveWindowLocator
+        if let cursor {
+            switch request.targetResolution {
+            case .firstIncomingAfterBoundary:
+                // The lookup resolves the boundary, not the first unread row.
+                locator = .firstUnread(after: cursor)
+            case .anchor:
+                locator = .archiveID(cursor)
+            }
+        } else {
+            preserveUnavailableArchiveTargetPreparation(request)
+            clearSuppressedOpenMessageRequestState()
+            locator = .latest
+        }
+        let intent = ArchiveWindowIntent(conversation: archiveEngineConversationKey, locator: locator,
+            contextBefore: locator == .latest ? ArchivePageSizing.initial : ArchivePageSizing.anchorBefore,
+            contextAfter: locator == .latest ? 0 : ArchivePageSizing.anchorAfter, priority: .target)
+        // Resolution already has an owned target. A transient UIKit failure
+        // to commit placeholders must not discard it: the normal actor can
+        // load its page, whose verified materialization retries independently.
+        _ = prepareArchiveEngineTargetIntent(intent)
+        return intent
+    }
+
+    @discardableResult
+    internal func failArchiveReferenceResolution(
+        _ error: ArchiveTransportError, request: ChatOpenMessageRequest,
+        resolutionID: UUID, expectedIntentID: UUID
+    ) -> Bool {
+        guard ownsArchiveReferenceResolution(request: request, resolutionID: resolutionID,
+            expectedIntentID: expectedIntentID) else { return false }
+        invalidateArchiveEngineVerifiedScope()
+        archiveWindowCommittedCoverageGeneration = nil
+        archiveWindowPendingSnapshot = nil
+        archiveWindowPendingLiveEdgeAdmission = nil
+        let target = archiveWindowIntent?.locator ?? .latest
+        archiveWindowState = .retryableFailure(ArchiveRetryableFailure(
+            message: String(describing: error), retryCount: archiveHistoryAutomaticRetryAttempt + 1,
+            canRetry: error.isRetryable,
+            recoveryAction: error == .authentication ? .recoverAccount : .retry), target: target)
+        setSkeletonVisible(true)
+        setDatasourceLoadingEnabled(false)
+        _ = commitArchiveEngineOpeningSkeletonSynchronously()
+        endArchiveInteractiveCriticalSection()
+        return true
+    }
+
+    private func preserveUnavailableArchiveTargetPreparation(_ request: ChatOpenMessageRequest) {
+        guard let context = initialTargetFirstFrameContext, context.request == request else { return }
+        archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
+        archiveUnavailableTargetFirstFrameContext = context
+        initialTargetFirstFrameContext = nil
+    }
+
+    internal func finishUnavailableArchiveTargetPreparationIfNeeded() {
+        guard let context = archiveUnavailableTargetFirstFrameContext,
+              pendingOpenMessageRequest == nil,
+              context.request.owner == owner, context.request.chatJid == jid,
+              context.request.conversationType == conversationType,
+              !showSkeletonObserver.value, let state = archiveWindowState,
+              !ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(for: state,
+                  committedCoverageGeneration: archiveWindowCommittedCoverageGeneration,
+                  verifiedScope: timelineSession?.verifiedScope) else { return }
+        switch state {
+        case .verified:
+            guard datasource.contains(where: { !$0.isFakeMessage }) else { return }
+            archiveUnavailableTargetFirstFrameContext = nil
+            isPreparingStackedNavigationPresentation = false
+            _ = context.finishPreparationIfNeeded()
+        case .authoritativeEmpty:
+            archiveUnavailableTargetFirstFrameContext = nil
+            isPreparingStackedNavigationPresentation = false
+            _ = context.finishPreparationIfNeeded()
+        case .skeleton, .retryableFailure:
+            break
+        }
+    }
+
+    private func finishArchiveFailureVisiblePreparationIfNeeded() {
+        guard archiveHistoryFailureFallbackIsVisible, !showSkeletonObserver.value,
+              messagesCollectionView.numberOfSections == datasource.count,
+              datasource.contains(where: { !$0.isFakeMessage }) else { return }
+        let context: ChatInitialTargetFirstFrameContext
+        let isUnavailableTarget: Bool
+        if let initial = initialTargetFirstFrameContext,
+           pendingOpenMessageRequest == initial.request {
+            context = initial
+            isUnavailableTarget = false
+        } else if let unavailable = archiveUnavailableTargetFirstFrameContext,
+                  pendingOpenMessageRequest == nil,
+                  archiveWindowIntent?.locator == .latest {
+            context = unavailable
+            isUnavailableTarget = true
+        } else { return }
+        guard !isStackedNavigationPresentationPreparationCancelled,
+              context.request.owner == owner, context.request.chatJid == jid,
+              context.request.conversationType == conversationType else { return }
+        if isUnavailableTarget { archiveUnavailableTargetFirstFrameContext = nil }
+        else { initialTargetFirstFrameContext = nil }
+        isPreparingStackedNavigationPresentation = false
+        _ = context.finishPreparationIfNeeded()
+    }
+
+    private func unresolvedArchiveReferenceRequest() -> ChatOpenMessageRequest? {
+        guard let request = pendingOpenMessageRequest,
+              request.owner == owner, request.chatJid == jid,
+              request.conversationType == conversationType,
+              ChatAnchorArchiveLocatorPolicy.locator(for: resolvedArchiveAnchor(for: request)) == nil,
+              request.anchor.archivedId?.isNotEmpty == true else { return nil }
+        return request
+    }
+
+    private func cancelArchiveReferenceResolution() {
+        archiveReferenceResolutionID = nil
+        archiveReferenceResolutionTask?.cancel()
+        archiveReferenceResolutionTask = nil
+    }
+
+    @MainActor
+    private func resolveArchiveReference(
+        _ request: ChatOpenMessageRequest, resolutionID: UUID, expectedIntentID: UUID,
+        engine: AccountArchiveEngine
+    ) async {
+        guard ownsArchiveReferenceResolution(request: request, resolutionID: resolutionID,
+            expectedIntentID: expectedIntentID), let reference = request.anchor.archivedId else { return }
+        do {
+            let cursor = try await engine.resolveStanzaReference(reference,
+                conversation: archiveEngineConversationKey, priority: .target)
+            guard !Task.isCancelled else { return }
+            if let intent = completeArchiveReferenceResolution(cursor, request: request,
+                resolutionID: resolutionID, expectedIntentID: expectedIntentID) {
+                await engine.submit(intent)
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            let failure = (error as? ArchiveTransportError) ?? .serverError
+            if failure == .targetNotFound {
+                if let intent = completeArchiveReferenceResolution(nil, request: request,
+                    resolutionID: resolutionID, expectedIntentID: expectedIntentID) {
+                    await engine.submit(intent)
+                }
+                return
+            }
+            guard failArchiveReferenceResolution(failure, request: request,
+                resolutionID: resolutionID, expectedIntentID: expectedIntentID) else { return }
+            if failure == .authentication {
+                CredentialsExpiredPresenter(jid: owner).present(animated: true)
+            }
+            guard failure.isRetryable else { return }
+            cancelArchiveHistoryAutomaticRetry(resetAttempt: false)
+            archiveHistoryAutomaticRetryAttempt += 1
+            let delay = ChatArchiveHistoryAutomaticRetryPolicy.delay(
+                actorFailureCount: archiveHistoryAutomaticRetryAttempt,
+                presentationAttempt: archiveHistoryAutomaticRetryAttempt)
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.ownsArchiveReferenceResolution(request: request,
+                    resolutionID: resolutionID, expectedIntentID: expectedIntentID) else { return }
+                self.archiveHistoryAutomaticRetryWorkItem = nil
+                self.archiveReferenceResolutionTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.resolveArchiveReference(request, resolutionID: resolutionID,
+                        expectedIntentID: expectedIntentID, engine: engine)
+                }
+            }
+            archiveHistoryAutomaticRetryWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+    }
+
+    @discardableResult
+    internal func showLatestAfterUnavailableUnreadTarget() -> Bool {
+        guard let request = pendingOpenMessageRequest,
+              archiveWindowTargetOpenRequest == request,
+              request.owner == owner, request.chatJid == jid,
+              request.conversationType == conversationType,
+              case .firstIncomingAfterBoundary = request.targetResolution,
+              let locator = archiveWindowIntent?.locator,
+              case .firstUnread = locator else { return false }
+        preserveUnavailableArchiveTargetPreparation(request)
+        clearSuppressedOpenMessageRequestState()
+        return submitArchiveEngineLatestTarget()
+    }
+
+    /// A raw synchronization boundary is only a reference. The cursor comes
+    /// exclusively from the matching conversation's persisted MAM result.
+    internal func localUnreadBoundaryArchiveCursor(boundaryId: String) -> ArchiveCursor? {
+        let isMatchingRow: (MessageStorageItem) -> Bool = { item in
+            !item.isInvalidated && !item.isDeleted && !item.isLocallyHiddenByReport &&
+                !item.outgoing && item.owner == self.owner && item.opponent == self.jid &&
+                item.conversationType == self.conversationType
+        }
+        if let item = timelineSession?.firstIncoming(afterArchiveBoundaryId: boundaryId),
+           isMatchingRow(item) {
+            return ArchiveCursor(rawValue: item.mamArchiveId)
+        }
+        let store = RealmChatTimelineSessionStore(owner: owner, jid: jid, conversationType: conversationType)
+        guard let item = store.firstIncoming(afterArchiveBoundaryId: boundaryId), isMatchingRow(item) else {
+            return nil
+        }
+        return ArchiveCursor(rawValue: item.mamArchiveId)
+    }
+
+    internal func resolvedArchiveAnchor(for request: ChatOpenMessageRequest) -> ChatMessageAnchorRef {
+        guard request.owner == owner, request.chatJid == jid,
+              request.conversationType == conversationType,
+              case .firstIncomingAfterBoundary(let boundary) = request.targetResolution else {
+            return request.anchor
+        }
+        return ChatMessageAnchorRef(
+            messagePrimary: request.anchor.messagePrimary,
+            archivedId: request.anchor.archivedId,
+            archiveCursor: request.anchor.archiveCursor ?? localUnreadBoundaryArchiveCursor(boundaryId: boundary),
+            messageId: request.anchor.messageId,
+            authorId: request.anchor.authorId,
+            bodyFingerprint: request.anchor.bodyFingerprint,
+            sourceDate: nil
+        )
+    }
+
+    internal func retainArchiveHistoryVisibleMessages() {
+        guard let state = archiveWindowState else { return }
+        switch state {
+        case .verified, .authoritativeEmpty:
+            guard !showSkeletonObserver.value,
+                  !ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
+                    for: state,
+                    committedCoverageGeneration: archiveWindowCommittedCoverageGeneration,
+                    verifiedScope: timelineSession?.verifiedScope
+                  ) else { return }
+            let visibleMessagePrimaries = datasource.compactMap { item -> String? in
+                guard !item.isFakeMessage else { return nil }
+                switch item.kind {
+                case .date(_), .unread(_), .initial(_), .skeleton(_): return nil
+                default: return item.primary
+                }
+            }
+            guard !visibleMessagePrimaries.isEmpty else {
+                archiveHistoryFailureVisibleSnapshot = nil
+                return
+            }
+            guard datasource.allSatisfy({ $0.owner == owner && $0.jid == jid }) else { return }
+            let hasPersistedSource = timelineSession?.snapshot.items.contains {
+                !$0.isInvalidated && $0.realm != nil
+            } ?? false
+            archiveHistoryFailureVisibleSnapshot = ChatArchiveFailureVisibleSnapshot(
+                conversation: chatTimelineConversationKey,
+                items: datasource,
+                layouts: (messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?.cache.reuseSnapshot() ?? .empty,
+                // Local outgoing presentation can precede its admission into
+                // the resident archive snapshot. Revalidate every rendered row.
+                persistedPrimaries: hasPersistedSource ? Array(Set(visibleMessagePrimaries)) : []
+            )
+        case .skeleton, .retryableFailure:
+            break
+        }
+    }
+
+    /// Restore only presentation. In particular, do not commit/install a
+    /// timeline window, manufacture coverage, or decrypt a cached stanza here.
+    @discardableResult
+    internal func restoreArchiveHistoryFailurePresentationIfNeeded() -> Bool {
+        let isRetrying: Bool
+        if case .skeleton? = archiveWindowState { isRetrying = archiveHistoryFailureFallbackIsVisible }
+        else { isRetrying = false }
+        guard isArchiveHistoryUnavailable || isRetrying else { return false }
+        let key = chatTimelineConversationKey
+        if archiveHistoryFailureVisibleSnapshot?.conversation != key {
+            archiveHistoryFailureFallbackIsVisible = false
+        }
+        if let retained = archiveHistoryFailureVisibleSnapshot,
+           retained.conversation == key, retained.persistedPrimaries.isEmpty {
+            let reusesVisibleContent = !showSkeletonObserver.value &&
+                datasource.map(\.primary) == retained.items.map(\.primary)
+            archiveHistoryFailureFallbackIsVisible = true
+            showSkeletonObserver.accept(false)
+            if !reusesVisibleContent {
+                applyChatDatasource(
+                    retained.items,
+                    mode: .fullReload(keepOffset: true),
+                    animated: false,
+                    preparedLayouts: retained.layouts,
+                    suppressDefaultBottomScroll: true,
+                    presentationOwner: .archiveEngine,
+                    completion: { [weak self] in self?.finishArchiveFailureVisiblePreparationIfNeeded() }
+                )
+            } else {
+                finishArchiveFailureVisiblePreparationIfNeeded()
+            }
+            refreshArchiveHistoryRecoveryPresentation()
+            return true
+        }
+        // Already displayed rows need no restoration while their current
+        // persisted versions are read. Hidden retained rows still await validation.
+        if let retained = archiveHistoryFailureVisibleSnapshot, retained.conversation == key,
+           !showSkeletonObserver.value, datasource.map(\.primary) == retained.items.map(\.primary) {
+            archiveHistoryFailureFallbackIsVisible = true
+        }
+        guard archiveHistoryFailureFallbackRequestID == nil else {
+            return archiveHistoryFailureFallbackIsVisible &&
+                archiveHistoryFailureVisibleSnapshot?.conversation == key
+        }
+        guard !owner.isEmpty, !jid.isEmpty else { return false }
+        let requestID = UUID()
+        archiveHistoryFailureFallbackRequestID = requestID
+        let mappingJob = beginDatasetMappingJob()
+        let context = captureDatasourceMappingContext()
+        let generation = archiveWindowApplyGeneration
+        let type = conversationType
+        let retainedPrimaries = archiveHistoryFailureVisibleSnapshot.flatMap {
+            $0.conversation == key ? $0.persistedPrimaries : nil
+        }
+        datasetMappingQueue.async { [weak self] in
+            guard let self else { return }
+            let now = Date().timeIntervalSince1970
+            let rows: [MessageStorageItem]
+            let didReadRows: Bool
+            if let retainedPrimaries, !retainedPrimaries.isEmpty {
+                do {
+                    let realm = try WRealm.safe()
+                    rows = Array(realm.objects(MessageStorageItem.self).filter(
+                        "primary IN %@ AND owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false AND isLocallyHiddenByReport == false",
+                        retainedPrimaries, key.owner, key.jid, type.rawValue
+                    )).filter {
+                        $0.deleteState == .visible &&
+                            ($0.effectiveAutoDeleteExpiresAt <= 0 || $0.effectiveAutoDeleteExpiresAt > now)
+                    }.sorted { MessageHistoryOrderKey(message: $0) < MessageHistoryOrderKey(message: $1) }
+                        .map { $0.freeze() }
+                    didReadRows = true
+                } catch {
+                    rows = []
+                    didReadRows = false
+                }
+            } else {
+                didReadRows = true
+                rows = RealmChatTimelineSessionStore(
+                    owner: key.owner, jid: key.jid, conversationType: type
+                ).latest(limit: ArchivePageSizing.initial).filter {
+                    !$0.isDeleted && !$0.isLocallyHiddenByReport && $0.deleteState == .visible &&
+                        ($0.effectiveAutoDeleteExpiresAt <= 0 || $0.effectiveAutoDeleteExpiresAt > now)
+                }
+            }
+            let mapped = self.mapDataset(
+                dataset: rows,
+                context: context,
+                cancellationToken: mappingJob.token
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.archiveHistoryFailureFallbackRequestID == requestID else { return }
+                self.archiveHistoryFailureFallbackRequestID = nil
+                guard self.chatTimelineConversationKey == key,
+                      self.archiveWindowApplyGeneration == generation,
+                      self.datasetMappingGeneration == mappingJob.generation,
+                      !mappingJob.token.isCancelled, !mapped.wasCancelled else { return }
+                let isRetrying: Bool
+                if case .skeleton? = self.archiveWindowState {
+                    isRetrying = self.archiveHistoryFailureFallbackIsVisible
+                } else { isRetrying = false }
+                guard self.isArchiveHistoryUnavailable || isRetrying else { return }
+                // An unavailable store is not evidence that messages vanished.
+                guard didReadRows else { return }
+                guard !rows.isEmpty, !mapped.datasource.isEmpty else {
+                    if retainedPrimaries?.isEmpty == false {
+                        self.archiveHistoryFailureVisibleSnapshot = nil
+                        self.archiveHistoryFailureFallbackIsVisible = false
+                        self.showSkeletonObserver.accept(true)
+                        self.refreshArchiveHistoryRecoveryPresentation()
+                        self.applyChatDatasource([], mode: .fullReload(keepOffset: false), animated: false,
+                            suppressDefaultBottomScroll: true, presentationOwner: .archiveEngine)
+                    }
+                    return
+                }
+                self.archiveHistoryFailureVisibleSnapshot = ChatArchiveFailureVisibleSnapshot(
+                    conversation: key, items: mapped.datasource, layouts: mapped.layoutSnapshot,
+                    persistedPrimaries: rows.map(\.primary)
+                )
+                self.archiveHistoryFailureFallbackIsVisible = true
+                self.showSkeletonObserver.accept(false)
+                self.applyChatDatasource(
+                    mapped.datasource,
+                    mode: .fullReload(keepOffset: false),
+                    animated: false,
+                    preparedLayouts: mapped.layoutSnapshot,
+                    suppressDefaultBottomScroll: true,
+                    presentationOwner: .archiveEngine,
+                    completion: { [weak self] in self?.finishArchiveFailureVisiblePreparationIfNeeded() }
+                )
+                self.refreshArchiveHistoryRecoveryPresentation()
+            }
+        }
+        return archiveHistoryFailureFallbackIsVisible &&
+            archiveHistoryFailureVisibleSnapshot?.conversation == key
+    }
+
     var archiveEngineConversationKey: ArchiveConversationKey {
         ArchiveConversationKey(
             owner: owner,
@@ -714,6 +1162,7 @@ extension ChatViewController {
         allowingLocalPresentationID: UUID? = nil,
         allowsPendingLiveEdgeAdmission: Bool = false
     ) -> ChatTimelineVerifiedScope? {
+        guard !archiveHistoryFailureFallbackIsVisible else { return nil }
         guard let session = timelineSession,
               let scope = session.verifiedScope else {
             return nil
@@ -897,6 +1346,8 @@ extension ChatViewController {
                 incomingIntent: intent
         )
         guard shouldResetPresentation else { return }
+        cancelArchiveReferenceResolution()
+        let referenceRequest = unresolvedArchiveReferenceRequest()
         cancelArchiveHistoryAutomaticRetry()
         invalidateArchiveEngineVerifiedScope()
         invalidateArchiveWindowAuthoritativeEmptyApply()
@@ -904,6 +1355,7 @@ extension ChatViewController {
         scrollWorkScheduler.cancel()
         timelineBoundaryRequest = nil
         archiveWindowIntent = intent
+        archiveWindowTargetOpenRequest = pendingOpenMessageRequest
         archiveWindowBoundaryPresentationAnchor = nil
         archiveWindowCommittedCoverageGeneration = nil
         archiveWindowPendingSnapshot = nil
@@ -936,6 +1388,8 @@ extension ChatViewController {
             setDatasourceLoadingEnabled(false)
             return
         }
+        let referenceResolutionID = referenceRequest.map { _ in UUID() }
+        archiveReferenceResolutionID = referenceResolutionID
         if archiveWindowStateTask == nil {
             let conversation = archiveEngineConversationKey
             archiveWindowStateTask = Task { @MainActor [weak self, weak account] in
@@ -1023,13 +1477,21 @@ extension ChatViewController {
         archiveEnginePresentationDemandID = demandID
         archiveEnginePresentationDemandConversation = demandConversation
         archiveEnginePresentationDemandEngine = demandEngine
-        let demandTask = Task {
+        let demandTask = Task { @MainActor [weak self] in
             await demandEngine.attachPresentationDemand(
                 for: demandConversation,
                 demandID: demandID
             )
-            guard !Task.isCancelled else { return }
-            await demandEngine.submit(intent)
+            guard !Task.isCancelled, let self,
+                  self.archiveEnginePresentationDemandID == demandID,
+                  self.archiveEngineConversationKey == demandConversation,
+                  self.archiveWindowIntent?.id == intent.id else { return }
+            if let request = referenceRequest, let resolutionID = referenceResolutionID {
+                await self.resolveArchiveReference(request, resolutionID: resolutionID,
+                    expectedIntentID: intent.id, engine: demandEngine)
+            } else {
+                await demandEngine.submit(intent)
+            }
         }
         archiveEnginePresentationDemandTask = demandTask
     }
@@ -1056,6 +1518,10 @@ extension ChatViewController {
     }
 
     internal func stopArchiveEnginePresentationSubscription() {
+        cancelArchiveReferenceResolution()
+        archiveWindowTargetOpenRequest = nil
+        archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
+        archiveUnavailableTargetFirstFrameContext = nil
         if isViewLoaded {
             archiveHistoryRecoveryStatusView.isHidden = true
         }
@@ -1167,6 +1633,9 @@ extension ChatViewController {
 
     @discardableResult
     internal func submitArchiveEngineLatestTarget() -> Bool {
+        retainArchiveHistoryVisibleMessages()
+        cancelArchiveReferenceResolution()
+        archiveWindowTargetOpenRequest = nil
         let intent = ChatArchiveWindowPresentationPolicy.latestTargetIntent(
             conversation: archiveEngineConversationKey
         )
@@ -1222,11 +1691,26 @@ extension ChatViewController {
               let account = AccountManager.shared.find(for: owner) else {
             return false
         }
-        guard let locator = ChatAnchorArchiveLocatorPolicy.locator(
-            for: request.anchor
-        ) else {
-            return false
+        cancelArchiveReferenceResolution()
+        let locator = ChatAnchorArchiveLocatorPolicy.locator(for: resolvedArchiveAnchor(for: request))
+        if locator == nil {
+            guard pendingOpenMessageRequest == request, request.anchor.archivedId?.isNotEmpty == true else {
+                return false
+            }
+            let intent = ArchiveWindowIntent(conversation: archiveEngineConversationKey, locator: .latest,
+                contextBefore: ArchivePageSizing.anchorBefore, contextAfter: ArchivePageSizing.anchorAfter,
+                priority: .target)
+            guard prepareArchiveEngineTargetIntent(intent) else { return false }
+            let resolutionID = UUID()
+            archiveReferenceResolutionID = resolutionID
+            archiveReferenceResolutionTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.resolveArchiveReference(request, resolutionID: resolutionID,
+                    expectedIntentID: intent.id, engine: account.archiveEngine)
+            }
+            return true
         }
+        guard let locator else { return false }
         let intent = ArchiveWindowIntent(
             conversation: archiveEngineConversationKey,
             locator: locator,
@@ -1234,6 +1718,14 @@ extension ChatViewController {
             contextAfter: ArchivePageSizing.anchorAfter,
             priority: .target
         )
+        guard prepareArchiveEngineTargetIntent(intent) else { return false }
+        Task { await account.archiveEngine.submit(intent) }
+        return true
+    }
+
+    @discardableResult
+    private func prepareArchiveEngineTargetIntent(_ intent: ArchiveWindowIntent) -> Bool {
+        retainArchiveHistoryVisibleMessages()
         cancelArchiveHistoryAutomaticRetry()
         invalidateArchiveEngineVerifiedScope()
         invalidateArchiveWindowAuthoritativeEmptyApply()
@@ -1241,13 +1733,14 @@ extension ChatViewController {
         archiveWindowApplyGeneration &+= 1
         cancelDatasetMappingJobs()
         archiveWindowIntent = intent
+        archiveWindowTargetOpenRequest = pendingOpenMessageRequest
         archiveWindowBoundaryPresentationAnchor = nil
         archiveWindowCommittedCoverageGeneration = nil
         archiveWindowPendingSnapshot = nil
         archiveWindowPendingLiveEdgeAdmission = nil
         archiveWindowLiveEdgeApplyGeneration = nil
         archiveWindowBoundaryLoadingTarget = nil
-        archiveWindowState = .skeleton(reason: .loadingTarget, target: locator)
+        archiveWindowState = .skeleton(reason: .loadingTarget, target: intent.locator)
         beginArchiveInteractiveCriticalSection()
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
@@ -1255,7 +1748,6 @@ extension ChatViewController {
             endArchiveInteractiveCriticalSection()
             return false
         }
-        Task { await account.archiveEngine.submit(intent) }
         return true
     }
 
@@ -2233,7 +2725,7 @@ extension ChatViewController {
            request.chatJid == jid,
            request.conversationType == conversationType {
             if let locator = ChatAnchorArchiveLocatorPolicy.locator(
-                for: request.anchor
+                for: resolvedArchiveAnchor(for: request)
             ) {
                 return ArchiveWindowIntent(
                     conversation: conversation,
@@ -2607,7 +3099,7 @@ extension ChatViewController {
         )
     }
 
-    private func finishCommittedArchiveLiveEdgeAdmission(
+    internal func finishCommittedArchiveLiveEdgeAdmission(
         _ admission: ArchiveLiveEdgeAdmission,
         committed: ChatTimelineCommittedLiveEdgeAdmission,
         session: ChatTimelineSession
@@ -2641,6 +3133,7 @@ extension ChatViewController {
             minIndex: 0,
             maxIndex: committedSnapshot.items.count
         ))
+        retainArchiveHistoryVisibleMessages()
         if let state = archiveWindowState,
            case .authoritativeEmpty = state {
             setSkeletonVisible(false)
@@ -2692,9 +3185,10 @@ extension ChatViewController {
         drainTimelinePresentationLanesAfterAnchorTerminal()
     }
 
-    private func receiveArchiveWindowState(_ state: ArchiveWindowState) {
+    internal func receiveArchiveWindowState(_ state: ArchiveWindowState) {
         assert(Thread.isMainThread)
         guard archiveWindowStateTask != nil,
+              archiveReferenceResolutionID == nil,
               ChatArchiveWindowPresentationPolicy.shouldAccept(
                 state: state,
                 for: archiveWindowIntent
@@ -2755,6 +3249,14 @@ extension ChatViewController {
         } else {
             preservesCommittedContent = false
         }
+        switch state {
+        case .retryableFailure, .skeleton(reason: .offline, target: _):
+            // Capture the actual winning viewport before this account-driven
+            // state revokes its scope; the older snapshot may be only one page.
+            retainArchiveHistoryVisibleMessages()
+        default:
+            break
+        }
         invalidateProofScopedLocalTargetPreparation()
         invalidateCommittedTimelineLocalPresentation()
         archiveWindowAuthoritativeEmptyApplyGeneration = nil
@@ -2799,6 +3301,9 @@ extension ChatViewController {
             }
             endArchiveInteractiveCriticalSection()
             switch failure.recoveryAction {
+            case .showLatest:
+                cancelArchiveHistoryAutomaticRetry()
+                _ = showLatestAfterUnavailableUnreadTarget()
             case .retry:
                 scheduleArchiveHistoryAutomaticRetry(
                     failureRetryCount: failure.retryCount
@@ -2866,6 +3371,9 @@ extension ChatViewController {
             completeSucceededRemoteTimelineBoundaryIfReady()
         case .failed(let failure):
             switch failure.recoveryAction {
+            case .showLatest:
+                cancelArchiveHistoryAutomaticRetry()
+                _ = showLatestAfterUnavailableUnreadTarget()
             case .retry:
                 endArchiveInteractiveCriticalSection()
                 scheduleArchiveHistoryAutomaticRetry(
@@ -2969,26 +3477,101 @@ extension ChatViewController {
         default:
             text = nil
         }
-        guard let text, showSkeletonObserver.value else {
+        guard let text, showSkeletonObserver.value || isArchiveHistoryUnavailable || archiveHistoryFailureFallbackIsVisible else {
             archiveHistoryRecoveryStatusView.isHidden = true
+            reconcileArchiveHistoryRecoveryViewport()
             return
         }
         let statusView = archiveHistoryRecoveryStatusView
         if statusView.superview == nil {
             view.addSubview(statusView)
-            NSLayoutConstraint.activate([
-                statusView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-                statusView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
-                statusView.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-                statusView.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-                statusView.widthAnchor.constraint(lessThanOrEqualToConstant: 420)
-            ])
         }
         let label = statusView.arrangedSubviews.first as? UILabel
         label?.text = text
         label?.accessibilityLabel = text
         statusView.isHidden = false
+        NSLayoutConstraint.deactivate(archiveHistoryRecoveryStatusConstraints)
+        archiveHistoryRecoveryStatusConstraints = [
+            statusView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            statusView.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            statusView.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            statusView.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+            showSkeletonObserver.value
+                ? statusView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor)
+                : statusView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: floatingBubblesHeight + 8)
+        ]
+        NSLayoutConstraint.activate(archiveHistoryRecoveryStatusConstraints)
+        reconcileArchiveHistoryRecoveryViewport()
         view.bringSubviewToFront(statusView)
+    }
+
+    /// Insets alone do not clip a scrolled cell. Give status its own band above
+    /// the collection, preserving each visible message's position in the view.
+    internal func reconcileArchiveHistoryRecoveryViewport() {
+        guard isViewLoaded, !isApplyingArchiveHistoryRecoveryViewport,
+              archiveHistoryRecoveryBannerHeight > 0 ||
+                archiveHistoryRecoveryCollectionTopConstraint != nil ||
+                isArchiveHistoryUnavailable else { return }
+        let status = archiveHistoryRecoveryStatusView
+        let reservesBand = !status.isHidden && !showSkeletonObserver.value
+        let statusTop = archiveHistoryRecoveryStatusConstraints.first {
+            ($0.firstItem as? UIView) === status && $0.firstAttribute == .top
+        }
+        let statusTopConstant = floatingBubblesHeight + 8
+        let statusTopChanged = reservesBand &&
+            (statusTop.map { abs($0.constant - statusTopConstant) > 0.5 } ?? false)
+        let statusHeight: CGFloat
+        if reservesBand {
+            statusHeight = status.systemLayoutSizeFitting(
+                CGSize(width: max(1, min(420, view.bounds.width - 48)), height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+        } else {
+            statusHeight = 0
+        }
+        let bannerHeight = reservesBand ? statusHeight + 16 : 0
+        let collection = messagesCollectionView
+        if archiveHistoryRecoveryCollectionTopConstraint?.isActive != true,
+           collection.superview === view {
+            archiveHistoryRecoveryCollectionTopConstraint = view.constraints.first {
+                ($0.firstItem as? UIView) === collection && $0.firstAttribute == .top &&
+                    ($0.secondItem as? UIView) === view && $0.secondAttribute == .top
+            }
+        }
+        guard let top = archiveHistoryRecoveryCollectionTopConstraint else {
+            if statusTopChanged { statusTop?.constant = statusTopConstant }
+            archiveHistoryRecoveryBannerHeight = bannerHeight
+            updateChatCollectionInsets()
+            return
+        }
+        let reservedTop = reservesBand
+            ? max(0, view.safeAreaLayoutGuide.layoutFrame.minY - view.bounds.minY +
+                floatingBubblesHeight + statusHeight + 16) : 0
+        guard abs(top.constant - reservedTop) > 0.5 ||
+                abs(archiveHistoryRecoveryBannerHeight - bannerHeight) > 0.5 ||
+                statusTopChanged else { return }
+        isApplyingArchiveHistoryRecoveryViewport = true
+        defer { isApplyingArchiveHistoryRecoveryViewport = false }
+        let oldOffset = collection.contentOffset
+        let oldOriginY = collection.frame.minY
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            if statusTopChanged { statusTop?.constant = statusTopConstant }
+            archiveHistoryRecoveryBannerHeight = bannerHeight
+            top.constant = reservedTop
+            view.layoutIfNeeded()
+            updateChatCollectionInsets()
+            collection.layoutIfNeeded()
+            let minimum = -collection.adjustedContentInset.top
+            let maximum = max(minimum, collection.contentSize.height - collection.bounds.height + collection.adjustedContentInset.bottom)
+            let targetY = min(maximum, max(minimum, oldOffset.y + collection.frame.minY - oldOriginY))
+            if abs(collection.contentOffset.y - targetY) > 0.5 {
+                collection.setContentOffset(CGPoint(x: oldOffset.x, y: targetY), animated: false)
+            }
+        }
+        CATransaction.commit()
     }
 
     internal func refreshArchiveBoundaryLoadingIndicator() {

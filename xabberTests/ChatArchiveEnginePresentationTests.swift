@@ -1,4 +1,5 @@
 import XCTest
+import RealmSwift
 @testable import xabber
 
 final class ChatArchiveEnginePresentationTests: XCTestCase {
@@ -7,6 +8,188 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         jid: "juliet@example.org",
         conversationType: .regular
     )
+
+    @MainActor
+    func testRecoveryBannerCannotCoverVisibleMessageCellsWhilePhoneAndPadScroll() throws {
+        for size in [CGSize(width: 390, height: 844), CGSize(width: 638, height: 820)] {
+            try withRecoveryBannerGeometryFixture(size: size) { controller, window in
+                controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+                controller.refreshArchiveHistoryRecoveryPresentation()
+                window.layoutIfNeeded()
+                for fraction in [CGFloat(0.25), 0.55, 0.9] {
+                    scrollRecoveryGeometryFixture(controller, fraction: fraction)
+                    try assertRecoveryBannerDoesNotCoverVisibleCells(controller, window: window)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testRecoveryBannerShowAndRecoveryPreserveVisibleMessageAnchor() throws {
+        try withRecoveryBannerGeometryFixture(size: CGSize(width: 390, height: 844)) { controller, window in
+            scrollRecoveryGeometryFixture(controller, fraction: 0.55)
+            let cells = recoveryVisibleCellRects(controller, window: window)
+            let anchor = try XCTUnwrap(cells.sorted { $0.rect.minY < $1.rect.minY }.dropFirst(cells.count / 2).first)
+            let primaries = controller.datasource.map(\.primary)
+
+            controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+            controller.refreshArchiveHistoryRecoveryPresentation()
+            window.layoutIfNeeded()
+            try assertRecoveryBannerDoesNotCoverVisibleCells(controller, window: window)
+            let afterShow = try XCTUnwrap(recoveryVisibleCellRects(controller, window: window).first { $0.primary == anchor.primary })
+            XCTAssertEqual(afterShow.rect.minY, anchor.rect.minY, accuracy: 1)
+
+            controller.archiveWindowState = nil
+            controller.refreshArchiveHistoryRecoveryPresentation()
+            window.layoutIfNeeded()
+            let afterRecovery = try XCTUnwrap(recoveryVisibleCellRects(controller, window: window).first { $0.primary == anchor.primary })
+            XCTAssertEqual(afterRecovery.rect.minY, anchor.rect.minY, accuracy: 1)
+            XCTAssertTrue(controller.archiveHistoryRecoveryStatusView.isHidden)
+            XCTAssertEqual(controller.archiveHistoryRecoveryBannerHeight, 0)
+            XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+        }
+    }
+
+    @MainActor
+    func testRecoveryBannerRemainsOutsideVisibleCellsAfterViewportResize() throws {
+        try withRecoveryBannerGeometryFixture(size: CGSize(width: 638, height: 820)) { controller, window in
+            controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+            controller.refreshArchiveHistoryRecoveryPresentation()
+            for size in [CGSize(width: 820, height: 638), CGSize(width: 390, height: 844), CGSize(width: 844, height: 390)] {
+                window.frame = CGRect(origin: .zero, size: size)
+                window.setNeedsLayout()
+                window.layoutIfNeeded()
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+                scrollRecoveryGeometryFixture(controller, fraction: 0.55)
+                try assertRecoveryBannerDoesNotCoverVisibleCells(controller, window: window)
+            }
+        }
+    }
+
+    @MainActor
+    func testRecoveryBannerTracksFloatingHeaderShrinkAcrossResizeAndRecovery() throws {
+        let animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
+        try withRecoveryBannerGeometryFixture(size: CGSize(width: 638, height: 820)) { controller, window in
+            controller.showTopPanelBubble(with: UIView(), contentHeight: 80)
+            window.layoutIfNeeded()
+            let headerHeight = controller.floatingBubblesHeight
+            XCTAssertGreaterThan(headerHeight, 0)
+            controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+            controller.refreshArchiveHistoryRecoveryPresentation()
+            scrollRecoveryGeometryFixture(controller, fraction: 0.55)
+            try assertRecoveryBannerDoesNotCoverVisibleCells(controller, window: window)
+            let visible = recoveryVisibleCellRects(controller, window: window).sorted { $0.rect.minY < $1.rect.minY }
+            let anchor = try XCTUnwrap(visible.dropFirst(visible.count / 2).first)
+
+            controller.hideTopPanelBubble(animated: false)
+            window.layoutIfNeeded()
+            XCTAssertLessThan(controller.floatingBubblesHeight, headerHeight,
+                "The test must actually remove a floating header before checking the status position")
+            try assertRecoveryBannerDoesNotCoverVisibleCells(controller, window: window)
+            let afterShrink = try XCTUnwrap(recoveryVisibleCellRects(controller, window: window).first { $0.primary == anchor.primary })
+            XCTAssertEqual(afterShrink.rect.minY, anchor.rect.minY, accuracy: 1)
+
+            window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.setNeedsLayout()
+            window.layoutIfNeeded()
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            scrollRecoveryGeometryFixture(controller, fraction: 0.55)
+            try assertRecoveryBannerDoesNotCoverVisibleCells(controller, window: window)
+            let resized = recoveryVisibleCellRects(controller, window: window).sorted { $0.rect.minY < $1.rect.minY }
+            let recoveryAnchor = try XCTUnwrap(resized.dropFirst(resized.count / 2).first)
+            controller.archiveWindowState = nil
+            controller.refreshArchiveHistoryRecoveryPresentation()
+            window.layoutIfNeeded()
+            XCTAssertTrue(controller.archiveHistoryRecoveryStatusView.isHidden)
+            let recovered = try XCTUnwrap(recoveryVisibleCellRects(controller, window: window).first { $0.primary == recoveryAnchor.primary })
+            XCTAssertEqual(recovered.rect.minY, recoveryAnchor.rect.minY, accuracy: 1)
+        }
+    }
+
+    @MainActor
+    private func withRecoveryBannerGeometryFixture(
+        size: CGSize,
+        verify: (ChatPerformanceFixtureViewController, UIWindow) throws -> Void
+    ) throws {
+        let controller = ChatPerformanceFixtureViewController(descriptor: .init(scale: .small))
+        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        window.rootViewController = UINavigationController(rootViewController: controller)
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        window.makeKeyAndVisible()
+        controller.loadViewIfNeeded()
+        let deadline = Date().addingTimeInterval(5)
+        while (controller.datasource.isEmpty || controller.showSkeletonObserver.value || controller.messagesCollectionView.visibleCells.isEmpty), Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        window.layoutIfNeeded()
+        XCTAssertEqual(controller.view.bounds.width, size.width, accuracy: 1)
+        XCTAssertFalse(controller.datasource.isEmpty)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.messagesCollectionView.visibleCells.isEmpty)
+        try verify(controller, window)
+    }
+
+    @MainActor
+    private func scrollRecoveryGeometryFixture(_ controller: ChatViewController, fraction: CGFloat) {
+        let collection = controller.messagesCollectionView
+        let minimum = -collection.adjustedContentInset.top
+        let maximum = max(minimum, collection.contentSize.height - collection.bounds.height + collection.adjustedContentInset.bottom)
+        collection.setContentOffset(CGPoint(x: 0, y: minimum + (maximum - minimum) * fraction), animated: false)
+        collection.layoutIfNeeded()
+    }
+
+    @MainActor
+    private func recoveryVisibleCellRects(
+        _ controller: ChatViewController,
+        window: UIWindow
+    ) -> [(primary: String, rect: CGRect)] {
+        let collection = controller.messagesCollectionView
+        let viewport = collection.convert(collection.bounds, to: window).intersection(window.bounds)
+        return collection.indexPathsForVisibleItems.compactMap { path in
+            guard controller.datasource.indices.contains(path.section),
+                  let cell = collection.cellForItem(at: path) else { return nil }
+            let item = controller.datasource[path.section]
+            guard !item.isFakeMessage else { return nil }
+            switch item.kind {
+            case .date(_), .unread(_), .initial(_), .skeleton(_): return nil
+            default: break
+            }
+            let visibleRect = cell.convert(cell.bounds, to: window).intersection(viewport)
+            guard !visibleRect.isNull, visibleRect.width > 0, visibleRect.height > 0 else { return nil }
+            return (item.primary, visibleRect)
+        }
+    }
+
+    @MainActor
+    private func assertRecoveryBannerDoesNotCoverVisibleCells(
+        _ controller: ChatViewController,
+        window: UIWindow,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        controller.view.layoutIfNeeded()
+        XCTAssertTrue(controller.messagesCollectionView.clipsToBounds,
+            "Viewport intersection is valid only when actual cell drawing is clipped", file: file, line: line)
+        let status = controller.archiveHistoryRecoveryStatusView
+        XCTAssertFalse(status.isHidden, file: file, line: line)
+        let banner = status.convert(status.bounds, to: window).intersection(window.bounds)
+        XCTAssertGreaterThan(banner.height, 0, file: file, line: line)
+        let cells = recoveryVisibleCellRects(controller, window: window)
+        XCTAssertFalse(cells.isEmpty, "Geometry proof needs actual visible message cells", file: file, line: line)
+        for cell in cells {
+            let intersection = cell.rect.intersection(banner)
+            XCTAssertTrue(intersection.isNull || intersection.width * intersection.height < 0.5,
+                "Banner covers \(cell.primary): visibleCell=\(cell.rect), banner=\(banner)", file: file, line: line)
+        }
+    }
 
     @MainActor
     func testOfflineArchiveShowsNetworkStatusWhileKeepingSkeleton() throws {
@@ -27,6 +210,161 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.isEmpty)
         XCTAssertFalse(statusView.subviews.contains { $0 is UIButton })
+    }
+
+    @MainActor
+    func testOfflineArchiveRestoresCommittedMessagesAndShowsEdgeNetworkStatusWithoutAuthority() throws {
+        let controller = try controllerWithCommittedMessage()
+        let primaries = controller.datasource.map(\.primary)
+        controller.timelineSession?.invalidateVerifiedScope()
+        controller.archiveWindowCommittedCoverageGeneration = nil
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+        XCTAssertTrue(controller.archiveHistoryFailureFallbackIsVisible)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canRequestTimelineBoundary(direction: .older))
+        let status = controller.archiveHistoryRecoveryStatusView
+        let label = try XCTUnwrap(status.arrangedSubviews.compactMap { $0 as? UILabel }.first)
+        XCTAssertFalse(status.isHidden)
+        XCTAssertFalse(status.isUserInteractionEnabled)
+        XCTAssertEqual(label.text, ChatConnectionStatusTextPolicy.waitingForNetworkText)
+        XCTAssertGreaterThan(controller.archiveHistoryRecoveryBannerHeight, 0)
+    }
+
+    @MainActor
+    func testOfflineRetryPreservesMessagesThroughLoadingAndPendingVerifiedApply() throws {
+        let controller = try controllerWithCommittedMessage()
+        let primaries = controller.datasource.map(\.primary)
+        controller.timelineSession?.invalidateVerifiedScope()
+        controller.archiveWindowCommittedCoverageGeneration = nil
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        let incoming = try makeSnapshot(generation: 8)
+        controller.archiveWindowState = .verified(incoming)
+        controller.archiveWindowPendingSnapshot = incoming
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+        XCTAssertTrue(controller.archiveHistoryFailureFallbackIsVisible)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        try installTimelineSession(on: controller, snapshot: incoming)
+        controller.archiveWindowPendingSnapshot = nil
+        controller.archiveWindowCommittedCoverageGeneration = 8
+        controller.datasource = controller.mapDataset(dataset: controller.timelineSession?.snapshot.items ?? [])
+        controller.setSkeletonVisible(false)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.archiveHistoryFailureFallbackIsVisible)
+    }
+
+    @MainActor
+    func testAccountOfflineIngressRetainsCurrentViewportIncludingPersistedLocalOutgoing() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "OfflineCurrentViewport-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let controller = try controllerWithCommittedMessage()
+        let covered = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        let outgoing = message(primary: "visible-local-outgoing", archiveID: "20")
+        outgoing.archivedId = ""
+        outgoing.mamArchiveId = ""
+        outgoing.messageId = outgoing.primary
+        outgoing.outgoing = true
+        outgoing.body = "Durably queued local outgoing content"
+        outgoing.legacyBody = outgoing.body
+        try realm.write { realm.add([covered, outgoing]) }
+        controller.setSkeletonVisible(false)
+        controller.applyChatDatasource(controller.mapDataset(dataset: [covered, outgoing]),
+            mode: .fullReload(keepOffset: true), animated: false,
+            suppressDefaultBottomScroll: true, presentationOwner: .archiveEngine)
+        XCTAssertFalse(controller.timelineSession?.snapshot.items.contains { $0.primary == outgoing.primary } == true)
+        controller.archiveWindowIntent = ArchiveWindowIntent(conversation: conversation, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        controller.archiveWindowStateTask = Task {}
+
+        controller.receiveArchiveWindowState(.skeleton(reason: .offline, target: .latest))
+        let settled = expectation(description: "offline viewport remapping settles")
+        controller.datasetMappingQueue.async { DispatchQueue.main.async { settled.fulfill() } }
+        await fulfillment(of: [settled], timeout: 3)
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.contains { $0.primary == covered.primary })
+        XCTAssertTrue(controller.datasource.contains { $0.primary == outgoing.primary },
+            "Account-driven offline must capture the currently rendered local row, not an older retained subset")
+        XCTAssertTrue(controller.archiveHistoryFailureVisibleSnapshot?.persistedPrimaries.contains(outgoing.primary) == true)
+        XCTAssertNil(controller.timelineSession?.verifiedScope)
+        XCTAssertNil(controller.archiveWindowCommittedCoverageGeneration)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        controller.stopArchiveEnginePresentationSubscription()
+    }
+
+    @MainActor
+    func testColdOfflineEncryptedArchiveShowsOnlyScopedAcceptedRowsWithoutArchiveAuthority() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "OfflineArchiveVisibility-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let accepted = message(primary: "accepted-offline", archiveID: "10")
+        accepted.conversationType = .omemo
+        accepted.body = "Accepted cached encrypted conversation content"
+        accepted.legacyBody = accepted.body
+        let wrongType = message(primary: "regular-same-peer", archiveID: "20")
+        let wrongPeer = message(primary: "other-peer", archiveID: "30")
+        wrongPeer.conversationType = .omemo
+        wrongPeer.opponent = "another@example.org"
+        let wrongOwner = message(primary: "other-owner", archiveID: "40")
+        wrongOwner.conversationType = .omemo
+        wrongOwner.owner = "another-owner@example.org"
+        let hidden = message(primary: "hidden-offline", archiveID: "50")
+        hidden.conversationType = .omemo
+        hidden.isLocallyHiddenByReport = true
+        let expired = message(primary: "expired-offline", archiveID: "60")
+        expired.conversationType = .omemo
+        expired.autoDeleteExpiresAt = 1
+        try realm.write { realm.add([accepted, wrongType, wrongPeer, wrongOwner, hidden, expired]) }
+        let controller = ChatViewController()
+        controller.owner = conversation.owner
+        controller.jid = conversation.jid
+        controller.conversationType = .omemo
+        controller.view = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.messagesCollectionView.messagesDataSource = controller
+        controller.messagesCollectionView.dataSource = controller
+        controller.xabberInputView = ModernXabberInputView(frame: CGRect(x: 0, y: 800, width: 390, height: 44))
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+        let published = expectation(description: "scoped persisted offline row reaches UIKit")
+        controller.datasourceDidSetForTests = { rows in
+            if rows.contains(where: { $0.primary == accepted.primary }) { published.fulfill() }
+        }
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        await fulfillment(of: [published], timeout: 2)
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.archiveHistoryFailureFallbackIsVisible)
+        let realPrimaries = controller.datasource.filter {
+            if case .date = $0.kind { return false }
+            return !$0.isFakeMessage
+        }.map(\.primary)
+        XCTAssertEqual(realPrimaries, [accepted.primary])
+        XCTAssertNil(controller.timelineSession?.verifiedScope)
+        XCTAssertNil(controller.archiveWindowCommittedCoverageGeneration)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canRequestTimelineBoundary(direction: .older))
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
     }
 
     @MainActor
@@ -60,6 +398,412 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testRetryableArchiveFailureDoesNotCoverPreviouslyCommittedMessagesWithSkeleton() throws {
+        let controller = try controllerWithCommittedMessage()
+        let retainedPrimaries = controller.datasource.map(\.primary)
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true),
+            target: .latest
+        )
+
+        controller.setSkeletonVisible(true)
+
+        XCTAssertFalse(controller.showSkeletonObserver.value,
+            "An archive error must not replace already committed messages with an empty skeleton")
+        XCTAssertEqual(controller.datasource.map(\.primary), retainedPrimaries)
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), ["p10"])
+        XCTAssertEqual(controller.archiveWindowCommittedCoverageGeneration, 7)
+    }
+
+    @MainActor
+    func testArchiveFailureShowsNoninteractiveStatusAlongsideRetainedMessages() throws {
+        let controller = try controllerWithCommittedMessage()
+        let statusView = controller.archiveHistoryRecoveryStatusView
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "private transport diagnostic", retryCount: 8, canRetry: true),
+            target: .latest
+        )
+
+        let originalTopInset = controller.messagesCollectionView.contentInset.top
+        controller.refreshArchiveHistoryRecoveryPresentation()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertGreaterThan(controller.messagesCollectionView.contentInset.top, originalTopInset,
+            "The edge status must reserve space instead of covering message bubbles")
+        XCTAssertFalse(controller.datasource.isEmpty)
+        XCTAssertTrue(statusView.superview === controller.view)
+        XCTAssertFalse(statusView.isHidden,
+            "The error must remain discoverable while existing messages stay visible")
+        XCTAssertFalse(statusView.isUserInteractionEnabled)
+        let label = try XCTUnwrap(statusView.arrangedSubviews.first as? UILabel)
+        XCTAssertEqual(label.text, L10n.text(
+            "loading_archived_messages_error", fallback: "Error while loading archived messages"
+        ))
+        XCTAssertFalse(label.text?.contains("private transport diagnostic") ?? false)
+    }
+
+    @MainActor
+    func testAutomaticRetryKeepsFailureFallbackMessagesVisibleUntilVerifiedContentCommits() throws {
+        let controller = try controllerWithCommittedMessage()
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 1, canRetry: true), target: .latest)
+        controller.setSkeletonVisible(true)
+        let primaries = controller.datasource.map(\.primary)
+        controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+        controller.timelineSession?.invalidateVerifiedScope()
+        controller.archiveWindowCommittedCoverageGeneration = nil
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        XCTAssertNil(controller.committedTimelineScope())
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 2, canRetry: true), target: .latest)
+        controller.setSkeletonVisible(true)
+        XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+    }
+
+    @MainActor
+    func testRetryVerifiedResponseKeepsFailureFallbackVisibleUntilItsUIKitCommit() throws {
+        let controller = try controllerWithCommittedMessage()
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 1, canRetry: true), target: .latest)
+        controller.setSkeletonVisible(true)
+        controller.timelineSession?.invalidateVerifiedScope()
+        controller.archiveWindowCommittedCoverageGeneration = nil
+        let primaries = controller.datasource.map(\.primary)
+        controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+        controller.setSkeletonVisible(true)
+        let incoming = try makeSnapshot(generation: 8)
+        controller.archiveWindowState = .verified(incoming)
+        controller.archiveWindowPendingSnapshot = incoming
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+        XCTAssertTrue(controller.archiveHistoryFailureFallbackIsVisible)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        try installTimelineSession(on: controller, snapshot: incoming)
+        controller.archiveWindowPendingSnapshot = nil
+        controller.archiveWindowCommittedCoverageGeneration = 8
+        controller.datasource = controller.mapDataset(dataset: controller.timelineSession?.snapshot.items ?? [])
+        controller.setSkeletonVisible(false)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.archiveHistoryFailureFallbackIsVisible,
+            "Only the actual winning verified UIKit commit ends visibility fallback mode")
+    }
+
+    @MainActor
+    func testArchiveFailureRestoresCommittedMessagesAfterLoadingInvalidatesArchiveScope() throws {
+        let controller = try controllerWithCommittedMessage()
+        let retainedPrimaries = controller.datasource.map(\.primary)
+        controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+        controller.archiveWindowCommittedCoverageGeneration = nil
+        controller.timelineSession?.invalidateVerifiedScope()
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true),
+            target: .latest
+        )
+
+        controller.setSkeletonVisible(true)
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), retainedPrimaries)
+        XCTAssertNil(controller.timelineSession?.verifiedScope,
+            "Visibility recovery must not recreate an archive proof")
+        XCTAssertNil(controller.archiveWindowCommittedCoverageGeneration)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canRequestTimelineBoundary(direction: .older))
+    }
+
+    @MainActor
+    func testColdArchiveFailureShowsOnlyPersistedMessagesForItsConversationWithoutArchiveAuthority() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "ArchiveErrorFallback-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let retained = message(primary: "cached-same-chat", archiveID: "10")
+        retained.messageId = retained.primary
+        retained.body = "Previously accepted plaintext from local history"
+        retained.legacyBody = retained.body
+        let otherChat = message(primary: "cached-other-chat", archiveID: "20")
+        otherChat.opponent = "different@example.org"
+        otherChat.body = "Another conversation"
+        let otherOwner = message(primary: "cached-other-owner", archiveID: "30")
+        otherOwner.owner = "different-owner@example.org"
+        otherOwner.body = "Another account"
+        let otherType = message(primary: "cached-other-type", archiveID: "40")
+        otherType.conversationType = .omemo
+        otherType.body = "Another conversation type"
+        let deleted = message(primary: "cached-deleted", archiveID: "50")
+        deleted.isDeleted = true
+        deleted.body = "Deleted content"
+        try realm.write { realm.add([retained, otherChat, otherOwner, otherType, deleted]) }
+        let controller = ChatViewController()
+        controller.owner = conversation.owner
+        controller.jid = conversation.jid
+        controller.conversationType = conversation.conversationType
+        controller.view = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.messagesCollectionView.messagesDataSource = controller
+        controller.xabberInputView = ModernXabberInputView(frame: CGRect(x: 0, y: 800, width: 390, height: 44))
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "protocol failure", retryCount: 1, canRetry: false),
+            target: .latest
+        )
+
+        let presented = expectation(description: "previously persisted messages become visible on archive error")
+        controller.datasourceDidSetForTests = { items in
+            if items.contains(where: { $0.primary == retained.primary }) { presented.fulfill() }
+        }
+        controller.setSkeletonVisible(true)
+        await fulfillment(of: [presented], timeout: 3)
+        controller.datasourceDidSetForTests = nil
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        let realPrimaries = controller.datasource.filter { item in
+            if case .date = item.kind { return false }
+            return !item.isFakeMessage
+        }.map(\.primary)
+        XCTAssertEqual(realPrimaries, [retained.primary])
+        XCTAssertNil(controller.timelineSession?.verifiedScope)
+        XCTAssertNil(controller.archiveWindowCommittedCoverageGeneration)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canRequestTimelineBoundary(direction: .older))
+        guard case .retryableFailure? = controller.archiveWindowState else {
+            return XCTFail("Showing accepted local plaintext must not publish a fresh verified archive state")
+        }
+    }
+
+    @MainActor
+    func testCommittedLiveMessageRemainsVisibleAfterReplacementTargetFailure() throws {
+        let controller = try controllerWithCommittedMessage()
+        let first = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        let live = message(primary: "p20", archiveID: "20")
+        live.messageId = "live-message"
+        live.body = "New authenticated live content"
+        live.legacyBody = live.body
+        let store = ChatArchiveBoundaryDecisionStore(items: [first, live])
+        let session = makeTimelineSession(store: store)
+        controller.timelineSession = session
+        let initial = try makeSnapshot(generation: 7)
+        _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(initial))
+        let intent = ArchiveWindowIntent(conversation: conversation, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .target)
+        controller.archiveWindowIntent = intent
+        let latest = ArchiveWindowSnapshot(messagePrimaryIDs: ["p10", "p20"], target: .latest,
+            verifiedSegment: try makeSegment(oldest: "10", newest: "20"), coverageGeneration: 8,
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "live-8"))
+        let admission = ArchiveLiveEdgeAdmission(conversation: conversation, primaryID: "p20",
+            latestWindow: latest, presentationIntent: intent.semanticDescriptor)
+        let prepared = try XCTUnwrap(session.prepareArchiveLiveEdgeAdmission(admission))
+        let committed = try XCTUnwrap(session.commitPreparedArchiveLiveEdgeAdmission(prepared))
+        controller.archiveWindowPendingLiveEdgeAdmission = admission
+        controller.applyChatDatasource(controller.mapDataset(dataset: committed.snapshot.items),
+            mode: .fullReload(keepOffset: true), animated: false, suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine)
+        controller.finishCommittedArchiveLiveEdgeAdmission(admission, committed: committed, session: session)
+        XCTAssertTrue(controller.datasource.contains { $0.primary == "p20" })
+        XCTAssertEqual(controller.archiveWindowCommittedCoverageGeneration, 8)
+        XCTAssertTrue(controller.archiveHistoryFailureVisibleSnapshot?.items.contains { $0.primary == "p20" } == true)
+
+        _ = controller.submitArchiveEngineLatestTarget()
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 1, canRetry: true), target: .latest)
+        controller.setSkeletonVisible(true)
+
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(Set(controller.datasource.filter { !$0.isFakeMessage }.map(\.primary)).intersection(["p10", "p20"]),
+            ["p10", "p20"], "The failure must retain every message in the last winning UIKit commit")
+        XCTAssertTrue(controller.datasource.contains { $0.primary == "p20" })
+        XCTAssertNil(controller.committedTimelineScope())
+    }
+
+    @MainActor
+    func testArchiveFailureDoesNotRevealRetainedMessagesFromAnotherConversation() throws {
+        let controller = try controllerWithCommittedMessage()
+        controller.jid = "different@example.org"
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true),
+            target: .latest
+        )
+
+        controller.setSkeletonVisible(true)
+
+        XCTAssertTrue(controller.showSkeletonObserver.value,
+            "Keeping messages on error must not leak the previous conversation's presentation")
+    }
+
+    @MainActor
+    func testRetainedArchiveErrorPresentationDoesNotReviveDeletedHiddenOrExpiredMessages() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        for mutation in ["delete", "hide", "expire"] {
+            Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "RetainedVisibility-\(mutation)-\(UUID())")
+            let realm = try WRealm.safe()
+            let controller = try controllerWithCommittedMessage()
+            let item = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+            try realm.write { realm.add(item) }
+            controller.setSkeletonVisible(false)
+            controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+            controller.timelineSession?.invalidateVerifiedScope()
+            controller.archiveWindowCommittedCoverageGeneration = nil
+            controller.setSkeletonVisible(true)
+            _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+            try realm.write {
+                switch mutation {
+                case "delete": realm.delete(item)
+                case "hide": item.isLocallyHiddenByReport = true
+                default: item.autoDeleteExpiresAt = 1
+                }
+            }
+            controller.archiveWindowState = .retryableFailure(
+                ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true), target: .latest
+            )
+
+            controller.setSkeletonVisible(true)
+            let settled = expectation(description: "fallback mapping settles before changing Realm configuration")
+            controller.datasetMappingQueue.async { DispatchQueue.main.async { settled.fulfill() } }
+            await fulfillment(of: [settled], timeout: 3)
+
+            XCTAssertFalse(controller.datasource.contains { $0.primary == "p10" },
+                "An archive error must not revive \(mutation) content from a retained rendering")
+            XCTAssertNil(controller.committedTimelineScope())
+        }
+    }
+
+    func testUnresolvedDirectOpenReferenceDoesNotInventCurrentTime() throws {
+        let request = try XCTUnwrap(ChatOpenMessageRequest.openAtMessage(
+            jid: conversation.jid, owner: conversation.owner,
+            conversationType: conversation.conversationType, stanzaId: "opaque-server-reference"
+        ))
+        XCTAssertNil(request.anchor.sourceDate)
+        XCTAssertNil(request.anchor.archiveCursor)
+        XCTAssertEqual(request.anchor.archivedId, "opaque-server-reference")
+    }
+
+    @MainActor
+    func testUnresolvedPinnedReferenceDoesNotInventCurrentTime() throws {
+        let controller = ChatViewController()
+        controller.owner = conversation.owner
+        controller.jid = conversation.jid
+        controller.conversationType = conversation.conversationType
+        let request = try XCTUnwrap(controller.pinnedMessageOpenRequest(archivedId: "missing-pinned-reference"))
+        XCTAssertNil(request.anchor.sourceDate)
+        XCTAssertNil(request.anchor.archiveCursor)
+    }
+
+    func testInitialUnreadBoundaryDoesNotInventTimestampFromProtocolID() throws {
+        for boundary in ["1711283295000000", "1"] {
+            let state = ChatInitialPositionPolicy.ChatState(
+                owner: conversation.owner, jid: conversation.jid,
+                conversationType: conversation.conversationType,
+                unread: 1, syncUnreadCount: 1, syncUnreadAfterId: boundary,
+                lastReadId: boundary, lastMessageId: "last-message",
+                syncSnapshotLastArchiveId: "snapshot-last",
+                messageDate: Date(timeIntervalSince1970: 42),
+                savedPosition: nil, savedAtLastMessageId: nil,
+                savedAtSnapshotLastArchiveId: nil
+            )
+            guard case .open(let request) = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil) else {
+                return XCTFail("Expected exact unread-boundary navigation")
+            }
+            XCTAssertEqual(request.anchor.archivedId, boundary)
+            XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary(boundary))
+            XCTAssertNil(request.anchor.sourceDate,
+                "A raw protocol ID and unrelated conversation date are not message timestamp sources")
+            XCTAssertNil(request.anchor.archiveCursor,
+                "A protocol ID alone must not be promoted to a MAM cursor")
+        }
+    }
+
+    @MainActor
+    func testScrollDownUnreadBoundaryUsesScopedPersistedMAMCursorWithoutInventingTime() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "UnreadMAMCursor-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let firstIncoming = message(primary: "first-incoming", archiveID: "100")
+        firstIncoming.mamArchiveId = "900"
+        try realm.write { realm.add(firstIncoming) }
+        let controller = ChatViewController()
+        controller.owner = conversation.owner
+        controller.jid = conversation.jid
+        controller.conversationType = conversation.conversationType
+
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "99")
+
+        XCTAssertEqual(request.anchor.archivedId, "99")
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("99"))
+        XCTAssertEqual(request.anchor.archiveCursor, ArchiveCursor(rawValue: "900"),
+            "Use the real persisted outer MAM result identity, not raw boundary99 or protocol100")
+        XCTAssertNil(request.anchor.sourceDate)
+    }
+
+    @MainActor
+    func testMentionHintDoesNotInventTimeOrBorrowLastChatMessageDate() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "UnknownMentionTime-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let controller = try controllerWithCommittedMessage()
+        controller.conversationType = .group
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(jid: controller.jid, owner: controller.owner, conversationType: .group)
+        chat.owner = controller.owner
+        chat.jid = controller.jid
+        chat.mentionId = "opaque-mention"
+        chat.messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try realm.write { realm.add(chat) }
+
+        controller.rebuildUnreadMentionItems()
+
+        let item = try XCTUnwrap(controller.unreadMentionItems.first)
+        XCTAssertEqual(item.archivedId, "opaque-mention")
+        XCTAssertEqual(item.date, Date(timeIntervalSince1970: 0),
+            "A reference-only hint has no message timestamp of its own")
+    }
+
+    @MainActor
+    func testMentionNavigationWithUnknownTimeKeepsOnlyProtocolReference() throws {
+        let controller = try controllerWithCommittedMessage()
+        controller.conversationType = .group
+        controller.timelineInteractionState.unlock()
+        controller.isNavigationTransitionActive = true
+        let target = ChatUnreadMentionNavigationTarget(notificationPrimary: nil, messagePrimary: nil,
+            archivedId: "opaque-mention", messageId: nil, authorId: nil,
+            date: Date(timeIntervalSince1970: 0), observerIndex: nil)
+
+        controller.navigateToUnreadMention(target, direction: .up)
+
+        let request = try XCTUnwrap(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(request.anchor.archivedId, "opaque-mention")
+        XCTAssertNil(request.anchor.sourceDate)
+    }
+
+    @MainActor
+    func testUnreadBoundaryCannotBorrowAnotherConversationsMAMCursor() throws {
+        let controller = try controllerWithCommittedMessage()
+        let firstIncoming = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        firstIncoming.archivedId = "100"
+        firstIncoming.mamArchiveId = "900"
+        controller.jid = "different@example.org"
+
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "99")
+
+        XCTAssertNil(request.anchor.archiveCursor)
+        XCTAssertNil(request.anchor.sourceDate)
+    }
+
+    @MainActor
     func testNewArchiveAttemptHidesOfflineStatusWhileKeepingSkeleton() throws {
         let controller = ChatViewController()
         let rootView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -75,6 +819,254 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
 
         XCTAssertTrue(statusView.isHidden)
         XCTAssertTrue(controller.showSkeletonObserver.value)
+    }
+
+    @MainActor
+    func testRemoteUnreadReferenceUsesResolvedBoundaryExclusivelyWithoutInventingTime() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "2002"))
+
+        let result = controller.completeArchiveReferenceResolution(
+            cursor, request: request, resolutionID: resolution, expectedIntentID: intent
+        )
+
+        XCTAssertEqual(result?.locator, .firstUnread(after: cursor))
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertNil(request.anchor.sourceDate)
+        XCTAssertNil(controller.committedTimelineScope(), "Resolving an identity must not create archive coverage")
+    }
+
+    @MainActor
+    func testMissingRemoteReferenceFallsBackToLatestAndCompletesPreparationOnlyAfterContentCommit() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+        var preparationFinished = false
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.initialTargetFirstFrameContext = ChatInitialTargetFirstFrameContext(request: request) {
+            preparationFinished = true
+        }
+
+        let result = controller.completeArchiveReferenceResolution(
+            nil, request: request, resolutionID: resolution, expectedIntentID: intent
+        )
+
+        XCTAssertEqual(result?.locator, .latest)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertFalse(preparationFinished, "A terminal lookup must not release navigation onto an empty skeleton")
+        controller.finishUnavailableArchiveTargetPreparationIfNeeded()
+        XCTAssertFalse(preparationFinished)
+        let snapshot = try makeSnapshot(generation: 7)
+        controller.archiveWindowState = .verified(snapshot)
+        controller.archiveWindowCommittedCoverageGeneration = 7
+        try installTimelineSession(on: controller, snapshot: snapshot)
+        controller.datasource = controller.mapDataset(dataset: controller.timelineSession?.snapshot.items ?? [])
+        controller.setSkeletonVisible(false)
+        XCTAssertTrue(preparationFinished, "A committed normal latest page must release the unavailable target")
+        XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+    }
+
+    @MainActor
+    func testRemoteReferenceResultCannotReplaceAnotherConversation() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+        controller.jid = "other@example.org"
+
+        XCTAssertNil(controller.completeArchiveReferenceResolution(
+            ArchiveCursor(rawValue: "2002"), request: request,
+            resolutionID: resolution, expectedIntentID: intent
+        ))
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertEqual(controller.archiveWindowIntent?.id, intent)
+    }
+
+    @MainActor
+    func testLateRemoteReferenceResultCannotClearNewerTarget() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+        let newer = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "8002")
+        controller.pendingOpenMessageRequest = newer
+
+        XCTAssertNil(controller.completeArchiveReferenceResolution(
+            nil, request: request, resolutionID: resolution, expectedIntentID: intent
+        ))
+        XCTAssertEqual(controller.pendingOpenMessageRequest, newer)
+        XCTAssertEqual(controller.archiveWindowIntent?.id, intent)
+    }
+
+    @MainActor
+    func testTransientReferenceFailureRetainsTargetAndVisibleMessagesWithoutReadAuthority() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+
+        XCTAssertTrue(controller.failArchiveReferenceResolution(
+            .timeout, request: request, resolutionID: resolution, expectedIntentID: intent
+        ))
+
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.contains { $0.primary == "p10" })
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        guard case .retryableFailure(let failure, _)? = controller.archiveWindowState else {
+            return XCTFail("A transient resolver failure must leave a retryable visible state")
+        }
+        XCTAssertTrue(failure.canRetry)
+    }
+
+    @MainActor
+    func testRemoteDirectReferenceUsesActualMAMCursor() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = try XCTUnwrap(ChatOpenMessageRequest.openAtMessage(
+            jid: controller.jid, owner: controller.owner, conversationType: controller.conversationType,
+            stanzaId: "opaque-reference"
+        ))
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "2002"))
+
+        XCTAssertEqual(controller.completeArchiveReferenceResolution(
+            cursor, request: request, resolutionID: resolution, expectedIntentID: intent
+        )?.locator, .archiveID(cursor))
+        XCTAssertNil(request.anchor.sourceDate)
+    }
+
+    @MainActor
+    func testUnavailableTargetPreparationCannotCompleteAfterTimeoutRestartOrCancellation() throws {
+        for terminal in ["timeout", "restart", "cancel"] {
+            let controller = try controllerWithCommittedMessage()
+            let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+            let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+            var oldCompletionCount = 0
+            controller.isPreparingStackedNavigationPresentation = true
+            controller.initialTargetFirstFrameContext = ChatInitialTargetFirstFrameContext(request: request) {
+                oldCompletionCount += 1
+            }
+            _ = controller.completeArchiveReferenceResolution(nil, request: request,
+                resolutionID: resolution, expectedIntentID: intent)
+            XCTAssertNotNil(controller.archiveUnavailableTargetFirstFrameContext)
+
+            switch terminal {
+            case "timeout": controller.stackedNavigationPresentationPreparationDidTimeOut()
+            case "restart":
+                controller.prepareForStackedNavigationPresentation(
+                    targetBounds: CGRect(x: 0, y: 0, width: 390, height: 844), completion: {})
+            default: controller.cancelStackedNavigationPresentationPreparation()
+            }
+
+            XCTAssertNil(controller.archiveUnavailableTargetFirstFrameContext, terminal)
+            let snapshot = try makeSnapshot(generation: 7)
+            controller.archiveWindowState = .verified(snapshot)
+            controller.archiveWindowCommittedCoverageGeneration = 7
+            try installTimelineSession(on: controller, snapshot: snapshot)
+            controller.datasource = controller.mapDataset(dataset: controller.timelineSession?.snapshot.items ?? [])
+            controller.setSkeletonVisible(false)
+            XCTAssertEqual(oldCompletionCount, 0, "A late page cannot revive the \(terminal) navigation completion")
+            controller.stopArchiveEnginePresentationSubscription()
+        }
+    }
+
+    @MainActor
+    func testUnavailableReferenceThenLatestFailureCompletesNavigationAfterCachedUIKitCommit() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "UnavailableCachedFrame-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let controller = try controllerWithCommittedMessage()
+        controller.messagesCollectionView.dataSource = controller
+        let item = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        try realm.write { realm.add(item) }
+        controller.setSkeletonVisible(false)
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let (resolution, intent) = prepareReferenceResolution(controller, request: request)
+        var completionCount = 0
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.initialTargetFirstFrameContext = ChatInitialTargetFirstFrameContext(request: request) {
+            completionCount += 1
+            XCTAssertFalse(controller.showSkeletonObserver.value)
+            XCTAssertTrue(controller.datasource.contains { $0.primary == "p10" })
+            XCTAssertEqual(controller.messagesCollectionView.numberOfSections, controller.datasource.count)
+        }
+        _ = controller.completeArchiveReferenceResolution(nil, request: request,
+            resolutionID: resolution, expectedIntentID: intent)
+        XCTAssertEqual(completionCount, 0)
+        XCTAssertNotNil(controller.archiveUnavailableTargetFirstFrameContext)
+        let published = expectation(description: "accepted cached row published into UIKit")
+        controller.datasourceDidSetForTests = { rows in
+            if rows.contains(where: { $0.primary == "p10" }) { published.fulfill() }
+        }
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 1, canRetry: true), target: .latest)
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        XCTAssertEqual(completionCount, 0, "Navigation must await the cache-to-UIKit transaction")
+        await fulfillment(of: [published], timeout: 3)
+
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+        XCTAssertNil(controller.archiveUnavailableTargetFirstFrameContext)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+    }
+
+    @MainActor
+    private func prepareReferenceResolution(
+        _ controller: ChatViewController, request: ChatOpenMessageRequest
+    ) -> (UUID, UUID) {
+        let intent = ArchiveWindowIntent(conversation: conversation, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .target)
+        let resolution = UUID()
+        controller.pendingOpenMessageRequest = request
+        controller.archiveReferenceResolutionID = resolution
+        controller.archiveWindowIntent = intent
+        return (resolution, intent.id)
+    }
+
+    @MainActor
+    func testExhaustedOwnedUnreadTargetShowsLatestWithoutHidingFailureFallback() throws {
+        let controller = try controllerWithCommittedMessage()
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        controller.pendingOpenMessageRequest = request
+        controller.archiveWindowTargetOpenRequest = request
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "2002"))
+        controller.archiveWindowIntent = ArchiveWindowIntent(conversation: conversation,
+            locator: .firstUnread(after: cursor), contextBefore: 40, contextAfter: 40, priority: .target)
+        controller.archiveWindowState = .retryableFailure(ArchiveRetryableFailure(
+            message: "target missing", retryCount: 0, canRetry: false, recoveryAction: .showLatest),
+            target: .firstUnread(after: cursor))
+        controller.setSkeletonVisible(true)
+
+        _ = controller.showLatestAfterUnavailableUnreadTarget()
+
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(controller.archiveWindowIntent?.locator, .latest)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.contains { $0.primary == "p10" })
+        XCTAssertNil(controller.committedTimelineScope())
+    }
+
+    @MainActor
+    func testExhaustedUnreadTerminalCannotClearNewerOrNonUnreadTarget() throws {
+        let controller = try controllerWithCommittedMessage()
+        let old = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "7002")
+        let newer = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: "8002")
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "2002"))
+        controller.archiveWindowIntent = ArchiveWindowIntent(conversation: conversation,
+            locator: .firstUnread(after: cursor), contextBefore: 40, contextAfter: 40, priority: .target)
+        controller.archiveWindowTargetOpenRequest = old
+        controller.pendingOpenMessageRequest = newer
+        XCTAssertFalse(controller.showLatestAfterUnavailableUnreadTarget())
+        XCTAssertEqual(controller.pendingOpenMessageRequest, newer)
+        let direct = try XCTUnwrap(ChatOpenMessageRequest.openAtMessage(jid: controller.jid,
+            owner: controller.owner, conversationType: controller.conversationType, stanzaId: "opaque"))
+        controller.pendingOpenMessageRequest = direct
+        controller.archiveWindowTargetOpenRequest = direct
+        XCTAssertFalse(controller.showLatestAfterUnavailableUnreadTarget())
+        XCTAssertEqual(controller.pendingOpenMessageRequest, direct)
     }
 
     @MainActor
@@ -1553,7 +2545,6 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         for marker in [
             "internal func startArchiveEnginePresentationIfNeeded()",
             "internal func submitArchiveEngineLatestTarget()",
-            "internal func submitArchiveEngineTarget(",
         ] {
             let method = try sourceMethod(named: marker, in: source)
             let skeletonCommit = try XCTUnwrap(
@@ -1576,6 +2567,16 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
                 marker
             )
         }
+        let target = try sourceMethod(named: "internal func submitArchiveEngineTarget(", in: source)
+        let preparation = try sourceMethod(named: "private func prepareArchiveEngineTargetIntent(", in: source)
+        XCTAssertLessThan(
+            try XCTUnwrap(preparation.range(of: "beginArchiveInteractiveCriticalSection()")).lowerBound,
+            try XCTUnwrap(preparation.range(of: "commitArchiveEngineOpeningSkeletonSynchronously()")).lowerBound
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(target.range(of: "guard prepareArchiveEngineTargetIntent(intent)")).lowerBound,
+            try XCTUnwrap(target.range(of: "submit(intent)")).lowerBound
+        )
     }
 
     func testSkeletonRemainsFullUntilMatchingUIKitGenerationCommits() throws {
@@ -1602,7 +2603,7 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         )
     }
 
-    func testOfflineAndRetryStateNeverRevealPreviouslyCommittedCache() throws {
+    func testOfflineAndRetryStateWithoutVerifiedScopeNeverRevealPreviouslyCommittedCache() throws {
         XCTAssertTrue(
             ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
                 for: .skeleton(reason: .offline, target: .latest),
@@ -1622,6 +2623,32 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
                 committedCoverageGeneration: 99
             )
         )
+    }
+
+    @MainActor
+    func testRetryableArchiveFailureRetainsMatchingCommittedVerifiedScope() throws {
+        let controller = try controllerWithCommittedMessage()
+        let scope = try XCTUnwrap(controller.timelineSession?.verifiedScope)
+        let failure = ArchiveWindowState.retryableFailure(
+            ArchiveRetryableFailure(message: "timeout", retryCount: 8, canRetry: true),
+            target: .latest
+        )
+
+        XCTAssertFalse(ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
+            for: failure,
+            committedCoverageGeneration: 7,
+            verifiedScope: scope
+        ))
+        XCTAssertTrue(ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
+            for: failure,
+            committedCoverageGeneration: nil,
+            verifiedScope: scope
+        ), "Uncommitted materialization must not become visible because a request failed")
+        XCTAssertTrue(ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
+            for: failure,
+            committedCoverageGeneration: 6,
+            verifiedScope: scope
+        ), "A different generation must not authorize retained content")
     }
 
     func testVerifiedTimelineFactoryRejectsMissingOrOutOfCoverageRows() throws {
@@ -2094,7 +3121,7 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
     func testSkeletonStateCommitFailureAndOfflineReleaseInteractiveGate() throws {
         let source = try archiveEngineSource()
         let handler = try sourceMethod(
-            named: "private func receiveArchiveWindowState(",
+            named: "internal func receiveArchiveWindowState(",
             in: source
         )
 
@@ -2121,7 +3148,7 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
                 in: source
             ),
             try sourceMethod(
-                named: "private func receiveArchiveWindowState(",
+                named: "internal func receiveArchiveWindowState(",
                 in: source
             ),
             try sourceMethod(
@@ -2211,7 +3238,7 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
     func testRetryableWindowFailureSchedulesBackoffWhileKeepingSkeleton() throws {
         let source = try archiveEngineSource()
         let receive = try sourceMethod(
-            named: "private func receiveArchiveWindowState(",
+            named: "internal func receiveArchiveWindowState(",
             in: source
         )
         let retryStart = try XCTUnwrap(
@@ -2303,7 +3330,7 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
             in: source
         )
         let receiver = try sourceMethod(
-            named: "private func receiveArchiveWindowState(",
+            named: "internal func receiveArchiveWindowState(",
             in: source
         )
 
@@ -2580,6 +3607,27 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
             900,
             accuracy: 0.001
         )
+    }
+
+    @MainActor
+    private func controllerWithCommittedMessage() throws -> ChatViewController {
+        let controller = ChatViewController()
+        controller.view = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.messagesCollectionView.messagesDataSource = controller
+        controller.xabberInputView = ModernXabberInputView(frame: CGRect(x: 0, y: 800, width: 390, height: 44))
+        let snapshot = try makeSnapshot(generation: 7)
+        controller.archiveWindowState = .verified(snapshot)
+        controller.archiveWindowCommittedCoverageGeneration = 7
+        try installTimelineSession(on: controller, snapshot: snapshot)
+        let item = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        item.messageId = "retained-message"
+        item.body = "Previously authenticated and committed content"
+        item.legacyBody = item.body
+        controller.datasource = controller.mapDataset(dataset: [item])
+        controller.setSkeletonVisible(false)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.datasource.isEmpty)
+        return controller
     }
 
     private func makeSnapshot(

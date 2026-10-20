@@ -402,7 +402,7 @@ struct ChatOpenMessageRequest: Equatable {
         owner: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         stanzaId: String,
-        sourceDate: Date = Date()
+        sourceDate: Date? = nil
     ) -> ChatOpenMessageRequest? {
         guard let archivedId = normalizedIdentifier(stanzaId) else {
             return nil
@@ -2671,6 +2671,17 @@ class ChatViewController: MessagesViewController {
     var archiveHistoryAutomaticRetryWorkItem: DispatchWorkItem?
     var archiveHistoryAutomaticRetryEpoch: UInt64 = 0
     var archiveHistoryAutomaticRetryAttempt = 0
+    var archiveHistoryFailureVisibleSnapshot: ChatArchiveFailureVisibleSnapshot?
+    var archiveHistoryFailureFallbackRequestID: UUID?
+    var archiveHistoryFailureFallbackIsVisible = false
+    var archiveReferenceResolutionID: UUID?
+    var archiveReferenceResolutionTask: Task<Void, Never>?
+    var archiveWindowTargetOpenRequest: ChatOpenMessageRequest?
+    var archiveUnavailableTargetFirstFrameContext: ChatInitialTargetFirstFrameContext?
+    var archiveHistoryRecoveryStatusConstraints: [NSLayoutConstraint] = []
+    var archiveHistoryRecoveryBannerHeight: CGFloat = 0
+    var archiveHistoryRecoveryCollectionTopConstraint: NSLayoutConstraint?
+    var isApplyingArchiveHistoryRecoveryViewport = false
     var archiveSkeletonBeganAt: Date?
     var archiveInteractiveGate: AccountInteractiveChatOpenGate?
     var archiveInteractiveGateToken: AccountInteractiveChatOpenGate.Token?
@@ -3110,6 +3121,20 @@ class ChatViewController: MessagesViewController {
 
     internal func setSkeletonVisible(_ isVisible: Bool) {
         self.performOnMain {
+            if isVisible, self.hasVisibleArchiveFallbackAwaitingCommit {
+                self.refreshArchiveHistoryRecoveryPresentation()
+                return
+            }
+            let preservesFailureFallback: Bool
+            if case .skeleton? = self.archiveWindowState {
+                preservesFailureFallback = self.archiveHistoryFailureFallbackIsVisible
+            } else { preservesFailureFallback = false }
+            if self.isArchiveHistoryUnavailable || preservesFailureFallback {
+                if self.restoreArchiveHistoryFailurePresentationIfNeeded() { return }
+                if !isVisible { return }
+            } else {
+                self.archiveHistoryFailureFallbackRequestID = nil
+            }
             if !isVisible,
                let state = self.archiveWindowState,
                ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
@@ -3121,6 +3146,11 @@ class ChatViewController: MessagesViewController {
                 return
             }
             self.showSkeletonObserver.accept(isVisible)
+            if !isVisible {
+                self.archiveHistoryFailureFallbackIsVisible = false
+                self.retainArchiveHistoryVisibleMessages()
+                self.finishUnavailableArchiveTargetPreparationIfNeeded()
+            }
             self.refreshArchiveHistoryRecoveryPresentation()
             if !isVisible {
                 self.drainPendingTimelineStoreSnapshot()
@@ -4743,10 +4773,11 @@ class ChatViewController: MessagesViewController {
             anchor: ChatMessageAnchorRef(
                 messagePrimary: nil,
                 archivedId: boundaryId,
+                archiveCursor: self.localUnreadBoundaryArchiveCursor(boundaryId: boundaryId),
                 messageId: nil,
                 authorId: nil,
                 bodyFingerprint: nil,
-                sourceDate: ChatInitialPositionPolicy.archiveDate(from: boundaryId) ?? Date()
+                sourceDate: nil
             ),
             highlight: false,
             markReadOnVisible: false,
@@ -5348,6 +5379,7 @@ class ChatViewController: MessagesViewController {
         updateFloatingControlsFrames(animated: false, ensureComposerLayout: false)
         updateInitialMessageOverlayFrame()
         updateFloatingBubblesVisibility(animated: false)
+        reconcileArchiveHistoryRecoveryViewport()
         recordChatOpenTimingFirstMessagesVisibleIfPossible(
             reason: "viewDidLayoutSubviews",
             modeDescription: "layout"
@@ -6476,7 +6508,10 @@ class ChatViewController: MessagesViewController {
     internal func updateChatCollectionInsets(inputHeight: CGFloat? = nil) {
         let composerHeight = inputHeight ?? self.currentChatComposerKeyboardLayoutMetrics()
             .collectionObstructionHeight
-        let navigationHeight = currentNavigationVisualHeight()
+        let viewportTop = messagesCollectionView.superview === view
+            ? messagesCollectionView.frame.minY - view.bounds.minY : 0
+        let navigationHeight = max(0,
+            currentNavigationVisualHeight() + archiveHistoryRecoveryBannerHeight - viewportTop)
         let indicatorInsets = ChatFloatingHeaderLayoutPolicy.scrollIndicatorInsets(
             composerHeight: composerHeight,
             navigationVisualHeight: navigationHeight,
@@ -7451,6 +7486,10 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func canAdvanceReadStateFromVisiblePresentation() -> Bool {
+        // A cached rendering remains useful on failure, but it is not a
+        // verified archive window and cannot acknowledge unseen history.
+        if self.archiveHistoryFailureFallbackIsVisible { return false }
+        if self.isArchiveHistoryUnavailable { return false }
         guard self.readVisiblePresentationCoordinator.hasPresentationReceipt else {
             return false
         }
@@ -8537,6 +8576,8 @@ class ChatViewController: MessagesViewController {
         self.currentInChatSearchQueryContext = nil
         self.pendingOpenMessageRequest = nil
         self.initialTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext = nil
         self.initialTargetFirstFrameContext = nil
         self.claimedUnreadMentionBadgeNotificationPrimary = nil
 #if DEBUG || CHAT_PERFORMANCE_LAB
@@ -8972,6 +9013,8 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             self.setSkeletonVisible(true)
         }
         self.initialTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext = nil
         self.initialTargetFirstFrameContext = nil
         if ChatInitialTargetFirstFramePolicy.owns(
             request: self.pendingOpenMessageRequest,
@@ -9072,6 +9115,8 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
         self.initialTargetFirstFrameContext?.releasePreparationCompletion()
         self.initialTargetFirstFrameContext = nil
+        self.archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext = nil
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem = nil
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
@@ -9098,6 +9143,8 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             _ = self.commitArchiveEngineOpeningSkeletonSynchronously()
         }
         self.initialTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
+        self.archiveUnavailableTargetFirstFrameContext = nil
         self.isPreparingStackedNavigationPresentation = false
         DDLogDebug(
             "LAST_CHATS_NAVIGATION event=destinationPreparationTimeout " +

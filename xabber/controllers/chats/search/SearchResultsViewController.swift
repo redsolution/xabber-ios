@@ -504,7 +504,10 @@ class SearchResultsViewController: SimpleBaseViewController {
 //            }
             
             var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
-            if item.isFreshNotEmptyEncryptedChat {
+            if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                for: item,
+                message: messageItem
+            ) {
                 message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }
@@ -687,7 +690,10 @@ class SearchResultsViewController: SimpleBaseViewController {
 //                }
                 
                 var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
-                if item.isFreshNotEmptyEncryptedChat {
+                if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                    for: item,
+                    message: item.lastMessage
+                ) {
                     message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                     isSystemMessage = true
                 }
@@ -1824,7 +1830,10 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
             let isInvite = false
             var nickname: String? = nil
             var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
-            if item.isFreshNotEmptyEncryptedChat {
+            if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                for: item,
+                message: messageItem
+            ) {
                 message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }
@@ -2002,7 +2011,10 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
                 let isInvite = false
                 let nickname: String? = item.lastMessage?.groupchatDisplayedNickname
                 var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
-                if item.isFreshNotEmptyEncryptedChat {
+                if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                    for: item,
+                    message: item.lastMessage
+                ) {
                     message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                     isSystemMessage = true
                 }

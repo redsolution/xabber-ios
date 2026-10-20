@@ -274,6 +274,87 @@ final class OMEMO2SCEAffixTests: XCTestCase {
         XCTAssertEqual(try OmemoManager.originalSendingTime(for: message), OMEMOOriginalSendingTime(date: date, source: .xabberDelivery))
     }
 
+    func testFederatedDeliverySelectsAccountTimeRegardlessOfElementOrder() throws {
+        let sender = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2026-10-19T09:51:22.314988Z'/>"
+        let recipient = "<time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2026-10-19T09:51:22.351830Z'/>"
+        for metadata in [sender + recipient, recipient + sender] {
+            let message = try incoming(metadata)
+            for (owner, stamp) in [(alice, "2026-10-19T09:51:22.314988Z"), (bob, "2026-10-19T09:51:22.351830Z")] {
+                XCTAssertEqual(try OmemoManager.originalSendingTime(for: message, owner: owner),
+                               OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp(stamp), source: .xabberDelivery))
+            }
+        }
+    }
+
+    func testFederatedDeliveryRejectsDuplicateAccountAuthority() throws {
+        let own = "<time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2004-01-25T06:05:00Z'/>"
+        let peer = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2004-01-25T06:05:01Z'/>"
+        XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(own + peer + own), owner: bob))
+    }
+
+    func testFederatedDeliveryCannotSelectAuthorityWithoutAccountContext() throws {
+        let metadata = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2004-01-25T06:05:00Z'/><time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2004-01-25T06:05:01Z'/>"
+        XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(metadata)))
+    }
+
+    func testFederatedDeliveryDoesNotTreatQualifiedOrResourceByAsAccountAuthority() throws {
+        let peer = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2004-01-25T06:05:00Z'/>"
+        for attribute in ["xmlns:p='urn:foreign' p:by='\(bob)'", "by='\(bob)/phone'"] {
+            let metadata = "<time xmlns='https://xabber.com/protocol/delivery' \(attribute) stamp='2004-01-25T06:05:00Z'/>"
+            XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(peer + metadata), owner: bob))
+        }
+    }
+
+    func testFederatedAccountTimeStillRequiresMatchingArchiveDelay() throws {
+        let metadata = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2004-01-25T06:05:00Z'/><time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2004-01-25T06:05:01Z'/>"
+        for (stamp, accepted) in [("2004-01-25T06:05:01Z", true), ("2004-01-25T06:05:00Z", false)] {
+            let message = try transport("mam", inner: metadata, delay: "<delay xmlns='urn:xmpp:delay' stamp='\(stamp)'/>")
+            if accepted {
+                XCTAssertEqual(try OmemoManager.originalSendingTime(for: message, owner: bob)?.date,
+                               try Omemo2PayloadCodec.timestamp(stamp))
+            } else {
+                XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: message, owner: bob))
+            }
+        }
+    }
+
+    func testFederatedDeliveryRejectsMalformedOrAmbiguousAuthorities() throws {
+        let own = "<time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2004-01-25T06:05:00Z'/>"
+        for other in [
+            "<time xmlns='https://xabber.com/protocol/delivery' stamp='2004-01-25T06:05:00Z'/>",
+            "<time xmlns='https://xabber.com/protocol/delivery' by='' stamp='2004-01-25T06:05:00Z'/>",
+            "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='bad'/>",
+            "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2004-01-25T06:05:00Z'><nested/></time>"
+        ] {
+            XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(own + other), owner: bob), other)
+        }
+        let peer = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2004-01-25T06:05:00Z'/>"
+        XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(own + peer + peer), owner: bob))
+        XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(own + peer), owner: "other@example.test"))
+    }
+
+    func testDirectQueueDelayDoesNotConflictWithAccountArchiveTime() throws {
+        let metadata = "<time xmlns='https://xabber.com/protocol/delivery' by='\(alice)' stamp='2026-10-19T09:58:52.729233Z'/><time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2026-10-19T09:58:52.766391Z'/><delay xmlns='urn:xmpp:delay' from='example.test' stamp='2026-10-19T09:58:52.806892Z'>Resent</delay>"
+        XCTAssertEqual(try OmemoManager.originalSendingTime(for: incoming(metadata), owner: bob),
+                       OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp("2026-10-19T09:58:52.766391Z"), source: .xabberDelivery))
+    }
+
+    func testDirectQueueDelayDoesNotOverrideForwardedArchiveTime() throws {
+        let message = try transport("mam", inner: "<delay xmlns='urn:xmpp:delay' stamp='2004-01-25T06:05:01Z'/>",
+                                    delay: "<delay xmlns='urn:xmpp:delay' stamp='2004-01-25T06:05:00Z'/>")
+        XCTAssertEqual(try OmemoManager.originalSendingTime(for: message, owner: bob),
+                       OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp("2004-01-25T06:05:00Z"), source: .forwardedDelay))
+    }
+
+    func testLowerPriorityDirectDelayStillRequiresValidSingletonMetadata() throws {
+        let delivery = "<time xmlns='https://xabber.com/protocol/delivery' by='\(bob)' stamp='2004-01-25T06:05:00Z'/>"
+        let valid = "<delay xmlns='urn:xmpp:delay' stamp='2004-01-25T06:05:01Z'/>"
+        for delay in [valid + valid, "<delay xmlns='urn:xmpp:delay' stamp='bad'/>",
+                      "<delay xmlns='urn:xmpp:delay' stamp='2004-01-25T06:05:01Z'><nested/></delay>"] {
+            XCTAssertThrowsError(try OmemoManager.originalSendingTime(for: incoming(delivery + delay), owner: bob), delay)
+        }
+    }
+
     func testOriginalSendingTimeDirectStanzaDelayRetainsItsSource() throws {
         let message = try incoming("<delay xmlns='urn:xmpp:delay' stamp='2004-01-25T06:05:00Z'/>")
         let date = try XCTUnwrap(timestamp("2004-01-25T06:05:00Z"))

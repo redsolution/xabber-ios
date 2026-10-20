@@ -51,11 +51,18 @@ final class ChatArchiveEngineUIContractTests: XCTestCase {
             source.contains("endArchiveInteractiveCriticalSection()"),
             "UIKit terminal/failure/teardown must release the account scheduler gate"
         )
+        let target = try sourceMethod(
+            named: "internal func submitArchiveEngineTarget(",
+            in: source
+        )
+        XCTAssertTrue(target.contains(
+            "guard prepareArchiveEngineTargetIntent(intent) else { return false }"
+        ))
 
         for marker in [
             "internal func startArchiveEnginePresentationIfNeeded()",
             "internal func submitArchiveEngineLatestTarget()",
-            "internal func submitArchiveEngineTarget(",
+            "private func prepareArchiveEngineTargetIntent(",
         ] {
             let method = try sourceMethod(named: marker, in: source)
             let acquire = try XCTUnwrap(
@@ -181,7 +188,7 @@ final class ChatArchiveEngineUIContractTests: XCTestCase {
     func testTerminalRetryableFailureSchedulesEngineOwnedAutomaticRetry() throws {
         let source = try archiveEngineSource()
 
-        let stateHandler = try XCTUnwrap(source.range(of: "private func receiveArchiveWindowState"))
+        let stateHandler = try XCTUnwrap(source.range(of: "internal func receiveArchiveWindowState"))
         let handlerTail = source[stateHandler.lowerBound...]
         let handlerEnd = handlerTail.range(of: "private func receiveArchiveWindowActivity")?.lowerBound
             ?? handlerTail.endIndex

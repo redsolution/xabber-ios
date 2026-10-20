@@ -3304,6 +3304,19 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
+    private struct GracefulDisconnectAttempt {
+        let requestID: UUID
+        let stream: XMPPStream
+        let streamManagement: XMPPStreamManagement
+        let unavailableID: String
+        let deadline: DispatchWorkItem
+    }
+    private enum GracefulDisconnectCompletion: String {
+        case unavailableSent, unavailableFailed, timedOut
+    }
+    private let gracefulDisconnectLock = NSLock()
+    private var gracefulDisconnectRequestID = UUID()
+    private var gracefulDisconnectAttempt: GracefulDisconnectAttempt?
 #if DEBUG || CHAT_PERFORMANCE_LAB
     /// Tracks the complete transitive closure of `action` work. Entering the
     /// group happens before enqueue, so an action that schedules another
@@ -3931,6 +3944,7 @@ final class Account: NSObject {
     }
     
     func resetStream() {
+        self.cancelPendingGracefulDisconnect()
         self.logConnectionDiagnostics(event: "reset_stream_requested")
         self.disconnectCanonicalGroupTransport()
         self.notifications.invalidateNotificationSyncSession()
@@ -4734,6 +4748,7 @@ final class Account: NSObject {
  *    if @hard is true, session close without sending unavailable presence to server
  **/
     func disconnect(hard: Bool = false, cause: AccountDisconnectCause? = nil) {
+        let gracefulRequestID = self.cancelPendingGracefulDisconnect()
         let wasDisconnected = self.xmppStream.isDisconnected
         let resolvedCause = cause ?? .intentionalShutdown
         self.pendingDisconnectContext.set(
@@ -4793,12 +4808,111 @@ final class Account: NSObject {
                 self.reconnect.autoReconnect = false
             }
             guard !wasDisconnected else { return }
-            self.sendPrimaryStanza(
-                XMPPPresence(type: .unavailable),
-                replayPolicy: .latestPresence(scope: "account-unavailable")
+            let stream = self.xmppStream
+            let streamManagement = self.sm
+            let unavailable = XMPPPresence(type: .unavailable)
+            let unavailableID = PrimaryStreamStanzaIdentifier.ensureID(on: unavailable)
+            let deadline = DispatchWorkItem { [weak self] in
+                self?.finishGracefulDisconnect(requestID: gracefulRequestID, completion: .timedOut)
+            }
+            self.gracefulDisconnectLock.lock()
+            guard self.gracefulDisconnectRequestID == gracefulRequestID else {
+                self.gracefulDisconnectLock.unlock()
+                return
+            }
+            self.gracefulDisconnectAttempt = GracefulDisconnectAttempt(
+                requestID: gracefulRequestID, stream: stream,
+                streamManagement: streamManagement,
+                unavailableID: unavailableID, deadline: deadline
             )
-            self.xmppStream.disconnectAfterSending()
+            self.gracefulDisconnectLock.unlock()
+            // Install the deadline before entering either queue involved in
+            // the willSend presence round trip, since either can be stalled.
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2, execute: deadline)
+            streamManagement.moduleQueue.async {
+                guard self.xmppStream === stream,
+                      self.sm === streamManagement,
+                      self.isPendingGracefulDisconnectRequest(gracefulRequestID),
+                      !stream.isDisconnected else { return }
+                streamManagement.sendAck()
+                guard self.isPendingGracefulDisconnectRequest(gracefulRequestID),
+                      self.xmppStream === stream, !stream.isDisconnected else { return }
+                let submission = self.sendPrimaryStanza(
+                    unavailable,
+                    replayPolicy: .latestPresence(scope: "account-unavailable")
+                )
+                if case .sent = submission {
+                    // Presence visits willSend delegates asynchronously. Only
+                    // its actual didSend callback may enqueue the stream close.
+                } else {
+                    self.finishGracefulDisconnect(requestID: gracefulRequestID, completion: .unavailableFailed)
+                }
+            }
 //            self.xmppStream.asyncSocket.disconnectAfterReadingAndWriting()
+        }
+    }
+
+    @discardableResult
+    func cancelPendingGracefulDisconnect() -> UUID {
+        gracefulDisconnectLock.lock()
+        let deadline = gracefulDisconnectAttempt?.deadline
+        gracefulDisconnectAttempt = nil
+        gracefulDisconnectRequestID = UUID()
+        let requestID = gracefulDisconnectRequestID
+        gracefulDisconnectLock.unlock()
+        deadline?.cancel()
+        return requestID
+    }
+
+    private func isCurrentGracefulDisconnectRequest(_ requestID: UUID) -> Bool {
+        gracefulDisconnectLock.lock()
+        defer { gracefulDisconnectLock.unlock() }
+        return gracefulDisconnectRequestID == requestID
+    }
+
+    private func isPendingGracefulDisconnectRequest(_ requestID: UUID) -> Bool {
+        gracefulDisconnectLock.lock()
+        defer { gracefulDisconnectLock.unlock() }
+        return gracefulDisconnectRequestID == requestID && gracefulDisconnectAttempt?.requestID == requestID
+    }
+
+    func gracefulDisconnectPresenceCompleted(_ presence: XMPPPresence, stream: XMPPStream, sent: Bool) {
+        guard presence.type == "unavailable", presence.to == nil,
+              let unavailableID = presence.elementID else { return }
+        gracefulDisconnectLock.lock()
+        let attempt = gracefulDisconnectAttempt
+        let requestID: UUID?
+        if let attempt, attempt.stream === stream, attempt.unavailableID == unavailableID {
+            requestID = attempt.requestID
+        } else {
+            requestID = nil
+        }
+        gracefulDisconnectLock.unlock()
+        if let requestID {
+            finishGracefulDisconnect(requestID: requestID, completion: sent ? .unavailableSent : .unavailableFailed)
+        }
+    }
+
+    private func finishGracefulDisconnect(requestID: UUID, completion: GracefulDisconnectCompletion) {
+        gracefulDisconnectLock.lock()
+        guard let attempt = gracefulDisconnectAttempt, attempt.requestID == requestID else {
+            gracefulDisconnectLock.unlock()
+            return
+        }
+        gracefulDisconnectAttempt = nil
+        gracefulDisconnectLock.unlock()
+        attempt.deadline.cancel()
+        guard isCurrentGracefulDisconnectRequest(requestID),
+              self.xmppStream === attempt.stream, self.sm === attempt.streamManagement,
+              !attempt.stream.isDisconnected else { return }
+        self.logConnectionDiagnostics(
+            event: "graceful_disconnect_presence_completed",
+            details: ["outcome": completion.rawValue, "id": attempt.unavailableID]
+        )
+        if completion == .unavailableSent {
+            attempt.stream.disconnectAfterSending()
+        } else {
+            attempt.stream.disconnect()
         }
     }
     

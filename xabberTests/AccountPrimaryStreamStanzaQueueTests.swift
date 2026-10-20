@@ -1,6 +1,7 @@
 import XCTest
 import RealmSwift
 import RxCocoa
+import RxSwift
 import XMPPFramework
 @testable import xabber
 
@@ -1577,11 +1578,26 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         readinessSnapshot: @escaping () -> AccountSendReadinessSnapshot? = { nil },
         logger: AccountPrimaryStreamSendCoordinatorLogger = AccountPrimaryStreamSendCoordinatorLogger()
     ) -> AccountSendCoordinator {
-        AccountSendCoordinator(
+        // Queue tests own their policy dependency; protected app state is not
+        // part of this fixture's readiness/retry contract.
+        let policyStorage = try? XabberOMEMO2Storage(
+            owner: owner, persistence: AccountPrimaryStreamOptOutMemory()
+        )
+        XCTAssertNotNil(policyStorage)
+        if let policyStorage {
+            XCTAssertTrue(OMEMO2OptOutPolicy.allowsMessage(
+                owner: owner, jid: "romeo@example.com", storage: policyStorage
+            ))
+        }
+        return AccountSendCoordinator(
             environment: AccountSendCoordinator.Environment(
                 owner: owner,
                 isSendReady: isReady,
                 sendReadinessSnapshot: readinessSnapshot,
+                allowsMessage: { jid in
+                    guard let policyStorage else { return false }
+                    return OMEMO2OptOutPolicy.allowsMessage(owner: owner, jid: jid, storage: policyStorage)
+                },
                 decorateMessage: { message, retry, missRetryElement in
                     if retry && !missRetryElement {
                         message.addChild(DDXMLElement(name: "retry", xmlns: "https://xabber.com/protocol/delivery"))
@@ -1792,6 +1808,13 @@ private final class AccountPrimaryStreamAckRequestRecorder {
     var responseTimeoutCount = 0
 }
 
+private final class AccountPrimaryStreamOptOutMemory: OMEMO2StatePersistence {
+    private var records: [String: Data] = [:]
+    func load(owner: String) throws -> Data? { records[owner] }
+    func save(_ data: Data, owner: String) throws { records[owner] = data }
+    func remove(owner: String) throws { records.removeValue(forKey: owner) }
+}
+
 private final class AccountPrimaryStreamSendCoordinatorRecorder {
     var sentMessages: [XMPPMessage] = []
 }
@@ -1858,6 +1881,364 @@ private final class AccountPrimaryStreamTestScheduler: AccountConnectionResilien
         scheduled.removeAll { $0.isCancelled }
         cancelled.forEach {
             $0.block()
+        }
+    }
+}
+
+/// Exercises the real XEP-0198 module and its asynchronous wire enqueue order.
+/// Native decryption/server receipts do not remove the recipient's SM queue.
+final class AccountGracefulStreamManagementAckTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try XCTSkipUnless(HostedXCTestIsolationPolicy.isEnabled(environment: ProcessInfo.processInfo.environment))
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "GracefulSMAck-\(UUID())")
+    }
+
+    override func tearDown() {
+        if let previousRealmConfiguration {
+            Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        }
+        super.tearDown()
+    }
+
+    func testGracefulDisconnectEnqueuesLastHandledAckBeforeUnavailableAndStreamClose() throws {
+        try verifyDisconnect(hard: false, onModuleQueue: false, enabled: true)
+    }
+
+    func testGracefulDisconnectOnModuleQueueDoesNotDeadlockOrCloseBeforeAck() throws {
+        try verifyDisconnect(hard: false, onModuleQueue: true, enabled: true)
+    }
+
+    func testHardDisconnectDoesNotPretendToAcknowledgeOrSendUnavailable() throws {
+        try verifyDisconnect(hard: true, onModuleQueue: false, enabled: true)
+    }
+
+    func testGracefulDisconnectWithoutNegotiatedSMStillSendsUnavailableThenCloses() throws {
+        try verifyDisconnect(hard: false, onModuleQueue: false, enabled: false)
+    }
+
+    func testDelayedUnavailableDelegateRoundTripKeepsStreamOpenUntilActualDidSend() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        XCTAssertEqual(stream.disconnectEvents, [], "A submitted unavailable is not an actual send")
+        XCTAssertTrue(stream.completeQueuedPresence())
+        awaitPipeline(queue, stream: stream)
+        XCTAssertEqual(stream.disconnectEvents, ["unavailable", "close"])
+    }
+
+    func testUnavailableFailureHardClosesOnlyItsMatchingAttempt() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        let unrelated = XMPPPresence(type: .unavailable)
+        unrelated.addAttribute(withName: "id", stringValue: "unrelated-presence")
+        queue.sync {
+            account.xmppStream(stream, didFailToSend: unrelated, error: NSError(domain: "SMFixture", code: 1))
+        }
+        XCTAssertFalse(stream.isDisconnected)
+        XCTAssertTrue(stream.completeQueuedPresence(fail: true))
+        awaitPipeline(queue, stream: stream)
+        XCTAssertEqual(stream.disconnectEvents, ["failed-unavailable", "hard-close"])
+    }
+
+    func testMissingUnavailableCompletionHasBoundedTimeoutAndIgnoresLateCompletion() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        XCTAssertFalse(stream.isDisconnected)
+        let timedOut = expectation(description: "bounded graceful disconnect fallback")
+        stream.onClose = { timedOut.fulfill() }
+        wait(for: [timedOut], timeout: 3)
+        XCTAssertEqual(stream.disconnectEvents, ["hard-close"])
+        stream.onClose = nil
+        XCTAssertTrue(stream.completeQueuedPresence())
+        awaitPipeline(queue, stream: stream)
+        XCTAssertEqual(stream.disconnectEvents.filter { $0.contains("close") }, ["hard-close"])
+    }
+
+    func testMissingUnavailableDeadlineDoesNotWaitBehindBlockedModuleDelegateQueue() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        let blocked = expectation(description: "account/module delegate queue is blocked")
+        let release = DispatchSemaphore(value: 0)
+        queue.async {
+            blocked.fulfill()
+            _ = release.wait(timeout: .now() + 4)
+        }
+        defer { release.signal() }
+        wait(for: [blocked], timeout: 1)
+        let timedOut = expectation(description: "deadline closes independently of the blocked delegate queue")
+        stream.onClose = { timedOut.fulfill() }
+        wait(for: [timedOut], timeout: 3)
+        XCTAssertEqual(stream.disconnectEvents, ["hard-close"])
+        stream.onClose = nil
+    }
+
+    func testDeadlineStartsBeforeQueuedGracefulTailCanRun() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        // This normal offline notification follows canResumeStream reads, but
+        // precedes submission of the asynchronous graceful tail.
+        let subscription = account.statusState.skip(1).take(1).subscribe(onNext: { _ in
+            queue.async {
+                entered.signal()
+                _ = release.wait(timeout: .now() + 4)
+            }
+            XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
+        })
+        defer { subscription.dispose(); release.signal() }
+        let timedOut = expectation(description: "deadline is installed before the blocked module-queue hop")
+        stream.onClose = { timedOut.fulfill() }
+        account.disconnect(hard: false, cause: .intentionalShutdown)
+        wait(for: [timedOut], timeout: 3)
+        XCTAssertEqual(stream.disconnectEvents, ["hard-close"])
+        XCTAssertEqual(stream.queuedPresenceCount, 0, "A timed-out request must not submit late unavailable")
+        stream.onClose = nil
+    }
+
+    func testHardDisconnectCancelsPendingUnavailableCompletion() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        let closed = expectation(description: "hard close")
+        stream.onClose = { closed.fulfill() }
+        account.disconnect(hard: true, cause: .intentionalShutdown)
+        wait(for: [closed], timeout: 2)
+        stream.onClose = nil
+        XCTAssertTrue(stream.completeQueuedPresence())
+        awaitPipeline(queue, stream: stream)
+        XCTAssertEqual(stream.disconnectEvents.filter { $0.contains("close") }, ["hard-close"])
+    }
+
+    func testLateUnavailableFromReplacedStreamCannotCloseEitherStream() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        let replacement = GracefulSMAckWireStream()
+        account.xmppStream = replacement
+        XCTAssertTrue(stream.completeQueuedPresence())
+        awaitPipeline(queue, stream: stream)
+        XCTAssertFalse(stream.isDisconnected)
+        XCTAssertFalse(replacement.isDisconnected)
+        XCTAssertEqual(replacement.disconnectEvents, [])
+    }
+
+    func testRepeatedGracefulDisconnectWaitsForNewestUnavailableCompletion() throws {
+        let (account, stream, queue) = makeHeldPresenceFixture()
+        requestHeldDisconnect(account, stream: stream)
+        requestHeldDisconnect(account, stream: stream)
+        XCTAssertEqual(stream.queuedPresenceCount, 2)
+        XCTAssertTrue(stream.completeQueuedPresence())
+        awaitPipeline(queue, stream: stream)
+        XCTAssertFalse(stream.isDisconnected, "Old attempt completion must not close the newest request")
+        XCTAssertTrue(stream.completeQueuedPresence())
+        awaitPipeline(queue, stream: stream)
+        XCTAssertEqual(stream.disconnectEvents, ["unavailable", "unavailable", "close"])
+    }
+
+    private func makeHeldPresenceFixture() -> (Account, GracefulSMAckWireStream, DispatchQueue) {
+        let queue = DispatchQueue(label: "GracefulSMRoundTrip.\(UUID())")
+        let account = Account(jid: "recipient-\(UUID())@example.test", queue: queue)
+        account.sendReadiness.onReadinessChanged = nil
+        account.chatMarkers = ChatMarkersManager(withOwner: account.jid, withoutAfterburnTimer: true)
+        let stream = GracefulSMAckWireStream()
+        stream.account = account
+        stream.accountQueue = queue
+        stream.holdsUnavailableCompletion = true
+        account.xmppStream = stream
+        addTeardownBlock {
+            stream.onClose = nil
+            account.disconnect(hard: true, cause: .intentionalShutdown)
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+        }
+        return (account, stream, queue)
+    }
+
+    private func requestHeldDisconnect(_ account: Account, stream: GracefulSMAckWireStream) {
+        let queued = expectation(description: "unavailable has finished its asynchronous willSend delegate round trip")
+        stream.onUnavailableQueued = { queued.fulfill() }
+        account.disconnect(hard: false, cause: .intentionalShutdown)
+        wait(for: [queued], timeout: 2)
+        stream.onUnavailableQueued = nil
+    }
+
+    private func awaitPipeline(_ queue: DispatchQueue, stream: GracefulSMAckWireStream) {
+        stream.drainWire()
+        queue.sync {}
+        stream.drainWire()
+    }
+
+    private func verifyDisconnect(hard: Bool, onModuleQueue: Bool, enabled: Bool) throws {
+        let queue = DispatchQueue(label: "GracefulSMAck.module.\(UUID())")
+        let account = Account(jid: "recipient-\(UUID())@example.test", queue: queue)
+        account.sendReadiness.onReadinessChanged = nil
+        account.chatMarkers = ChatMarkersManager(withOwner: account.jid, withoutAfterburnTimer: true)
+        let stream = GracefulSMAckWireStream()
+        stream.account = account
+        stream.accountQueue = queue
+        account.xmppStream = stream
+        XCTAssertTrue(account.sm.activate(stream))
+        defer {
+            stream.drainDelegatePipeline()
+            account.sm.deactivate()
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+        }
+        if enabled {
+            let ready = expectation(description: "real stream-management enabled response")
+            stream.onEnable = { [weak account, weak stream] enable in
+                guard let account, let stream else { return }
+                queue.async {
+                    _ = account.sm.perform(NSSelectorFromString("xmppStream:didSendCustomElement:"), with: stream, with: enable)
+                    let response = DDXMLElement(name: "enabled", xmlns: "urn:xmpp:sm:3")
+                    _ = account.sm.perform(NSSelectorFromString("xmppStream:didReceiveCustomElement:"), with: stream, with: response)
+                    ready.fulfill()
+                }
+            }
+            account.sm.enable(withResumption: false, maxTimeout: 0)
+            wait(for: [ready], timeout: 2)
+            queue.sync {
+                let prior = XMPPMessage(messageType: .chat, to: XMPPJID(string: account.jid), elementID: "prior-handled-message")
+                _ = account.sm.perform(NSSelectorFromString("xmppStream:didReceiveMessage:"), with: stream, with: prior)
+                let last = XMPPMessage(messageType: .chat,
+                    to: XMPPJID(string: account.jid), elementID: "last-already-processed-message")
+                last.addAttribute(withName: "from", stringValue: "sender@example.test/phone")
+                last.addBody("Already processed before the deliberate disconnect")
+                _ = account.sm.perform(NSSelectorFromString("xmppStream:didReceiveMessage:"), with: stream, with: last)
+            }
+        }
+        XCTAssertTrue(stream.disconnectEvents.isEmpty, "Without a server request, no unsolicited SM ACK has been sent")
+        let closed = expectation(description: "async stream FIFO reaches close after all queued XML")
+        stream.onClose = { closed.fulfill() }
+        let stallsAckEnqueue = !hard && !onModuleQueue && enabled
+        let ackEnqueueEntered = expectation(description: "real SM ACK reaches transport enqueue")
+        let releaseAckEnqueue = DispatchSemaphore(value: 0)
+        if stallsAckEnqueue {
+            stream.beforeAckEnqueue = {
+                ackEnqueueEntered.fulfill()
+                _ = releaseAckEnqueue.wait(timeout: .now() + 5)
+            }
+        }
+        if onModuleQueue {
+            queue.async { account.disconnect(hard: hard, cause: .intentionalShutdown) }
+        } else {
+            account.disconnect(hard: hard, cause: .intentionalShutdown)
+        }
+        if stallsAckEnqueue {
+            wait(for: [ackEnqueueEntered], timeout: 2)
+            XCTAssertTrue(stream.disconnectEvents.isEmpty,
+                "Transport backpressure on the real ACK must prevent unavailable and close from overtaking it")
+            releaseAckEnqueue.signal()
+        } else {
+            ackEnqueueEntered.isInverted = true
+            wait(for: [ackEnqueueEntered], timeout: 0.01)
+        }
+        wait(for: [closed], timeout: 3)
+        queue.sync {}
+        if hard {
+            XCTAssertEqual(stream.disconnectEvents, ["hard-close"])
+        } else if enabled {
+            XCTAssertEqual(stream.disconnectEvents, ["ack:2", "unavailable", "close"],
+                "The actual <a h='2'/> must enter the wire FIFO before unavailable/closing, not merely be scheduled")
+        } else {
+            XCTAssertEqual(stream.disconnectEvents, ["unavailable", "close"])
+        }
+    }
+}
+
+private final class GracefulSMAckWireStream: XMPPStream {
+    private let wireQueue = DispatchQueue(label: "GracefulSMAck.wire.\(UUID())")
+    private let willSendQueue = DispatchQueue(label: "GracefulSMAck.willSendPresence.\(UUID())")
+    private var events: [String] = []
+    private var closed = false
+    private var queuedPresences: [XMPPPresence] = []
+    weak var account: Account?
+    var accountQueue: DispatchQueue?
+    var holdsUnavailableCompletion = false
+    var onUnavailableQueued: (() -> Void)?
+    var onEnable: ((DDXMLElement) -> Void)?
+    var onClose: (() -> Void)?
+    var beforeAckEnqueue: (() -> Void)?
+
+    override var isDisconnected: Bool { wireQueue.sync { closed } }
+    override var isConnected: Bool { !isDisconnected }
+    override var isAuthenticated: Bool { !isDisconnected }
+    var disconnectEvents: [String] { wireQueue.sync { events } }
+    var queuedPresenceCount: Int { wireQueue.sync { queuedPresences.count } }
+    func drainWire() { wireQueue.sync {} }
+    func drainDelegatePipeline() {
+        willSendQueue.sync {}
+        wireQueue.sync {}
+        accountQueue?.sync {}
+        wireQueue.sync {}
+    }
+
+    override func send(_ element: DDXMLElement) {
+        let copy = element.copy() as! DDXMLElement
+        if let presence = element as? XMPPPresence, presence.type == "unavailable",
+           let account, let accountQueue {
+            // XMPPStream sends presence through a separate serial queue,
+            // synchronously visits the account delegate, then re-enters its
+            // wire queue. A close enqueued now can overtake that round trip.
+            willSendQueue.async {
+                let modified = accountQueue.sync { account.xmppStream(self, willSend: presence) }
+                guard let modified else { return }
+                self.wireQueue.async {
+                    self.queuedPresences.append(modified)
+                    self.onUnavailableQueued?()
+                    if !self.holdsUnavailableCompletion { self.finishPresence(modified, fail: false) }
+                }
+            }
+            return
+        }
+        if copy.localName == "a", copy.uri == "urn:xmpp:sm:3" { beforeAckEnqueue?() }
+        wireQueue.async {
+            if copy.localName == "enable", copy.uri == "urn:xmpp:sm:3" { self.onEnable?(copy) }
+            else if copy.localName == "a", copy.uri == "urn:xmpp:sm:3" {
+                self.events.append("ack:\(copy.attributeStringValue(forName: "h") ?? "missing")")
+            }
+        }
+    }
+
+    @discardableResult
+    func completeQueuedPresence(fail: Bool = false) -> Bool {
+        wireQueue.sync {
+            guard !queuedPresences.isEmpty else { return false }
+            let presence = queuedPresences.removeFirst()
+            finishPresence(presence, fail: fail)
+            return true
+        }
+    }
+
+    private func finishPresence(_ presence: XMPPPresence, fail: Bool) {
+        guard let account, let accountQueue else { return }
+        if fail || closed {
+            events.append("failed-unavailable")
+            accountQueue.async {
+                account.xmppStream(self, didFailToSend: presence, error: NSError(domain: "SMFixture", code: 1))
+            }
+        } else {
+            events.append("unavailable")
+            accountQueue.async { account.xmppStream(self, didSend: presence) }
+        }
+    }
+
+    override func disconnectAfterSending() {
+        wireQueue.async {
+            guard !self.closed else { return }
+            self.events.append("close")
+            self.closed = true
+            self.onClose?()
+        }
+    }
+
+    override func disconnect() {
+        wireQueue.async {
+            guard !self.closed else { return }
+            self.events.append("hard-close")
+            self.closed = true
+            self.onClose?()
         }
     }
 }

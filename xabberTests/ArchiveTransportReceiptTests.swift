@@ -9,6 +9,49 @@ private final class MalformedFinalAuthenticatedXMPPStream: XMPPStream {
     override func send(_ element: DDXMLElement) {}
 }
 
+private final class TimestampLookupAuthenticatedXMPPStream: XMPPStream {
+    private let sentLock = NSLock()
+    private var capturedQueries: [DDXMLElement] = []
+
+    override var isAuthenticated: Bool { true }
+
+    override func send(_ element: DDXMLElement) {
+        guard element.element(forName: "query", xmlns: "urn:xmpp:mam:2") != nil,
+              let copy = element.copy() as? DDXMLElement else { return }
+        sentLock.lock()
+        capturedQueries.append(copy)
+        sentLock.unlock()
+    }
+
+    var queries: [DDXMLElement] {
+        sentLock.lock()
+        defer { sentLock.unlock() }
+        return capturedQueries
+    }
+}
+
+private struct TimestampLookupFixtureRow {
+    let archiveID: String
+    let date: Date
+}
+
+private final class LockedArchiveReferenceResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Result<ArchiveCursor?, Error>] = []
+
+    func append(_ result: Result<ArchiveCursor?, Error>) {
+        lock.lock()
+        stored.append(result)
+        lock.unlock()
+    }
+
+    var results: [Result<ArchiveCursor?, Error>] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+}
+
 private struct EmptyArchiveMaterializationResolver:
     ArchiveMessageMaterializationResolving,
     Sendable
@@ -56,6 +99,367 @@ private final class LockedArchiveSearchTransportResult: @unchecked Sendable {
 }
 
 final class ArchiveTransportReceiptTests: XCTestCase {
+    func testStanzaReferenceResolutionWaitsForFinAndUsesBoundOuterMAMCursorWithoutLocalRows() throws {
+        let result = try stanzaReferenceResolutionFixture()
+
+        XCTAssertEqual(try result.get()?.rawValue, "2002")
+    }
+
+    func testStanzaReferenceResolutionRejectsAnUnrelatedReferenceDespiteOwnedQuery() throws {
+        let result = try stanzaReferenceResolutionFixture(innerReference: "7003")
+
+        XCTAssertThrowsError(try result.get()) {
+            XCTAssertEqual($0 as? ArchiveTransportError, .protocolViolation)
+        }
+    }
+
+    func testStanzaReferenceResolutionRejectsForeignPeerAndForeignQualifiedIdentity() throws {
+        for (peer, by) in [
+            ("foreign-peer@example.org", "reference-owner@example.org"),
+            ("reference-peer@example.org", "foreign-owner@example.org")
+        ] {
+            let result = try stanzaReferenceResolutionFixture(innerPeer: peer, qualifiedBy: by)
+            XCTAssertThrowsError(try result.get()) {
+                XCTAssertEqual($0 as? ArchiveTransportError, .protocolViolation)
+            }
+        }
+    }
+
+    func testStanzaReferenceResolutionRejectsForeignArchiveEnvelope() throws {
+        let result = try stanzaReferenceResolutionFixture(archiveOwner: "foreign-owner@example.org")
+
+        XCTAssertThrowsError(try result.get()) {
+            XCTAssertEqual($0 as? ArchiveTransportError, .protocolViolation)
+        }
+    }
+
+    func testStanzaReferenceResolutionDoesNotInventCursorForEmptyOwnedFinal() throws {
+        let result = try stanzaReferenceResolutionFixture(hasResult: false)
+
+        XCTAssertNil(try result.get())
+    }
+
+    private func stanzaReferenceResolutionFixture(
+        innerReference: String = "7002",
+        innerPeer: String = "reference-peer@example.org",
+        qualifiedBy: String = "reference-owner@example.org",
+        archiveOwner: String = "reference-owner@example.org",
+        hasResult: Bool = true
+    ) throws -> Result<ArchiveCursor?, Error> {
+        let owner = "reference-owner@example.org"
+        let queryID = "reference-fixture-\(UUID().uuidString)"
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current, inMemoryIdentifier: queryID
+        )
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+            MessageArchiveEndPageDispatcher.resetForTests()
+            MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+            MessageArchiveRequestFailureDispatcher.resetForTests()
+        }
+        let realm = try Realm()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0)
+        let account = Account(jid: owner, queue: DispatchQueue(label: queryID))
+        let stream = TimestampLookupAuthenticatedXMPPStream()
+        stream.myJID = XMPPJID(string: owner, resource: "archive-test")
+        account.xmppStream = stream
+        account.sendReadiness.markStreamManagementEnabled()
+        let adapter = MessageArchiveTransportAdapter(
+            account: account,
+            materializationResolver: EmptyArchiveMaterializationResolver(),
+            requestTerminalTimeout: 2,
+            persistenceTerminalTimeout: 2
+        )
+        let request = ArchiveStanzaReferenceResolutionRequest(
+            queryID: queryID,
+            conversation: ArchiveConversationKey(
+                owner: owner, jid: "reference-peer@example.org", conversationType: .regular
+            ),
+            reference: "7002",
+            connectionGeneration: 1
+        )
+        let terminal = expectation(description: "reference resolution finishes after its owned final")
+        let resultBox = LockedArchiveReferenceResult()
+        Task {
+            do {
+                resultBox.append(.success(try await adapter.resolveStanzaReference(request, priority: .target)))
+            } catch {
+                resultBox.append(.failure(error))
+            }
+            terminal.fulfill()
+        }
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline, stream.queries.isEmpty, resultBox.results.isEmpty {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        guard let iq = stream.queries.first else {
+            wait(for: [terminal], timeout: 3)
+            XCTFail("A raw stanza reference must issue an owned MAM lookup")
+            return try XCTUnwrap(resultBox.results.first)
+        }
+        XCTAssertTrue(account.mam.callbackQueueContains { $0.elementId == queryID })
+        let query = try XCTUnwrap(iq.element(forName: "query", xmlns: "urn:xmpp:mam:2"))
+        let form = try XCTUnwrap(query.element(forName: "x", xmlns: "jabber:x:data"))
+        let ids = form.elements(forName: "field").first { $0.attributeStringValue(forName: "var") == "ids" }
+        XCTAssertEqual(ids?.elements(forName: "value").compactMap(\.stringValue), ["7002"])
+        XCTAssertFalse(form.elements(forName: "field").contains {
+            ["start", "end"].contains($0.attributeStringValue(forName: "var") ?? "")
+        }, "Raw identity resolution must not invent a timestamp")
+        let rsm = try XCTUnwrap(query.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm"))
+        XCTAssertEqual(rsm.element(forName: "max")?.stringValue, "1")
+        if hasResult {
+            let message = try XMPPMessage(from: XCTUnwrap(DDXMLDocument(xmlString: """
+            <message from='\(archiveOwner)' to='\(owner)/archive-test'>
+              <result xmlns='urn:xmpp:mam:2' queryid='\(queryID)' id='2002'>
+                <forwarded xmlns='urn:xmpp:forward:0'>
+                  <message xmlns='jabber:client' from='\(innerPeer)' to='\(owner)' type='chat'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(qualifiedBy)' id='\(innerReference)'/>
+                  </message>
+                  <delay xmlns='urn:xmpp:delay' stamp='2026-10-19T10:32:48.614Z'/>
+                </forwarded>
+              </result>
+            </message>
+            """, options: 0).rootElement()))
+            XCTAssertTrue(account.mam.recordDeferredArchiveResultDelivery(message))
+            // Transport identity may be resolved even when a domain consumer
+            // has intentionally consumed the envelope. It grants no coverage.
+            XCTAssertTrue(account.mam.recordDeferredArchiveControlConsumption(message))
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        XCTAssertTrue(resultBox.results.isEmpty, "A result binding alone cannot bypass matching fin/accounting")
+        let boundaries = hasResult ? "<first>2002</first><last>2002</last>" : ""
+        let final = try XMPPIQ(from: XCTUnwrap(DDXMLDocument(xmlString: """
+        <iq type='result' id='\(queryID)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryID)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>\(boundaries)<count>\(hasResult ? 1 : 0)</count></set>
+          </fin>
+        </iq>
+        """, options: 0).rootElement()))
+        XCTAssertTrue(account.mam.read(stream, withIQ: final))
+        wait(for: [terminal], timeout: 3)
+        XCTAssertEqual(resultBox.results.count, 1)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0,
+                       "Reference resolution cannot manufacture a materialized message or coverage")
+        return try XCTUnwrap(resultBox.results.first)
+    }
+
+    func testTimestampLookupFindsIncomingAfterUnreadBoundaryBeyondFullEarlierPages() throws {
+        let target = Date(timeIntervalSince1970: 1_792_405_968)
+        let earlier = (0..<80).map { index in
+            TimestampLookupFixtureRow(
+                archiveID: String(1_000 + index),
+                date: target.addingTimeInterval(Double(index - 100))
+            )
+        }
+        // The source timestamp has whole-second precision. The known unread
+        // boundary and first incoming row are distinct archive identities;
+        // neither identity is interpreted as a timestamp.
+        let boundary = TimestampLookupFixtureRow(
+            archiveID: "2002", date: target.addingTimeInterval(0.614)
+        )
+        let firstIncoming = TimestampLookupFixtureRow(
+            archiveID: "2003", date: target.addingTimeInterval(0.8)
+        )
+        let nearTarget = [
+            TimestampLookupFixtureRow(archiveID: "2000", date: target.addingTimeInterval(0.05)),
+            TimestampLookupFixtureRow(archiveID: "2001", date: target.addingTimeInterval(0.4)),
+            boundary,
+            firstIncoming,
+            TimestampLookupFixtureRow(archiveID: "2004", date: target.addingTimeInterval(1))
+        ]
+
+        let receipt = try timestampLookupReceipt(
+            target: target,
+            rows: earlier + nearTarget,
+            pageSize: 4
+        )
+
+        XCTAssertTrue(receipt.resultArchiveIDs.contains(firstIncoming.archiveID),
+                      "A full earlier page must not hide the first incoming row after the unread boundary")
+        XCTAssertEqual(receipt.resultArchiveIDs.sorted(), ["2000", "2001", boundary.archiveID, firstIncoming.archiveID])
+        XCTAssertEqual(receipt.deliveredResultCount, 4)
+        XCTAssertEqual(receipt.persistedResultCount, 4)
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 0,
+                       "Previously decrypted rows still materialize authenticated replay results")
+        XCTAssertEqual(receipt.messagePrimaryIDs.count, 4)
+        XCTAssertEqual(receipt.failedPersistenceCount, 0)
+        XCTAssertTrue(receipt.finalReceived)
+    }
+
+    func testTimestampLookupBeyondNewestFallsBackToBoundedNewestEarlierPage() throws {
+        let target = Date(timeIntervalSince1970: 1_792_405_968)
+        let rows = (0..<80).map { index in
+            TimestampLookupFixtureRow(
+                archiveID: String(1_000 + index),
+                date: target.addingTimeInterval(Double(index - 100))
+            )
+        }
+
+        let receipt = try timestampLookupReceipt(
+            target: target, rows: rows, pageSize: 4, expectedQueryCount: 2
+        )
+
+        XCTAssertEqual(receipt.resultArchiveIDs.sorted(), ["1076", "1077", "1078", "1079"],
+                       "A timestamp after the archive must choose its nearest earlier rows")
+        XCTAssertEqual(receipt.deliveredResultCount, 4)
+        XCTAssertEqual(receipt.persistedResultCount, 4)
+        XCTAssertTrue(receipt.finalReceived)
+    }
+
+    /// Runs the real adapter, registered MAM result accounting, durable replay
+    /// materialization, and final barrier. The fixture server selects its page
+    /// from the actual transmitted XData/RSM rather than the requested locator.
+    private func timestampLookupReceipt(
+        target: Date,
+        rows: [TimestampLookupFixtureRow],
+        pageSize: Int,
+        expectedQueryCount: Int = 1
+    ) throws -> ArchiveTransportReceipt {
+        let queryID = "timestamp-fixture-\(UUID().uuidString)"
+        let owner = "timestamp-owner@example.org"
+        let peer = "timestamp-peer@example.org"
+        let configuration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current,
+            inMemoryIdentifier: queryID
+        )
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = configuration
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+            MessageArchiveEndPageDispatcher.resetForTests()
+            MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+            MessageArchiveRequestFailureDispatcher.resetForTests()
+        }
+        let retainedRealm = try Realm(configuration: configuration)
+        try retainedRealm.write {
+            for row in rows {
+                let message = MessageStorageItem()
+                message.primary = "timestamp-primary-\(row.archiveID)"
+                message.owner = owner
+                message.opponent = peer
+                message.conversationType = .regular
+                message.archivedId = row.archiveID
+                message.mamArchiveId = row.archiveID
+                message.messageId = "timestamp-message-\(row.archiveID)"
+                message.date = row.date
+                retainedRealm.add(message)
+            }
+        }
+        let account = Account(jid: owner, queue: DispatchQueue(label: queryID))
+        let stream = TimestampLookupAuthenticatedXMPPStream()
+        stream.myJID = XMPPJID(string: owner, resource: "archive-test")
+        account.xmppStream = stream
+        account.sendReadiness.markStreamManagementEnabled()
+        let repository = RealmArchiveCoverageRepository {
+            try Realm(configuration: configuration)
+        }
+        let adapter = MessageArchiveTransportAdapter(
+            account: account,
+            materializationResolver: repository,
+            requestTerminalTimeout: 3,
+            persistenceTerminalTimeout: 3
+        )
+        let request = ArchiveTransportRequest(
+            queryID: queryID,
+            conversation: ArchiveConversationKey(owner: owner, jid: peer, conversationType: .regular),
+            locator: .timestamp(target),
+            connectionGeneration: 1,
+            pageSize: pageSize,
+            contextBefore: pageSize / 2,
+            contextAfter: pageSize / 2,
+            proofFingerprint: "timestamp-proof",
+            isUnfiltered: true,
+            producesContinuousCoverage: false
+        )
+        let terminal = expectation(description: "timestamp lookup reaches its final barrier")
+        let resultBox = LockedArchiveTransportResult()
+        Task {
+            do {
+                resultBox.append(.success(try await adapter.request(request, priority: .target)))
+            } catch {
+                resultBox.append(.failure(error))
+            }
+            terminal.fulfill()
+        }
+        var answered = 0
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, resultBox.results.isEmpty {
+            let queries = stream.queries
+            guard answered < queries.count else {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+                continue
+            }
+            let iq = queries[answered]
+            answered += 1
+            let sentQueryID = try XCTUnwrap(iq.attributeStringValue(forName: "id"))
+            let query = try XCTUnwrap(iq.element(forName: "query", xmlns: "urn:xmpp:mam:2"))
+            let form = try XCTUnwrap(query.element(forName: "x", xmlns: "jabber:x:data"))
+            let fields = Dictionary(uniqueKeysWithValues: form.elements(forName: "field").compactMap { field -> (String, String)? in
+                guard let name = field.attributeStringValue(forName: "var"),
+                      let value = field.element(forName: "value")?.stringValue else { return nil }
+                return (name, value)
+            })
+            let rsm = try XCTUnwrap(query.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm"))
+            let limit = try XCTUnwrap(Int(try XCTUnwrap(rsm.element(forName: "max")?.stringValue)))
+            XCTAssertEqual(limit, pageSize, "Both lookup directions must remain bounded")
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            func dateField(_ name: String) throws -> Date? {
+                guard let value = fields[name] else { return nil }
+                return try XCTUnwrap(formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value))
+            }
+            let start = try dateField("start")
+            let end = try dateField("end")
+            let matching = rows.filter { row in
+                (start == nil || row.date >= start!) && (end == nil || row.date <= end!)
+            }.sorted { $0.date < $1.date }
+            let selected = rsm.element(forName: "before") != nil
+                ? Array(matching.suffix(limit)) : Array(matching.prefix(limit))
+            for row in selected {
+                let message = try XMPPMessage(from: XCTUnwrap(DDXMLDocument(xmlString: """
+                <message from='\(owner)' to='\(owner)/archive-test'>
+                  <result xmlns='urn:xmpp:mam:2' queryid='\(sentQueryID)' id='\(row.archiveID)'>
+                    <forwarded xmlns='urn:xmpp:forward:0'>
+                      <message xmlns='jabber:client' from='\(peer)' to='\(owner)' type='chat' id='timestamp-message-\(row.archiveID)'/>
+                      <delay xmlns='urn:xmpp:delay' stamp='\(row.date.XMPPFormattedDate)'/>
+                    </forwarded>
+                  </result>
+                </message>
+                """, options: 0).rootElement()))
+                XCTAssertTrue(account.mam.recordDeferredArchiveResultDelivery(message))
+                XCTAssertTrue(account.mam.recordDeferredArchiveControlConsumption(message))
+            }
+            XCTAssertTrue(resultBox.results.isEmpty,
+                          "Even existing authenticated replay rows cannot finish without matching fin")
+            let boundaries = selected.isEmpty ? "" : "<first>\(selected.first!.archiveID)</first><last>\(selected.last!.archiveID)</last>"
+            let final = try XMPPIQ(from: XCTUnwrap(DDXMLDocument(xmlString: """
+            <iq type='result' id='\(sentQueryID)'>
+              <fin xmlns='urn:xmpp:mam:2' complete='\(matching.count <= limit)' queryid='\(sentQueryID)'>
+                <set xmlns='http://jabber.org/protocol/rsm'>\(boundaries)<count>\(matching.count)</count></set>
+              </fin>
+            </iq>
+            """, options: 0).rootElement()))
+            XCTAssertTrue(account.mam.read(stream, withIQ: final))
+        }
+        wait(for: [terminal], timeout: 1)
+        XCTAssertLessThanOrEqual(answered, 2, "A near-time lookup needs at most two bounded queries")
+        XCTAssertEqual(answered, expectedQueryCount)
+        let queryIDs = stream.queries.compactMap { $0.attributeStringValue(forName: "id") }
+        XCTAssertEqual(Set(queryIDs).count, queryIDs.count,
+                       "The fallback must not reuse a sealed query identity")
+        let receipt = try XCTUnwrap(resultBox.results.first).get()
+        XCTAssertEqual(receipt.queryID, request.queryID)
+        _ = try ArchiveTransportReceiptValidator.validate(receipt, for: request)
+        return receipt
+    }
+
     func testServerErrorTransportFailureRemainsAutomaticallyRetryable() {
         XCTAssertTrue(ArchiveTransportError.serverError.isRetryable)
         XCTAssertFalse(ArchiveTransportError.protocolViolation.isRetryable)

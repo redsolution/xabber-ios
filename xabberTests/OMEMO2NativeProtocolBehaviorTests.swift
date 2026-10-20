@@ -14,6 +14,16 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
         func remove(owner: String) throws { records.removeValue(forKey: owner) }
     }
 
+    private final class CapturingStream: XMPPStream {
+        var messages: [XMPPMessage] = []
+        var onMessage: (() -> Void)?
+        override func send(_ element: DDXMLElement) {
+            guard let message = element as? XMPPMessage else { return }
+            messages.append(message.copy() as! XMPPMessage)
+            onMessage?()
+        }
+    }
+
     private struct Device {
         let manager: OmemoManager
         let storage: XabberOMEMO2Storage
@@ -77,6 +87,85 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
         XCTAssertEqual(materials[0], materials[2])
         XCTAssertEqual(materials[0].count, 48)
         XCTAssertFalse(try f.alice.storage.sessionExists(jid: f.alice.owner, deviceID: f.alice.id))
+    }
+
+    func testProductionSenderEmitsOneBareJIDStanzaWhoseSinglePayloadDecryptsOnEveryTrustedDevice() throws {
+        let f = try fixture()
+        let account = Account(jid: f.alice.owner, queue: DispatchQueue(label: "NativeFanout-account-\(UUID())"))
+        account.omemo = f.alice.manager
+        account.chatMarkers = ChatMarkersManager(withOwner: f.alice.owner, withoutAfterburnTimer: true)
+        account.sendReadiness.onReadinessChanged = nil
+        account.sendReadiness.markStreamManagementEnabled()
+        let stream = CapturingStream()
+        account.xmppStream = stream
+        let oldUsers = AccountManager.shared.users
+        AccountManager.shared.users = oldUsers + [account]
+        defer {
+            account.queue.sync {}
+            AccountManager.shared.users = oldUsers
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+        }
+
+        let roster = RosterStorageItem()
+        roster.owner = f.alice.owner; roster.jid = f.bob.owner
+        roster.primary = RosterStorageItem.genPrimary(jid: roster.jid, owner: roster.owner)
+        let resource = ResourceStorageItem()
+        resource.owner = f.alice.owner; resource.jid = f.bob.owner; resource.resource = "preferred-phone"
+        resource.primary = ResourceStorageItem.genPrimary(jid: resource.jid, owner: resource.owner, resource: resource.resource)
+        let item = MessageStorageItem()
+        item.owner = f.alice.owner; item.opponent = f.bob.owner
+        item.messageId = UUID().uuidString
+        item.primary = MessageStorageItem.genPrimary(messageId: item.messageId, owner: item.owner)
+        item.conversationType = .omemo
+        item.body = "One production stanza for three trusted devices 🔐"
+        item.legacyBody = item.body; item.outgoing = true
+        item.date = Date(); item.sentDate = item.date
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(roster); realm.add(resource); realm.add(item) }
+        XCTAssertEqual(roster.getPrimaryResource()?.resource, resource.resource)
+        let sent = expectation(description: "one production fanout stanza")
+        stream.onMessage = { sent.fulfill() }
+
+        XCTAssertTrue(account.messages.processSender(item: item.primary))
+        wait(for: [sent], timeout: 3)
+        account.queue.sync {}
+
+        XCTAssertEqual(stream.messages.count, 1)
+        let wire = try XCTUnwrap(stream.messages.first)
+        XCTAssertEqual(wire.to?.full, f.bob.owner)
+        XCTAssertNil(wire.to?.resource)
+        XCTAssertEqual(wire.elementID, item.messageId)
+        XCTAssertEqual(getOriginId(wire), item.messageId)
+        let encryptedElements = SCEReceivePolicy.children(of: wire, named: "encrypted", xmlns: OmemoManager.xmlns)
+        XCTAssertEqual(encryptedElements.count, 1)
+        let encrypted = try XCTUnwrap(encryptedElements.first)
+        XCTAssertEqual(SCEReceivePolicy.children(of: encrypted, named: "payload", xmlns: OmemoManager.xmlns).count, 1)
+        XCTAssertEqual(recipientIDs(encrypted, jid: f.bob.owner), [f.bob.id, f.bobOther.id])
+        XCTAssertEqual(recipientIDs(encrypted, jid: f.alice.owner), [f.aliceOther.id])
+        XCTAssertEqual(encrypted.element(forName: "header")?.elements(forName: "keys").count, 2)
+        XCTAssertFalse(recipientIDs(encrypted, jid: f.alice.owner).contains(f.alice.id))
+        let capturedXML = wire.xmlString
+
+        for recipient in f.recipients {
+            recipient.manager.omemo2ControlSender = { _ in }
+            let incoming: XMPPMessage
+            if recipient.owner == f.alice.owner {
+                incoming = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.alice.owner)' to='\(f.alice.owner)'><sent xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>\(capturedXML)</forwarded></sent></message>")
+            } else {
+                incoming = wire
+            }
+            let result = recipient.manager.prepareIncoming(incoming, context: recipient.owner == f.alice.owner ? .carbon : .live)
+            guard case let .verified(clean, proof, sender) = result else {
+                return XCTFail("The same captured production stanza must decrypt for \(recipient.owner)/\(recipient.id): \(describe(result))")
+            }
+            let leaf = recipient.owner == f.alice.owner ? try XCTUnwrap(getCarbonCopyMessageContainer(clean)) : clean
+            XCTAssertEqual(leaf.body, item.body)
+            XCTAssertEqual(proof, .authenticatedSCE(profile: .omemo2))
+            XCTAssertEqual(sender?.deviceID, f.alice.id)
+            XCTAssertEqual(sender?.isTrusted, true)
+            XCTAssertEqual(wire.xmlString, capturedXML)
+        }
     }
 
     func testContactAndOwnDevicesWithTheSameRIDRemainScopedToTheirKeyGroups() throws {
@@ -280,6 +369,42 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
             }
             let leaf = recipient.owner == f.alice.owner ? getCarbonCopyMessageContainer(clean) : clean
             XCTAssertEqual(leaf?.body, "retry after bundle repair")
+        }
+    }
+
+    func testMissingTrustedOwnBundleReleasesNoCiphertextAfterPreparingContactRecipients() throws {
+        let f = try fixture()
+        let realm = try WRealm.safe()
+        let primary = SignalIdentityStorageItem.genRpimary(owner: f.alice.owner, jid: f.alice.owner, deviceId: f.aliceOther.id)
+        let identity = try XCTUnwrap(realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: primary))
+        try realm.write {
+            realm.delete(identity)
+            realm.delete(realm.objects(SignalPreKeysStorageItem.self)
+                .filter("owner == %@ AND jid == %@ AND deviceId == %@", f.alice.owner, f.alice.owner, f.aliceOther.id))
+        }
+        let ownDevice = try projectedDevice(f.aliceOther, asSeenBy: f.alice)
+        XCTAssertEqual(ownDevice.state, .trusted)
+        XCTAssertTrue(ownDevice.isInDeviceList)
+        var released: DDXMLElement?
+
+        XCTAssertThrowsError(released = try f.alice.manager.encryptMessage(message: envelope(f, body: "all trusted devices are required"), to: f.bob.owner)) {
+            XCTAssertEqual($0 as? OmemoManagerError, .bundleNotFound)
+        }
+
+        XCTAssertNil(released)
+        XCTAssertTrue(try f.alice.storage.sessionExists(jid: f.bob.owner, deviceID: f.bob.id))
+        XCTAssertTrue(try f.alice.storage.sessionExists(jid: f.bob.owner, deviceID: f.bobOther.id))
+        XCTAssertFalse(try f.alice.storage.sessionExists(jid: f.alice.owner, deviceID: f.aliceOther.id))
+        try cache(f.aliceOther.bundle, owner: f.alice.owner, jid: f.alice.owner)
+        try advertise(to: f.alice.manager, jid: f.alice.owner, ids: [f.alice.id, f.aliceOther.id])
+        let retry = try send(f, body: "retry after own bundle recovery")
+        for recipient in f.recipients {
+            let incoming = try recipient.owner == f.alice.owner ? sentCarbon(retry, f: f) : message(retry, f: f)
+            guard case let .verified(clean, _, _) = recipient.manager.prepareIncoming(incoming) else {
+                return XCTFail("The recovered own bundle must preserve decryptability for every trusted device")
+            }
+            let leaf = recipient.owner == f.alice.owner ? getCarbonCopyMessageContainer(clean) : clean
+            XCTAssertEqual(leaf?.body, "retry after own bundle recovery")
         }
     }
 

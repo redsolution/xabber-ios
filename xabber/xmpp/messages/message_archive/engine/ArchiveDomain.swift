@@ -507,6 +507,7 @@ enum ArchiveSkeletonReason: Hashable, Codable, Sendable {
 enum ArchiveFailureRecoveryAction: String, Hashable, Codable, Sendable {
     case retry
     case recoverAccount
+    case showLatest
 }
 
 struct ArchiveRetryableFailure: Hashable, Codable, Sendable {

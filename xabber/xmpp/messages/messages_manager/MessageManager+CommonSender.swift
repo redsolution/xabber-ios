@@ -65,12 +65,9 @@ extension MessageManager {
             return nil
         }
 
-        switch conversationType {
-        case .regular, .group:
-            return XMPPJID(string: baseJID.bare)
-        default:
-            return XMPPJID(string: baseJID.bare, resource: resource)
-        }
+        // Device fanout belongs inside the OMEMO header. A roster resource must
+        // never pin a conversation message to one connection or expired device.
+        return XMPPJID(string: baseJID.bare)
     }
 
     internal static func canonicalOutgoingConversationJID(

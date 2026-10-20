@@ -159,6 +159,17 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         SettingManager.shared.getKeyBool(for: owner, scope: .clientSynchronization, key: key) == true
     }
 
+    private func prepareCompletedSyncBaseline() {
+        for key in ["last_completed_snapshot_stamp", "last_recognized_event_stamp"] {
+            SettingManager.shared.saveItem(
+                for: owner,
+                scope: .clientSynchronization,
+                key: key,
+                value: "1700000000000000"
+            )
+        }
+    }
+
     private func lastChatCount() throws -> Int {
         try WRealm.safe().objects(LastChatsStorageItem.self).filter("owner == %@", owner).count
     }
@@ -185,7 +196,8 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         messageId: String,
         archiveId: String,
         stamp: String = "1776840442469439",
-        body: String = "Hello"
+        body: String = "Hello",
+        messageTimeXML: String = "<time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>"
     ) -> String {
         """
         <conversation jid='\(jid)' type='urn:xabber:chat' stamp='\(stamp)' status='active'>
@@ -194,7 +206,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             <last-message>
               <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='\(messageId)'>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(archiveId)'/>
-                <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
+                \(messageTimeXML)
                 <body>\(body)</body>
               </message>
             </last-message>
@@ -886,6 +898,114 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         XCTAssertEqual(stored.lastMessage?.primary, messagePrimary)
     }
 
+    func testMetadataOnlyEncryptedSyncPreservesKnownMaterializedPreviewInsteadOfMarkingChatFresh() throws {
+        let realm = try WRealm.safe()
+        let types: [ClientSynchronizationManager.ConversationType] = [.omemo, .omemo1, .axolotl]
+        let knownDate = Date(timeIntervalSince1970: 1_792_413_798.701)
+        let manager = makeManager()
+
+        for (index, type) in types.enumerated() {
+            let jid = "known-encrypted-preview-\(index)@example.com"
+            let message = cachedRegularArchiveMessage(
+                jid: jid,
+                primary: "known-encrypted-preview-\(index)",
+                messageId: "known-encrypted-message-\(index)",
+                archivedId: "known-encrypted-archive-\(index)",
+                date: knownDate
+            )
+            message.conversationType = type
+            let chat = LastChatsStorageItem()
+            chat.jid = jid
+            chat.conversationType = type
+            chat.setPrimary(withOwner: owner)
+            chat.lastMessageId = message.messageId
+            chat.lastMessage = message
+            chat.messageDate = knownDate
+            chat.unread = 94
+            chat.syncUnreadCount = 94
+            chat.isFreshNotEmptyEncryptedChat = true
+            try realm.write { realm.add(message); realm.add(chat) }
+
+            XCTAssertTrue(manager.read(withIQ: try makeIQ("""
+            <iq type='set' id='known-encrypted-preview-\(index)'>
+              <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='1792415000000000'>
+                <conversation jid='\(jid)' type='\(type.rawValue)' stamp='1792415000000000' status='active'>
+                  <metadata node='https://xabber.com/protocol/synchronization'><unread count='94'/></metadata>
+                </conversation>
+              </synchronization>
+            </iq>
+            """)))
+
+            XCTAssertFalse(chat.isFreshNotEmptyEncryptedChat,
+                "Omitting last-message XML cannot turn accepted encrypted content into a fresh-chat invitation")
+            XCTAssertEqual(chat.lastMessage?.primary, message.primary)
+            XCTAssertEqual(chat.lastMessage?.body, "Cached archive message")
+            XCTAssertEqual(chat.lastMessageId, message.messageId)
+            XCTAssertEqual(chat.messageDate, knownDate)
+            XCTAssertEqual(chat.unread, 94)
+            XCTAssertEqual(chat.syncUnreadCount, 94)
+            XCTAssertEqual(chat.updateTS, 1_792_415_000_000_000)
+        }
+    }
+
+    func testMetadataOnlyEncryptedSyncWithKnownIdentityAndMissingLinkIsNotAFreshChat() throws {
+        let realm = try WRealm.safe()
+        let jid = "unmaterialized-encrypted-preview@example.com"
+        let chat = LastChatsStorageItem()
+        chat.jid = jid
+        chat.conversationType = .omemo
+        chat.setPrimary(withOwner: owner)
+        chat.lastMessageId = "known-but-not-materialized"
+        chat.messageDate = Date(timeIntervalSince1970: 1_792_413_798.701)
+        try realm.write { realm.add(chat) }
+        let manager = makeManager()
+
+        XCTAssertTrue(manager.read(withIQ: try makeIQ("""
+        <iq type='set' id='unmaterialized-encrypted-preview'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='1792415000000000'>
+            <conversation jid='\(jid)' type='\(ClientSynchronizationManager.ConversationType.omemo.rawValue)' stamp='1792415000000000' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'><unread count='94'/></metadata>
+            </conversation>
+          </synchronization>
+        </iq>
+        """)))
+
+        XCTAssertFalse(chat.isFreshNotEmptyEncryptedChat,
+            "A list-only known message identity is not evidence of a new empty encrypted conversation")
+        XCTAssertEqual(chat.lastMessageId, "known-but-not-materialized")
+        XCTAssertNil(chat.lastMessage, "Freshness correction must not materialize or invent a preview")
+        XCTAssertEqual(chat.messageDate, Date(timeIntervalSince1970: 1_792_413_798.701))
+        XCTAssertEqual(chat.unread, 94)
+        XCTAssertEqual(chat.syncUnreadCount, 94)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0)
+    }
+
+    func testMetadataOnlyNewEncryptedChatKeepsFreshInvitationWithoutInventingContentFromUnreadCount() throws {
+        let jid = "new-encrypted-session@example.com"
+        let manager = makeManager()
+
+        XCTAssertTrue(manager.read(withIQ: try makeIQ("""
+        <iq type='set' id='new-encrypted-session'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='1792415000000000'>
+            <conversation jid='\(jid)' type='\(ClientSynchronizationManager.ConversationType.omemo.rawValue)' stamp='1792415000000000' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'><unread count='94'/></metadata>
+            </conversation>
+          </synchronization>
+        </iq>
+        """)))
+
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(realm.object(ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .omemo)))
+        XCTAssertTrue(chat.isFreshNotEmptyEncryptedChat)
+        XCTAssertTrue(chat.lastMessageId.isEmpty)
+        XCTAssertNil(chat.lastMessage)
+        XCTAssertEqual(chat.messageDate, Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(chat.unread, 94)
+        XCTAssertEqual(chat.syncUnreadCount, 94)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0)
+    }
+
     func testListOnlySyncLinksRosterStateThatPredatesNewRegularLastChatsProjection() throws {
         let jid = "egor.merkushkin@example.com"
         let avatarURL = "https://gallery.example.com/egor/64_avatar.webp"
@@ -1037,6 +1157,180 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )
         XCTAssertEqual(row.status, .online)
         XCTAssertEqual(row.avatarUrl, avatarURL)
+    }
+
+    func testSyncMessageDateWithoutValidTimeTagsLeavesNewRowsUnknown() throws {
+        prepareManagedAccount()
+        prepareCompletedSyncBaseline()
+        let manager = makeManager()
+        let stamp = "1792405968614221"
+        let metadata = [
+            "",
+            "<time xmlns='urn:foreign:delivery' stamp='2026-03-24T12:34:56Z'/>",
+            "<time xmlns='https://xabber.com/protocol/delivery' stamp='invalid'/>",
+            "<delay xmlns='urn:xmpp:delay' stamp='2026-02-30T12:34:56Z'/>",
+            "<time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/><time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>",
+        ]
+        var conversations = metadata.enumerated().map { index, timeXML in
+            conversationXML(
+                jid: "unknown-message-time-\(index)@example.com",
+                messageId: "unknown-message-\(index)",
+                archiveId: "1774355696000000",
+                stamp: stamp,
+                messageTimeXML: timeXML
+            )
+        }
+        conversations.append(unreadConversationXML(
+            jid: "unknown-message-time-empty@example.com",
+            unread: 0,
+            after: "1774355696000000",
+            stamp: stamp
+        ))
+        let push = try makeIQ("""
+        <iq type='set' id='unknown-message-time'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='\(stamp)'>
+            \(conversations.joined(separator: "\n"))
+          </synchronization>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: push))
+
+        let chats = try WRealm.safe().objects(LastChatsStorageItem.self).filter("owner == %@", owner)
+        XCTAssertEqual(chats.count, conversations.count)
+        for chat in chats {
+            XCTAssertEqual(chat.messageDate.timeIntervalSince1970, 0, chat.jid)
+            XCTAssertEqual(chat.updateTS, 1_792_405_968_614_221, accuracy: 1, chat.jid)
+        }
+        XCTAssertEqual(storedClientSyncValue("last_recognized_event_stamp"), stamp)
+        XCTAssertEqual(storedClientSyncValue("last_completed_snapshot_stamp"), "1700000000000000")
+    }
+
+    func testSyncMessageDateWithoutValidTimeTagsPreservesKnownDateAndAdvancesCheckpoint() throws {
+        prepareManagedAccount()
+        prepareCompletedSyncBaseline()
+        let knownDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let jids = ["known-no-time@example.com", "known-invalid-time@example.com", "known-no-message@example.com"]
+        let realm = try WRealm.safe()
+        try realm.write {
+            for (index, jid) in jids.enumerated() {
+                let chat = LastChatsStorageItem()
+                chat.jid = jid
+                chat.conversationType = .regular
+                chat.setPrimary(withOwner: owner)
+                chat.lastMessageId = ["new-no-time", "new-invalid-time", "known-no-message"][index]
+                chat.messageDate = knownDate
+                chat.updateTS = 1_700_000_000_000_000
+                realm.add(chat)
+            }
+        }
+        let manager = makeManager()
+        let stamp = "1792405968614222"
+        let conversations = [
+            conversationXML(jid: jids[0], messageId: "new-no-time", archiveId: "1774355696000000", stamp: stamp, messageTimeXML: ""),
+            conversationXML(jid: jids[1], messageId: "new-invalid-time", archiveId: "1774355696000001", stamp: stamp, messageTimeXML: "<time xmlns='https://xabber.com/protocol/delivery' stamp='invalid'/>"),
+            unreadConversationXML(jid: jids[2], unread: 0, after: "1774355696000002", stamp: stamp),
+        ]
+        let push = try makeIQ("""
+        <iq type='set' id='preserve-known-message-time'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='\(stamp)'>
+            \(conversations.joined(separator: "\n"))
+          </synchronization>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: push))
+
+        for jid in jids {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+            ))
+            XCTAssertEqual(chat.messageDate, knownDate, jid)
+            XCTAssertEqual(chat.updateTS, 1_792_405_968_614_222, accuracy: 1, jid)
+        }
+        XCTAssertEqual(storedClientSyncValue("last_recognized_event_stamp"), stamp)
+        XCTAssertEqual(storedClientSyncValue("last_completed_snapshot_stamp"), "1700000000000000")
+    }
+
+    func testSyncChangedLastMessageWithoutTimeTagsDoesNotReusePreviousMessageDate() throws {
+        prepareManagedAccount()
+        prepareCompletedSyncBaseline()
+        let jid = "changed-message-no-time@example.com"
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = LastChatsStorageItem()
+            chat.jid = jid
+            chat.conversationType = .regular
+            chat.setPrimary(withOwner: owner)
+            chat.lastMessageId = "previous-message"
+            chat.messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+            realm.add(chat)
+        }
+        let manager = makeManager()
+        let stamp = "1792405968614224"
+        let push = try makeIQ("""
+        <iq type='set' id='changed-message-no-time'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='\(stamp)'>
+            \(conversationXML(jid: jid, messageId: "different-message", archiveId: "1774355696000000", stamp: stamp, messageTimeXML: ""))
+          </synchronization>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: push))
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        ))
+        XCTAssertEqual(chat.lastMessageId, "different-message")
+        XCTAssertEqual(chat.messageDate.timeIntervalSince1970, 0)
+        XCTAssertEqual(chat.updateTS, 1_792_405_968_614_224, accuracy: 1)
+        XCTAssertEqual(storedClientSyncValue("last_recognized_event_stamp"), stamp)
+        XCTAssertEqual(storedClientSyncValue("last_completed_snapshot_stamp"), "1700000000000000")
+    }
+
+    func testSyncMessageDateUsesQualifiedTagsAndActualOwnerForFederatedTime() throws {
+        prepareManagedAccount()
+        prepareCompletedSyncBaseline()
+        let manager = makeManager()
+        let stamp = "1792405968614223"
+        let ownTime = "<time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-03-24T12:34:56.123456Z'/>"
+        let peerTime = "<time xmlns='https://xabber.com/protocol/delivery' by='peer@example.com' stamp='2026-03-24T12:34:55Z'/>"
+        let queueDelay = "<delay xmlns='urn:xmpp:delay' stamp='2026-03-24T13:34:56Z'/>"
+        let metadata = [
+            "<delay xmlns='urn:xmpp:delay' stamp='2026-03-24T12:34:56.123456Z'/>",
+            ownTime + peerTime,
+            peerTime + ownTime,
+            ownTime + queueDelay,
+        ]
+        let conversations = metadata.enumerated().map { index, timeXML in
+            conversationXML(
+                jid: "qualified-message-time-\(index)@example.com",
+                messageId: "qualified-message-\(index)",
+                archiveId: "1774355696000000",
+                stamp: stamp,
+                messageTimeXML: timeXML
+            )
+        }
+        let push = try makeIQ("""
+        <iq type='set' id='qualified-message-time'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='\(stamp)'>
+            \(conversations.joined(separator: "\n"))
+          </synchronization>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: push))
+
+        let chats = try WRealm.safe().objects(LastChatsStorageItem.self).filter("owner == %@", owner)
+        XCTAssertEqual(chats.count, metadata.count)
+        for chat in chats {
+            XCTAssertEqual(chat.messageDate.timeIntervalSince1970, 1_774_355_696.123456, accuracy: 0.000001, chat.jid)
+            XCTAssertEqual(chat.updateTS, 1_792_405_968_614_223, accuracy: 1, chat.jid)
+        }
+        XCTAssertEqual(storedClientSyncValue("last_recognized_event_stamp"), stamp)
+        XCTAssertEqual(storedClientSyncValue("last_completed_snapshot_stamp"), "1700000000000000")
     }
 
     func testInitialSnapshotProjectsEveryTimelineConversationTypeAsListOnly() throws {

@@ -86,6 +86,13 @@ enum ArchiveAdmissionRetryPolicy {
 }
 
 actor AccountArchiveEngine {
+    private struct UnreadScanProgress {
+        let generation: UInt64
+        let boundary: ArchiveCursor
+        let after: ArchiveCursor
+    }
+
+    private var unreadScanProgress: [ArchiveConversationKey: UnreadScanProgress] = [:]
     private struct ConnectionState {
         let generation: UInt64
     }
@@ -202,6 +209,42 @@ actor AccountArchiveEngine {
 
     func currentState(for conversation: ArchiveConversationKey) -> ArchiveWindowState? {
         states[conversation]
+    }
+
+    func resolveStanzaReference(
+        _ reference: String,
+        conversation: ArchiveConversationKey,
+        priority: ArchiveIntentPriority = .target
+    ) async throws -> ArchiveCursor? {
+        guard conversation.owner == owner else {
+            throw ArchiveTransportError.authentication
+        }
+        guard reference.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+            throw ArchiveTransportError.malformedCursor
+        }
+        guard let generation = connection?.generation else {
+            throw ArchiveTransportError.disconnected
+        }
+        _ = try await admissionProvider.admit(
+            conversation, connectionGeneration: generation
+        )
+        guard connection?.generation == generation else {
+            throw ArchiveTransportError.disconnected
+        }
+        let cursor = try await transport.resolveStanzaReference(
+            ArchiveStanzaReferenceResolutionRequest(
+                queryID: "archive.engine.reference.\(UUID().uuidString)",
+                conversation: conversation,
+                reference: reference,
+                connectionGeneration: generation
+            ),
+            priority: priority
+        )
+        guard connection?.generation == generation else {
+            throw ArchiveTransportError.disconnected
+        }
+        // Identity resolution neither admits coverage nor publishes a window.
+        return cursor
     }
 
     func liveEdgeAdmissions(
@@ -330,6 +373,7 @@ actor AccountArchiveEngine {
         // reconnect work; removing the execution here would discard a valid
         // in-flight page before persistence/coverage accounting completes.
         presentationDemandIDs.removeValue(forKey: conversation)
+        unreadScanProgress.removeValue(forKey: conversation)
         latestIntentByConversation.removeValue(forKey: conversation)
         replacementIntentByConversation.removeValue(forKey: conversation)
         automaticRetryOwnershipByConversation.removeValue(forKey: conversation)
@@ -468,6 +512,13 @@ actor AccountArchiveEngine {
               hasPresentationDemand(for: intent.conversation) else {
             return
         }
+        if case .firstUnread(.some(let boundary)) = intent.locator {
+            if unreadScanProgress[intent.conversation]?.boundary != boundary {
+                unreadScanProgress.removeValue(forKey: intent.conversation)
+            }
+        } else {
+            unreadScanProgress.removeValue(forKey: intent.conversation)
+        }
         ArchiveEngineObservability.event(
             .queued,
             value: intent.priority.rawValue
@@ -537,6 +588,7 @@ actor AccountArchiveEngine {
         // the latest intent and cannot start a duplicate MAM.
         connection = nil
         pendingConnectionGeneration = generation
+        unreadScanProgress.removeAll()
         currentLiveEdgeAdmissions.removeAll(keepingCapacity: true)
         automaticRetryOwnershipByConversation.removeAll(keepingCapacity: true)
         let formerlyActiveConversations = cancelAllActiveExecutions()
@@ -577,6 +629,7 @@ actor AccountArchiveEngine {
         }
         connection = nil
         pendingConnectionGeneration = nil
+        unreadScanProgress.removeAll()
         currentLiveEdgeAdmissions.removeAll(keepingCapacity: true)
         automaticRetryOwnershipByConversation.removeAll(keepingCapacity: true)
         let formerlyActiveConversations = cancelAllActiveExecutions()
@@ -1232,10 +1285,19 @@ actor AccountArchiveEngine {
             throw ArchiveTransportError.disconnected
         }
 
+        let newerStart: ArchiveCursor
+        if case .firstUnread(.some(let boundary)) = intent.locator,
+           let progress = unreadScanProgress[intent.conversation],
+           progress.generation == connection.generation,
+           progress.boundary == boundary {
+            newerStart = progress.after
+        } else {
+            newerStart = anchor.cursor
+        }
         let newerRequest = ArchiveTransportRequest(
             queryID: "archive.engine.anchor.newer.\(UUID().uuidString)",
             conversation: intent.conversation,
-            locator: .newer(after: anchor.cursor),
+            locator: .newer(after: newerStart),
             connectionGeneration: connection.generation,
             pageSize: max(1, intent.contextAfter),
             contextBefore: 0,
@@ -1259,6 +1321,112 @@ actor AccountArchiveEngine {
             newerReceipt,
             for: newerRequest
         )
+        if case .firstUnread(.some(let boundary)) = intent.locator {
+            // Retain continuity from the real unread boundary while searching.
+            // These commits remain private until its incoming target resolves.
+            if newerStart == anchor.cursor {
+                _ = try await repository.commitAnchorWindow(
+                    intent: intent, anchor: anchor, exactPage: exactPage,
+                    olderPage: olderPage, newerPage: newerPage,
+                    freshnessToken: freshnessToken
+                )
+            } else {
+                _ = try await repository.commit(
+                    newerPage, request: newerRequest, freshnessToken: freshnessToken
+                )
+            }
+            var page = newerPage
+            var previousBoundary = newerStart
+            var newerPageCount = 1
+            while true {
+                guard isCurrentPresentation(
+                    executionID, descriptor: descriptor, intent: intent,
+                    generation: connection.generation
+                ) else { throw ArchiveTransportError.disconnected }
+                let incoming = try await repository.firstIncomingAnchor(
+                    conversation: intent.conversation,
+                    after: boundary,
+                    candidateArchiveIDs: page.chronologicalArchiveIDs
+                )
+                guard isCurrentPresentation(
+                    executionID, descriptor: descriptor, intent: intent,
+                    generation: connection.generation
+                ) else { throw ArchiveTransportError.disconnected }
+                if let incoming {
+                    // Center the bounded window on the proven incoming row.
+                    // Keeping the original boundary as its center would trim
+                    // the target behind a long prefix of outgoing messages.
+                    let centered = ArchiveWindowIntent(
+                        id: intent.id, conversation: intent.conversation,
+                        locator: .archiveID(incoming.cursor),
+                        contextBefore: intent.contextBefore,
+                        contextAfter: intent.contextAfter,
+                        priority: intent.priority
+                    )
+                    _ = try await verifyMaterializedTargetWindow(
+                        intent: centered, exactPage: page, connection: connection,
+                        proofFingerprint: proofFingerprint, freshnessToken: freshnessToken,
+                        executionID: executionID, descriptor: descriptor
+                    )
+                    guard let admission = try await repository.verifiedAdmission(
+                        for: centered, freshnessToken: freshnessToken
+                    ), case .verified(let snapshot) = admission,
+                        snapshot.verifiedSegment.oldest <= boundary,
+                        snapshot.verifiedSegment.newest >= incoming.cursor else {
+                        throw ArchiveCoverageRepositoryError.storageFailure
+                    }
+                    guard try await repository.firstIncomingAnchor(
+                        conversation: intent.conversation, after: boundary,
+                        candidateArchiveIDs: [incoming.cursor.rawValue]
+                    ) != nil else {
+                        throw ArchiveTransportError.targetNotFound
+                    }
+                    guard isCurrentPresentation(
+                        executionID, descriptor: descriptor, intent: intent,
+                        generation: connection.generation
+                    ) else { throw ArchiveTransportError.disconnected }
+                    unreadScanProgress.removeValue(forKey: intent.conversation)
+                    return retarget(snapshot, to: intent.locator)
+                }
+                guard !page.requestComplete, page.deliveredResultCount > 0 else {
+                    unreadScanProgress.removeValue(forKey: intent.conversation)
+                    throw ArchiveTransportError.targetNotFound
+                }
+                guard let last = page.chronologicalArchiveIDs.last.flatMap(ArchiveCursor.init(rawValue:)),
+                      last > previousBoundary else {
+                    throw ArchiveTransportValidationError.nonAdvancingCursor
+                }
+                previousBoundary = last
+                unreadScanProgress[intent.conversation] = UnreadScanProgress(
+                    generation: connection.generation, boundary: boundary, after: last
+                )
+                // Yield to the retry budget without losing validated progress.
+                guard newerPageCount < 32 else {
+                    throw ArchiveTransportError.targetSearchLimit
+                }
+                let continuation = ArchiveTransportRequest(
+                    queryID: "archive.engine.unread.newer.\(UUID().uuidString)",
+                    conversation: intent.conversation, locator: .newer(after: last),
+                    connectionGeneration: connection.generation,
+                    pageSize: max(1, intent.contextAfter), contextBefore: 0,
+                    contextAfter: intent.contextAfter, proofFingerprint: proofFingerprint,
+                    isUnfiltered: true, producesContinuousCoverage: true
+                )
+                let receipt = try await transport.request(
+                    continuation,
+                    priority: activeByDescriptor[descriptor]?.intent.priority ?? intent.priority
+                )
+                guard isCurrentPresentation(
+                    executionID, descriptor: descriptor, intent: intent,
+                    generation: connection.generation
+                ) else { throw ArchiveTransportError.disconnected }
+                page = try ArchiveTransportReceiptValidator.validate(receipt, for: continuation)
+                _ = try await repository.commit(
+                    page, request: continuation, freshnessToken: freshnessToken
+                )
+                newerPageCount += 1
+            }
+        }
         return try await repository.commitAnchorWindow(
             intent: intent,
             anchor: anchor,
@@ -1579,6 +1747,8 @@ actor AccountArchiveEngine {
             case .authentication: return 5
             case .protocolViolation: return 6
             case .malformedCursor: return 7
+            case .targetNotFound: return 8
+            case .targetSearchLimit: return 9
             }
         }
         if let error = error as? ArchiveConversationAdmissionError {
@@ -1598,6 +1768,9 @@ actor AccountArchiveEngine {
     private func recoveryAction(
         for error: Error
     ) -> ArchiveFailureRecoveryAction {
+        if error as? ArchiveTransportError == .targetNotFound {
+            return .showLatest
+        }
         if let transportError = error as? ArchiveTransportError,
            transportError == .authentication {
             return .recoverAccount

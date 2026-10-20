@@ -1044,15 +1044,7 @@ extension OmemoManager {
     ) throws -> OMEMOOriginalSendingTime? {
         guard let original = path.last else { throw OmemoManagerError.invalidEncryptedPayload }
         var times: [OMEMOOriginalSendingTime] = []
-        func appendTime(
-            from element: DDXMLElement,
-            name: String,
-            namespace: String,
-            source: OMEMOOriginalSendingTime.Source
-        ) throws {
-            let elements = SCEReceivePolicy.children(of: element, named: name, xmlns: namespace)
-            guard elements.count <= 1 else { throw OmemoManagerError.invalidDecryptedPayload }
-            guard let metadata = elements.first else { return }
+        func readTime(_ metadata: DDXMLElement, source: OMEMOOriginalSendingTime.Source) throws -> OMEMOOriginalSendingTime {
             let stamps = metadata.attributes?.filter {
                 $0.name == "stamp" && ($0.uri ?? "").isEmpty
             } ?? []
@@ -1060,16 +1052,57 @@ extension OmemoManager {
                   !(metadata.children ?? []).contains(where: { $0 is DDXMLElement }) else {
                 throw OmemoManagerError.invalidDecryptedPayload
             }
-            times.append(OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp(stamp), source: source))
+            return OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp(stamp), source: source)
+        }
+        func appendTime(
+            from element: DDXMLElement,
+            name: String,
+            namespace: String,
+            source: OMEMOOriginalSendingTime.Source,
+            fallbackOnly: Bool = false
+        ) throws {
+            let elements = SCEReceivePolicy.children(of: element, named: name, xmlns: namespace)
+            guard elements.count <= 1 else { throw OmemoManagerError.invalidDecryptedPayload }
+            guard let metadata = elements.first else { return }
+            let time = try readTime(metadata, source: source)
+            if !fallbackOnly || times.isEmpty { times.append(time) }
         }
 
-        try appendTime(from: original, name: "time", namespace: "https://xabber.com/protocol/delivery", source: .xabberDelivery)
+        // Each federated account archive adds its own reception time. Bind SCE
+        // to this account's marker rather than comparing different servers' clocks.
+        let delivery = try SCEReceivePolicy.children(of: original, named: "time", xmlns: "https://xabber.com/protocol/delivery").map { metadata in
+            let attributes = metadata.attributes?.filter { $0.localName == "by" } ?? []
+            guard attributes.count <= 1 else { throw OmemoManagerError.invalidDecryptedPayload }
+            var authority: String?
+            if let attribute = attributes.first {
+                guard attribute.name == "by", (attribute.uri ?? "").isEmpty,
+                      let value = attribute.stringValue, !value.isEmpty,
+                      let jid = XMPPJID(string: value), jid.bare == value else {
+                    throw OmemoManagerError.invalidDecryptedPayload
+                }
+                authority = value
+            }
+            return (authority: authority, time: try readTime(metadata, source: .xabberDelivery))
+        }
+        if delivery.count > 1 {
+            let authorities = delivery.compactMap { $0.authority }
+            guard authorities.count == delivery.count, Set(authorities).count == authorities.count,
+                  let owner, let selected = delivery.first(where: { $0.authority == owner }) else {
+                throw OmemoManagerError.invalidDecryptedPayload
+            }
+            times.append(selected.time)
+        } else if let selected = delivery.first {
+            // Preserve the historical singleton format, including missing `by`.
+            times.append(selected.time)
+        }
         if let forwarded = path.dropLast().last(where: {
             SCEReceivePolicy.matches($0, name: "forwarded", namespace: "urn:xmpp:forward:0")
         }) {
             try appendTime(from: forwarded, name: "delay", namespace: "urn:xmpp:delay", source: .forwardedDelay)
         }
-        try appendTime(from: original, name: "delay", namespace: "urn:xmpp:delay", source: .stanzaDelay)
+        // A direct delay may be a resend/offline queue timestamp, rather than
+        // this account archive's timestamp. Validate it even when not selected.
+        try appendTime(from: original, name: "delay", namespace: "urn:xmpp:delay", source: .stanzaDelay, fallbackOnly: true)
         if let supplied {
             guard supplied.date.timeIntervalSince1970.isFinite else { throw OmemoManagerError.invalidDecryptedPayload }
             times.append(supplied)
@@ -1197,10 +1230,13 @@ extension OmemoManager {
         let previousSessionIdentity = try storage.sessionMetadata(jid: from, deviceID: sid)?.remoteIdentityKey
         var opened: Omemo2PayloadCodec.OpenedPayload?
         var authenticatedIdentity: Data?
+        var materializationID: String?
         do {
             _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, replayFingerprint: replayFingerprint, previouslyAuthenticated: {
                 OMEMO2ReplayProtection.hasVerifiedHistory(fingerprint: replayFingerprint, owner: self.owner)
-            }, updatingIdentity: { identity in
+            }, retainingSyncContent: optOutContext == .syncPreview,
+            recoveringSyncContent: optOutContext == .archive,
+            materializationIdentity: { materializationID }, updatingIdentity: { identity in
                 try self.updateAuthenticatedOMEMO2Identity(identity, jid: from, deviceID: sid, previousSessionIdentity: previousSessionIdentity)
             }, recordingOptOut: {
                 guard let opened, let context = optOutContext, from != self.owner, message.type != "groupchat",
@@ -1220,6 +1256,18 @@ extension OmemoManager {
                 authenticatedIdentity = identity
             }) { plaintext in
                 opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime)
+                if let opened {
+                    let elements = opened.content.children?.compactMap { $0 as? DDXMLElement } ?? []
+                    let isContent = elements.contains {
+                        !SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) &&
+                        !SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
+                    }
+                    if isContent {
+                        let clean = XMPPMessage(from: SCEReceivePolicy.sanitized(message, content: opened.content))
+                        let identifier = getUniqueMessageId(clean, owner: owner)
+                        materializationID = identifier.isEmpty ? nil : identifier
+                    }
+                }
             }
         } catch OMEMO2StorageError.authenticatedDuplicate {
             return .duplicate

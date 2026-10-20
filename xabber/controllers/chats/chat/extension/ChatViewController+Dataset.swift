@@ -5636,6 +5636,8 @@ extension ChatViewController {
     @discardableResult
     internal func commitArchiveEngineOpeningSkeletonSynchronously() -> Bool {
         assert(Thread.isMainThread, "Opening skeleton commits are main-owned")
+        if hasVisibleArchiveFallbackAwaitingCommit { return true }
+        if restoreArchiveHistoryFailurePresentationIfNeeded() { return true }
         let expectedPrimaries = ChatSkeletonTemplate.descriptors.map(\.primary)
         let alreadyCommitted =
             datasource.map(\.primary) == expectedPrimaries &&
@@ -8142,7 +8144,9 @@ extension ChatViewController {
                 chatPrimary: chatPrimary,
                 currentMemberId: currentMemberId,
                 groupchatJid: self.jid,
-                date: chat.messageDate == Date(timeIntervalSince1970: 0) ? Date() : chat.messageDate
+                // The mention ID is only a reference. The last chat message
+                // cannot supply this unseen message's time.
+                date: Date(timeIntervalSince1970: 0)
                ) {
                 self.unreadMentionItems = [fallbackItem]
             }

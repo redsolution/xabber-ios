@@ -360,6 +360,14 @@ final class OMEMO2NormativeEditTests: XCTestCase {
         let manager = MessageDeleteManager(withOwner: owner)
         let stream = CapturingStream()
 
+        // Isolate the policy prerequisite from the host's protected storage;
+        // the encryption provider itself must remain absent for this test.
+        manager.omemo2OptOutStorage = try XabberOMEMO2Storage(owner: owner, persistence: Memory())
+        XCTAssertNil(AccountManager.shared.find(for: owner))
+        XCTAssertTrue(OMEMO2OptOutPolicy.allowsMessage(
+            owner: owner, jid: item.opponent, storage: manager.omemo2OptOutStorage
+        ))
+
         manager.editMessage(stream, primary: item.primary, editedMessage: try replacementMessage(item: item, body: "private"), conversationType: .omemo)
 
         XCTAssertTrue(stream.iqs.isEmpty)
@@ -372,6 +380,10 @@ final class OMEMO2NormativeEditTests: XCTestCase {
         let item = try storedMessage(owner: owner, jid: "bob@example.test", type: .omemo)
         let manager = MessageDeleteManager(withOwner: owner)
         let stream = CapturingStream()
+        manager.omemo2OptOutStorage = try XabberOMEMO2Storage(owner: owner, persistence: Memory())
+        XCTAssertTrue(OMEMO2OptOutPolicy.allowsMessage(
+            owner: owner, jid: item.opponent, storage: manager.omemo2OptOutStorage
+        ))
 
         manager.editMessage(stream, primary: item.primary, editedMessage: try replacementMessage(item: item, body: "private"), conversationType: .regular)
 
@@ -383,6 +395,11 @@ final class OMEMO2NormativeEditTests: XCTestCase {
         let replacement = try replacementMessage(item: item, body: "ordinary correction")
         let manager = MessageDeleteManager(withOwner: item.owner)
         let stream = CapturingStream()
+
+        manager.omemo2OptOutStorage = try XabberOMEMO2Storage(owner: item.owner, persistence: Memory())
+        XCTAssertTrue(OMEMO2OptOutPolicy.allowsMessage(
+            owner: item.owner, jid: item.opponent, storage: manager.omemo2OptOutStorage
+        ))
 
         manager.editMessage(stream, primary: item.primary, editedMessage: replacement, conversationType: .regular)
 

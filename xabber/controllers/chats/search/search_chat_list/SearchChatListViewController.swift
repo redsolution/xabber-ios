@@ -343,7 +343,10 @@ class SearchChatListViewController: SimpleBaseViewController {
             }
             
             var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
-            if item.isFreshNotEmptyEncryptedChat {
+            if LastChatMessagePreviewPolicy.shouldShowEmptyEncryptedPlaceholder(
+                for: item,
+                message: messageItem
+            ) {
                 message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }

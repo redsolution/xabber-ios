@@ -436,6 +436,18 @@ extension Account: XMPPStreamDelegate {
         self.sendReadiness.markStreamError(self.streamErrorName(error))
     }
 
+    func xmppStream(_ sender: XMPPStream, didSendCustomElement element: DDXMLElement) {
+        guard sender === self.xmppStream,
+              element.localName == "a",
+              element.uri == "urn:xmpp:sm:3" || element.uri == "urn:xmpp:sm:2",
+              let rawCount = element.attributeStringValue(forName: "h"),
+              let handledCount = UInt32(rawCount) else { return }
+        self.logConnectionDiagnostics(
+            event: "stream_management_ack_sent",
+            details: ["handledCount": handledCount]
+        )
+    }
+
     func xmppStream(_ sender: XMPPStream, didReceiveCustomElement element: DDXMLElement) {
         guard sender === self.xmppStream,
               element.name == "a",
@@ -456,6 +468,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream disconnect jid=\(self.jid)")
             return
         }
+        self.cancelPendingGracefulDisconnect()
         DDLogDebug("primary stream didDisconnect jid=\(self.jid) error=\(self.disconnectErrorDescription(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.logConnectionDiagnostics(
             event: "tcp_disconnected",
@@ -647,6 +660,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didSend presence: XMPPPresence) {
+        guard sender === self.xmppStream else { return }
         self.notePrimaryStreamStanzaDidSend(presence)
         self.logConnectionDiagnostics(
             event: "stanza_send_presence",
@@ -662,6 +676,7 @@ extension Account: XMPPStreamDelegate {
         if SettingManager.logEnabled {
             DDLogInfo("S. presence: to \(presence.to?.bare ?? "none"), from \(presence.from?.bare ?? "none")")
         }
+        self.gracefulDisconnectPresenceCompleted(presence, stream: sender, sent: true)
     }
     
     func xmppStream(_ sender: XMPPStream, willReceive message: XMPPMessage) -> XMPPMessage? {
@@ -997,6 +1012,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
+        guard sender === self.xmppStream else { return }
         self.notePrimaryStreamStanzaDidFailToSend(presence)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_presence",
@@ -1007,6 +1023,7 @@ extension Account: XMPPStreamDelegate {
             rawXML: presence.prettyXMLString ?? presence.xmlString,
             error: error
         )
+        self.gracefulDisconnectPresenceCompleted(presence, stream: sender, sent: false)
     }
 
     func xmppStreamWasTold(toAbortConnect sender: XMPPStream) {
