@@ -124,15 +124,15 @@ final class TrustVerificationInteropTests: XCTestCase {
     }
     func testXENRequiresOriginalSender() throws {
         let outer = try message("<notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' from='\(peer)/phone'>\(request())</message></forwarded></notification>", from: "relay.example.test")
-        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer))
+        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer, trustedNotificationSenders: ["relay.example.test"]))
     }
     func testXENRejectsDuplicateOriginalSenderEvenWhenLastValueMatches() throws {
         let outer = try message("<notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' from='\(peer)/phone'>\(request())</message></forwarded></notification><addresses xmlns='http://jabber.org/protocol/address'><address type='ofrom' jid='attacker@example.test/p'/><address type='ofrom' jid='\(peer)/phone'/></addresses>", from: "relay.example.test")
-        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer))
+        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer, trustedNotificationSenders: ["relay.example.test"]))
     }
     func testQuotedForwardCannotSupplyVerificationSender() throws {
         let outer = try message("<forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' from='\(peer)/phone'>\(request())</message></forwarded>", from: "attacker@example.test/p")
-        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer))
+        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer, trustedNotificationSenders: ["relay.example.test"]))
     }
     func testOwnSiblingAcceptanceClosesOnlyResponderRequest() throws {
         let value = try session(role: .responder, state: .receivedRequest)
@@ -384,7 +384,7 @@ final class TrustVerificationInteropTests: XCTestCase {
     }
     func testXENForwardedCurrentRequestExtractsOriginalSender() throws {
         let outer = try message("<notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' from='\(peer)/phone'>\(request())</message></forwarded></notification><addresses xmlns='http://jabber.org/protocol/address'><address type='ofrom' jid='\(peer)/phone'/></addresses>", from: "relay.example.test")
-        let inner = try XCTUnwrap(XEPTrustForwardedExtractor.trustMessage(from: outer))
+        let inner = try XCTUnwrap(XEPTrustForwardedExtractor.trustMessage(from: outer, trustedNotificationSenders: ["relay.example.test"]))
         XCTAssertEqual(inner.from?.full, "\(peer)/phone")
         XCTAssertNotNil(XEPTrustEnvelope.parse(from: inner))
     }

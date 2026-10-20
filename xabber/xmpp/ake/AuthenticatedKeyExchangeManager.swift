@@ -140,13 +140,17 @@ struct XEPTrustEnvelope {
 }
 
 struct XEPTrustForwardedExtractor {
-    static func trustMessage(from message: XMPPMessage) -> XMPPMessage? {
-        let bareMessage = recursivelyUnwrapped(message)
+    static func trustMessage(from message: XMPPMessage, trustedNotificationSenders: Set<String> = [], owner: String? = nil) -> XMPPMessage? {
+        guard let bareMessage = recursivelyUnwrapped(message, trustedNotificationSenders: trustedNotificationSenders, owner: owner) else { return nil }
         if containsTrust(in: bareMessage) {
             return bareMessage
         }
 
-        guard let notification = bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns)
+        // Forwarded author fields are assertions made by the notification
+        // service. A normal peer cannot gain that authority by copying XML.
+        guard let carrier = bareMessage.from, carrier.resource == nil,
+              trustedNotificationSenders.contains(carrier.full),
+              let notification = bareMessage.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns)
                 ?? bareMessage.element(forName: "notification")
                 ?? bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns)
                 ?? bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "notification"),
@@ -166,23 +170,27 @@ struct XEPTrustForwardedExtractor {
         guard let originalFrom = addresses?["ofrom"],
               let forwardedFrom = innerMessage.from,
               let claimedSender = XMPPJID(string: originalFrom),
-              claimedSender.full == forwardedFrom.full else { return nil }
+              jidMatches(claimedSender.full, forwardedFrom.full) else { return nil }
 
         return innerMessage
     }
 
-    private static func recursivelyUnwrapped(_ message: XMPPMessage) -> XMPPMessage {
+    private static func recursivelyUnwrapped(_ message: XMPPMessage, trustedNotificationSenders: Set<String>, owner: String?) -> XMPPMessage? {
         var current = message
         var depth = 0
         while depth < 4 {
             let next: XMPPMessage?
             if isArchivedMessage(current) {
+                guard authenticatedWrapper(current, owner: owner, trustedNotificationSenders: trustedNotificationSenders, isCarbon: false) else { return nil }
                 next = getArchivedMessageContainer(current)
             } else if isPriorityMessage(current) {
+                guard authenticatedWrapper(current, owner: owner, trustedNotificationSenders: trustedNotificationSenders, isCarbon: false) else { return nil }
                 next = getPriorityMessageContainer(current)
             } else if isCarbonCopy(current) {
+                guard authenticatedWrapper(current, owner: owner, trustedNotificationSenders: trustedNotificationSenders, isCarbon: true) else { return nil }
                 next = getCarbonCopyMessageContainer(current)
             } else if isCarbonForwarded(current) {
+                guard authenticatedWrapper(current, owner: owner, trustedNotificationSenders: trustedNotificationSenders, isCarbon: true) else { return nil }
                 next = getCarbonForwardedMessageContainer(current)
             } else {
                 // A quoted forwarded message cannot claim a different sender.
@@ -196,6 +204,15 @@ struct XEPTrustForwardedExtractor {
             depth += 1
         }
         return current
+    }
+
+    private static func authenticatedWrapper(_ message: XMPPMessage, owner: String?, trustedNotificationSenders: Set<String>, isCarbon: Bool) -> Bool {
+        guard let owner, let account = XMPPJID(string: owner), account.user != nil,
+              let carrier = message.from, carrier.resource == nil else { return false }
+        if isCarbon {
+            return carrier.full == account.bare && message.to?.bare == account.bare
+        }
+        return carrier.full == account.bare || trustedNotificationSenders.contains(carrier.full)
     }
 
     private static func containsTrust(in message: XMPPMessage) -> Bool {
@@ -233,6 +250,22 @@ struct XEPTrustForwardedExtractor {
             return left.full == right.full
         }
         return left.bare == right.bare
+    }
+
+    static func notificationSenders(owner: String, configuredService: String?) -> Set<String> {
+        var result = Set<String>()
+        if let domain = XMPPJID(string: owner)?.domain, !domain.isEmpty {
+            result.insert(domain)
+        }
+        // node is populated by notification-service discovery/configuration.
+        // Do not reinterpret an arbitrary PubSub node or resource as a service.
+        if let raw = configuredService, !raw.isEmpty,
+           !raw.contains(":"), !raw.contains(where: { $0.isWhitespace }),
+           let service = XMPPJID(string: raw), service.resource == nil,
+           !service.domain.isEmpty, service.full == raw {
+            result.insert(service.full)
+        }
+        return result
     }
 }
 
@@ -424,7 +457,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
     @discardableResult
     func didReceivedVerificationMessage(message: XMPPMessage) -> Bool {
-        guard let innerMessage = XEPTrustForwardedExtractor.trustMessage(from: message),
+        let notificationSenders = XEPTrustForwardedExtractor.notificationSenders(
+            owner: owner, configuredService: AccountManager.shared.find(for: owner)?.notifications.node)
+        guard let innerMessage = XEPTrustForwardedExtractor.trustMessage(from: message, trustedNotificationSenders: notificationSenders, owner: owner),
               let received = XEPTrustEnvelope.parse(from: innerMessage),
               let from = innerMessage.from,
               let envelope = admittedEnvelope(received, from: from) else {

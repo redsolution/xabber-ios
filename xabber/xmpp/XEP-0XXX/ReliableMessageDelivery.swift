@@ -326,10 +326,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
         guard let from = message.from?.bare,
               let echoedMessage = echoMessageContainer(from: message),
               let elementId = echoedMessage.element(forName: "origin-id")?.attributeStringValue(forName: "id"),
-              let stamp = echoedMessage
-                .element(forName: "time", xmlns: "https://xabber.com/protocol/delivery")?
-                .attributeStringValue(forName: "stamp")?.xmppDate
-                    ?? echoedMessage.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate else {
+              let stamp = getReceivedMessageDate(echoedMessage, owner: from) else {
             return
         }
         
@@ -337,7 +334,8 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             if let instance = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND messageId == %@ AND outgoing == %@", owner, elementId, true)
+                .filter("owner == %@ AND messageId == %@ AND outgoing == %@ AND opponent == %@ AND conversationType_ == %@",
+                        owner, elementId, true, from, ClientSynchronizationManager.ConversationType.group.rawValue)
                 .first {
                     try realm.write {
                         instance.state = .deliver
@@ -348,7 +346,8 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                             primary: instance.primary,
                             jid: from,
                             owner: owner,
-                            echo: true
+                            echo: true,
+                            sourceDate: stamp
                         )
                         let pendingMediaAttachments = parsedReferences.compactMap {
                             $0.pendingMediaAttachment

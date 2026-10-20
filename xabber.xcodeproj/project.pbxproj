@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A32010200000000000000013 /* XENTrustTransportInteroperabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */; };
 		A32010200000000000000011 /* ReceivedMessageDateAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */; };
 		B2CE15EA78AB4745BE05CB59 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
 		D3430E4AF2E644FAA6005EE9 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
@@ -1219,6 +1220,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XENTrustTransportInteroperabilityTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceivedMessageDateAdmissionTests.swift; sourceTree = "<group>"; };
 		4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnostics.swift; sourceTree = "<group>"; };
 		13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnosticsTests.swift; sourceTree = "<group>"; };
@@ -4397,6 +4399,7 @@
 				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
 				A32010200000000000000006 /* TrustVerificationInteropTests.swift */,
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
+				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
 				A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */,
 				A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */,
 				45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */,
@@ -6777,6 +6780,7 @@
 				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
 				A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */,
 				A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */,
+				A32010200000000000000013 /* XENTrustTransportInteroperabilityTests.swift in Sources */,
 				A32010200000000000000011 /* ReceivedMessageDateAdmissionTests.swift in Sources */,
 				A32010200000000000000003 /* TrustSharingProtocolProfileTests.swift in Sources */,
 				13C6CE8D47FC43F0A8BD6D95 /* OMEMO2NormativeIncomingTrustRenderingTests.swift in Sources */,

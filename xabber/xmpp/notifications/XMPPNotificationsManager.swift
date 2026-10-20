@@ -178,22 +178,23 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         toAddress.addAttribute(withName: "jid", stringValue: targetJid)
         addresses.addChild(toAddress)
 
-        if let originalFrom = child.attributeStringValue(forName: "from"), !originalFrom.isEmpty {
-            let originalFromAddress = DDXMLElement(name: "address")
-            originalFromAddress.addAttribute(withName: "type", stringValue: "ofrom")
-            originalFromAddress.addAttribute(withName: "jid", stringValue: originalFrom)
-            addresses.addChild(originalFromAddress)
-        }
-
         let forwarded = DDXMLElement(name: "forwarded", xmlns: "urn:xmpp:forward:0")
         if let forwardedChild = child.copy() as? DDXMLElement {
+            if forwardedChild.localName == "message", forwardedChild.xmlns()?.isEmpty ?? true {
+                // XMPPMessage's SDK constructor relies on the stream default.
+                // The copy needs its client namespace inside a forwarded node.
+                forwardedChild.setXmlns("jabber:client")
+            }
             forwarded.addChild(forwardedChild)
         }
         notification.addChild(forwarded)
         notify.addChild(notification)
         notify.addChild(addresses)
 
-        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: notify)
+        // The bare IQ reaches the server handler; the logical recipient above
+        // and the untouched forwarded payload retain a pinned resource.
+        // Only the server may attest the original sender with addresses.ofrom.
+        let iq = XMPPIQ(iqType: .set, to: to.bareJID, elementID: elementId, child: notify)
 
         return iq
     }

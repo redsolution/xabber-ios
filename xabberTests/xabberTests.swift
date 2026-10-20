@@ -11789,7 +11789,7 @@ final class NotificationsFeatureTests: XCTestCase {
         <message type='chat' from='\(owner)' to='\(owner)'>
           <result xmlns='urn:xmpp:mam:2' queryid='notifications-query' id='\(stanzaId)'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='\(notificationsNode)' to='\(owner)' id='\(wrapperId)'>
+              <message xmlns='jabber:client' type='chat' from='\(notificationsNode)' to='\(owner)' id='\(wrapperId)'>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(stanzaId)'/>
                 <notification xmlns='urn:xabber:xen:0' type='alert'>
                   <info>Security update</info>
@@ -11816,7 +11816,7 @@ final class NotificationsFeatureTests: XCTestCase {
         <message type='chat' from='\(owner)' to='\(owner)'>
           <result xmlns='urn:xmpp:mam:2' queryid='notifications-query' id='\(archivedId)'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='\(notificationsNode)' to='\(owner)' id='\(wrapperId)'>
+              <message xmlns='jabber:client' type='chat' from='\(notificationsNode)' to='\(owner)' id='\(wrapperId)'>
                 <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='\(archivedId)'/>
                 <notification xmlns='urn:xabber:xen:0' type='alert'>
                   <info>Security update</info>
@@ -11875,7 +11875,7 @@ final class NotificationsFeatureTests: XCTestCase {
           <notification xmlns='urn:xabber:xen:0' type='mention'>
             <mention>You were mentioned</mention>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='\(groupchatJid)' to='\(owner)' id='\(sourceMessageId)'>
+              <message xmlns='jabber:client' type='chat' from='\(groupchatJid)' to='\(owner)' id='\(sourceMessageId)'>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='\(groupchatJid)' id='\(sourceArchivedId)'/>
                 <origin-id xmlns='urn:xmpp:sid:0' id='\(sourceMessageId)'/>
                 <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='\(sourceDate)'/>
@@ -12086,7 +12086,7 @@ final class NotificationsFeatureTests: XCTestCase {
         <message type='chat' from='notifications.xmppdev01.xabber.com' to='\(owner)' id='notif-1'>
           <notification xmlns='urn:xabber:xen:0' type='alert' category='security'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='security@xmppdev01.xabber.com' to='\(owner)'>
+              <message xmlns='jabber:client' type='chat' from='security@xmppdev01.xabber.com' to='\(owner)'>
                 <nick xmlns='http://jabber.org/protocol/nick'>Security Bot</nick>
                 <body>Login from Chrome on macOS</body>
                 <device id='device-1'/>
@@ -12117,7 +12117,7 @@ final class NotificationsFeatureTests: XCTestCase {
         <message type='chat' from='notifications.xmppdev01.xabber.com' to='\(owner)' id='notif-2'>
           <notification xmlns='urn:xabber:xen:0' type='alert' category='security'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='wrong@xmppdev01.xabber.com' to='\(owner)'>
+              <message xmlns='jabber:client' type='chat' from='wrong@xmppdev01.xabber.com' to='\(owner)'>
                 <body>Suspicious login</body>
                 <device id='device-2'/>
               </message>
@@ -12154,7 +12154,7 @@ final class NotificationsFeatureTests: XCTestCase {
         <message type='chat' from='notifications.xmppdev01.xabber.com' to='\(owner)' id='notif-3'>
           <notification xmlns='urn:xabber:xen:0' type='alert' category='security'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='security@xmppdev01.xabber.com' to='\(owner)'>
+              <message xmlns='jabber:client' type='chat' from='security@xmppdev01.xabber.com' to='\(owner)'>
                 <body>New login</body>
                 <device id='device-3'/>
               </message>
@@ -12770,7 +12770,7 @@ final class NotificationsFeatureTests: XCTestCase {
         <message type='chat' from='\(notificationsNode)' to='\(owner)' id='notif-info-category'>
           <notification xmlns='urn:xabber:xen:0' type='alert' category='info'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message type='chat' from='info@xmppdev01.xabber.com' to='\(owner)'>
+              <message xmlns='jabber:client' type='chat' from='info@xmppdev01.xabber.com' to='\(owner)'>
                 <body>Server maintenance tonight</body>
               </message>
             </forwarded>
@@ -13239,6 +13239,113 @@ final class NotificationsFeatureTests: XCTestCase {
             ),
             "Echo reconciliation must persist the media row with its reference"
         )
+    }
+
+    private func makeGroupchatMediaEcho(
+        messageId: String,
+        dateMetadata: String,
+        outerJid: String? = nil
+    ) throws -> XMPPMessage {
+        let sourceURL = "https://files.example.com/echo-photo.jpg"
+        return try makeMessage(xml: """
+        <message xmlns='jabber:client' from='\(outerJid ?? groupchatJid)/Group' to='\(owner)/test' type='headline'>
+          <x xmlns='https://xabber.com/protocol/groups'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' from='\(owner)/test' to='\(groupchatJid)/Group' type='chat' id='\(messageId)'>
+                <origin-id xmlns='urn:xmpp:sid:0' id='\(messageId)'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(groupchatJid)' id='echo-clock-archive'/>
+                \(dateMetadata)
+                <body>\(sourceURL)</body>
+                <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(sourceURL.count)' type='mutable'>
+                  <file-sharing xmlns='https://xabber.com/protocol/files'>
+                    <file><name>echo-photo.jpg</name><media-type>image/jpeg</media-type><size>42</size></file>
+                    <sources><uri>\(sourceURL)</uri></sources>
+                  </file-sharing>
+                </reference>
+              </message>
+            </forwarded>
+          </x>
+        </message>
+        """)
+    }
+
+    func testGroupchatEchoSelectsGroupTimeAfterForeignClockAndDatesMediaTogether() throws {
+        let stored = try insertOutgoingGroupchatMessage(messageId: "group-clock-echo")
+        let headline = try makeGroupchatMediaEcho(
+            messageId: stored.messageId,
+            dateMetadata: """
+            <time xmlns='https://xabber.com/protocol/delivery' by='foreign@example.com' stamp='2099-04-07T11:29:00Z'/>
+            <time xmlns='https://xabber.com/protocol/delivery' by='\(groupchatJid)' stamp='2026-04-07T11:29:00Z'/>
+            """
+        )
+
+        ReliableMessageDeliveryManager(withOwner: owner).parseEcho(headline)
+
+        let expectedDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-07T11:29:00Z"))
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(stored.state, .deliver)
+        XCTAssertEqual(stored.date, expectedDate)
+        XCTAssertEqual(stored.sentDate, expectedDate)
+        XCTAssertEqual(stored.references.first(where: { $0.kind == .media })?.sentDate, expectedDate)
+        let media = realm.object(ofType: MessageMediaAttachmentStorageItem.self,
+            forPrimaryKey: MessageMediaAttachmentStorageItem.genPrimary(jid: groupchatJid, owner: owner,
+                url: "https://files.example.com/echo-photo.jpg", messagePrimary: stored.primary))
+        XCTAssertEqual(media?.date, expectedDate)
+    }
+
+    func testGroupchatEchoAdmitsDelayOnlyDateAndMediaTogether() throws {
+        let stored = try insertOutgoingGroupchatMessage(messageId: "group-delay-echo")
+        let headline = try makeGroupchatMediaEcho(messageId: stored.messageId,
+            dateMetadata: "<delay xmlns='urn:xmpp:delay' stamp='2026-04-07T11:29:00Z'/>")
+
+        ReliableMessageDeliveryManager(withOwner: owner).parseEcho(headline)
+
+        let expectedDate = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-04-07T11:29:00Z"))
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(stored.state, .deliver)
+        XCTAssertEqual(stored.date, expectedDate)
+        let media = realm.object(ofType: MessageMediaAttachmentStorageItem.self,
+            forPrimaryKey: MessageMediaAttachmentStorageItem.genPrimary(jid: groupchatJid, owner: owner,
+                url: "https://files.example.com/echo-photo.jpg", messagePrimary: stored.primary))
+        XCTAssertEqual(media?.date, expectedDate)
+    }
+
+    func testGroupchatEchoInvalidOrForeignDatePreservesOutgoingRowWithoutMedia() throws {
+        let dateMetadata = [
+            "",
+            "<time xmlns='https://xabber.com/protocol/delivery' by='foreign@example.com' stamp='2099-04-07T11:29:00Z'/>",
+            "<time xmlns='urn:foreign:clock' by='\(groupchatJid)' stamp='2099-04-07T11:29:00Z'/>",
+            "<time xmlns='https://xabber.com/protocol/delivery' by='\(groupchatJid)' stamp='2026-04-07T11:29:00Z'/><time xmlns='https://xabber.com/protocol/delivery' by='\(groupchatJid)' stamp='2099-04-07T11:29:00Z'/>"
+        ]
+        for (index, metadata) in dateMetadata.enumerated() {
+            let stored = try insertOutgoingGroupchatMessage(primary: "invalid-echo-\(index)", messageId: "invalid-date-\(index)")
+            let originalDate = stored.date
+            let headline = try makeGroupchatMediaEcho(messageId: stored.messageId, dateMetadata: metadata)
+
+            ReliableMessageDeliveryManager(withOwner: owner).parseEcho(headline)
+
+            XCTAssertEqual(stored.state, .sending, "date profile \(index)")
+            XCTAssertEqual(stored.date, originalDate, "date profile \(index)")
+            XCTAssertTrue(stored.references.isEmpty, "date profile \(index)")
+            XCTAssertTrue(try WRealm.safe().objects(MessageMediaAttachmentStorageItem.self)
+                .filter("messagePrimary == %@", stored.primary).isEmpty, "date profile \(index)")
+        }
+    }
+
+    func testGroupchatEchoFromDifferentGroupCannotReconcileKnownOrigin() throws {
+        let stored = try insertOutgoingGroupchatMessage(messageId: "known-origin-other-group")
+        let originalDate = stored.date
+        let headline = try makeGroupchatMediaEcho(messageId: stored.messageId,
+            dateMetadata: "<time xmlns='https://xabber.com/protocol/delivery' by='other-group@example.com' stamp='2099-04-07T11:29:00Z'/>",
+            outerJid: "other-group@example.com")
+
+        ReliableMessageDeliveryManager(withOwner: owner).parseEcho(headline)
+
+        XCTAssertEqual(stored.state, .sending)
+        XCTAssertEqual(stored.date, originalDate)
+        XCTAssertTrue(stored.references.isEmpty)
     }
 
     func testAccountFilteringUsesOnlySelectedOwnersNotifications() throws {
@@ -42568,7 +42675,7 @@ final class XEPTrustProtocolTests: XCTestCase {
         </message>
         """)
 
-        let extracted = XEPTrustForwardedExtractor.trustMessage(from: outer)
+        let extracted = XEPTrustForwardedExtractor.trustMessage(from: outer, trustedNotificationSenders: ["relay.example.org"])
 
         guard let extracted else {
             return XCTFail("Expected XEN forwarded trust message to extract")
@@ -42593,7 +42700,7 @@ final class XEPTrustProtocolTests: XCTestCase {
         </message>
         """)
 
-        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer))
+        XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer, trustedNotificationSenders: ["relay.example.org"]))
     }
 
     func testTrustSharingRejectsRetiredCanonicalProfile() {
