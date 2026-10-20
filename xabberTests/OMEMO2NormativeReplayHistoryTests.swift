@@ -254,7 +254,7 @@ final class OMEMO2NormativeReplayHistoryTests: XCTestCase {
         let content = "<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>verified history</body></content><rpad/><from jid='\(senderOwner)'/><to jid='\(owner)'/></envelope>"
         let sealed = try Omemo2PayloadCodec.seal(Omemo2PayloadCodec.prepareOutgoingXML(content))
         let ciphertext = try sender.encrypt(sealed.keyAndMAC, jid: owner, deviceID: 42)
-        let wire = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(senderOwner)/device' to='\(owner)/ios' id='\(UUID().uuidString)' type='chat'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='77'><keys jid='\(owner)'><key rid='42' kex='true'>\(ciphertext.data.base64EncodedString())</key></keys></header><payload>\(sealed.ciphertext.base64EncodedString())</payload></encrypted></message>")
+        let wire = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(senderOwner)/device' to='\(owner)/ios' id='\(UUID().uuidString)' type='chat'><time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='\(Date().XMPPFormattedDate)'/><encrypted xmlns='urn:xmpp:omemo:2'><header sid='77'><keys jid='\(owner)'><key rid='42' kex='true'>\(ciphertext.data.base64EncodedString())</key></keys></header><payload>\(sealed.ciphertext.base64EncodedString())</payload></encrypted></message>")
         let fingerprint = try XCTUnwrap(OMEMO2ReplayProtection.fingerprint(for: wire, owner: owner, localDeviceID: 42))
         return Fixture(manager: manager, account: account, memory: memory, wire: wire, fingerprint: fingerprint)
     }

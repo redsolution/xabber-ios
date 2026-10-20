@@ -101,6 +101,9 @@ final class OMEMO2NormativeRewriteAuthorityTests: XCTestCase {
         let encrypted = try XCTUnwrap(f.sender.encryptMessage(message: payload, to: f.receiver.owner))
         let leaf = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.sender.owner)' to='\(f.receiver.owner)' type='chat' id='peer-ciphertext'/>")
         leaf.addChild(encrypted)
+        // This generated incoming copy includes the receiving account clock;
+        // wrapper authority and protected rewrite markers are asserted separately.
+        leaf.addChild(try DDXMLElement(xmlString: "<time xmlns='https://xabber.com/protocol/delivery' by='\(f.receiver.owner)' stamp='\(Date().XMPPFormattedDate)'/>"))
         if let externalStamp {
             leaf.addChild(try DDXMLElement(xmlString: "<replaced xmlns='\(MessageDeleteManager.namespace)' stamp='\(externalStamp)'/>"))
         }

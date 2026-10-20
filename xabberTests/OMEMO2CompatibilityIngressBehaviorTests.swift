@@ -374,7 +374,9 @@ final class OMEMO2CompatibilityIngressBehaviorTests: XCTestCase {
         let sealed = try control ? nil : Omemo2PayloadCodec.seal(xml)
         let wrapped = try f.sender.encrypt(sealed?.keyAndMAC ?? Data(repeating: 0, count: 32), jid: f.receiver.owner, deviceID: 42)
         let payload = sealed.map { "<payload>\($0.ciphertext.base64EncodedString())</payload>" } ?? ""
-        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' type='chat' from='\(f.peer)/sender' to='\(to)' id='\(UUID())'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='41'><keys jid='\(f.receiver.owner)'><key rid='42'\(wrapped.isKeyExchange ? " kex='true'" : "")>\(wrapped.data.base64EncodedString())</key></keys></header>\(payload)</encrypted></message>")
+        let deliveredAt = protectedTime ?? Date(timeIntervalSince1970: 1_791_978_245)
+        let delivery = control ? "" : "<time xmlns='https://xabber.com/protocol/delivery' by='\(f.receiver.owner)' stamp='\(deliveredAt.XMPPFormattedDate)'/>"
+        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' type='chat' from='\(f.peer)/sender' to='\(to)' id='\(UUID())'>\(delivery)<encrypted xmlns='urn:xmpp:omemo:2'><header sid='41'><keys jid='\(f.receiver.owner)'><key rid='42'\(wrapped.isKeyExchange ? " kex='true'" : "")>\(wrapped.data.base64EncodedString())</key></keys></header>\(payload)</encrypted></message>")
     }
 
     private func wrapped(_ leaf: XMPPMessage, f: Fixture, route: String, delayedAt: Date = Date(timeIntervalSince1970: 1_791_978_245)) throws -> XMPPMessage {

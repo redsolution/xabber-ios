@@ -169,6 +169,7 @@ final class OMEMO2NormativeKeyMaintenanceTests: XCTestCase {
         let key = try peer.encrypt(sealed.keyAndMAC, jid: f.manager.owner, deviceID: old.deviceID)
         let wire = try DDXMLElement(xmlString: """
         <message xmlns='jabber:client' from='\(peer.owner)' to='\(f.manager.owner)' type='chat'>
+          <time xmlns='https://xabber.com/protocol/delivery' by='\(f.manager.owner)' stamp='\(Date().XMPPFormattedDate)'/>
           <encrypted xmlns='urn:xmpp:omemo:2'>
             <header sid='77'><keys jid='\(f.manager.owner)'><key rid='42' kex='true'>\(key.data.base64EncodedString())</key></keys></header>
             <payload>\(sealed.ciphertext.base64EncodedString())</payload>

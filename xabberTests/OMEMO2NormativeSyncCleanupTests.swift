@@ -127,7 +127,7 @@ final class OMEMO2NormativeSyncCleanupTests: XCTestCase {
             let envelope = "<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>\(text)</body></content><rpad/><from jid='\(senderOwner)'/><to jid='\(owner)'/></envelope>"
             let payload = try Omemo2PayloadCodec.seal(Omemo2PayloadCodec.prepareOutgoingXML(envelope))
             let ciphertext = try sender.encrypt(payload.keyAndMAC, jid: owner, deviceID: 42)
-            let message = "<message xmlns='jabber:client' from='\(senderOwner)/device' to='\(owner)/ios' id='\(UUID())' type='chat'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='\(senderID)'><keys jid='\(owner)'><key rid='42' kex='true'>\(ciphertext.data.base64EncodedString())</key></keys></header><payload>\(payload.ciphertext.base64EncodedString())</payload></encrypted></message>"
+            let message = "<message xmlns='jabber:client' from='\(senderOwner)/device' to='\(owner)/ios' id='\(UUID())' type='chat'><time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='\(Date().XMPPFormattedDate)'/><encrypted xmlns='urn:xmpp:omemo:2'><header sid='\(senderID)'><keys jid='\(owner)'><key rid='42' kex='true'>\(ciphertext.data.base64EncodedString())</key></keys></header><payload>\(payload.ciphertext.base64EncodedString())</payload></encrypted></message>"
             conversations.append("<conversation jid='\(senderOwner)' type='urn:xmpp:omemo:2'><metadata node='https://xabber.com/protocol/synchronization'><last-message>\(message)</last-message></metadata></conversation>")
         }
         let query = try DDXMLElement(xmlString: "<query xmlns='https://xabber.com/protocol/synchronization'>\(conversations.joined())</query>")

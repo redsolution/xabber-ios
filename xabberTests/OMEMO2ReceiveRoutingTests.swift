@@ -134,6 +134,7 @@ final class OMEMO2ReceiveRoutingTests: XCTestCase {
         let message = try xml("""
           <message xmlns='jabber:client' from='\(peer)' to='\(owner)' type='chat' id='plain'>
             <body>plain</body><encrypted xmlns='urn:foreign:test'/>
+            <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-10-02T10:00:00Z'/>
           </message>
         """)
         manager.receiveRuntime(message)
@@ -423,9 +424,6 @@ final class OMEMO2ReceiveRoutingTests: XCTestCase {
 
     private func savedMessage() throws -> XMPPMessage {
         let message = try incoming(from: owner, to: "favorites.example.test")
-        let time = DDXMLElement(name: "time", xmlns: "https://xabber.com/protocol/delivery")
-        time.addAttribute(withName: "stamp", stringValue: "2026-10-02T10:00:00Z")
-        message.addChild(time)
         return message
     }
 
@@ -462,6 +460,7 @@ final class OMEMO2ReceiveRoutingTests: XCTestCase {
         try xml("""
           <message xmlns='jabber:client' from='\(from ?? peer)' to='\(to ?? owner)' type='chat' id='sce-message'>
             <origin-id xmlns='urn:xmpp:sid:0' id='sce-message'/>
+            <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-10-02T10:00:00Z'/>
             <body>inside</body><encrypted xmlns='urn:xmpp:omemo:2'/>
             \(extra)
           </message>

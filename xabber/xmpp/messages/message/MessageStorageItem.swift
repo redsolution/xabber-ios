@@ -1826,7 +1826,7 @@ class MessageStorageItem: Object {
         self.archivedId = getStanzaId(messageContainer, owner: self.owner)
         self.previousId = getPreviousId(messageContainer)
         self.updatePrimary()
-        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
+        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner, sourceDate: date))
         self.legacyBody = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client").first?.stringValue ?? ""
         self.body = self.legacyBody
         self.systemMetadata = parseSystemMessageMetadata(messageContainer, source: source)
@@ -1845,7 +1845,8 @@ class MessageStorageItem: Object {
             messageContainer,
             primary: self.primary,
             jid: opponent,
-            owner: owner
+            owner: owner,
+            sourceDate: date
         )
         let parsedInlineForwards = parseInlineMessages(
             messageContainer,
@@ -1887,7 +1888,7 @@ class MessageStorageItem: Object {
         self.archivedId = getStanzaId(messageContainer, owner: self.owner)
         self.previousId = getPreviousId(messageContainer)
         updatePrimary()
-        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
+        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner, sourceDate: date))
         self.groupMentionIntent = GroupMessageMentionsCodec.decode(from: messageContainer)
         self.body = normalizedIncomingTextBody(from: messageContainer)
         if messageContainer.from == nil {

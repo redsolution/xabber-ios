@@ -74,13 +74,14 @@ final class OMEMO2NormativeReplayTests: XCTestCase {
     func testExactAuthenticatedReplayIsConsumedInLiveMAMAndBothCarbonRoutes() throws {
         let f = try fixture(); let wire = try content(f)
         assertVerified(f.bob.prepareIncoming(wire))
+        let stamp = try XCTUnwrap(wire.element(forName: "time", xmlns: "https://xabber.com/protocol/delivery")?.attributeStringValue(forName: "stamp"))
         for route in ["live", "mam", "sent", "received"] {
             let packet: XMPPMessage
             if route == "live" { packet = wire }
             else if route == "mam" {
-                packet = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'><result xmlns='urn:xmpp:mam:2' id='archive-\(route)' queryid='query'><forwarded xmlns='urn:xmpp:forward:0'>\(wire.xmlString)</forwarded></result></message>")
+                packet = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'><result xmlns='urn:xmpp:mam:2' id='archive-\(route)' queryid='query'><forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='\(stamp)'/>\(wire.xmlString)</forwarded></result></message>")
             } else {
-                packet = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'><\(route) xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>\(wire.xmlString)</forwarded></\(route)></message>")
+                packet = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'><\(route) xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='\(stamp)'/>\(wire.xmlString)</forwarded></\(route)></message>")
             }
             assertDuplicateWithoutMutation(packet, f: f)
         }
@@ -252,7 +253,7 @@ final class OMEMO2NormativeReplayTests: XCTestCase {
     }
     private func message(_ cipher: OMEMO2Ciphertext, payload: Data?, from: String, to: String, sid: Int, rid: Int) throws -> XMPPMessage {
         let payloadXML = payload.map { "<payload>\($0.base64EncodedString())</payload>" } ?? ""
-        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(from)' to='\(to)' id='\(UUID())'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='\(sid)'><keys jid='\(to)'><key rid='\(rid)'\(cipher.isKeyExchange ? " kex='true'" : "")>\(cipher.data.base64EncodedString())</key></keys></header>\(payloadXML)</encrypted></message>")
+        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(from)' to='\(to)' id='\(UUID())'><time xmlns='https://xabber.com/protocol/delivery' by='\(to)' stamp='\(Date().XMPPFormattedDate)'/><encrypted xmlns='urn:xmpp:omemo:2'><header sid='\(sid)'><keys jid='\(to)'><key rid='\(rid)'\(cipher.isKeyExchange ? " kex='true'" : "")>\(cipher.data.base64EncodedString())</key></keys></header>\(payloadXML)</encrypted></message>")
     }
     private func assertVerified(_ result: OMEMOReceiveResult, file: StaticString = #filePath, line: UInt = #line) {
         guard case .verified = result else { return XCTFail("Expected successful authenticated content, got \(result)", file: file, line: line) }

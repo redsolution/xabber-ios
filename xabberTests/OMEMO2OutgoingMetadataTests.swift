@@ -178,7 +178,7 @@ final class OMEMO2OutgoingMetadataTests: XCTestCase {
         XCTAssertEqual(metadata(message).first?.attributeStringValue(forName: "namespace"), "urn:xmpp:omemo:2")
         XCTAssertNil(metadata(message).first?.attribute(forName: "name"))
         XCTAssertNil(message.element(forName: "store", xmlns: "urn:xmpp:hints"))
-        guard case let .verified(clean, _, _) = f.bob.prepareIncoming(message) else { return XCTFail("Expected authentic provider payload") }
+        guard case let .verified(clean, _, _) = f.bob.prepareIncoming(try delivered(message, owner: f.bob.owner)) else { return XCTFail("Expected authentic provider payload") }
         XCTAssertEqual(clean.body, "secret")
     }
 
@@ -277,7 +277,7 @@ final class OMEMO2OutgoingMetadataTests: XCTestCase {
             XCTAssertEqual(message.to?.bare, item.opponent)
             XCTAssertNotNil(message.element(forName: "markable"), "Final hook decoration is preserved")
             XCTAssertEqual(SCEReceivePolicy.children(of: message, named: "retry", xmlns: "https://xabber.com/protocol/delivery").count, retry ? 1 : 0)
-            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(message) else { return XCTFail("Expected valid final wire payload") }
+            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(try delivered(message, owner: f.bob.owner)) else { return XCTFail("Expected valid final wire payload") }
             XCTAssertEqual(clean.body, "secret")
         }
     }
@@ -313,6 +313,14 @@ final class OMEMO2OutgoingMetadataTests: XCTestCase {
         XCTAssertEqual(getOriginId(inner), "trust-origin")
         guard case let .verified(clean, _, _) = f.bob.prepareIncoming(inner) else { return XCTFail("Expected unchanged authentic trust-shaped payload") }
         XCTAssertNotNil(clean.element(forName: "share", xmlns: TrustSharingSignature.xmlns))
+    }
+
+    /// The transport adds a receipt clock after outbound metadata/ciphertext
+    /// assertions. Do not modify the captured serialized sender packet.
+    private func delivered(_ source: XMPPMessage, owner: String) throws -> XMPPMessage {
+        let copy = XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(source))
+        copy.addChild(try DDXMLElement(xmlString: "<time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='\(Date().XMPPFormattedDate)'/>"))
+        return copy
     }
 
     private func stanza(_ content: String) throws -> XMPPMessage {

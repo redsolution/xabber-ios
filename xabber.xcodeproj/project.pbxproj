@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A32010200000000000000011 /* ReceivedMessageDateAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */; };
 		B2CE15EA78AB4745BE05CB59 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
 		D3430E4AF2E644FAA6005EE9 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
 		5EB27ABAFF2946B8A9822250 /* PushExtensionDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */; };
@@ -1167,6 +1168,9 @@
 		62454883993043E580D5F182 /* PushNotificationAvatarResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6967272CC24858B9816FEF /* PushNotificationAvatarResolver.swift */; };
 		00A685F069114237AF4F5382 /* PushNotificationAvatarResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 427F184D98ED4E7BBF5676EF /* PushNotificationAvatarResolverTests.swift */; };
 		9CCF91998DB6488CA4150B02 /* PushNotificationAvatarDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */; };
+		A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */; };
+		A32010200000000000000003 /* TrustSharingProtocolProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */; };
+		A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000006 /* TrustVerificationInteropTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1215,6 +1219,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceivedMessageDateAdmissionTests.swift; sourceTree = "<group>"; };
 		4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnostics.swift; sourceTree = "<group>"; };
 		13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnosticsTests.swift; sourceTree = "<group>"; };
 		EF5941656919486086B1CCE0 /* LastChatsBackgroundAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsBackgroundAppearanceTests.swift; sourceTree = "<group>"; };
@@ -2365,6 +2370,9 @@
 		4B6967272CC24858B9816FEF /* PushNotificationAvatarResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarResolver.swift; sourceTree = "<group>"; };
 		427F184D98ED4E7BBF5676EF /* PushNotificationAvatarResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarResolverTests.swift; sourceTree = "<group>"; };
 		63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarDeviceTests.swift; sourceTree = "<group>"; };
+		A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingTimestampAdmissionTests.swift; sourceTree = "<group>"; };
+		A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingProtocolProfileTests.swift; sourceTree = "<group>"; };
+		A32010200000000000000006 /* TrustVerificationInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustVerificationInteropTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4387,6 +4395,10 @@
 				377D0C98DD1A4A9DA238D25D /* OMEMO2CryptoBackendBehaviorTests.swift */,
 				C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */,
 				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
+				A32010200000000000000006 /* TrustVerificationInteropTests.swift */,
+				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
+				A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */,
+				A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */,
 				45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */,
 				45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */,
 				732E4515482A40DCB05BDFB8 /* ProfileHydrationTests.swift */,
@@ -6763,6 +6775,10 @@
 				7736DD9052BD4C6BA7E41033 /* OMEMO2CryptoBackendBehaviorTests.swift in Sources */,
 				C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */,
 				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
+				A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */,
+				A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */,
+				A32010200000000000000011 /* ReceivedMessageDateAdmissionTests.swift in Sources */,
+				A32010200000000000000003 /* TrustSharingProtocolProfileTests.swift in Sources */,
 				13C6CE8D47FC43F0A8BD6D95 /* OMEMO2NormativeIncomingTrustRenderingTests.swift in Sources */,
 				FC0FB2A1340A4342A9BDCEF0 /* OMEMO2BootstrapBundleTests.swift in Sources */,
 				D896CBF61ACA4093A294906A /* ProfileHydrationTests.swift in Sources */,

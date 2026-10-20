@@ -106,6 +106,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
           </header><payload>\(Data(repeating: 0x11, count: 16).base64EncodedString())</payload></encrypted>
         </message>
         """))
+        message.addChild(try deliveryTime(historicalSendingTime))
         addInjection(message)
 
         guard case let .failed(clean, _) = f.bob.prepareIncoming(message, context: .archive) else {
@@ -290,7 +291,6 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
           <addresses xmlns='urn:foreign'><address type='ofrom' jid='attacker@example.test'/></addresses>
         """)
         message.addChild(try DDXMLElement(xmlString: "<s:stanza-id xmlns:s='urn:xmpp:sid:0' id='server-id' by='\(f.bob.owner)'/>"))
-        message.addChild(try DDXMLElement(xmlString: "<d:time xmlns:d='https://xabber.com/protocol/delivery' stamp='2026-09-30T10:00:00Z'/>"))
         guard case let .verified(clean, _, _) = f.bob.prepareIncoming(message) else { return XCTFail("Expected verified message") }
         XCTAssertEqual(getStanzaId(clean, owner: f.bob.owner), "server-id")
         XCTAssertEqual(getDeliveryDate(clean), "2026-09-30T10:00:00Z".xmppDate)
@@ -387,6 +387,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             let message = try timedPacket(f, encryptedAt: original)
             let before = f.memory.records[f.bob.owner]
             let supplied = OMEMOOriginalSendingTime(date: original.addingTimeInterval(delta), source: .caller)
+            message.addChild(try deliveryTime(supplied.date))
 
             let result = f.bob.prepareIncoming(message, context: .archive, originalSendingTime: supplied)
 
@@ -407,12 +408,11 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             message.addChild(try DDXMLElement(xmlString: "<time xmlns='urn:foreign' stamp='2030-01-01T00:00:00Z'/>"))
             message.addChild(try DDXMLElement(xmlString: "<delay xmlns='urn:foreign' stamp='2030-01-01T00:00:00Z'/>"))
 
-            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(message, context: context) else {
-                return XCTFail("Unavailable original time must not become the receive clock in \(context)")
+            let before = f.memory.records[f.bob.owner]
+            guard case .consumed(.invalidTransport) = f.bob.prepareIncoming(message, context: context) else {
+                return XCTFail("Unavailable original time must hold user content before decryption in \(context)")
             }
-            XCTAssertEqual(clean.body, "historical authenticated content")
-            XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "time", xmlns: "urn:foreign").isEmpty)
-            XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "delay", xmlns: "urn:foreign").isEmpty)
+            XCTAssertEqual(f.memory.records[f.bob.owner], before)
         }
     }
 
@@ -558,12 +558,13 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         let message = try timedPacket(f, encryptedAt: historicalSendingTime)
         let conversation = try timedConversation(f, message: message)
 
+        let before = f.memory.records[f.bob.owner]
         let prepared = f.bob.prepareSyncConversation(conversation)
 
-        XCTAssertEqual(prepared.lastMessageEncryption, .authenticatedSCE(profile: .omemo2))
-        XCTAssertFalse(prepared.lastMessageWasConsumed)
-        XCTAssertEqual(prepared.materializedElement()?.element(forName: "metadata")?.element(forName: "last-message")?.element(forName: "message")?.element(forName: "body")?.stringValue,
-                       "historical authenticated content")
+        XCTAssertEqual(prepared.lastMessageEncryption, .unverifiedOMEMO)
+        XCTAssertTrue(prepared.lastMessageWasConsumed)
+        XCTAssertEqual(f.memory.records[f.bob.owner], before)
+        XCTAssertNil(prepared.materializedElement()?.element(forName: "metadata")?.element(forName: "last-message"))
     }
 
     func testOriginalRoutingAffixMismatchRollsBackBeforeSuccessfulRetry() throws {
@@ -704,7 +705,8 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         XCTAssertTrue(preview.lastMessageWasConsumed)
         let state = try protectedState(f)
         XCTAssertTrue((state["pendingSyncReceives"] as? [[String: Any]] ?? []).isEmpty)
-        let archive = try timedTransport(f, kind: "mam", message: message, forwardedAt: historicalSendingTime)
+        let archive = try timedTransport(f, kind: "mam", message: message,
+            forwardedAt: XCTUnwrap(getReceivedMessageDate(message, owner: f.bob.owner)))
         guard case .consumed(.duplicate) = f.bob.prepareIncoming(archive, context: .archive) else {
             return XCTFail("Consumed Sync control must not be resurrected as message content")
         }
@@ -817,7 +819,8 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         alias.removeAttribute(forName: "id")
         alias.addAttribute(withName: "id", stringValue: "unprotected-outer-alias")
         alias.addChild(try DDXMLElement(xmlString: "<origin-id xmlns='urn:xmpp:sid:0' id='unprotected-origin-alias'/>"))
-        let archive = try timedTransport(f, kind: "mam", message: alias, forwardedAt: historicalSendingTime)
+        let archive = try timedTransport(f, kind: "mam", message: alias,
+            forwardedAt: XCTUnwrap(getReceivedMessageDate(alias, owner: f.bob.owner)))
         guard case let .verified(clean, _, _) = f.bob.prepareIncoming(archive, context: .archive) else {
             return XCTFail("Only the canonical authenticated identity decides logical materialization")
         }
@@ -888,7 +891,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
     /// A historical peer packet is sealed directly, rather than invoking the
     /// outgoing writer that intentionally refreshes encryption time on new sends.
     private func timedPacket(_ f: Fixture, encryptedAt: Date) throws -> XMPPMessage {
-        try packet(f, xml: "<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>historical authenticated content</body></content><rpad>historical short padding</rpad><from jid='\(f.alice.owner)'/><to jid='\(f.bob.owner)'/><time stamp='\(encryptedAt.XMPPFormattedDate)'/></envelope>")
+        try packet(f, xml: "<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>historical authenticated content</body></content><rpad>historical short padding</rpad><from jid='\(f.alice.owner)'/><to jid='\(f.bob.owner)'/><time stamp='\(encryptedAt.XMPPFormattedDate)'/></envelope>", deliveryDate: nil)
     }
 
     private func deliveryTime(_ date: Date) throws -> DDXMLElement {
@@ -931,11 +934,12 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         try packet(f, xml: content.map { "<envelope xmlns='urn:xmpp:sce:1'><content>\($0)</content><rpad>padding</rpad><from jid='\(f.alice.owner)'/><to jid='\(f.bob.owner)'/></envelope>" })
     }
 
-    private func packet(_ f: Fixture, xml: String?) throws -> XMPPMessage {
+    private func packet(_ f: Fixture, xml: String?, deliveryDate: Date? = "2026-09-30T10:00:00Z".xmppDate) throws -> XMPPMessage {
         let sealed = try xml.map { try Omemo2PayloadCodec.seal($0) }
         let wrapped = try f.alice.encrypt(sealed?.keyAndMAC ?? Data(repeating: 0, count: 32), jid: f.bob.owner, deviceID: f.bobID)
         let payload = sealed.map { "<payload>\($0.ciphertext.base64EncodedString())</payload>" } ?? ""
-        return XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' type='chat' from='\(f.alice.owner)/ios' to='\(f.bob.owner)' id='message-id'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='41'><keys jid='\(f.bob.owner)'><key rid='\(f.bobID)' kex='\(wrapped.isKeyExchange ? "true" : "false")'>\(wrapped.data.base64EncodedString())</key></keys></header>\(payload)</encrypted></message>"))
+        let delivery = deliveryDate.map { "<time xmlns='https://xabber.com/protocol/delivery' by='\(f.bob.owner)' stamp='\($0.XMPPFormattedDate)'/>" } ?? ""
+        return XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' type='chat' from='\(f.alice.owner)/ios' to='\(f.bob.owner)' id='message-id'>\(delivery)<encrypted xmlns='urn:xmpp:omemo:2'><header sid='41'><keys jid='\(f.bob.owner)'><key rid='\(f.bobID)' kex='\(wrapped.isKeyExchange ? "true" : "false")'>\(wrapped.data.base64EncodedString())</key></keys></header>\(payload)</encrypted></message>"))
     }
 
     private func addInjection(_ message: XMPPMessage) {

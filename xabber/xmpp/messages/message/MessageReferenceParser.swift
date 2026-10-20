@@ -606,12 +606,12 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
     return nil
 }
 
-func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner: String, echo: Bool = false, forwardDepth: Int = 0) -> [MessageReferenceStorageItem] {
+func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner: String, echo: Bool = false, forwardDepth: Int = 0, sourceDate: Date? = nil) -> [MessageReferenceStorageItem] {
     var out: [MessageReferenceStorageItem] = []
     let escapingBody = referenceMessageBody(message).xmlEscaping(reverse: false)
     let references = SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS)
     
-    let messageDate = getDelayedDate(message) ?? Date()
+    let messageDate = sourceDate ?? getReceivedMessageDate(message, owner: owner)
     
     let admissions = admittedMessageReferences(references, in: escapingBody, forwardDepth: forwardDepth)
     let parsedDisplayBody = displayBody(from: escapingBody, admissions: admissions)
@@ -638,7 +638,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         reference.begin = begin
         reference.end = end
         reference.kind_ = kind
-        reference.sentDate = messageDate
+        if let messageDate { reference.sentDate = messageDate }
         var metadata: [String: Any] = [:]
         switch reference.kind {
             case .forwardContactData:
@@ -704,58 +704,60 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 metadata["uri"] = uri
                 reference.url = uri
                 
-                let conversationType = reference.conversationType
-                let attachment = MessageMediaAttachmentStorageItem()
-                attachment.primary = MessageMediaAttachmentStorageItem.genPrimary(jid: jid, owner: owner, url: uri, messagePrimary: primary)
-                attachment.url_ = uri
-                attachment.jid = jid
-                attachment.owner = owner
-                attachment.conversationType = conversationType
-                attachment.messagePrimary = primary
-                attachment.archiveId = getStanzaId(message, owner: owner)
-                attachment.metadata = metadata
-                switch reference.mimeType {
-                    case "image":
-                        attachment.kind = .image
-                    case "video":
-                        attachment.kind = .video
-                    case "audio":
-                        attachment.kind = .audio
-                    default:
-                        attachment.kind = .file
-                }
-                attachment.date = messageDate
-                attachment.outgoing = message.from?.bare == owner
-                attachment.filename = referenceChild(file, named: "name")?.stringValue ?? ""
-                attachment.isDownloaded = false
-                attachment.isEncrypted = isEncrypted
-                attachment.sizeBytes = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
-                attachment.metadata = metadata
-                
-                if let thumb = referenceChild(file, named: "thumbnail", xmlns: "urn:xmpp:thumbs:1")
-                    ?? referenceChild(file, named: "thumbnail"),
-                   let thumbnailURI = thumb.attributeStringValue(forName: "uri") {
-                    if let commaIndex = thumbnailURI.firstIndex(of: ","),
-                       thumbnailURI.hasPrefix("data:image/") {
-                        let base64String = String(
-                            thumbnailURI[thumbnailURI.index(after: commaIndex)...]
-                        )
-                        attachment.verySmallThumb = base64String
-                        if let thumbnailMediaType =
-                            MessageMediaThumbnailDataURLPolicy.mediaType(
-                                fromDataURL: thumbnailURI
-                            ) ?? thumb.attributeStringValue(forName: "media-type") {
-                            metadata["thumbnail-media-type"] = thumbnailMediaType
-                        }
-                    } else if let remoteThumbnailURI = validatedHTTPThumbnailURI(
-                        thumbnailURI
-                    ) {
-                        metadata["thumbnail-uri"] = remoteThumbnailURI
+                if let messageDate {
+                    let conversationType = reference.conversationType
+                    let attachment = MessageMediaAttachmentStorageItem()
+                    attachment.primary = MessageMediaAttachmentStorageItem.genPrimary(jid: jid, owner: owner, url: uri, messagePrimary: primary)
+                    attachment.url_ = uri
+                    attachment.jid = jid
+                    attachment.owner = owner
+                    attachment.conversationType = conversationType
+                    attachment.messagePrimary = primary
+                    attachment.archiveId = getStanzaId(message, owner: owner)
+                    attachment.metadata = metadata
+                    switch reference.mimeType {
+                        case "image":
+                            attachment.kind = .image
+                        case "video":
+                            attachment.kind = .video
+                        case "audio":
+                            attachment.kind = .audio
+                        default:
+                            attachment.kind = .file
                     }
-                }
-                attachment.metadata = metadata
+                    attachment.date = messageDate
+                    attachment.outgoing = message.from?.bare == owner
+                    attachment.filename = referenceChild(file, named: "name")?.stringValue ?? ""
+                    attachment.isDownloaded = false
+                    attachment.isEncrypted = isEncrypted
+                    attachment.sizeBytes = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
+                    attachment.metadata = metadata
 
-                reference.pendingMediaAttachment = attachment
+                    if let thumb = referenceChild(file, named: "thumbnail", xmlns: "urn:xmpp:thumbs:1")
+                        ?? referenceChild(file, named: "thumbnail"),
+                       let thumbnailURI = thumb.attributeStringValue(forName: "uri") {
+                        if let commaIndex = thumbnailURI.firstIndex(of: ","),
+                           thumbnailURI.hasPrefix("data:image/") {
+                            let base64String = String(
+                                thumbnailURI[thumbnailURI.index(after: commaIndex)...]
+                            )
+                            attachment.verySmallThumb = base64String
+                            if let thumbnailMediaType =
+                                MessageMediaThumbnailDataURLPolicy.mediaType(
+                                    fromDataURL: thumbnailURI
+                                ) ?? thumb.attributeStringValue(forName: "media-type") {
+                                metadata["thumbnail-media-type"] = thumbnailMediaType
+                            }
+                        } else if let remoteThumbnailURI = validatedHTTPThumbnailURI(
+                            thumbnailURI
+                        ) {
+                            metadata["thumbnail-uri"] = remoteThumbnailURI
+                        }
+                    }
+                    attachment.metadata = metadata
+
+                    reference.pendingMediaAttachment = attachment
+                }
             case .geoloc:
                 guard let geoloc = geolocElement(from: ref),
                       let latitude = validGeolocCoordinate(
@@ -889,7 +891,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         reference.jid = jid
         reference.owner = owner
         reference.kind_ = "groupchat"
-        reference.sentDate = messageDate
+        if let messageDate { reference.sentDate = messageDate }
         reference.metadata = groupchatMetadata(from: v3User)
         out = [reference]
     }

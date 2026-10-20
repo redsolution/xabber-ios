@@ -114,7 +114,8 @@ class MessageForwardsInlineStorageItem: Object {
             primary: self.primary,
             jid: jid,
             owner: owner,
-            forwardDepth: forwardDepth
+            forwardDepth: forwardDepth,
+            sourceDate: date
         )
         parsedReferences.forEach { $0.messageId = self.primary }
         self.references.append(objectsIn: parsedReferences)

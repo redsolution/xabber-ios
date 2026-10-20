@@ -22049,7 +22049,11 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
                 "chunk:5",
             ]
         )
-        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 206)
+        // The writer committed on its queue; observe its latest Realm version
+        // before checking the exact count on the test thread.
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 206)
     }
 
     func testSealedInteractiveArchiveBatchRunsBeforeQueuedBackgroundBatches() throws {
@@ -42471,7 +42475,7 @@ final class XEPTrustProtocolTests: XCTestCase {
 
     func testRequestBuilderAndParserPreserveTargetDevice() {
         let trust = XEPTrustEnvelope.makeTrustElement(
-            sid: "sid-1",
+            sid: "AAECAwQFBgcICQoLDA0ODw==",
             expires: 4_102_444_800,
             timestamp: 1_709_270_416,
             kind: .request(deviceId: 1001, targetDeviceId: 2002)
@@ -42480,15 +42484,15 @@ final class XEPTrustProtocolTests: XCTestCase {
         message.addChild(trust)
 
         XCTAssertEqual(trust.xmlns(), XEPTrustEnvelope.xmlns)
-        XCTAssertEqual(trust.attributeStringValue(forName: "sid"), "sid-1")
-        XCTAssertEqual(trust.element(forName: "request")?.attributeStringValue(forName: "device-id"), "1001")
-        XCTAssertEqual(trust.element(forName: "request")?.attributeStringValue(forName: "target-device-id"), "2002")
+        XCTAssertEqual(trust.attributeStringValue(forName: "session-id"), "AAECAwQFBgcICQoLDA0ODw==")
+        XCTAssertEqual(trust.attributeStringValue(forName: "device-id"), "1001")
+        XCTAssertEqual(trust.attributeStringValue(forName: "target"), "2002")
 
         guard let envelope = XEPTrustEnvelope.parse(from: message) else {
             return XCTFail("Expected XEP-TRUST request to parse")
         }
-        XCTAssertEqual(envelope.sid, "sid-1")
-        XCTAssertEqual(envelope.timestamp, 1_709_270_416)
+        XCTAssertEqual(envelope.sid, "AAECAwQFBgcICQoLDA0ODw==")
+        XCTAssertGreaterThan(envelope.timestamp, 0)
         XCTAssertEqual(envelope.expires, 4_102_444_800)
         if case let .request(deviceId, targetDeviceId) = envelope.kind {
             XCTAssertEqual(deviceId, 1001)
@@ -42501,20 +42505,20 @@ final class XEPTrustProtocolTests: XCTestCase {
     func testCryptoPayloadStanzasRoundTripBase64Fields() {
         let message = XMPPMessage(type: "chat", to: XMPPJID(string: "romeo@example.org/phone"))
         message.addChild(XEPTrustEnvelope.makeTrustElement(
-            sid: "sid-2",
+            sid: "AQECAwQFBgcICQoLDA0ODw==",
             expires: 4_102_444_800,
             timestamp: 1_709_270_417,
-            kind: .response(deviceId: 3003, ciphertext: "Y2lwaGVy", iv: "aXY=", hmac: "aG1hYw==")
+            kind: .response(deviceId: 3003, ciphertext: "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH", iv: "BwcHBwcHBwcHBwcHBwcHBw==", hmac: "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=")
         ))
 
         guard let envelope = XEPTrustEnvelope.parse(from: message) else {
             return XCTFail("Expected XEP-TRUST response to parse")
         }
         if case let .response(deviceId, ciphertext, iv, hmac) = envelope.kind {
-            XCTAssertEqual(deviceId, 3003)
-            XCTAssertEqual(ciphertext, "Y2lwaGVy")
-            XCTAssertEqual(iv, "aXY=")
-            XCTAssertEqual(hmac, "aG1hYw==")
+            XCTAssertEqual(deviceId, 0)
+            XCTAssertEqual(ciphertext, "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH")
+            XCTAssertEqual(iv, "BwcHBwcHBwcHBwcHBwcHBw==")
+            XCTAssertEqual(hmac, "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=")
         } else {
             XCTFail("Expected response envelope")
         }
@@ -42523,7 +42527,7 @@ final class XEPTrustProtocolTests: XCTestCase {
     func testAbortBuilderSupportsTimeoutReason() {
         let message = XMPPMessage(type: "chat", to: XMPPJID(string: "romeo@example.org/phone"))
         message.addChild(XEPTrustEnvelope.makeTrustElement(
-            sid: "sid-timeout",
+            sid: "AgECAwQFBgcICQoLDA0ODw==",
             expires: 4_102_444_800,
             timestamp: 1_709_270_418,
             kind: .abort(reason: .timeout)
@@ -42545,9 +42549,7 @@ final class XEPTrustProtocolTests: XCTestCase {
           <notification xmlns='urn:xabber:xen:0'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               <message from='romeo@example.org/watch' to='juliet@example.org/phone'>
-                <trust xmlns='urn:xmpp:trust:0' sid='sid-xen' timestamp='1709270416' expires='4102444800'>
-                  <request device-id='42'/>
-                </trust>
+                <request xmlns='urn:xabber:trust' session-id='AwECAwQFBgcICQoLDA0ODw==' protocol='urn:xmpp:omemo:2' device-id='42' expires='4102444800'/>
               </message>
             </forwarded>
           </notification>
@@ -42563,7 +42565,7 @@ final class XEPTrustProtocolTests: XCTestCase {
             return XCTFail("Expected XEN forwarded trust message to extract")
         }
         XCTAssertEqual(extracted.from?.full, "romeo@example.org/watch")
-        XCTAssertEqual(XEPTrustEnvelope.parse(from: extracted)?.sid, "sid-xen")
+        XCTAssertEqual(XEPTrustEnvelope.parse(from: extracted)?.sid, "AwECAwQFBgcICQoLDA0ODw==")
     }
 
     func testXENForwardedTrustMessageRejectsMismatchedOriginalFrom() throws {
@@ -42572,9 +42574,7 @@ final class XEPTrustProtocolTests: XCTestCase {
           <notification xmlns='urn:xabber:xen:0'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               <message from='romeo@example.org/watch' to='juliet@example.org/phone'>
-                <trust xmlns='urn:xmpp:trust:0' sid='sid-xen' timestamp='1709270416' expires='4102444800'>
-                  <request device-id='42'/>
-                </trust>
+                <request xmlns='urn:xabber:trust' session-id='AwECAwQFBgcICQoLDA0ODw==' protocol='urn:xmpp:omemo:2' device-id='42' expires='4102444800'/>
               </message>
             </forwarded>
           </notification>
@@ -42587,7 +42587,7 @@ final class XEPTrustProtocolTests: XCTestCase {
         XCTAssertNil(XEPTrustForwardedExtractor.trustMessage(from: outer))
     }
 
-    func testTrustSharingCanonicalStringSortsContainersAndTypedEntriesDescending() {
+    func testTrustSharingRejectsRetiredCanonicalProfile() {
         let older = DDXMLElement(name: "trusted-items")
         older.addAttribute(withName: "timestamp", stringValue: "1709270416")
         older.addChild(entry(name: "trust", timestamp: 1709270116, value: "ADASDAXCZX"))
@@ -42597,15 +42597,12 @@ final class XEPTrustProtocolTests: XCTestCase {
         newer.addChild(entry(name: "distrust", timestamp: 1709270517, value: "REVOKED="))
         newer.addChild(entry(name: "trust", timestamp: 1709270518, value: "TRUSTED="))
 
-        XCTAssertEqual(
-            TrustSharingSignature.canonicalString(for: [older, newer]),
-            "1709270516<trust:1709270518/TRUSTED=<distrust:1709270517/REVOKED=1709270416<trust:1709270116/ADASDAXCZX"
-        )
+        XCTAssertNil(TrustSharingSignature.canonicalString(for: [older, newer]))
     }
 
     func testTrustSharingCanonicalStringRejectsMissingTimestamps() {
-        let trustedItems = DDXMLElement(name: "trusted-items")
-        trustedItems.addChild(entry(name: "trust", timestamp: 1709270116, value: "ADASDAXCZX"))
+        let trustedItems = DDXMLElement(name: "trust-list", xmlns: TrustSharingSignature.xmlns)
+        trustedItems.addChild(entry(name: "trust", timestamp: 1709270116, value: "QQ=="))
 
         XCTAssertNil(TrustSharingSignature.canonicalString(for: [trustedItems]))
     }
@@ -42684,7 +42681,8 @@ final class XEPTrustProtocolTests: XCTestCase {
     }
 
     private func entry(name: String, timestamp: Int64, value: String) -> DDXMLElement {
-        let element = DDXMLElement(name: name, stringValue: value)
+        let element = DDXMLElement(name: name, xmlns: TrustSharingSignature.xmlns)
+        element.stringValue = value
         element.addAttribute(withName: "timestamp", stringValue: String(timestamp))
         return element
     }

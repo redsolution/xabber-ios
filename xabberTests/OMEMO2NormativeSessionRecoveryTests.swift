@@ -617,7 +617,9 @@ final class OMEMO2NormativeSessionRecoveryTests: XCTestCase {
         let encrypted = try XCTUnwrap(encryptedValue)
         let message = XMPPMessage(type: "chat", to: XMPPJID(string: f.bob.owner))
         message.addAttribute(withName: "from", stringValue: f.alice.owner)
-        message.addChild(encrypted); return message
+        message.addChild(encrypted)
+        addServerTime(to: message, owner: f.bob.owner)
+        return message
     }
     private func established(_ f: Fixture) throws {
         let first = try content(f)
@@ -650,7 +652,15 @@ final class OMEMO2NormativeSessionRecoveryTests: XCTestCase {
         let keys = DDXMLElement(name: "keys", xmlns: OmemoManager.xmlns)
         keys.addAttribute(withName: "jid", stringValue: f.bob.owner); keys.addChild(key); header.addChild(keys); encrypted.addChild(header)
         let p = DDXMLElement(name: "payload", xmlns: OmemoManager.xmlns); p.stringValue = payload.base64EncodedString(); encrypted.addChild(p)
-        message.addChild(encrypted); return message
+        message.addChild(encrypted)
+        addServerTime(to: message, owner: f.bob.owner)
+        return message
+    }
+    private func addServerTime(to message: XMPPMessage, owner: String) {
+        let time = DDXMLElement(name: "time", xmlns: "https://xabber.com/protocol/delivery")
+        time.addAttribute(withName: "by", stringValue: owner)
+        time.addAttribute(withName: "stamp", stringValue: Date().XMPPFormattedDate)
+        message.addChild(time)
     }
     private func bundleItems(_ bundle: OMEMO2LocalBundle) throws -> DDXMLElement {
         let items = DDXMLElement(name: "items", xmlns: "http://jabber.org/protocol/pubsub")

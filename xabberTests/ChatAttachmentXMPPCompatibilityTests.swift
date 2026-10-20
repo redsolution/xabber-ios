@@ -1514,6 +1514,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         let bodyXML = body.isEmpty ? "" : "<body>\(body)</body>"
         let xml = """
         <message xmlns='jabber:client' from='\(jid)/mobile' to='\(owner)'>
+          <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-10-20T08:00:00Z'/>
           \(bodyXML)
           \(referencesXML)
         </message>
@@ -1525,6 +1526,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
     private func makeMessage(referenceXML: String, body: String) throws -> XMPPMessage {
         let xml = """
         <message xmlns='jabber:client' from='\(jid)/mobile' to='\(owner)'>
+          <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-10-20T08:00:00Z'/>
           <body>\(body)</body>
           \(referenceXML)
         </message>

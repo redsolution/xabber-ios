@@ -13,12 +13,7 @@ import CryptoSwift
 import RealmSwift
 
 struct XEPTrustEnvelope {
-    enum AbortReason: String {
-        case cancel
-        case timeout
-        case fail
-    }
-
+    enum AbortReason: String { case cancel, timeout, fail }
     enum Kind {
         case request(deviceId: Int, targetDeviceId: Int?)
         case accept(deviceId: Int)
@@ -27,7 +22,6 @@ struct XEPTrustEnvelope {
         case verify(deviceId: Int, hmac: String)
         case success(deviceId: Int)
         case abort(reason: AbortReason)
-
         var name: String {
             switch self {
             case .request: return "request"
@@ -40,129 +34,108 @@ struct XEPTrustEnvelope {
             }
         }
     }
-
-    static let xmlns = "urn:xmpp:trust:0"
-
+    static let xmlns = "urn:xabber:trust"
+    static let protocolNamespace = "urn:xmpp:omemo:2"
     let sid: String
+    // Local session bookkeeping; these values are not message dates or wire fields.
     let timestamp: Int
     let expires: Int
     let kind: Kind
+    var isExpired: Bool { expires > 0 && expires <= Int(Date().timeIntervalSince1970) }
 
-    var isExpired: Bool {
-        return expires > 0 && expires <= Int(Date().timeIntervalSince1970.rounded())
-    }
-
-    static func makeTrustElement(sid: String, expires: Int, timestamp: Int = Int(Date().timeIntervalSince1970.rounded()), kind: Kind) -> DDXMLElement {
-        let trust = DDXMLElement(name: "trust", xmlns: xmlns)
-        trust.addAttribute(withName: "sid", stringValue: sid)
-        trust.addAttribute(withName: "timestamp", stringValue: String(timestamp))
-        trust.addAttribute(withName: "expires", stringValue: String(expires))
-
-        let child = DDXMLElement(name: kind.name)
+    static func makeTrustElement(sid: String, expires: Int, timestamp: Int = Int(Date().timeIntervalSince1970), kind: Kind) -> DDXMLElement {
+        let element = DDXMLElement(name: kind.name, xmlns: xmlns)
+        element.addAttribute(withName: "session-id", stringValue: sid)
         switch kind {
         case let .request(deviceId, targetDeviceId):
-            child.addAttribute(withName: "device-id", stringValue: String(deviceId))
-            if let targetDeviceId {
-                child.addAttribute(withName: "target-device-id", stringValue: String(targetDeviceId))
-            }
-        case let .accept(deviceId), let .success(deviceId):
-            child.addAttribute(withName: "device-id", stringValue: String(deviceId))
+            element.addAttribute(withName: "protocol", stringValue: protocolNamespace)
+            element.addAttribute(withName: "device-id", stringValue: String(deviceId))
+            element.addAttribute(withName: "expires", stringValue: String(expires))
+            if let targetDeviceId { element.addAttribute(withName: "target", stringValue: String(targetDeviceId)) }
+        case let .accept(deviceId):
+            element.addAttribute(withName: "device-id", stringValue: String(deviceId))
         case let .challenge(deviceId, ciphertext, iv):
-            child.addAttribute(withName: "device-id", stringValue: String(deviceId))
-            child.addChild(DDXMLElement(name: "ciphertext", stringValue: ciphertext))
-            child.addChild(DDXMLElement(name: "iv", stringValue: iv))
-        case let .response(deviceId, ciphertext, iv, hmac):
-            child.addAttribute(withName: "device-id", stringValue: String(deviceId))
-            child.addChild(DDXMLElement(name: "ciphertext", stringValue: ciphertext))
-            child.addChild(DDXMLElement(name: "iv", stringValue: iv))
-            child.addChild(DDXMLElement(name: "hmac", stringValue: hmac))
-        case let .verify(deviceId, hmac):
-            child.addAttribute(withName: "device-id", stringValue: String(deviceId))
-            child.addChild(DDXMLElement(name: "hmac", stringValue: hmac))
-        case let .abort(reason):
-            child.addAttribute(withName: "reason", stringValue: reason.rawValue)
+            element.addAttribute(withName: "device-id", stringValue: String(deviceId))
+            addNonce(to: element, ciphertext: ciphertext, iv: iv)
+        case let .response(_, ciphertext, iv, hmac):
+            addNonce(to: element, ciphertext: ciphertext, iv: iv)
+            let mac = DDXMLElement(name: "key-mac", xmlns: xmlns)
+            mac.stringValue = hmac
+            element.addChild(mac)
+        case let .verify(_, hmac):
+            let mac = DDXMLElement(name: "key-mac", xmlns: xmlns)
+            mac.stringValue = hmac
+            element.addChild(mac)
+        case .success: break
+        case let .abort(reason): element.addAttribute(withName: "reason", stringValue: reason.rawValue)
         }
-
-        trust.addChild(child)
-        return trust
+        return element
     }
-
+    private static func addNonce(to element: DDXMLElement, ciphertext: String, iv: String) {
+        let nonce = DDXMLElement(name: "nonce", xmlns: xmlns)
+        nonce.stringValue = ciphertext
+        nonce.addAttribute(withName: "iv", stringValue: iv)
+        element.addChild(nonce)
+    }
+    private static func binary(_ value: String?, size: Int) -> String? {
+        guard let value, let data = Data(base64Encoded: value), data.count == size,
+              data.base64EncodedString() == value else { return nil }
+        return value
+    }
+    private static func deviceID(_ value: String?) -> Int? {
+        guard let value, let id = Int(value), id > 0, id <= Int(Int32.max), String(id) == value else { return nil }
+        return id
+    }
     static func parse(from message: XMPPMessage) -> XEPTrustEnvelope? {
-        guard let trust = message.element(forName: "trust", xmlns: xmlns) ?? message.element(forName: "trust"),
-              trust.xmlns() == xmlns,
-              let sid = trust.attributeStringValue(forName: "sid"),
-              let timestampRaw = trust.attributeStringValue(forName: "timestamp"),
-              let expiresRaw = trust.attributeStringValue(forName: "expires"),
-              let timestamp = Int(timestampRaw),
-              let expires = Int(expiresRaw) else {
-            return nil
+        let names = Set(["request", "accept", "challenge", "response", "verify", "success", "abort"])
+        let payloads = (message.children ?? []).compactMap { $0 as? DDXMLElement }
+            .filter { names.contains($0.localName ?? "") && $0.uri == xmlns }
+        guard payloads.count == 1, let element = payloads.first,
+              let sid = binary(element.attributeStringValue(forName: "session-id"), size: 16) else { return nil }
+        let children = (element.children ?? []).compactMap { $0 as? DDXMLElement }
+        func child(_ name: String) -> DDXMLElement? {
+            let matches = children.filter { $0.localName == name && $0.uri == xmlns }
+            return matches.count == 1 ? matches.first : nil
         }
-
-        let childNames = ["request", "accept", "challenge", "response", "verify", "success", "abort"]
-        guard let child = childNames.compactMap({ trust.element(forName: $0) }).first,
-              let childName = child.name else {
-            return nil
+        func nonce() -> (String, String)? {
+            guard let nonce = child("nonce"),
+                  let ciphertext = binary(nonce.stringValue, size: 48),
+                  let iv = binary(nonce.attributeStringValue(forName: "iv"), size: 16) else { return nil }
+            return (ciphertext, iv)
         }
-
-        switch childName {
+        let kind: Kind
+        var expires = 0
+        switch element.localName {
         case "request":
-            guard let deviceId = Self.deviceId(from: child) else { return nil }
-            return XEPTrustEnvelope(
-                sid: sid,
-                timestamp: timestamp,
-                expires: expires,
-                kind: .request(deviceId: deviceId, targetDeviceId: Self.targetDeviceId(from: child))
-            )
+            guard children.isEmpty, element.attributeStringValue(forName: "protocol") == protocolNamespace,
+                  let id = deviceID(element.attributeStringValue(forName: "device-id")),
+                  let expiration = element.attributeStringValue(forName: "expires"),
+                  let parsed = Int(expiration), parsed > 0, String(parsed) == expiration else { return nil }
+            let rawTarget = element.attributeStringValue(forName: "target")
+            let target = deviceID(rawTarget)
+            guard rawTarget == nil || target != nil else { return nil }
+            expires = parsed; kind = .request(deviceId: id, targetDeviceId: target)
         case "accept":
-            guard let deviceId = Self.deviceId(from: child) else { return nil }
-            return XEPTrustEnvelope(sid: sid, timestamp: timestamp, expires: expires, kind: .accept(deviceId: deviceId))
+            guard children.isEmpty, let id = deviceID(element.attributeStringValue(forName: "device-id")) else { return nil }
+            kind = .accept(deviceId: id)
         case "challenge":
-            guard let deviceId = Self.deviceId(from: child),
-                  let ciphertext = child.element(forName: "ciphertext")?.stringValue,
-                  let iv = child.element(forName: "iv")?.stringValue else {
-                return nil
-            }
-            return XEPTrustEnvelope(sid: sid, timestamp: timestamp, expires: expires, kind: .challenge(deviceId: deviceId, ciphertext: ciphertext, iv: iv))
+            guard children.count == 1, let id = deviceID(element.attributeStringValue(forName: "device-id")), let (ciphertext, iv) = nonce() else { return nil }
+            kind = .challenge(deviceId: id, ciphertext: ciphertext, iv: iv)
         case "response":
-            guard let deviceId = Self.deviceId(from: child),
-                  let ciphertext = child.element(forName: "ciphertext")?.stringValue,
-                  let iv = child.element(forName: "iv")?.stringValue,
-                  let hmac = child.element(forName: "hmac")?.stringValue else {
-                return nil
-            }
-            return XEPTrustEnvelope(sid: sid, timestamp: timestamp, expires: expires, kind: .response(deviceId: deviceId, ciphertext: ciphertext, iv: iv, hmac: hmac))
+            guard children.count == 2, let (ciphertext, iv) = nonce(), let mac = binary(child("key-mac")?.stringValue, size: 32) else { return nil }
+            kind = .response(deviceId: 0, ciphertext: ciphertext, iv: iv, hmac: mac)
         case "verify":
-            guard let deviceId = Self.deviceId(from: child),
-                  let hmac = child.element(forName: "hmac")?.stringValue else {
-                return nil
-            }
-            return XEPTrustEnvelope(sid: sid, timestamp: timestamp, expires: expires, kind: .verify(deviceId: deviceId, hmac: hmac))
+            guard children.count == 1, let mac = binary(child("key-mac")?.stringValue, size: 32) else { return nil }
+            kind = .verify(deviceId: 0, hmac: mac)
         case "success":
-            guard let deviceId = Self.deviceId(from: child) else { return nil }
-            return XEPTrustEnvelope(sid: sid, timestamp: timestamp, expires: expires, kind: .success(deviceId: deviceId))
+            guard children.isEmpty else { return nil }
+            kind = .success(deviceId: 0)
         case "abort":
-            let rawReason = child.attributeStringValue(forName: "reason") ?? AbortReason.fail.rawValue
-            let reason = AbortReason(rawValue: rawReason) ?? .fail
-            return XEPTrustEnvelope(sid: sid, timestamp: timestamp, expires: expires, kind: .abort(reason: reason))
-        default:
-            return nil
+            guard children.isEmpty, let raw = element.attributeStringValue(forName: "reason"), let reason = AbortReason(rawValue: raw) else { return nil }
+            kind = .abort(reason: reason)
+        default: return nil
         }
-    }
-
-    private static func deviceId(from element: DDXMLElement) -> Int? {
-        let raw = element.attributeStringValue(forName: "device-id")
-            ?? element.attributeStringValue(forName: "device_id")
-            ?? element.attributeStringValue(forName: "id")
-        guard let raw else { return nil }
-        return Int(raw)
-    }
-
-    private static func targetDeviceId(from element: DDXMLElement) -> Int? {
-        let raw = element.attributeStringValue(forName: "target-device-id")
-            ?? element.attributeStringValue(forName: "target_device_id")
-            ?? element.attributeStringValue(forName: "to-device-id")
-        guard let raw else { return nil }
-        return Int(raw)
+        return XEPTrustEnvelope(sid: sid, timestamp: Int(Date().timeIntervalSince1970), expires: expires, kind: kind)
     }
 }
 
@@ -190,11 +163,10 @@ struct XEPTrustForwardedExtractor {
         }
 
         let addresses = addressMap(from: bareMessage) ?? addressMap(from: bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns))
-        if let originalFrom = addresses?["ofrom"],
-           let forwardedFrom = innerMessage.attributeStringValue(forName: "from"),
-           !jidMatches(originalFrom, forwardedFrom) {
-            return nil
-        }
+        guard let originalFrom = addresses?["ofrom"],
+              let forwardedFrom = innerMessage.from,
+              let claimedSender = XMPPJID(string: originalFrom),
+              claimedSender.full == forwardedFrom.full else { return nil }
 
         return innerMessage
     }
@@ -213,7 +185,8 @@ struct XEPTrustForwardedExtractor {
             } else if isCarbonForwarded(current) {
                 next = getCarbonForwardedMessageContainer(current)
             } else {
-                next = getForwardedMessage(current)
+                // A quoted forwarded message cannot claim a different sender.
+                next = nil
             }
 
             guard let unwrapped = next else {
@@ -226,10 +199,7 @@ struct XEPTrustForwardedExtractor {
     }
 
     private static func containsTrust(in message: XMPPMessage) -> Bool {
-        guard let trust = message.element(forName: "trust", xmlns: XEPTrustEnvelope.xmlns) ?? message.element(forName: "trust") else {
-            return false
-        }
-        return trust.xmlns() == XEPTrustEnvelope.xmlns
+        return XEPTrustEnvelope.parse(from: message) != nil
     }
 
     private static func addressMap(from element: DDXMLElement?) -> [String: String]? {
@@ -245,7 +215,8 @@ struct XEPTrustForwardedExtractor {
                   let jid = address.attributeStringValue(forName: "jid") else {
                 continue
             }
-            map[type] = jid
+            guard map[type] == nil, let parsed = XMPPJID(string: jid), parsed.user != nil else { return nil }
+            map[type] = parsed.full
         }
         return map
     }
@@ -312,6 +283,120 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         static let b1 = "trustedKey_B1"
     }
 
+    private struct VerificationKeyBinding {
+        let peer: String
+        let deviceID: Int
+        let peerIdentity: Data
+        let ownIdentity: Data
+    }
+    // Active code exchanges fail closed after restart or an identity change.
+    // No stored session or old trust row is converted into new verification proof.
+    private var verificationKeyBindings: [String: VerificationKeyBinding] = [:]
+    private let verificationKeyBindingsLock = NSRecursiveLock()
+
+    private func keyBinding(for sid: String) -> VerificationKeyBinding? {
+        verificationKeyBindingsLock.lock()
+        defer { verificationKeyBindingsLock.unlock() }
+        return verificationKeyBindings[sid]
+    }
+
+    private func bindVerificationKeys(_ session: VerificationSessionStorageItem) -> Bool {
+        verificationKeyBindingsLock.lock()
+        defer { verificationKeyBindingsLock.unlock() }
+        guard let peerIdentity = getUsersIdentityKey(jid: session.jid, deviceId: session.opponentDeviceId),
+              peerIdentity.count == 32,
+              let bundle = try? AccountManager.shared.find(for: owner)?.omemo.omemo2Storage?.localBundle(),
+              bundle.deviceID == session.myDeviceId else { return false }
+        if let existing = verificationKeyBindings[session.sid] {
+            return existing.peer == session.jid && existing.deviceID == session.opponentDeviceId
+                && existing.peerIdentity == peerIdentity && existing.ownIdentity == bundle.identityKey
+        }
+        verificationKeyBindings[session.sid] = .init(peer: session.jid, deviceID: session.opponentDeviceId,
+            peerIdentity: peerIdentity, ownIdentity: bundle.identityKey)
+        return true
+    }
+
+    private func verificationKeysUnchanged(_ session: VerificationSessionStorageItem) -> Bool {
+        guard keyBinding(for: session.sid) != nil else { return false }
+        return bindVerificationKeys(session)
+    }
+
+    private func admittedEnvelope(_ envelope: XEPTrustEnvelope, from: XMPPJID) -> XEPTrustEnvelope? {
+        guard from.user != nil else { return nil }
+        do {
+            let realm = try WRealm.safe()
+            let session = realm.object(ofType: VerificationSessionStorageItem.self,
+                forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: envelope.sid))
+            if case .request = envelope.kind {
+                // A replay must never reset another exchange, its nonce, or its peer binding.
+                return session == nil ? envelope : nil
+            }
+            guard let session, !isTerminal(session.state) else { return nil }
+            if case .accept = envelope.kind {
+                guard from.bare == owner, session.role == .responder, session.state == .receivedRequest else { return nil }
+                guard session.expires > Date().timeIntervalSince1970 else {
+                    closeExpiredSessionIfNeeded(sid: session.sid)
+                    return nil
+                }
+                return envelope
+            }
+            guard from.bare == session.jid else { return nil }
+            let pinned = session.peerFullJid.isEmpty ? session.fullJID : session.peerFullJid
+            guard pinned.isEmpty || pinned == from.full else { return nil }
+            guard session.expires > Date().timeIntervalSince1970 else {
+                closeExpiredSessionIfNeeded(sid: session.sid)
+                return nil
+            }
+            let kind: XEPTrustEnvelope.Kind
+            switch envelope.kind {
+            case let .challenge(deviceID, ciphertext, iv):
+                guard session.role == .initiator, session.state == .sentRequest,
+                      session.opponentDeviceId == 0 || session.opponentDeviceId == deviceID else { return nil }
+                kind = .challenge(deviceId: deviceID, ciphertext: ciphertext, iv: iv)
+            case let .response(_, ciphertext, iv, hmac):
+                guard session.role == .responder, session.state == .acceptedRequest,
+                      verificationKeysUnchanged(session) else { return nil }
+                kind = .response(deviceId: session.opponentDeviceId, ciphertext: ciphertext, iv: iv, hmac: hmac)
+            case let .verify(_, hmac):
+                guard session.role == .initiator, session.state == .responseSent,
+                      verificationKeysUnchanged(session) else { return nil }
+                kind = .verify(deviceId: session.opponentDeviceId, hmac: hmac)
+            case .success:
+                guard session.role == .responder, session.state == .verifySent,
+                      verificationKeysUnchanged(session) else { return nil }
+                kind = .success(deviceId: session.opponentDeviceId)
+            case let .abort(reason): kind = .abort(reason: reason)
+            case .request, .accept: return nil
+            }
+            return XEPTrustEnvelope(sid: envelope.sid, timestamp: envelope.timestamp,
+                expires: Int(session.expires), kind: kind)
+        } catch { return nil }
+    }
+
+    private func validatedTrustTarget(realm: Realm, jid: String, deviceId: Int,
+                                      expectedIdentity: Data? = nil) -> SignalDeviceStorageItem? {
+        guard let identity = getUsersIdentityKey(jid: jid, deviceId: deviceId), identity.count == 32,
+              expectedIdentity == nil || identity == expectedIdentity,
+              let fingerprint = try? Omemo2IdentityRepresentation.fingerprint(for: identity),
+              let device = realm.object(ofType: SignalDeviceStorageItem.self,
+                  forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceId)),
+              device.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
+                == fingerprint.replacingOccurrences(of: " ", with: "").lowercased() else { return nil }
+        return device
+    }
+
+    private func applyLocalTrust(_ device: SignalDeviceStorageItem) throws {
+        let now = Date()
+        guard let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(
+            previous: device.lastTrustSharingTimestamp, at: now) else {
+            throw AuthenticatedKeyExchangeManagerError.invalidDecisionTimestamp
+        }
+        device.trustDate = now
+        device.lastTrustSharingTimestamp = timestamp
+        device.state = .trusted
+        device.trustedByDeviceId = String(AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() ?? 0)
+    }
+
     private var processedStanzas: Set<String> = []
 
     override init(withOwner owner: String) {
@@ -329,7 +414,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     @discardableResult
     func didReceivedVerificationMessage(message: XMPPMessage) -> Bool {
         guard let innerMessage = XEPTrustForwardedExtractor.trustMessage(from: message),
-              let envelope = XEPTrustEnvelope.parse(from: innerMessage) else {
+              let received = XEPTrustEnvelope.parse(from: innerMessage),
+              let from = innerMessage.from,
+              let envelope = admittedEnvelope(received, from: from) else {
             return false
         }
 
@@ -338,7 +425,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             return true
         }
 
-        let key = "\(innerMessage.elementID ?? "no-id")|\(innerMessage.from?.full ?? "unknown")|\(envelope.sid)|\(envelope.kind.name)|\(envelope.timestamp)"
+        let key = "\(innerMessage.elementID ?? "no-id")|\(innerMessage.from?.full ?? "unknown")|\(envelope.sid)|\(envelope.kind.name)"
         if processedStanzas.contains(key) {
             return true
         }
@@ -346,10 +433,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
         if envelope.isExpired {
             closeExpiredSessionIfNeeded(sid: envelope.sid)
-            return true
-        }
-
-        guard let from = innerMessage.from else {
             return true
         }
 
@@ -380,7 +463,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         }
 
         let localDeviceId = account.omemo.localStore.localDeviceId()
-        let sid = UUID().uuidString
+        guard let sidBytes = try? generateByteSequence() else { return }
+        let sid = Data(sidBytes.prefix(16)).base64EncodedString()
         let ttl = jid == owner ? 300 : 86400
         let now = Int(Date().timeIntervalSince1970.rounded())
         let expires = now + ttl
@@ -438,7 +522,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
                   !isTerminal(instance.state),
-                  instance.state == .receivedRequest else {
+                  instance.state == .receivedRequest, instance.expires > Date().timeIntervalSince1970,
+                  bindVerificationKeys(instance) else {
                 return nil
             }
 
@@ -471,7 +556,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             return nil
         }
 
-        if jid != owner, let ownJid = XMPPJID(string: owner) {
+        if let ownJid = XMPPJID(string: owner) {
             let accept = XEPTrustEnvelope.makeTrustElement(sid: sid, expires: expires, kind: .accept(deviceId: localDeviceId))
             sendTrustElement(accept, to: ownJid, ttl: 300)
         }
@@ -485,7 +570,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             let realm = try WRealm.safe()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: sid)),
                   !isTerminal(instance.state),
-                  instance.state == .receivedRequestAccept else {
+                  instance.state == .receivedRequestAccept,
+                  instance.expires > Date().timeIntervalSince1970, bindVerificationKeys(instance) else {
                 return
             }
 
@@ -500,6 +586,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 iv: encryptedChallengeIV.base64decoded()
             )
 
+            guard remoteNonce.count == 32 else { throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial }
             try realm.write {
                 instance.code = code
                 instance.opponentByteSequence = base64(remoteNonce)
@@ -595,18 +682,16 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         sendAbort(to: fullJID, sid: sid, expires: expires, reason: abortReason)
     }
 
-    func writeTrustedDevice(jid: String, deviceId: Int) {
+    @discardableResult
+    func writeTrustedDevice(jid: String, deviceId: Int) -> Bool {
         do {
             let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceId)) {
-                try realm.write {
-                    instance.trustDate = Date()
-                    instance.state = .trusted
-                    instance.trustedByDeviceId = String(AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() ?? 0)
-                }
-            }
+            guard let target = validatedTrustTarget(realm: realm, jid: jid, deviceId: deviceId) else { return false }
+            try realm.write { try applyLocalTrust(target) }
+            return true
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -749,11 +834,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 return
             }
 
-            if let remoteDevice = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: peerBare, deviceId: remoteDeviceId)),
-               remoteDevice.state == .trusted {
-                return
-            }
-
             let existing = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: envelope.sid))
             let instance = existing ?? VerificationSessionStorageItem()
 
@@ -794,7 +874,6 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         do {
             let realm = try WRealm.safe()
             guard let instance = realm.object(ofType: VerificationSessionStorageItem.self, forPrimaryKey: VerificationSessionStorageItem.genPrimary(owner: owner, sid: envelope.sid)),
-                  instance.jid != owner,
                   instance.state == .receivedRequest else {
                 return
             }
@@ -854,6 +933,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             }
 
             let remoteNonce = try decrypt(jid: instance.jid, sid: envelope.sid, deviceId: remoteDeviceId, code: instance.code, ciphertext: try ciphertext.base64decoded(), iv: try iv.base64decoded())
+            guard remoteNonce.count == 32 else { throw AuthenticatedKeyExchangeManagerError.missingKeyMaterial }
             guard let expected = makeHMAC(
                 label: HMACLabel.a1,
                 trustedJid: instance.jid,
@@ -949,8 +1029,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             }
 
             let localDeviceId = account.omemo.localStore.localDeviceId()
-            writeTrustedDevice(jid: instance.jid, deviceId: remoteDeviceId)
+            guard let binding = keyBinding(for: instance.sid),
+                  let target = validatedTrustTarget(realm: realm, jid: instance.jid, deviceId: remoteDeviceId,
+                      expectedIdentity: binding.peerIdentity) else { return }
             try realm.write {
+                try applyLocalTrust(target)
                 instance.opponentDeviceId = remoteDeviceId
                 instance.remoteDeviceId = remoteDeviceId
                 instance.state = .trusted
@@ -974,8 +1057,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 return
             }
 
-            writeTrustedDevice(jid: instance.jid, deviceId: remoteDeviceId)
+            guard let binding = keyBinding(for: instance.sid),
+                  let target = validatedTrustTarget(realm: realm, jid: instance.jid, deviceId: remoteDeviceId,
+                      expectedIdentity: binding.peerIdentity) else { return }
             try realm.write {
+                try applyLocalTrust(target)
                 instance.fullJID = from.full
                 instance.peerFullJid = from.full
                 instance.opponentDeviceId = remoteDeviceId
@@ -1021,6 +1107,9 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             makeSystemMessage(jid: jid, event: .verificationSucceeded)
         }
 
+        verificationKeyBindingsLock.lock()
+        verificationKeyBindings.removeValue(forKey: sid)
+        verificationKeyBindingsLock.unlock()
         AccountManager.shared.find(for: owner)?.trustSharingManager.sendListOfContactsDevices()
         AccountManager.shared.find(for: owner)?.trustSharingManager.publishOwnTrustedDevices(publisherDeviceId: String(AccountManager.shared.find(for: owner)?.omemo.localStore.localDeviceId() ?? 0))
         AccountManager.shared.find(for: owner)?.trustSharingManager.getUserTrustedDevices(jid: jid)
@@ -1242,8 +1331,8 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         return Array(SHA256.hash(data: material))
     }
 
-    private func makeHMAC(
-        label: String,
+    func makeHMAC(
+        label _: String,
         trustedJid: String,
         trustedDeviceId: Int,
         sharedJid: String,
@@ -1258,7 +1347,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             return nil
         }
         let key = calculateEncryptionKey(sharedKey: sharedKey, code: code, sid: sid)
-        let payload = Data(Array(label.utf8) + trustedKey + firstNonce + secondNonce)
+        let payload = Data(trustedKey + firstNonce + secondNonce)
         let mac = CryptoKit.HMAC<SHA256>.authenticationCode(for: payload, using: SymmetricKey(data: Data(key)))
         return Array(Data(mac))
     }
@@ -1422,4 +1511,5 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 enum AuthenticatedKeyExchangeManagerError: Error {
     case secRandomCopyBytesFailed
     case missingKeyMaterial
+    case invalidDecisionTimestamp
 }

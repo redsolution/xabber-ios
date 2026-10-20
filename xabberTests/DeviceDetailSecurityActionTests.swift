@@ -3,6 +3,103 @@ import XCTest
 
 @MainActor
 final class DeviceDetailSecurityActionTests: XCTestCase {
+    func testLocalDistrustRecordsDecisionClockWithoutResettingPublisherCursor() {
+        let device = SignalDeviceStorageItem()
+        device.state = .trusted
+        device.trustDate = Date(timeIntervalSince1970: 100)
+        device.trustedByDeviceId = "41"
+        device.lastTrustedItemsUpdateTimestamp = "900"
+
+        XCTAssertTrue(DeviceDetailLocalTrustDecision.apply(to: device, state: .distrusted,
+            at: Date(timeIntervalSince1970: 200.75)))
+
+        XCTAssertEqual(device.state, .distrusted)
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 200)
+        XCTAssertEqual(device.trustDate.timeIntervalSince1970, -1)
+        XCTAssertNil(device.trustedByDeviceId)
+        XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "900")
+    }
+
+    func testUnknownProjectionPreservesPublisherCursorAndRecordsDecision() {
+        let device = SignalDeviceStorageItem()
+        device.state = .trusted
+        device.lastTrustSharingTimestamp = 100
+        device.lastTrustedItemsUpdateTimestamp = "900"
+
+        XCTAssertTrue(DeviceDetailLocalTrustDecision.apply(to: device, state: .unknown,
+            at: Date(timeIntervalSince1970: 201)))
+
+        XCTAssertEqual(device.state, .unknown)
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 201)
+        XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "900")
+    }
+
+    func testLocalDecisionClockAdvancesForTwoActionsWithinTheSameSecond() {
+        let device = SignalDeviceStorageItem()
+        device.state = .trusted
+        device.lastTrustSharingTimestamp = 0
+        device.lastTrustedItemsUpdateTimestamp = "900"
+        let decisionDate = Date(timeIntervalSince1970: 100)
+
+        XCTAssertTrue(DeviceDetailLocalTrustDecision.apply(to: device, state: .distrusted, at: decisionDate))
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 100)
+        XCTAssertTrue(DeviceDetailLocalTrustDecision.apply(to: device, state: .distrusted, at: decisionDate))
+
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 101,
+            "An immediate later local decision must outrank the earlier signed decision, even within one wall-clock second")
+        XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "900")
+    }
+
+    func testExplicitLocalRevokeRemainsAnAdvertisableNegativeDecision() {
+        let device = SignalDeviceStorageItem()
+        device.state = .trusted
+        device.trustDate = Date(timeIntervalSince1970: 100)
+        device.trustedByDeviceId = "41"
+        device.lastTrustSharingTimestamp = 100
+        device.lastTrustedItemsUpdateTimestamp = "900"
+
+        XCTAssertTrue(DeviceDetailLocalTrustDecision.revoke(to: device,
+            at: Date(timeIntervalSince1970: 400)))
+
+        XCTAssertEqual(device.state, .distrusted,
+            "An explicit local revoke must be published as a negative decision; unknown is reserved for unresolved state")
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 400)
+        XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "900")
+        XCTAssertEqual(device.trustDate.timeIntervalSince1970, -1)
+        XCTAssertNil(device.trustedByDeviceId)
+    }
+
+    func testExplicitRevokeRefreshesAnAlreadyDistrustedDecisionClock() {
+        let device = SignalDeviceStorageItem()
+        device.state = .distrusted
+        device.lastTrustSharingTimestamp = 100
+        device.lastTrustedItemsUpdateTimestamp = "900"
+
+        XCTAssertTrue(DeviceDetailLocalTrustDecision.apply(to: device, state: .distrusted,
+            at: Date(timeIntervalSince1970: 300)))
+
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 300)
+        XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "900")
+    }
+
+    func testLocalDecisionRejectsInvalidClockAndCannotBypassValidatedTrustWriter() {
+        let device = SignalDeviceStorageItem()
+        device.state = .trusted
+        device.lastTrustSharingTimestamp = 100
+        device.lastTrustedItemsUpdateTimestamp = "900"
+        device.trustedByDeviceId = "41"
+
+        XCTAssertFalse(DeviceDetailLocalTrustDecision.apply(to: device, state: .distrusted,
+            at: Date(timeIntervalSince1970: 0)))
+        XCTAssertFalse(DeviceDetailLocalTrustDecision.apply(to: device, state: .trusted,
+            at: Date(timeIntervalSince1970: 300)))
+
+        XCTAssertEqual(device.state, .trusted)
+        XCTAssertEqual(device.lastTrustSharingTimestamp, 100)
+        XCTAssertEqual(device.lastTrustedItemsUpdateTimestamp, "900")
+        XCTAssertEqual(device.trustedByDeviceId, "41")
+    }
+
     func testTerminateRowIsButtonLikeAndRequiresConfirmation() throws {
         let controller = makeController(datasource: [
             [

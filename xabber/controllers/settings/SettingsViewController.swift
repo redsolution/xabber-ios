@@ -1199,17 +1199,10 @@ class SettingsViewController: BaseViewController {
 
     @objc
     func onAcceptButtonPressed() {
-        AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            DispatchQueue.main.async {
-                _ = user.akeManager.acceptVerificationRequest(jid: self.jid, sid: self.activeVerificationSessionSid ?? "")
-
-                NotificationCenter.default.post(name: AuthenticatedKeyExchangeManager.showCodeOutputViewNotification,
-                                                object: self,
-                                                userInfo: [
-                                                    "owner": self.owner,
-                                                    "sid": self.activeVerificationSessionSid ?? ""
-                                                ])
-            }
+        let peer = self.jid
+        let sid = self.activeVerificationSessionSid ?? ""
+        AccountManager.shared.find(for: self.owner)?.action { user, _ in
+            _ = user.akeManager.acceptVerificationRequest(jid: peer, sid: sid)
         }
     }
 

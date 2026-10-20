@@ -389,18 +389,13 @@ extension TrustedDevicesViewController: UITableViewDelegate {
                     var untrustedDevicesList: [Int] = []
                     let realm = try Realm()
                     let instances = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                    for instance in instances {
-                        if instance.state == .distrusted {
-                            continue
+                    let decisionDate = Date()
+                    try realm.write {
+                        for instance in instances {
+                            if DeviceDetailLocalTrustDecision.apply(to: instance, state: .distrusted, at: decisionDate) {
+                                untrustedDevicesList.append(instance.deviceId)
+                            }
                         }
-                        try realm.write {
-                            instance.state = .distrusted
-                            instance.trustDate = Date(timeIntervalSince1970: -1)
-                            instance.trustedByDeviceId = nil
-                            instance.lastTrustedItemsUpdateTimestamp = ""
-                        }
-                        
-                        untrustedDevicesList.append(instance.deviceId)
                     }
                     
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in

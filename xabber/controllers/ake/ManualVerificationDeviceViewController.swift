@@ -139,13 +139,17 @@ extension ManualVerificationDeviceViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         let item = datasource[indexPath.section]
         if item.kind == .button {
-            guard let localDeviceId = AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId(),
+            guard let account = AccountManager.shared.find(for: self.owner),
+                  account.omemo.localStore.localDeviceId() > 0,
                   let deviceIdInt = Int(self.deviceId) else {
                 DDLogDebug("ManualVerificationDeviceViewController: \(#function).")
                 return
             }
             
-            AccountManager.shared.find(for: self.owner)?.akeManager.writeTrustedDevice(jid: self.jid, deviceId: deviceIdInt)
+            guard account.akeManager.writeTrustedDevice(jid: self.jid, deviceId: deviceIdInt) else {
+                DDLogDebug("ManualVerificationDeviceViewController: local trust was not accepted")
+                return
+            }
             
             do {
                 let realm = try WRealm.safe()

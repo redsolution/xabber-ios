@@ -38,6 +38,7 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
         let bob: Device
         let bobOther: Device
         let aliceOther: Device
+        let deliveryStamp = Date().XMPPFormattedDate
         var recipients: [Device] { [bob, bobOther, aliceOther] }
     }
 
@@ -149,11 +150,15 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
 
         for recipient in f.recipients {
             recipient.manager.omemo2ControlSender = { _ in }
+            // The captured outbound stanza stays exact. This copy simulates
+            // the receiving account server adding its delivery metadata.
+            let delivered = wire.copy() as! XMPPMessage
+            addServerTime(to: delivered, owner: recipient.owner, stamp: f.deliveryStamp)
             let incoming: XMPPMessage
             if recipient.owner == f.alice.owner {
-                incoming = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.alice.owner)' to='\(f.alice.owner)'><sent xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>\(capturedXML)</forwarded></sent></message>")
+                incoming = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.alice.owner)' to='\(f.alice.owner)'><sent xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='\(f.deliveryStamp)'/>\(delivered.xmlString)</forwarded></sent></message>")
             } else {
-                incoming = wire
+                incoming = delivered
             }
             let result = recipient.manager.prepareIncoming(incoming, context: recipient.owner == f.alice.owner ? .carbon : .live)
             guard case let .verified(clean, proof, sender) = result else {
@@ -201,6 +206,7 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
         let incoming = XMPPMessage(type: "chat", to: XMPPJID(string: f.alice.owner), elementID: UUID().uuidString)
         incoming.addAttribute(withName: "from", stringValue: f.alice.owner + "/ios")
         incoming.addChild(encrypted)
+        addServerTime(to: incoming, owner: f.alice.owner, stamp: f.deliveryStamp)
 
         guard case let .verified(clean, proof, sender) = f.aliceOther.manager.prepareIncoming(incoming) else {
             return XCTFail("Own-device synchronization uses an authenticated native session")
@@ -635,11 +641,19 @@ final class OMEMO2NativeProtocolBehaviorTests: XCTestCase {
         message.addNamespace(DDXMLNode.namespace(withName: "", stringValue: "jabber:client") as! DDXMLNode)
         message.addAttribute(withName: "from", stringValue: f.alice.owner + "/ios")
         message.addChild(encrypted.copy() as! DDXMLElement)
+        addServerTime(to: message, owner: f.bob.owner, stamp: f.deliveryStamp)
         return message
     }
 
     private func sentCarbon(_ encrypted: DDXMLElement, f: Fixture) throws -> XMPPMessage {
-        try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.alice.owner)' to='\(f.alice.owner)'><sent xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>\(message(encrypted, f: f).xmlString)</forwarded></sent></message>")
+        try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.alice.owner)' to='\(f.alice.owner)'><sent xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='\(f.deliveryStamp)'/>\(message(encrypted, f: f).xmlString)</forwarded></sent></message>")
+    }
+
+    private func addServerTime(to message: XMPPMessage, owner: String, stamp: String) {
+        let time = DDXMLElement(name: "time", xmlns: "https://xabber.com/protocol/delivery")
+        time.addAttribute(withName: "by", stringValue: owner)
+        time.addAttribute(withName: "stamp", stringValue: stamp)
+        message.addChild(time)
     }
 
     private static func attribute(_ name: String, value: String, on element: DDXMLElement) {

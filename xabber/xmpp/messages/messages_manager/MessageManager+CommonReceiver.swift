@@ -1531,11 +1531,12 @@ extension MessageManager {
         if let messageBare = getCarbonCopyMessageContainer(message) {
             if (encryption.isAuthenticated || !SCEReceivePolicy.hasOMEMO2(messageBare)),
                routeCanonicalGroupMessage(message) == .consumed { return }
+            guard let receivedDate = getReceivedMessageDate(message, owner: owner) else { return }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: messageBare.from?.bare,
                                      isRead: true,
-                                     date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
+                                     date: receivedDate,
                                      state: .sended,
                                      queryId: getMAMQueryId(message),
                                      encryption: encryption,
@@ -1573,11 +1574,12 @@ extension MessageManager {
         if let messageBare = getCarbonForwardedMessageContainer(message) {
             if (encryption.isAuthenticated || !SCEReceivePolicy.hasOMEMO2(messageBare)),
                routeCanonicalGroupMessage(message) == .consumed { return }
+            guard let receivedDate = getReceivedMessageDate(message, owner: owner) else { return }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
                                      isRead: false,
-                                     date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
+                                     date: receivedDate,
                                      state: .sended,
                                      queryId: getMAMQueryId(message),
                                      countsAsRuntimeUnread: true,
@@ -1591,11 +1593,12 @@ extension MessageManager {
            routeCanonicalGroupMessage(message) == .consumed {
             return
         }
+        guard let receivedDate = getReceivedMessageDate(message, owner: owner) else { return }
         enqueue(MessageQueueItem(message,
                                  messageId: getOriginId(message),
                                  archivedFrom: message.from?.bare,
                                  isRead: false,
-                                 date: getDeliveryTime(message, owner: owner) ?? Date(),
+                                 date: receivedDate,
                                  state: .sended,
                                  queryId: getMAMQueryId(message),
                                  countsAsRuntimeUnread: true,

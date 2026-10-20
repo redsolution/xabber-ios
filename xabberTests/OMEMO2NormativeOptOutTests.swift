@@ -532,11 +532,14 @@ final class OMEMO2NormativeOptOutTests: XCTestCase {
         let prepared = includeTime ? try Omemo2PayloadCodec.prepareOutgoingXML(xml, encryptionTime: at) : xml
         let sealed = try Omemo2PayloadCodec.seal(prepared)
         let cipher = try XCTUnwrap(f.sender.omemo2Storage).encrypt(sealed.keyAndMAC, jid: f.receiver.owner, deviceID: f.receiverID)
-        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.sender.owner)' to='\(recipient)' id='\(UUID())'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='\(f.senderID)'><keys jid='\(f.receiver.owner)'><key rid='\(f.receiverID)'\(cipher.isKeyExchange ? " kex='true'" : "")>\(cipher.data.base64EncodedString())</key></keys></header><payload>\(sealed.ciphertext.base64EncodedString())</payload></encrypted></message>")
+        // The synthetic receiving server adds delivery metadata independently
+        // of the optional authenticated SCE encryption-time extension.
+        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.sender.owner)' to='\(recipient)' id='\(UUID())'><time xmlns='https://xabber.com/protocol/delivery' by='\(f.receiver.owner)' stamp='\(at.XMPPFormattedDate)'/><encrypted xmlns='urn:xmpp:omemo:2'><header sid='\(f.senderID)'><keys jid='\(f.receiver.owner)'><key rid='\(f.receiverID)'\(cipher.isKeyExchange ? " kex='true'" : "")>\(cipher.data.base64EncodedString())</key></keys></header><payload>\(sealed.ciphertext.base64EncodedString())</payload></encrypted></message>")
     }
     private func forwarded(_ wire: XMPPMessage, receiver: String, route: String) throws -> XMPPMessage {
         let opening = route == "archive" ? "<result xmlns='urn:xmpp:mam:2' id='archived' queryid='n08'>" : "<\(route) xmlns='urn:xmpp:carbons:2'>"
         let closing = route == "archive" ? "</result>" : "</\(route)>"
-        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(receiver)' to='\(receiver)'>\(opening)<forwarded xmlns='urn:xmpp:forward:0'>\(wire.xmlString)</forwarded>\(closing)</message>")
+        let stamp = try XCTUnwrap(wire.element(forName: "time", xmlns: "https://xabber.com/protocol/delivery")?.attributeStringValue(forName: "stamp"))
+        return try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(receiver)' to='\(receiver)'>\(opening)<forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='\(stamp)'/>\(wire.xmlString)</forwarded>\(closing)</message>")
     }
 }

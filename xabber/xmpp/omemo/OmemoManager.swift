@@ -390,7 +390,7 @@ extension OmemoManager {
         case device = "urn:xmpp:omemo:2:devices"
         case bundle = "urn:xmpp:omemo:2:bundles"
         case update = "urn:xmpp:omemo:2:bundles:update"
-        case trustList = "urn:xmpp:trustsharing:0:items"
+        case trustList = "urn:xmpp:trustsharing:0"
     }
     
     public final func subscribeNode(_ xmppStream: XMPPStream, jid: String, node: NodeType) {
@@ -924,6 +924,30 @@ extension OmemoManager {
         return true
     }
 
+    private enum IncomingDateAdmissionError: Error {
+        case missingUserMessageDate
+    }
+
+    private static func isEmptyControlBody(_ element: DDXMLElement) -> Bool {
+        SCEReceivePolicy.matches(element, name: "body", namespace: "jabber:client") &&
+        (element.stringValue ?? "").isEmpty && (element.attributes ?? []).isEmpty &&
+        !(element.children ?? []).contains(where: { $0 is DDXMLElement })
+    }
+
+    private static func hasUserMessageContent(_ content: DDXMLElement) -> Bool {
+        let elements = content.children?.compactMap { $0 as? DDXMLElement } ?? []
+        let hasControl = elements.contains {
+            SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) ||
+            SCEReceivePolicy.matches($0, name: "share", namespace: "urn:xmpp:trustsharing:0")
+        }
+        return elements.contains {
+            !SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) &&
+            !SCEReceivePolicy.matches($0, name: "share", namespace: "urn:xmpp:trustsharing:0") &&
+            !SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0") &&
+            !(hasControl && Self.isEmptyControlBody($0))
+        }
+    }
+
     private enum DecryptedIncoming {
         case content(Omemo2PayloadCodec.OpenedPayload, OMEMOReceiveProfile, OMEMOAuthenticatedSender? = nil)
         case control
@@ -945,13 +969,21 @@ extension OmemoManager {
             guard let bare = path.last, SCEReceivePolicy.hasOMEMO2(bare) else { return .notEncrypted(copy) }
             do {
                 let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner, serverContext: timestampAuthority)
-                switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime, optOutContext: context) {
+                let receivedMessageDate = getReceivedMessageDate(copy, owner: owner)
+                switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime, optOutContext: context, validatingUserContent: {
+                    // Classify authenticated SCE content before committing a
+                    // native candidate. Pure controls do not create dated rows.
+                    guard receivedMessageDate != nil else {
+                        throw IncomingDateAdmissionError.missingUserMessageDate
+                    }
+                }) {
                 case .content(let opened, let profile, let sender):
                     let contentElements = opened.content.children?.compactMap { $0 as? DDXMLElement } ?? []
                     let hasOptOut = contentElements.contains { SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) }
                     let onlyOptOut = contentElements.allSatisfy {
                         SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) ||
-                        SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
+                        SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0") ||
+                        Self.isEmptyControlBody($0)
                     }
                     if profile == .omemo2, hasOptOut, onlyOptOut { return .consumed(.control) }
                     Self.reconstruct(path, content: opened.content, owner: owner, serverContext: timestampAuthority)
@@ -959,6 +991,8 @@ extension OmemoManager {
                 case .control: return .consumed(.control)
                 case .duplicate: return .consumed(.duplicate)
                 }
+            } catch IncomingDateAdmissionError.missingUserMessageDate {
+                return .consumed(.invalidTransport)
             } catch {
                 Self.reconstruct(path, content: nil)
                 return .failed(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), error)
@@ -1091,8 +1125,10 @@ extension OmemoManager {
                 throw OmemoManagerError.invalidDecryptedPayload
             }
             times.append(selected.time)
-        } else if let selected = delivery.first {
-            // Preserve the historical singleton format, including missing `by`.
+        } else if let selected = delivery.first,
+                  selected.authority == nil || selected.authority == owner {
+            // Keep the unqualified legacy singleton. An explicit foreign
+            // account marker is validated above, but cannot select our clock.
             times.append(selected.time)
         }
         if let forwarded = path.dropLast().last(where: {
@@ -1192,7 +1228,8 @@ extension OmemoManager {
     private func decryptIncoming(
         _ message: XMPPMessage,
         originalSendingTime: OMEMOOriginalSendingTime?,
-        optOutContext: OMEMOReceiveContext? = nil
+        optOutContext: OMEMOReceiveContext? = nil,
+        validatingUserContent: (() throws -> Void)? = nil
     ) throws -> DecryptedIncoming {
         guard let from = message.from?.bare else { throw OmemoManagerError.invalidEncryptedPayload }
         let encryptedElements = message.children?.compactMap { $0 as? DDXMLElement }.filter { $0.localName == "encrypted" && $0.uri == Self.xmlns } ?? []
@@ -1257,12 +1294,8 @@ extension OmemoManager {
             }) { plaintext in
                 opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime)
                 if let opened {
-                    let elements = opened.content.children?.compactMap { $0 as? DDXMLElement } ?? []
-                    let isContent = elements.contains {
-                        !SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) &&
-                        !SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
-                    }
-                    if isContent {
+                    if Self.hasUserMessageContent(opened.content) {
+                        try validatingUserContent?()
                         let clean = XMPPMessage(from: SCEReceivePolicy.sanitized(message, content: opened.content))
                         let identifier = getUniqueMessageId(clean, owner: owner)
                         materializationID = identifier.isEmpty ? nil : identifier

@@ -24,6 +24,32 @@ import RealmSwift
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
+enum DeviceDetailLocalTrustDecision {
+    @discardableResult
+    static func revoke(to device: SignalDeviceStorageItem, at date: Date = Date()) -> Bool {
+        apply(to: device, state: .distrusted, at: date)
+    }
+
+    /// Local policy decisions have their own clock; the signed publisher-list
+    /// cursor is independent and must survive user distrust/revoke actions.
+    @discardableResult
+    static func apply(to device: SignalDeviceStorageItem,
+                      state: SignalDeviceStorageItem.TrustState,
+                      at date: Date = Date()) -> Bool {
+        guard state == .unknown || state == .distrusted,
+              let timestamp = TrustSharingManager.nextLocalDecisionTimestamp(
+                previous: device.lastTrustSharingTimestamp, at: date
+              ) else {
+            return false
+        }
+        device.state = state
+        device.trustDate = Date(timeIntervalSince1970: -1)
+        device.trustedByDeviceId = nil
+        device.lastTrustSharingTimestamp = timestamp
+        return true
+    }
+}
+
 enum DeviceDetailSessionTerminationEffect: Equatable {
     case none
     case terminateSession(uid: String)
@@ -600,20 +626,14 @@ extension DeviceDetailViewController: UITableViewDelegate {
                 animated: true) { value in
                     switch value {
                     case "trust":
-                        do {
-                            let realm = try Realm()
-                            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
-                                try realm.write {
-                                    instance.state = .trusted
-                                    instance.trustDate = Date()
-                                }
-                            }
-                            
-                            DispatchQueue.main.async {
-                                self.goBack()
-                            }
-                        } catch {
-                            DDLogDebug("DeviceDetailViewController: \(#function). \(error.localizedDescription)")
+                        guard let account = AccountManager.shared.find(for: self.owner),
+                              account.omemo.localStore.localDeviceId() > 0,
+                              account.akeManager.writeTrustedDevice(jid: self.jid, deviceId: self.omemoDeviceID) else {
+                            DDLogDebug("DeviceDetailViewController: local trust was not accepted")
+                            return
+                        }
+                        DispatchQueue.main.async {
+                            self.goBack()
                         }
                     case "delete":
                         XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in
@@ -629,13 +649,11 @@ extension DeviceDetailViewController: UITableViewDelegate {
                     case "untrust":
                         do {
                             let realm = try Realm()
-                            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
-                                try realm.write {
-                                    instance.state = .unknown
-                                    instance.trustDate = Date(timeIntervalSince1970: -1)
-                                    instance.trustedByDeviceId = nil
-                                    instance.lastTrustedItemsUpdateTimestamp = ""
-                                }
+                            guard let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) else {
+                                return
+                            }
+                            try realm.write {
+                                DeviceDetailLocalTrustDecision.revoke(to: instance)
                             }
                             
                             guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
@@ -669,26 +687,15 @@ extension DeviceDetailViewController: UITableViewDelegate {
                 animated: true) { value in
                     switch value {
                     case "trust":
-                        do {
-                            let realm = try Realm()
-                            if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.jid, deviceId: self.omemoDeviceID)) {
-                                try realm.write {
-                                    instance.trustDate = Date()
-                                    instance.state = .trusted
-                                }
-                            }
-                            
-                            guard let trustSharingManager = AccountManager.shared.find(for: self.owner)?.trustSharingManager,
-                                  let localStore = AccountManager.shared.find(for: self.owner)?.omemo.localStore else {
-                                fatalError()
-                            }
-                            trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(localStore.localDeviceId()))
-                            
-                            DispatchQueue.main.async {
-                                self.goBack()
-                            }
-                        } catch {
-                            DDLogDebug("DeviceDetailViewController: \(#function). \(error.localizedDescription)")
+                        guard let account = AccountManager.shared.find(for: self.owner),
+                              account.omemo.localStore.localDeviceId() > 0,
+                              account.akeManager.writeTrustedDevice(jid: self.jid, deviceId: self.omemoDeviceID) else {
+                            DDLogDebug("DeviceDetailViewController: local trust was not accepted")
+                            return
+                        }
+                        account.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(account.omemo.localStore.localDeviceId()))
+                        DispatchQueue.main.async {
+                            self.goBack()
                         }
                     case "delete":
                         XMPPUIActionManager.shared.performRequest(owner: self.jid) { stream, session in

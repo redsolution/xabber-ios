@@ -253,6 +253,10 @@ final class OMEMO2NormativeDevicesTests: XCTestCase {
         let encrypted = try XCTUnwrap(f.alice.encryptMessage(message: envelope(f), to: f.bob.owner))
         let message = XMPPMessage(type: "chat", to: XMPPJID(string: f.bob.owner))
         message.addAttribute(withName: "from", stringValue: f.alice.owner); message.addChild(encrypted)
+        let time = DDXMLElement(name: "time", xmlns: "https://xabber.com/protocol/delivery")
+        time.addAttribute(withName: "by", stringValue: f.bob.owner)
+        time.addAttribute(withName: "stamp", stringValue: Date().XMPPFormattedDate)
+        message.addChild(time)
         var refreshes = 0
         f.bob.omemo2DeviceListRequester = { jid in refreshes += 1; f.bob.getContactDevices(stream, jid: jid, force: true) }
         guard case .verified = f.bob.prepareIncoming(message) else { return XCTFail("Real ciphertext must decrypt") }
