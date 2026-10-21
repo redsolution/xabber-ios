@@ -198,6 +198,45 @@ final class ReceivedMessageDateAdmissionTests: XCTestCase {
         }
     }
 
+    func testActualReceiptXMLDispatchUsesOnlyQualifiedOwnerClockAndPreservesAuthoredDateOtherwise() throws {
+        let delivery = "https://xabber.com/protocol/delivery"
+        let original = Date(timeIntervalSince1970: 1_700_000_000.123)
+        let own = "<time by='\(owner)' stamp='\(stamp)'/>"
+        let foreign = "<time xmlns='urn:foreign' stamp='2099-01-01T00:00:00Z'/>"
+        let other = "<time by='\(peer)' stamp='2026-10-20T07:59:57Z'/>"
+        let cases: [(String, Date)] = [
+            (own, expectedDate),
+            (foreign + own, expectedDate),
+            (other + own, expectedDate),
+            (own + other, expectedDate),
+            ("", original),
+            (foreign, original),
+            (other, original),
+            (own + own, original),
+            ("<time stamp='2026-02-30T08:00:00Z'/>", original),
+            ("<time stamp='1700000000000'/>", original),
+            ("<time stamp='\(stamp)'><extra/></time>", original),
+            ("<extra><time stamp='2099-01-01T00:00:00Z'/></extra>", original),
+        ]
+        let manager = ReliableMessageDeliveryManager(withOwner: owner)
+        for (index, value) in cases.enumerated() {
+            let id = "outgoing-clock-\(index)"
+            let row = MessageStorageItem()
+            row.conversationType = .omemo
+            row.configureOutgoingMessage("authored", legacy: "authored", messageId: id, owner: owner, opponent: peer, references: [], inlineForwards: [])
+            row.date = original
+            row.sentDate = original
+            let realm = try WRealm.safe()
+            try realm.write { realm.add(row) }
+            let raw = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(owner)' to='\(owner)/ios'><received xmlns='\(delivery)'><origin-id xmlns='urn:xmpp:sid:0' id='\(id)'/><stanza-id xmlns='urn:xmpp:sid:0' id='archive-\(index)'/>\(value.0)</received></message>")
+            XCTAssertTrue(manager.readNotification(raw), "case \(index) still acknowledges the actual receipt")
+            realm.refresh()
+            XCTAssertEqual(row.date, value.1, "case \(index)")
+            XCTAssertEqual(row.sentDate, value.1, "case \(index)")
+            XCTAssertEqual(row.archivedId, "archive-\(index)")
+        }
+    }
+
     private func queued() throws -> MessageManager.MessageQueueItem {
         try XCTUnwrap(receiver.performMessageQueueSync { receiver.queuedMessages.first })
     }

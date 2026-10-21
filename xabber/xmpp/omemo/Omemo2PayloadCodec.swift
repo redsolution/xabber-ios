@@ -15,6 +15,40 @@ enum Omemo2PayloadCodec {
         case absent, unavailable
         case verified(OMEMOOriginalSendingTime)
     }
+    /// Locally constructed SCE affix, never receive/authentication provenance.
+    struct AuthoredTime {
+        let xml: String
+        let date: Date
+    }
+    struct PreparedOutgoingPayload {
+        let xml: String
+        let time: AuthoredTime
+    }
+
+    static func authoredTime(at date: Date = Date()) throws -> AuthoredTime {
+        let microseconds = (date.timeIntervalSince1970 * 1_000_000).rounded()
+        guard microseconds.isFinite, abs(microseconds) < 9_007_199_254_740_992 else {
+            throw OmemoManagerError.invalidDecryptedPayload
+        }
+        let seconds = floor(microseconds / 1_000_000)
+        let fraction = Int(microseconds - seconds * 1_000_000)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        let stamp = formatter.string(from: Date(timeIntervalSince1970: seconds))
+            + String(format: ".%06dZ", fraction)
+        let time = DDXMLElement(name: "time", xmlns: "urn:xmpp:sce:1")
+        time.addAttribute(withName: "stamp", stringValue: stamp)
+        guard let xml = time.compactXMLString else { throw OmemoManagerError.encryptionFailed }
+        let serialized = try DDXMLElement(xmlString: xml)
+        guard let written = serialized.attributeStringValue(forName: "stamp") else {
+            throw OmemoManagerError.invalidDecryptedPayload
+        }
+        return AuthoredTime(xml: xml, date: try timestamp(written))
+    }
+
     struct SealedPayload {
         let ciphertext: Data
         let keyAndMAC: Data
@@ -73,6 +107,10 @@ enum Omemo2PayloadCodec {
     /// Refresh only when preparing new ciphertext. Retransmitting an already
     /// encrypted stanza keeps its original protected timestamp and padding.
     static func prepareOutgoingXML(_ xml: String, encryptionTime: Date = Date()) throws -> String {
+        try prepareOutgoingPayload(xml, encryptionTime: encryptionTime).xml
+    }
+
+    static func prepareOutgoingPayload(_ xml: String, encryptionTime: Date = Date()) throws -> PreparedOutgoingPayload {
         let envelope = try parseEnvelope(xml)
         guard encryptionTime.timeIntervalSince1970.isFinite,
               SCEReceivePolicy.children(of: envelope, named: "content", xmlns: "urn:xmpp:sce:1").count == 1 else {
@@ -81,12 +119,11 @@ enum Omemo2PayloadCodec {
         let times = SCEReceivePolicy.children(of: envelope, named: "time", xmlns: "urn:xmpp:sce:1")
         guard times.count <= 1 else { throw OmemoManagerError.invalidDecryptedPayload }
         times.first?.detach()
-        let time = DDXMLElement(name: "time", xmlns: "urn:xmpp:sce:1")
-        time.addAttribute(withName: "stamp", stringValue: encryptionTime.XMPPFormattedDate)
-        envelope.addChild(time)
+        let time = try authoredTime(at: encryptionTime)
+        envelope.addChild(try DDXMLElement(xmlString: time.xml))
         try applyPadding(to: envelope)
         guard let result = envelope.compactXMLString else { throw OmemoManagerError.encryptionFailed }
-        return result
+        return PreparedOutgoingPayload(xml: result, time: time)
     }
 
     /// Strict XEP-0082 dateTime parsing. Calendar round-tripping rejects values

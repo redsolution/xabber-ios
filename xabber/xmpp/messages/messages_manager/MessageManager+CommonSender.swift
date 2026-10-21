@@ -336,6 +336,7 @@ extension MessageManager {
             savedBody.stringValue = contentBody
             stanzaToSave.addChild(savedBody)
 
+            var encryptedAuthoredTime: Omemo2PayloadCodec.AuthoredTime?
             switch conversationType {
             case .omemo, .omemo1, .axolotl:
                 guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
@@ -346,10 +347,11 @@ extension MessageManager {
                     return false
                 }
                 do {
-                    guard let encrypted = try AccountManager.shared.find(for: self.owner)?.omemo.encryptMessage(message: payload, to: item.opponent) else {
+                    guard let prepared = try AccountManager.shared.find(for: self.owner)?.omemo.encryptPreparedMessage(message: payload, to: item.opponent) else {
                         throw OmemoManagerError.encryptionFailed
                     }
-                    stanza.addChild(encrypted)
+                    stanza.addChild(prepared.element)
+                    if conversationType == .omemo { encryptedAuthoredTime = prepared.time }
                 } catch {
                     failEncryptedSend(error)
                     return false
@@ -377,10 +379,18 @@ extension MessageManager {
                 messagePrimary: item.primary,
                 originId: item.messageId,
                 stanzaXML: stanzaToSave.xmlString,
-                createdAt: item.date,
+                createdAt: item.conversationType == .omemo ? item.outgoingOperationalDate : item.date,
                 replayRequired: retry
             )
             try realm.write {
+                if let encryptedAuthoredTime {
+                    item.applyOutgoingAuthoredTime(encryptedAuthoredTime)
+                    if let chat = realm.object(ofType: LastChatsStorageItem.self,
+                        forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: item.owner, conversationType: item.conversationType)),
+                       chat.lastMessage?.primary == item.primary || chat.lastMessageId == item.messageId {
+                        chat.messageDate = encryptedAuthoredTime.date
+                    }
+                }
                 if item.displayAs != .system {
                     if item.conversationType.isEncrypted {
                         if let conversation = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: item.owner, conversationType: item.conversationType)) {
@@ -390,7 +400,7 @@ extension MessageManager {
                                 stanza.addChild(ephemeralElement)
                                 item.applyAutoDeleteTTL(
                                     conversation.afterburnInterval,
-                                    startsAt: item.sentDate,
+                                    startsAt: item.outgoingOperationalDate,
                                     policyVersion: conversation.autoDeletePolicyVersion
                                 )
                             }
@@ -1156,14 +1166,20 @@ extension MessageManager {
             row.configureOutgoingMessage(visibleBody, legacy: ownProjection.legacyBody, messageId: messageID,
                 owner: owner, opponent: conversationJID, references: projection,
                 inlineForwards: parseInlineMessages(finalRaw, parentId: primary, jid: conversationJID, owner: owner))
-            row.date = batchDate.addingTimeInterval(Double(index) * 0.000_001)
+            let authoredDate = batchDate.addingTimeInterval(Double(index) * 0.000_001)
+            row.date = authoredDate
             row.sentDate = row.date
+            if conversationType == .omemo {
+                row.applyOutgoingAuthoredTime(try Omemo2PayloadCodec.authoredTime(at: authoredDate))
+            }
             if last {
                 row.groupMentionIntent = groupMentionIntent
                 row.groupMentionSenderRole = groupMentionSenderRole
                 row.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
             }
-            row.systemMetadata = ["forwardPreparedVersion": 1]
+            var preparedMetadata = row.systemMetadata ?? [:]
+            preparedMetadata["forwardPreparedVersion"] = 1
+            row.systemMetadata = preparedMetadata
             row.state = requiresUpload && last ? .uploading : (conversationType == .regular ? .sending : .notSended)
             if requiresUpload && last {
                 var metadata = row.systemMetadata ?? [:]
@@ -1305,6 +1321,9 @@ extension MessageManager {
                                                                               isReport: isReport,
                                                                               owner: owner,
                                                                               jid: conversationJID))
+            if conversationType == .omemo {
+                instance.applyOutgoingAuthoredTime(try Omemo2PayloadCodec.authoredTime())
+            }
             instance.groupMentionIntent = groupMentionIntent
             instance.groupMentionSenderRole = groupMentionSenderRole
             instance.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
@@ -1448,6 +1467,9 @@ extension MessageManager {
                                                                               owner: owner,
                                                                               jid: conversationJID))
             instance.conversationType = conversationType
+            if conversationType == .omemo {
+                instance.applyOutgoingAuthoredTime(try Omemo2PayloadCodec.authoredTime())
+            }
             instance.state = .uploading
             instance.updatePrimary()
             instance.references.forEach {

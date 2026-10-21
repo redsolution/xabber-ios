@@ -353,7 +353,16 @@ extension OmemoManager {
         }
     }
 
+    struct PreparedEncryptedMessage {
+        let element: DDXMLElement
+        let time: Omemo2PayloadCodec.AuthoredTime
+    }
+
     func encryptMessage(message: String, to jid: String) throws -> DDXMLElement? {
+        try encryptPreparedMessage(message: message, to: jid).element
+    }
+
+    internal func encryptPreparedMessage(message: String, to jid: String) throws -> PreparedEncryptedMessage {
         try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
         let storage = try ensureOMEMO2Prepared()
         let localID = try storage.localBundle().deviceID
@@ -367,8 +376,8 @@ extension OmemoManager {
             .filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND state_ == %@", owner, jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
             .toArray().filter { !(jid == owner && $0.deviceId == localID) }
         guard !recipients.isEmpty else { throw OmemoManagerError.noTrustedRecipientDevices }
-        let prepared = try Omemo2PayloadCodec.prepareOutgoingXML(message)
-        let sealed = try Omemo2PayloadCodec.seal(prepared)
+        let prepared = try Omemo2PayloadCodec.prepareOutgoingPayload(message)
+        let sealed = try Omemo2PayloadCodec.seal(prepared.xml)
         let encrypted = DDXMLElement(name: "encrypted", xmlns: Self.xmlns)
         let header = DDXMLElement(name: "header", xmlns: Self.xmlns)
         header.addAttribute(withName: "sid", integerValue: localID)
@@ -391,7 +400,7 @@ extension OmemoManager {
         let payload = DDXMLElement(name: "payload", xmlns: Self.xmlns)
         payload.stringValue = sealed.ciphertext.base64EncodedString()
         encrypted.addChild(payload)
-        return encrypted
+        return PreparedEncryptedMessage(element: encrypted, time: prepared.time)
     }
 
     /// Protocol acknowledgements target exactly the sender's device. They never

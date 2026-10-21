@@ -1924,6 +1924,25 @@ class MessageStorageItem: Object {
 //        }
     }
     
+    internal var outgoingOperationalDate: Date {
+        guard outgoing, let value = systemMetadata?["localOutgoingOperationalReferenceDate"] as? Double,
+              value.isFinite else { return sentDate }
+        return Date(timeIntervalSinceReferenceDate: value)
+    }
+
+    internal func applyOutgoingAuthoredTime(_ time: Omemo2PayloadCodec.AuthoredTime) {
+        var metadata = systemMetadata ?? [:]
+        // This clock belongs to queue/TTL policy, never displayed chronology.
+        if metadata["localOutgoingOperationalReferenceDate"] == nil {
+            metadata["localOutgoingOperationalReferenceDate"] = sentDate.timeIntervalSinceReferenceDate
+        }
+        date = time.date
+        sentDate = time.date
+        references.forEach { $0.sentDate = time.date }
+        metadata["localAuthoredSCETime"] = time.xml
+        systemMetadata = metadata
+    }
+
     func configureOutgoingMessage(_ body: String, legacy: String, messageId: String, owner: String, opponent: String, references: [MessageReferenceStorageItem], inlineForwards: [MessageForwardsInlineStorageItem]) {
         self.inlineForwards.append(objectsIn: inlineForwards)
         self.references.append(objectsIn: references)

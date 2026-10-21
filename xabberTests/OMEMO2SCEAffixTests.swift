@@ -244,6 +244,38 @@ final class OMEMO2SCEAffixTests: XCTestCase {
         XCTAssertEqual(opened.timeValidation, .absent)
     }
 
+    func testPreparedPayloadExposesExactSerializedFreshTimeForTheOutgoingProjection() throws {
+        let original = envelope(affixes: bindingAffixes + timeAffix(historicTime))
+        let now = Date(timeIntervalSince1970: 1_792_569_001.123456)
+        let prepared = try Omemo2PayloadCodec.prepareOutgoingPayload(original, encryptionTime: now)
+        let sealed = try Omemo2PayloadCodec.seal(prepared.xml)
+        let opened = try XCTUnwrap(Omemo2PayloadCodec.openVerified(sealed.ciphertext, keyAndMAC: sealed.keyAndMAC,
+            expectedFrom: alice, expectedTo: bob,
+            originalSendingTime: OMEMOOriginalSendingTime(date: prepared.time.date, source: .caller)))
+        let tag = try XCTUnwrap(qualified(opened.envelope, "time").first)
+        let tagged = try Omemo2PayloadCodec.timestamp(XCTUnwrap(tag.attributeStringValue(forName: "stamp")))
+        XCTAssertEqual(prepared.time.date, tagged)
+        XCTAssertEqual(opened.timeValidation, .verified(OMEMOOriginalSendingTime(date: tagged, source: .caller)))
+        let row = MessageStorageItem()
+        row.outgoing = true
+        // One reference-date ULP is lost when converted through the larger
+        // Unix epoch Double; keep this precision regression deterministic.
+        let operational = Date(timeIntervalSinceReferenceDate: (814_000_000.0).nextUp)
+        row.sentDate = operational
+        row.applyOutgoingAuthoredTime(prepared.time)
+        XCTAssertEqual(row.outgoingOperationalDate.timeIntervalSinceReferenceDate,
+            operational.timeIntervalSinceReferenceDate, "operational precision in reference-date seconds")
+        row.applyOutgoingAuthoredTime(try Omemo2PayloadCodec.authoredTime(at: now.addingTimeInterval(10)))
+        XCTAssertEqual(row.outgoingOperationalDate, operational, "New ciphertext cannot move retry/TTL clocks")
+        row.applyOutgoingAuthoredTime(prepared.time)
+        XCTAssertEqual(row.date, tagged)
+        XCTAssertEqual(row.sentDate, tagged)
+        XCTAssertEqual(row.systemMetadata?["localAuthoredSCETime"] as? String, prepared.time.xml)
+        XCTAssertEqual(prepared.time.date.timeIntervalSince1970, now.timeIntervalSince1970, accuracy: 0.000_001)
+        XCTAssertThrowsError(try Omemo2PayloadCodec.authoredTime(at: Date(timeIntervalSince1970: .nan)))
+        XCTAssertTrue(original.contains(timeAffix(historicTime)), "Preparing a new payload cannot rewrite its input snapshot")
+    }
+
     func testFinalOutgoingWriterRefreshesStaleProtectedTimeAndPadding() throws {
         let before = Date()
         let prepared = try Omemo2PayloadCodec.prepareOutgoingXML(envelope(affixes: bindingAffixes + timeAffix(historicTime)))

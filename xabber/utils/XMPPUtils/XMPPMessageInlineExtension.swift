@@ -285,45 +285,51 @@ func getQueryId(_ message: XMPPMessage) -> String? {
 
 /// A received display date comes only from the owned time/delay path. This is
 /// separate from the replacement-version timestamp used to authenticate edits.
+private enum QualifiedMessageDateError: Error { case invalid }
+
+private func qualifiedMessageTagDate(_ element: DDXMLElement) throws -> Date {
+    let stamps = (element.attributes ?? []).filter { $0.localName == "stamp" }
+    guard stamps.count == 1, stamps[0].name == "stamp", (stamps[0].uri ?? "").isEmpty,
+          let value = stamps[0].stringValue,
+          !(element.children ?? []).contains(where: { $0 is DDXMLElement }) else {
+        throw QualifiedMessageDateError.invalid
+    }
+    return try Omemo2PayloadCodec.timestamp(value)
+}
+
+/// Direct qualified delivery clocks, for original stanzas and their actual receipt container.
+func qualifiedDeliveryMessageDate(_ container: DDXMLElement, owner: String) throws -> Date? {
+    let delivery = try SCEReceivePolicy.children(of: container, named: "time", xmlns: "https://xabber.com/protocol/delivery").map { element -> (by: String?, date: Date) in
+        let attributes = (element.attributes ?? []).filter { $0.localName == "by" }
+        guard attributes.count <= 1 else { throw QualifiedMessageDateError.invalid }
+        let authority = attributes.first?.stringValue
+        if let attribute = attributes.first {
+            guard attribute.name == "by", (attribute.uri ?? "").isEmpty,
+                  let authority, let jid = XMPPJID(string: authority), jid.bare == authority else {
+                throw QualifiedMessageDateError.invalid
+            }
+        }
+        return (authority, try qualifiedMessageTagDate(element))
+    }
+    if delivery.count > 1 {
+        let authorities = delivery.compactMap(\.by)
+        guard authorities.count == delivery.count, Set(authorities).count == authorities.count else { return nil }
+        return delivery.first(where: { $0.by == owner })?.date
+    }
+    guard let value = delivery.first, value.by == nil || value.by == owner else { return nil }
+    return value.date
+}
+
 func getReceivedMessageDate(_ message: XMPPMessage, owner: String) -> Date? {
-    enum InvalidDateMetadata: Error { case invalid }
     do {
         let path = try OmemoManager.incomingPath(message, owner: owner)
         guard let leaf = path.last else { return nil }
-        func date(_ element: DDXMLElement) throws -> Date {
-            let stamps = (element.attributes ?? []).filter { $0.localName == "stamp" }
-            guard stamps.count == 1, stamps[0].name == "stamp", (stamps[0].uri ?? "").isEmpty,
-                  let value = stamps[0].stringValue,
-                  !(element.children ?? []).contains(where: { $0 is DDXMLElement }) else {
-                throw InvalidDateMetadata.invalid
-            }
-            return try Omemo2PayloadCodec.timestamp(value)
-        }
         func singularDate(_ element: DDXMLElement, name: String, xmlns: String) throws -> Date? {
             let nodes = SCEReceivePolicy.children(of: element, named: name, xmlns: xmlns)
-            guard nodes.count <= 1 else { throw InvalidDateMetadata.invalid }
-            return try nodes.first.map(date)
+            guard nodes.count <= 1 else { throw QualifiedMessageDateError.invalid }
+            return try nodes.first.map(qualifiedMessageTagDate)
         }
-        let delivery = try SCEReceivePolicy.children(of: leaf, named: "time", xmlns: "https://xabber.com/protocol/delivery").map { element -> (by: String?, date: Date) in
-            let attributes = (element.attributes ?? []).filter { $0.localName == "by" }
-            guard attributes.count <= 1 else { throw InvalidDateMetadata.invalid }
-            let authority = attributes.first?.stringValue
-            if let attribute = attributes.first {
-                guard attribute.name == "by", (attribute.uri ?? "").isEmpty,
-                      let authority, let jid = XMPPJID(string: authority), jid.bare == authority else {
-                    throw InvalidDateMetadata.invalid
-                }
-            }
-            return (authority, try date(element))
-        }
-        var selected: Date?
-        if delivery.count > 1 {
-            let authorities = delivery.compactMap(\.by)
-            guard authorities.count == delivery.count, Set(authorities).count == authorities.count else { return nil }
-            selected = delivery.first(where: { $0.by == owner })?.date
-        } else if let value = delivery.first, value.by == nil || value.by == owner {
-            selected = value.date
-        }
+        var selected = try qualifiedDeliveryMessageDate(leaf, owner: owner)
         if let forwarded = path.dropLast().last(where: {
             SCEReceivePolicy.matches($0, name: "forwarded", namespace: "urn:xmpp:forward:0")
         }), let archived = try singularDate(forwarded, name: "delay", xmlns: "urn:xmpp:delay") {

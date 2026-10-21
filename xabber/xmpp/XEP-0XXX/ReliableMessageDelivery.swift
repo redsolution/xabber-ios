@@ -261,7 +261,7 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
         let receipt = XabberDeliveryReceipt(
             originId: elementId,
             stanzaId: stanzaId,
-            stamp: received.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate
+            stamp: try? qualifiedDeliveryMessageDate(received, owner: owner)
         )
         if !applyDeliveryReceipt(receipt) {
             scheduleDeliveryReceiptRetry(receipt, attemptsRemaining: 2)

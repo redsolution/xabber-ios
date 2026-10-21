@@ -345,6 +345,62 @@ final class ForwardSendLifecycleTests: XCTestCase {
         XCTAssertEqual(admissions.count, 1)
     }
 
+    func testOrdinaryOMEMOAdmissionPublishesOnlyItsActualAuthoredSCEClock() throws {
+        let manager = try makeManager()
+        var captured: [(Date, Date, String?)] = []
+        manager.localOutgoingAdmissionPublisher = { [self] admission in
+            guard let row = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: admission.primaryID) else { return }
+            captured.append((row.date, row.sentDate, row.systemMetadata?["localAuthoredSCETime"] as? String))
+        }
+        XCTAssertFalse(manager.sendSimpleMessage("pending authored text", to: peer, forwarded: [], conversationType: .omemo).isEmpty)
+        XCTAssertEqual(captured.count, 1)
+        let value = try XCTUnwrap(captured.first)
+        let tag = try DDXMLElement(xmlString: XCTUnwrap(value.2, "A published user row needs its actual authored SCE tag"))
+        XCTAssertTrue(SCEReceivePolicy.matches(tag, name: "time", namespace: "urn:xmpp:sce:1"))
+        let tagged = try Omemo2PayloadCodec.timestamp(XCTUnwrap(tag.attributeStringValue(forName: "stamp")))
+        XCTAssertEqual(value.0, tagged)
+        XCTAssertEqual(value.1, tagged)
+    }
+
+    func testOMEMOForwardBatchPreservesAuthoredTagsBeforePublicationWithoutRetimingOriginals() throws {
+        let original = try donatedSource(id: "dated-original", body: "old original", at: 123.456)
+        let manager = try makeManager()
+        var captured: [(Date, Date, String?)] = []
+        manager.localOutgoingAdmissionPublisher = { [self] admission in
+            guard let row = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: admission.primaryID) else { return }
+            captured.append((row.date, row.sentDate, row.systemMetadata?["localAuthoredSCETime"] as? String))
+        }
+        XCTAssertFalse(manager.sendSimpleMessage("new comment", to: peer, forwarded: [original], conversationType: .omemo).isEmpty)
+        XCTAssertEqual(captured.count, 2)
+        for value in captured {
+            let tag = try DDXMLElement(xmlString: XCTUnwrap(value.2, "Forward metadata cannot erase the actual author tag"))
+            let tagged = try Omemo2PayloadCodec.timestamp(XCTUnwrap(tag.attributeStringValue(forName: "stamp")))
+            XCTAssertEqual(value.0, tagged)
+            XCTAssertEqual(value.1, tagged)
+        }
+        let source = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: original))
+        XCTAssertEqual(source.date, Date(timeIntervalSince1970: 123.456))
+    }
+
+    func testTypedEncryptedResultDateMatchesTheActualRealBackendPayloadTime() throws {
+        let f = try cryptoFixture()
+        let payload = try XCTUnwrap(f.alice.prepareStanzaContent(message: "fresh outgoing clock", date: .distantPast,
+            jid: f.bob.owner, additionalContent: [], ignoreTimeSignature: true))
+        let prepared = try f.alice.encryptPreparedMessage(message: payload, to: f.bob.owner)
+        let header = try XCTUnwrap(prepared.element.element(forName: "header", xmlns: "urn:xmpp:omemo:2"))
+        let key = try XCTUnwrap(header.element(forName: "keys", xmlns: "urn:xmpp:omemo:2")?
+            .element(forName: "key", xmlns: "urn:xmpp:omemo:2"))
+        let wrapped = try OMEMO2Ciphertext(data: XCTUnwrap(Data(base64Encoded: key.stringValue ?? "")),
+            keyExchange: key.attributeStringValue(forName: "kex") == "true")
+        let opening = try XCTUnwrap(f.bob.omemo2Storage).decrypt(wrapped, jid: f.alice.owner, deviceID: 41)
+        let ciphertext = try XCTUnwrap(Data(base64Encoded: prepared.element.element(forName: "payload", xmlns: "urn:xmpp:omemo:2")?.stringValue ?? ""))
+        let opened = try XCTUnwrap(Omemo2PayloadCodec.openVerified(ciphertext, keyAndMAC: opening,
+            expectedFrom: f.alice.owner, expectedTo: f.bob.owner,
+            originalSendingTime: OMEMOOriginalSendingTime(date: prepared.time.date, source: .caller)))
+        let actual = try XCTUnwrap(SCEReceivePolicy.children(of: opened.envelope, named: "time", xmlns: "urn:xmpp:sce:1").first)
+        XCTAssertEqual(try Omemo2PayloadCodec.timestamp(XCTUnwrap(actual.attributeStringValue(forName: "stamp"))), prepared.time.date)
+    }
+
     // MARK: - Persisted wire fixtures
 
     private func makeManager(memory: Memory = Memory()) throws -> MessageManager {
@@ -512,7 +568,14 @@ final class ForwardSendLifecycleTests: XCTestCase {
     }
 
     private func verified(_ wire: XMPPMessage, by recipient: OmemoManager) throws -> XMPPMessage {
-        guard case let .verified(clean, _, _) = recipient.prepareIncoming(wire) else {
+        // This unit transport fixture supplies the same qualified server clock
+        // now required of real live delivery; raw outgoing wire has no receipt.
+        let delivered = XMPPMessage(from: wire.copy() as! DDXMLElement)
+        let clock = DDXMLElement(name: "time", xmlns: "https://xabber.com/protocol/delivery")
+        clock.addAttribute(withName: "by", stringValue: recipient.owner)
+        clock.addAttribute(withName: "stamp", stringValue: Date().XMPPFormattedDate)
+        delivered.addChild(clock)
+        guard case let .verified(clean, _, _) = recipient.prepareIncoming(delivered) else {
             XCTFail("Expected an authenticated OMEMO2 final carrier")
             throw OMEMO2StorageError.invalidState
         }
