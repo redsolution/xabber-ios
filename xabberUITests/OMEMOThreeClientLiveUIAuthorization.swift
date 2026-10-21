@@ -72,6 +72,16 @@ enum OMEMOThreeClientLiveUIAuthorization {
         let closeControls: [ElementVisibilityWitness]
     }
 
+    struct MessageBodyWitness {
+        let text: String
+        let visibility: ElementVisibilityWitness
+    }
+
+    static func hasVisibleExactBody(_ expected: String, cell: ElementVisibilityWitness, bodies: [MessageBodyWitness]) -> Bool {
+        guard bodies.count == 1, bodies[0].text == expected, isVisible(cell) else { return false }
+        return isVisibleContainer(bodies[0].visibility)
+    }
+
     static func hasExactlyOneReadyPhotoGallery(identifier: String, witnesses: [PhotoGalleryWitness]) -> Bool {
         guard witnesses.count == 1, let gallery = witnesses.first, gallery.identifier == identifier,
               isVisibleContainer(gallery.root), gallery.readyCells.count == 1,

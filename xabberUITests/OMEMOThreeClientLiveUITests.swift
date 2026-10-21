@@ -163,8 +163,13 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
                 return OMEMOThreeClientLiveUIAuthorization.VisibleMessageWitness(
                     collectionIdentifier: collection.identifier, cellIdentifier: cell.identifier,
                     body: texts.count == 1 ? texts.element(boundBy: 0).label : "",
-                    isVisible: texts.count == 1 && self.isVisible(cell, in: app)
-                        && self.isVisible(texts.element(boundBy: 0), in: app))
+                    isVisible: OMEMOThreeClientLiveUIAuthorization.hasVisibleExactBody(body,
+                        cell: self.visibilityWitness(cell, in: app, requiresHittability: true),
+                        bodies: (0..<min(texts.count, 2)).map { index in
+                            let text = texts.element(boundBy: index)
+                            return .init(text: text.label,
+                                visibility: self.visibilityWitness(text, in: app, requiresHittability: false))
+                        }))
             }
             return OMEMOThreeClientLiveUIAuthorization.hasExactlyOneVisibleMessage(id: messageID, body: body, witnesses: witnesses)
         }
@@ -231,6 +236,13 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
         guard element.exists else { return false }
         return OMEMOThreeClientLiveUIAuthorization.isVisible(.init(
             exists: true, isHittable: element.isHittable, frame: element.frame, viewport: app.frame))
+    }
+
+    private func visibilityWitness(_ element: XCUIElement, in app: XCUIApplication,
+                                   requiresHittability: Bool) -> OMEMOThreeClientLiveUIAuthorization.ElementVisibilityWitness {
+        guard element.exists else { return .init(exists: false, isHittable: false, frame: .zero, viewport: app.frame) }
+        return .init(exists: true, isHittable: requiresHittability && element.isHittable,
+            frame: element.frame, viewport: app.frame)
     }
 
     private func isVisibleContainer(_ element: XCUIElement, in app: XCUIApplication) -> Bool {

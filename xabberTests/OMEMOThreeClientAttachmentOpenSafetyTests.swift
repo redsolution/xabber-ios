@@ -125,6 +125,39 @@ final class OMEMOThreeClientAttachmentOpenSafetyTests: XCTestCase {
         }
     }
 
+    private func messageBody(_ text: String? = nil, exists: Bool = true, hittable: Bool = false,
+                             offscreen: Bool = false) -> Policy.MessageBodyWitness {
+        let viewport = CGRect(x: 0, y: 0, width: 390, height: 844)
+        return .init(text: text ?? body, visibility: .init(exists: exists, isHittable: hittable,
+            frame: CGRect(x: 20, y: offscreen ? 900 : 725, width: 154, height: 21), viewport: viewport))
+    }
+
+    func testExactReadOnlyBodyCanBeVisibleWithoutBeingAHitTargetInsideHittableCell() {
+        XCTAssertTrue(Policy.hasVisibleExactBody(body, cell: gallery().root, bodies: [messageBody()]))
+    }
+
+    func testReadOnlyBodyRejectsWrongDuplicateMissingOffscreenOrCoveredCellEvidence() {
+        for bodies in [[], [messageBody("another body", hittable: true)],
+                       [messageBody(hittable: true), messageBody(hittable: true)],
+                       [messageBody(exists: false, hittable: true)], [messageBody(hittable: true, offscreen: true)]] {
+            XCTAssertFalse(Policy.hasVisibleExactBody(body, cell: gallery().root, bodies: bodies))
+        }
+        XCTAssertFalse(Policy.hasVisibleExactBody(body, cell: gallery(rootHittable: false).root,
+            bodies: [messageBody(hittable: true)]))
+    }
+
+    func testVisibleBodyCannotReplaceExactMessageIdentityOrGalleryReference() {
+        let visible = Policy.hasVisibleExactBody(body, cell: gallery().root, bodies: [messageBody(hittable: true)])
+        XCTAssertTrue(visible)
+        XCTAssertFalse(Policy.hasExactlyOneVisibleMessage(id: messageID, body: body, witnesses: [
+            .init(collectionIdentifier: Policy.conversationCollectionIdentifier,
+                cellIdentifier: Policy.messageIdentifierPrefix("different-message") + Data("primary".utf8).base64EncodedString(),
+                body: body, isVisible: visible)
+        ]))
+        XCTAssertFalse(Policy.hasExactlyOneReadyPhotoGallery(identifier: "authorized-gallery",
+            witnesses: [gallery(identifier: "other-reference")]))
+    }
+
     func testOpenRequiresSeparateExplicitOptInBeforeCreatingApplication() throws {
         var env = try environment(); env[prefix + "OPEN_ATTACHMENT"] = nil
         XCTAssertNil(try authorize(env))
