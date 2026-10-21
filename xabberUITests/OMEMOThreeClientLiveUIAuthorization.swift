@@ -65,6 +65,21 @@ enum OMEMOThreeClientLiveUIAuthorization {
             && witness.frame.intersects(witness.viewport)
     }
 
+    struct PhotoGalleryWitness {
+        let identifier: String
+        let root: ElementVisibilityWitness
+        let readyCells: [ElementVisibilityWitness]
+        let closeControls: [ElementVisibilityWitness]
+    }
+
+    static func hasExactlyOneReadyPhotoGallery(identifier: String, witnesses: [PhotoGalleryWitness]) -> Bool {
+        guard witnesses.count == 1, let gallery = witnesses.first, gallery.identifier == identifier,
+              isVisibleContainer(gallery.root), gallery.readyCells.count == 1,
+              isVisibleContainer(gallery.readyCells[0]), gallery.closeControls.count == 1,
+              isVisible(gallery.closeControls[0]) else { return false }
+        return true
+    }
+
     static let conversationCollectionIdentifier = "chat.conversation.messages"
 
     static func messageIdentifierPrefix(_ id: String) -> String {
@@ -208,9 +223,10 @@ enum OMEMOThreeClientLiveUIAuthorization {
             case .openAttachment, .dismissAttachment:
                 attachment = try decodeAttachment(records.first(where: { $0["id"] as? String == rawID })?["attachments"])
                 if case .dismissAttachment = operation {
-                    guard let attachment, [.file, .audio, .video].contains(attachment.kind),
+                    guard let attachment, [.image, .file, .audio, .video].contains(attachment.kind),
                           let label = environment[prefix + "DISMISS_LABEL"],
-                          ["Close", "Done", "Закрыть", "Готово"].contains(label) else {
+                          ["Close", "Done", "Закрыть", "Готово"].contains(label),
+                          attachment.kind != .image || ["Close", "Закрыть"].contains(label) else {
                         throw reject("System dismissal requires an exact modal attachment and an actually observed canonical Close/Done label.")
                     }
                     dismissLabel = label

@@ -63,12 +63,13 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
             let viewers = app.descendants(matching: .any).matching(identifier:
                 OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media))
             try wait(for: "the normal viewer bound to the exact authorized reference", app: app) {
-                guard viewers.count == 1, self.isVisible(viewers.element(boundBy: 0), in: app) else { return false }
+                guard viewers.count == 1 else { return false }
                 if media.kind == .image {
-                    let ready = viewers.element(boundBy: 0).cells.matching(identifier: "chat.media.photo.ready")
-                    return ready.count == 1 && self.isVisible(ready.element(boundBy: 0), in: app)
+                    return OMEMOThreeClientLiveUIAuthorization.hasExactlyOneReadyPhotoGallery(
+                        identifier: OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media),
+                        witnesses: self.photoGalleryWitnesses(in: app))
                 }
-                return true
+                return viewers.count == 1 && self.isVisibleContainer(viewers.element(boundBy: 0), in: app)
             }
             // System video/audio/file roots establish opening only; they do not prove playback or sound.
             attachPrivateEvidence(app, authorization: authorization, stage: "normal-\(media.kind.rawValue)-viewer-open")
@@ -96,9 +97,17 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
             let viewers = app.descendants(matching: .any).matching(identifier:
                 OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media))
             try wait(for: "one viewer bound to the exact authorized attachment", app: app) {
-                viewers.count == 1 && self.isVisible(viewers.element(boundBy: 0), in: app)
+                guard viewers.count == 1 else { return false }
+                if media.kind == .image {
+                    return OMEMOThreeClientLiveUIAuthorization.hasExactlyOneReadyPhotoGallery(
+                        identifier: OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media),
+                        witnesses: self.photoGalleryWitnesses(in: app))
+                }
+                return viewers.count == 1 && self.isVisibleContainer(viewers.element(boundBy: 0), in: app)
             }
-            let close = viewers.element(boundBy: 0).descendants(matching: .button).matching(NSPredicate(format: "label == %@", label))
+            let close = media.kind == .image
+                ? app.buttons.matching(identifier: "chat.media.photo.close").matching(NSPredicate(format: "label == %@", label))
+                : viewers.element(boundBy: 0).descendants(matching: .button).matching(NSPredicate(format: "label == %@", label))
             try wait(for: "the actually observed normal dismissal button inside that viewer", app: app) {
                 close.count == 1 && self.isVisible(close.element(boundBy: 0), in: app)
             }
@@ -230,6 +239,22 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
             exists: true, isHittable: false, frame: element.frame, viewport: app.frame))
     }
 
+    private func photoGalleryWitnesses(in app: XCUIApplication) -> [OMEMOThreeClientLiveUIAuthorization.PhotoGalleryWitness] {
+        func witness(_ element: XCUIElement, requiresHittability: Bool = false) -> OMEMOThreeClientLiveUIAuthorization.ElementVisibilityWitness {
+            guard element.exists else { return .init(exists: false, isHittable: false, frame: .zero, viewport: app.frame) }
+            return .init(exists: true, isHittable: requiresHittability && element.isHittable, frame: element.frame, viewport: app.frame)
+        }
+        let galleries = app.collectionViews.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.media.photo.gallery."))
+        let close = app.buttons.matching(identifier: "chat.media.photo.close")
+        return (0..<min(galleries.count, 2)).map { index in
+            let gallery = galleries.element(boundBy: index)
+            let ready = gallery.cells.matching(identifier: "chat.media.photo.ready")
+            return .init(identifier: gallery.identifier, root: witness(gallery),
+                readyCells: (0..<min(ready.count, 2)).map { witness(ready.element(boundBy: $0)) },
+                closeControls: (0..<min(close.count, 2)).map { witness(close.element(boundBy: $0), requiresHittability: true) })
+        }
+    }
+
     private func attachExactVisibilityDiagnostic(
         _ app: XCUIApplication,
         authorization: OMEMOThreeClientLiveUIAuthorization.Configuration
@@ -247,6 +272,27 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
         }
         let collections = app.collectionViews.matching(identifier: OMEMOThreeClientLiveUIAuthorization.conversationCollectionIdentifier)
         values.append("exactCollectionCount=\(collections.count)")
+        if let media = authorization.attachment, media.kind != .voice {
+            let viewers = app.descendants(matching: .any).matching(identifier:
+                OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media))
+            values.append("exactViewerCount=\(viewers.count)")
+            if viewers.count == 1 {
+                let viewer = viewers.element(boundBy: 0)
+                sample("viewer", viewer)
+                if media.kind == .image {
+                    let ready = viewer.cells.matching(identifier: "chat.media.photo.ready")
+                    values.append("exactDecodedReadyCount=\(ready.count)")
+                    if ready.count > 0 { sample("decodedReady", ready.element(boundBy: 0)) }
+                    let close = app.buttons.matching(identifier: "chat.media.photo.close")
+                    values.append("exactGalleryCloseCount=\(close.count)")
+                    if close.count > 0 { sample("galleryClose", close.element(boundBy: 0)) }
+                } else if let label = authorization.dismissLabel {
+                    let close = viewer.descendants(matching: .button).matching(NSPredicate(format: "label == %@", label))
+                    values.append("exactObservedCloseCount=\(close.count)")
+                    if close.count > 0 { sample("observedClose", close.element(boundBy: 0)) }
+                }
+            }
+        }
         if collections.count == 1 {
             let collection = collections.element(boundBy: 0)
             sample("collection", collection)

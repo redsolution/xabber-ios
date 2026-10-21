@@ -75,6 +75,56 @@ final class OMEMOThreeClientAttachmentOpenSafetyTests: XCTestCase {
             exists: true, isHittable: true, frame: viewport, viewport: .zero)))
     }
 
+    private func gallery(identifier: String = "authorized-gallery", rootHittable: Bool = true,
+                         readyHittable: Bool = true, closeHittable: Bool = true,
+                         readyCount: Int = 1, closeCount: Int = 1) -> Policy.PhotoGalleryWitness {
+        let viewport = CGRect(x: 0, y: 0, width: 390, height: 844)
+        func element(_ hittable: Bool) -> Policy.ElementVisibilityWitness {
+            .init(exists: true, isHittable: hittable, frame: viewport, viewport: viewport)
+        }
+        return .init(identifier: identifier, root: element(rootHittable),
+            readyCells: Array(repeating: element(readyHittable), count: readyCount),
+            closeControls: Array(repeating: element(closeHittable), count: closeCount))
+    }
+
+    func testDecodedGalleryRootAndReadyStateNeedOnlyGeometryWhenExactCloseIsHittable() {
+        XCTAssertTrue(Policy.hasExactlyOneReadyPhotoGallery(identifier: "authorized-gallery",
+            witnesses: [gallery(rootHittable: false, readyHittable: false)]))
+    }
+
+    func testPhotoGalleryReadinessRejectsOtherReferencesAndAmbiguousRootsOrReadyCells() {
+        for witnesses in [[], [gallery(identifier: "other-gallery")], [gallery(), gallery()],
+                          [gallery(readyCount: 0)], [gallery(readyCount: 2)]] {
+            XCTAssertFalse(Policy.hasExactlyOneReadyPhotoGallery(identifier: "authorized-gallery", witnesses: witnesses))
+        }
+        let value = gallery()
+        let offscreen = Policy.ElementVisibilityWitness(exists: true, isHittable: true,
+            frame: CGRect(x: 0, y: 900, width: 64, height: 64), viewport: value.root.viewport)
+        XCTAssertFalse(Policy.hasExactlyOneReadyPhotoGallery(identifier: "authorized-gallery", witnesses: [
+            .init(identifier: value.identifier, root: value.root, readyCells: [offscreen], closeControls: value.closeControls)
+        ]))
+    }
+
+    func testPhotoGalleryReadinessRequiresOneActuallyHittableClose() {
+        for value in [gallery(closeHittable: false), gallery(closeCount: 0), gallery(closeCount: 2)] {
+            XCTAssertFalse(Policy.hasExactlyOneReadyPhotoGallery(identifier: "authorized-gallery", witnesses: [value]))
+        }
+    }
+
+    func testImageDismissRequiresObservedGalleryCloseAndTheSameExactManifest() throws {
+        for label in ["Close", "Закрыть"] {
+            var env = try environment()
+            env[prefix + "DISMISS_ATTACHMENT"] = "1"; env[prefix + "DISMISS_LABEL"] = label
+            var config: Policy.Configuration?
+            XCTAssertNoThrow(config = try authorize(env, operation: .dismissAttachment))
+            XCTAssertEqual(config?.attachment?.kind, .image)
+            for other in ["Done", "Готово", "Delete"] {
+                env[prefix + "DISMISS_LABEL"] = other
+                XCTAssertThrowsError(try authorize(env, operation: .dismissAttachment))
+            }
+        }
+    }
+
     func testOpenRequiresSeparateExplicitOptInBeforeCreatingApplication() throws {
         var env = try environment(); env[prefix + "OPEN_ATTACHMENT"] = nil
         XCTAssertNil(try authorize(env))
