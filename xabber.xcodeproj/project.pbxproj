@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A32110210000000000000003 /* OMEMOThreeClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */; };
+		A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */; };
 		A32010200000000000000051 /* MediaGalleryEncryptedAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000052 /* MediaGalleryEncryptedAttachmentTests.swift */; };
 		A32010200000000000000041 /* ChatEncryptedAttachmentSendingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */; };
 		A32010200000000000000032 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000031 /* OMEMOThreeClientLiveUIAuthorization.swift */; };
@@ -1230,6 +1232,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnostics.swift; sourceTree = "<group>"; };
+		A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnosticSafetyTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000052 /* MediaGalleryEncryptedAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryEncryptedAttachmentTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEncryptedAttachmentSendingTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000031 /* OMEMOThreeClientLiveUIAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientLiveUIAuthorization.swift; sourceTree = "<group>"; };
@@ -4109,6 +4113,7 @@
 				4E5900362F85000000ABC001 /* ChatAttachmentGeolocationSource.swift */,
 				4E59003C2F86000000ABC001 /* ChatAttachmentMediaPreparation.swift */,
 				4E5900402F87000000ABC001 /* ChatAttachmentSendPipeline.swift */,
+				A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */,
 				4E5900462F89000000ABC001 /* ChatAttachmentStatusFeedback.swift */,
 			);
 			path = attachment_picker;
@@ -4423,6 +4428,7 @@
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
 				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
 				A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */,
+				A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */,
 				A32010200000000000000052 /* MediaGalleryEncryptedAttachmentTests.swift */,
 				A32010200000000000000036 /* OMEMOThreeClientLiveUISafetyTests.swift */,
 				A32010200000000000000028 /* ChatAuthenticatedMediaOpeningTests.swift */,
@@ -6477,6 +6483,7 @@
 				4E5900372F85000000ABC001 /* ChatAttachmentGeolocationSource.swift in Sources */,
 				4E59003D2F86000000ABC001 /* ChatAttachmentMediaPreparation.swift in Sources */,
 				4E5900412F87000000ABC001 /* ChatAttachmentSendPipeline.swift in Sources */,
+				A32110210000000000000003 /* OMEMOThreeClientDiagnostics.swift in Sources */,
 				4E5900472F89000000ABC001 /* ChatAttachmentStatusFeedback.swift in Sources */,
 				66F390922EE6DF6F00098742 /* GroupchatBlockAddViewController.swift in Sources */,
 				4D3DD42D285DABF600C2E429 /* DevicesListViewController+ExpandItemCell.swift in Sources */,
@@ -6956,6 +6963,7 @@
 				4EB500022FFE00000ABC001 /* ChatSearchLifecycleTests.swift in Sources */,
 				A32010200000000000000033 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */,
 				A32010200000000000000041 /* ChatEncryptedAttachmentSendingTests.swift in Sources */,
+				A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */,
 				A32010200000000000000051 /* MediaGalleryEncryptedAttachmentTests.swift in Sources */,
 				A32010200000000000000037 /* OMEMOThreeClientLiveUISafetyTests.swift in Sources */,
 				4EB000062FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */,

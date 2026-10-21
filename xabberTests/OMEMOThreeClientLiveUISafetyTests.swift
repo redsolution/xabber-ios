@@ -141,11 +141,29 @@ final class OMEMOThreeClientLiveUISafetyTests: XCTestCase {
     func testVisibleMessageAcceptsActualEightCharacterNativeIDWithExactManifestBinding() throws {
         var env = environment()
         env[prefix + "ASSERT_MESSAGE"] = "1"
-        env[prefix + "MESSAGE_ID"] = "uT4_rN-v"
+        env[prefix + "MESSAGE_ID"] = "uT4_rN~v"
         env[prefix + "MESSAGE_BODY"] = "QA3-E05-native-ui — exact native body"
         try bindManifest(&env)
         let config = try XCTUnwrap(evaluate(env, operation: .visibleMessage))
-        XCTAssertEqual(config.messageID, "uT4_rN-v")
+        XCTAssertEqual(config.messageID, "uT4_rN~v")
+    }
+
+    func testVisibleMessageAcceptsObservedNativeTildeIdentifier() throws {
+        var env = environment()
+        env[prefix + "ASSERT_MESSAGE"] = "1"
+        env[prefix + "MESSAGE_ID"] = "F~jFuDwQ"
+        env[prefix + "MESSAGE_BODY"] = "QA3-E05-native-ui — actual sender ID"
+        try bindManifest(&env)
+        XCTAssertEqual(try evaluate(env, operation: .visibleMessage)?.messageID, "F~jFuDwQ")
+    }
+
+    func testVisibleMessageRejectsHyphenOutsideNativeNanoIDAlphabet() throws {
+        var env = environment()
+        env[prefix + "ASSERT_MESSAGE"] = "1"
+        env[prefix + "MESSAGE_ID"] = "F-jFuDwQ"
+        env[prefix + "MESSAGE_BODY"] = "QA3-E05-native-ui — unsupported native ID"
+        try bindManifest(&env)
+        XCTAssertThrowsError(try evaluate(env, operation: .visibleMessage))
     }
 
     func testVisibleMessageCannotRunWithoutActualManifestBytesAndHash() throws {

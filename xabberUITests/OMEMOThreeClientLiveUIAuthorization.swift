@@ -79,7 +79,7 @@ enum OMEMOThreeClientLiveUIAuthorization {
         case .visibleMessage:
             guard environment[prefix + "ASSERT_MESSAGE"] == "1" else { return nil }
             guard let rawID = environment[prefix + "MESSAGE_ID"],
-                  UUID(uuidString: rawID) != nil || matchesEntireString(rawID, pattern: "^[A-Za-z0-9_-]{8}$"),
+                  UUID(uuidString: rawID) != nil || matchesEntireString(rawID, pattern: "^[A-Za-z0-9~_]{8}$"),
                   let body = environment[prefix + "MESSAGE_BODY"],
                   body.contains(token), body.utf8.count <= 16_384,
                   let encoded = environment[prefix + "MESSAGE_MANIFEST_BASE64"],
