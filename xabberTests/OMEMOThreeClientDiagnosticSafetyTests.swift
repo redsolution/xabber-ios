@@ -48,10 +48,13 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         return name
     }
 
-    private func runner() -> OMEMOThreeClientDiagnosticRunner {
-        .init(directory: directory, now: { self.now }, snapshot: { _ in self.identity },
+    private func runner(in root: URL? = nil, readRealFixture: Bool = false) -> OMEMOThreeClientDiagnosticRunner {
+        .init(directory: root ?? directory, now: { self.now }, snapshot: { _ in self.identity },
               schedule: { self.pending.append($0) }, timeout: { self.timeouts.append($0) },
-              validateFixture: { _, _ in self.fixtureBytes }, execute: { request, completion in
+              validateFixture: { _, source in
+                  if readRealFixture { return try OMEMOThreeClientDiagnosticPolicy.read(source, limit: 2 * 1024 * 1024) }
+                  return self.fixtureBytes
+              }, execute: { request, completion in
                   self.actions.append(request); self.completions.append(completion); return nil
               })
     }
@@ -77,6 +80,63 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         completions[0](.init(stage: .routeAccepted, success: true))
         XCTAssertEqual(try result()["stage"] as? String, "routeAccepted")
         XCTAssertEqual(try result()["deliveryProved"] as? Bool, false)
+    }
+
+    private func trustedDirectoryViaTemporaryRootAlias() throws -> URL {
+        let actual = directory.appendingPathComponent("actual-temp", isDirectory: true)
+        let alias = directory.appendingPathComponent("temp-alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: actual, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: actual)
+        return OMEMOThreeClientDiagnosticPolicy.directory(underTrustedTemporaryRoot: alias)
+    }
+
+    func testTrustedTemporaryRootAliasSchedulesCommandFromCanonicalDirectory() throws {
+        let root = try trustedDirectoryViaTemporaryRootAlias()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        try JSONSerialization.data(withJSONObject: command()).write(to: root.appendingPathComponent(token + ".json"))
+        XCTAssertEqual(runner(in: root).submit(token + ".json"), "scheduled")
+        XCTAssertTrue(actions.isEmpty)
+        drain()
+        XCTAssertEqual(actions.count, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent(token + ".claim").path))
+    }
+
+    func testTrustedTemporaryRootDoesNotAuthorizeSymlinkedDiagnosticSubdirectory() throws {
+        let root = try trustedDirectoryViaTemporaryRootAlias()
+        let outside = directory.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside)
+        try JSONSerialization.data(withJSONObject: command()).write(to: outside.appendingPathComponent(token + ".json"))
+        XCTAssertEqual(runner(in: root).submit(token + ".json"), "rejected")
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent(token + ".claim").path))
+    }
+
+    func testCanonicalTrustedRootStillRejectsSymlinkedCommand() throws {
+        let root = try trustedDirectoryViaTemporaryRootAlias()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let outside = directory.appendingPathComponent("outside.json")
+        try JSONSerialization.data(withJSONObject: command()).write(to: outside)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent(token + ".json"), withDestinationURL: outside)
+        XCTAssertEqual(runner(in: root).submit(token + ".json"), "rejected")
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(token + ".claim").path))
+    }
+
+    func testCanonicalTrustedRootStillRejectsSymlinkedFixtureBeforeNormalAction() throws {
+        let root = try trustedDirectoryViaTemporaryRootAlias()
+        let fixtures = root.appendingPathComponent("fixtures", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtures, withIntermediateDirectories: true)
+        let outside = directory.appendingPathComponent("outside.png")
+        try fixtureBytes.write(to: outside)
+        try FileManager.default.createSymbolicLink(at: fixtures.appendingPathComponent("QA3-image.png"), withDestinationURL: outside)
+        try JSONSerialization.data(withJSONObject: command(["operation": "sendAttachment", "fixture": "QA3-image.png"]))
+            .write(to: root.appendingPathComponent(token + ".json"))
+        XCTAssertEqual(runner(in: root, readRealFixture: true).submit(token + ".json"), "scheduled")
+        drain()
+        XCTAssertTrue(actions.isEmpty)
+        let output = try Data(contentsOf: root.appendingPathComponent(token + ".result.json"))
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: output) as? [String: Any])?["stage"] as? String, "rejected")
     }
 
     func testTraversalAbsoluteBasenamesAndMismatchedTokensNeverSchedule() throws {

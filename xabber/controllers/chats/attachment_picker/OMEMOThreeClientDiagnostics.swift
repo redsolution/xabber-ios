@@ -69,6 +69,11 @@ struct OMEMOThreeClientDiagnosticCommand {
 
 enum OMEMOThreeClientDiagnosticPolicy {
     enum Rejection: Error { case invalidCommand, unsafePath, invalidFixture, invalidRuntime }
+    static func directory(underTrustedTemporaryRoot root: URL) -> URL {
+        // iOS may spell its own temporary root /private/var while resolution returns /var.
+        // Resolve that trusted root only; symlinked QA descendants still fail the runner/read guards.
+        root.resolvingSymlinksInPath().standardizedFileURL.appendingPathComponent("qa3-omemo-acceptance", isDirectory: true)
+    }
     static func matches(_ value: String, _ pattern: String) -> Bool {
         guard let range = value.range(of: pattern, options: .regularExpression) else { return false }
         return range.lowerBound == value.startIndex && range.upperBound == value.endIndex
@@ -253,7 +258,7 @@ final class OMEMOThreeClientDiagnosticRunner {
 @objc(XabberOMEMOThreeClientDiagnostics)
 final class OMEMOThreeClientDiagnostics: NSObject {
     private static let runner = OMEMOThreeClientDiagnosticRunner(
-        directory: FileManager.default.temporaryDirectory.appendingPathComponent("qa3-omemo-acceptance", isDirectory: true),
+        directory: OMEMOThreeClientDiagnosticPolicy.directory(underTrustedTemporaryRoot: FileManager.default.temporaryDirectory),
         now: { Date().timeIntervalSince1970 }, snapshot: currentSnapshot,
         schedule: { action in DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: action) },
         timeout: { action in DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: action) },
