@@ -851,6 +851,11 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertNotNil(controller.initialTargetFirstFrameContext)
+        var duplicateLoadedPositionCount = 0
+        controller.loadedAnchorPositioningDriverForTests = { completion in
+            duplicateLoadedPositionCount += 1
+            completion(true)
+        }
         let published = expectation(description: "late verified target reaches UIKit after timeout")
         published.assertForOverFulfill = false
         controller.datasourceDidSetForTests = { rows in
@@ -866,15 +871,67 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
             coverageGeneration: 1, freshnessToken: freshness)))
         await fulfillment(of: [published], timeout: 3)
         // The atomic UIKit receipt follows datasource publication on the same main lane.
-        for _ in 0..<200 where controller.pendingOpenMessageRequest != nil {
+        for _ in 0..<200 where controller.pendingOpenMessageRequest != nil || controller.initialTargetFirstFrameContext != nil {
             try await Task.sleep(nanoseconds: 5_000_000)
         }
         XCTAssertFalse(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.canLoadDatasource)
         XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.initialTargetFirstFrameContext, "The winning frame receipt must release completed target ownership")
+        XCTAssertEqual(duplicateLoadedPositionCount, 0, "The atomic archive frame already positioned the target; its receipt must be the sole terminal owner")
         XCTAssertEqual(oldNavigationCompletionCount, 0, "The expired navigation completion must not be revived")
         XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), [item.primary])
         XCTAssertEqual(controller.messagesCollectionView.numberOfSections, controller.datasource.count)
+    }
+
+    @MainActor
+    func testPendingLoadedNavigationWaitsOnlyForMatchingCurrentAlignedFirstFrameReceipt() throws {
+        for state in ["matching", "stale-apply", "stale-datasource", "not-aligned", "invalidated", "newer-request"] {
+            let request = makeRequest(archivedID: "200", source: .directOpenAtMessage)
+            let controller = ChatViewController()
+            controller.owner = owner
+            controller.jid = jid
+            controller.conversationType = conversationType
+            controller.ownerSender = Sender(id: owner, displayName: owner)
+            controller.opponentSender = Sender(id: jid, displayName: jid)
+            controller.loadViewIfNeeded()
+            controller.stopArchiveEnginePresentationSubscription()
+            controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            controller.datasource = [makeDatasource()]
+            controller.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: controller.datasource)
+            controller.showSkeletonObserver.accept(false)
+            controller.loadDatasourceObserver.accept(true)
+            controller.messagesCollectionView.reloadData()
+            controller.view.layoutIfNeeded()
+            let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "pending-frame-receipt")
+            let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+            let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: cursor, newest: cursor,
+                reachesArchiveStart: true, reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+            controller.archiveWindowState = .verified(.init(messagePrimaryIDs: ["target-primary"], target: .archiveID(cursor),
+                verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness))
+            controller.archiveWindowCommittedCoverageGeneration = 1
+            controller.pendingOpenMessageRequest = request
+            let contextRequest = state == "newer-request" ? makeRequest(archivedID: "200", source: .savedVisiblePosition) : request
+            let context = ChatInitialTargetFirstFrameContext(request: contextRequest) {}
+            context.releasePreparationCompletion()
+            controller.initialTargetFirstFrameContext = context
+            if state != "not-aligned" {
+                context.markAlignedFrameCommitted(request: contextRequest, positionedPrimary: "target-primary",
+                    applyGeneration: controller.archiveWindowApplyGeneration,
+                    datasourceGeneration: controller.scrollResidentMetadataGeneration)
+            }
+            if state == "stale-apply" { controller.archiveWindowApplyGeneration &+= 1 }
+            if state == "stale-datasource" { controller.scrollResidentMetadataGeneration &+= 1 }
+            if state == "invalidated" { context.invalidateAlignedFrameCommit() }
+            var loadedPositions = 0
+            controller.loadedAnchorPositioningDriverForTests = { completion in loadedPositions += 1; completion(true) }
+
+            controller.performPendingOpenMessageRequestIfNeeded()
+
+            XCTAssertEqual(loadedPositions, state == "matching" ? 0 : 1, state)
+            XCTAssertEqual(controller.pendingOpenMessageRequest != nil, state == "matching", state)
+            controller.stopArchiveEnginePresentationSubscription()
+        }
     }
 
     private func makeRequest(

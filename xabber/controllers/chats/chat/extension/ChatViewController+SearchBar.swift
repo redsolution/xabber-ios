@@ -4542,6 +4542,19 @@ extension ChatViewController {
             return
         }
 
+        // The atomic archive frame already positioned this exact target.
+        // Its outer presentation receipt owns completion; the generic loaded
+        // shortcut must not finish the request before that receipt arrives.
+        if self.isProtectingInitialTargetFirstFrame(request),
+           let context = self.initialTargetFirstFrameContext,
+           context.hasCommittedAlignedFrame(
+                for: request,
+                applyGeneration: self.archiveWindowApplyGeneration,
+                datasourceGeneration: self.scrollResidentMetadataGeneration
+           ) {
+            return
+        }
+
         if ChatArchiveWindowPresentationPolicy.shouldDeferOpenMessageRequest(
             isPresentationActive: true,
             state: self.archiveWindowState,
