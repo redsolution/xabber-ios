@@ -458,7 +458,7 @@ extension MessageManager {
                         )
                     ) {
                         instance.lastMessage = item
-                        instance.messageDate = Date()
+                        instance.messageDate = item.conversationType == .omemo ? item.date : Date()
                     }
                 } else if preparedContent == nil {
                     item.originalStanza = stanzaToSave

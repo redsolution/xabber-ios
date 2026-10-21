@@ -323,6 +323,17 @@ final class ForwardSendLifecycleTests: XCTestCase {
         let firstClean = try verified(firstWire, by: f.bob)
         try assertEncryptedCarrier(firstWire, clean: firstClean, row: row, sender: f.alice.owner, recipient: f.bob.owner)
         XCTAssertEqual(carrierID, row.messageId)
+        let chat = try XCTUnwrap(realm.object(ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: f.bob.owner,
+                owner: f.alice.owner, conversationType: .omemo)))
+        XCTAssertEqual(chat.lastMessage?.primary, row.primary,
+            "The real provider fixture must have the current Recents projection linked")
+        let originalPrimary = row.primary
+        let operationalDate = row.outgoingOperationalDate
+        let firstForward = try XCTUnwrap(directReferences(firstClean).first {
+            $0.element(forName: "forwarded", xmlns: forwardNS) != nil
+        }?.element(forName: "forwarded", xmlns: forwardNS))
+        let originalDelay = try XCTUnwrap(firstForward.element(forName: "delay", xmlns: "urn:xmpp:delay")?.xmlString)
         let sourceRow = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: selected))
         let sourceXML = try XCTUnwrap(realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: selected + "_stanza"))
         try realm.write { realm.delete(sourceXML); realm.delete(sourceRow) }
@@ -336,6 +347,23 @@ final class ForwardSendLifecycleTests: XCTestCase {
         let retryWire = try XCTUnwrap(stream.messages.last)
         let retryClean = try verified(retryWire, by: f.bob)
         try assertEncryptedCarrier(retryWire, clean: retryClean, row: row, sender: f.alice.owner, recipient: f.bob.owner)
+        realm.refresh()
+        let actualTimeXML = try XCTUnwrap(row.systemMetadata?["localAuthoredSCETime"] as? String)
+        let actualTime = try DDXMLElement(xmlString: actualTimeXML)
+        XCTAssertTrue(SCEReceivePolicy.matches(actualTime, name: "time", namespace: "urn:xmpp:sce:1"))
+        let taggedDate = try Omemo2PayloadCodec.timestamp(XCTUnwrap(actualTime.attributeStringValue(forName: "stamp")))
+        XCTAssertEqual(row.date, taggedDate)
+        XCTAssertEqual(row.sentDate, taggedDate)
+        XCTAssertEqual(chat.lastMessage?.primary, originalPrimary)
+        XCTAssertEqual(chat.messageDate, taggedDate,
+            "OMEMO2 retry Recents chronology must use its actual serialized time tag, never local now")
+        XCTAssertEqual(row.primary, originalPrimary)
+        XCTAssertEqual(row.outgoingOperationalDate, operationalDate,
+            "Refreshed SCE time must preserve the operational retry/TTL clock")
+        let retryForward = try XCTUnwrap(directReferences(retryClean).first {
+            $0.element(forName: "forwarded", xmlns: forwardNS) != nil
+        }?.element(forName: "forwarded", xmlns: forwardNS))
+        XCTAssertEqual(retryForward.element(forName: "delay", xmlns: "urn:xmpp:delay")?.xmlString, originalDelay)
         XCTAssertEqual(contentSignature(retryClean), contentSignature(firstClean))
         XCTAssertEqual(retryWire.elementID, firstWire.elementID)
         XCTAssertEqual(getOriginId(retryWire), getOriginId(firstWire))
