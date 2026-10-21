@@ -19,6 +19,7 @@
 //
 
 import Foundation
+import CryptoKit
 import RealmSwift
 import XMPPFramework
 
@@ -278,6 +279,11 @@ extension OmemoManager {
     }
 
     func doubleRatchet(hmac: Data, jid: String, deviceId: Int) throws -> DDXMLElement {
+        try preparedOMEMO2Recipient(hmac: hmac, jid: jid, deviceID: deviceId).element
+    }
+
+    private func preparedOMEMO2Recipient(hmac: Data, jid: String, deviceID deviceId: Int) throws
+        -> (element: DDXMLElement, recipient: OMEMO2OutgoingTransportProof.Recipient) {
         try OmemoManager.sessionQueue.sync {
             try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
             let requiresTrustedIdentity = hmac != Data(repeating: 0, count: 32)
@@ -312,12 +318,15 @@ extension OmemoManager {
                     throw OmemoManagerError.noTrustedRecipientDevices
                 }
             }
-            let ciphertext = try storage.encrypt(hmac, jid: jid, deviceID: deviceId)
+            let committed = try storage.encryptCapturingSession(hmac, jid: jid, deviceID: deviceId)
+            let ciphertext = committed.ciphertext
             let key = DDXMLElement(name: "key", xmlns: Self.xmlns)
             key.addAttribute(withName: "rid", integerValue: deviceId)
             if ciphertext.isKeyExchange { key.addAttribute(withName: "kex", stringValue: "true") }
             key.stringValue = ciphertext.data.base64EncodedString()
-            return key
+            return (key, .init(jid: jid, deviceID: deviceId,
+                identity: committed.metadata.remoteIdentityKey,
+                exchange: committed.metadata.ephemeralKey))
         }
     }
 
@@ -365,7 +374,8 @@ extension OmemoManager {
     internal func encryptPreparedMessage(message: String, to jid: String) throws -> PreparedEncryptedMessage {
         try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
         let storage = try ensureOMEMO2Prepared()
-        let localID = try storage.localBundle().deviceID
+        let localBundle = try storage.localBundle()
+        let localID = localBundle.deviceID
         let realm = try WRealm.safe()
         guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true,
               OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)?.isKnown == true else {
@@ -376,6 +386,8 @@ extension OmemoManager {
             .filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND state_ == %@", owner, jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
             .toArray().filter { !(jid == owner && $0.deviceId == localID) }
         guard !recipients.isEmpty else { throw OmemoManagerError.noTrustedRecipientDevices }
+        let reservation = try reserveOMEMO2Transport()
+        defer { releaseOMEMO2TransportReservation(reservation) }
         let prepared = try Omemo2PayloadCodec.prepareOutgoingPayload(message)
         let sealed = try Omemo2PayloadCodec.seal(prepared.xml)
         let encrypted = DDXMLElement(name: "encrypted", xmlns: Self.xmlns)
@@ -383,7 +395,11 @@ extension OmemoManager {
         header.addAttribute(withName: "sid", integerValue: localID)
         let remote = DDXMLElement(name: "keys", xmlns: Self.xmlns)
         remote.addAttribute(withName: "jid", stringValue: jid)
-        for recipient in recipients { remote.addChild(try doubleRatchet(hmac: sealed.keyAndMAC, jid: jid, deviceId: recipient.deviceId)) }
+        var bindings: [OMEMO2OutgoingTransportProof.Recipient] = []
+        for recipient in recipients {
+            let prepared = try preparedOMEMO2Recipient(hmac: sealed.keyAndMAC, jid: jid, deviceID: recipient.deviceId)
+            remote.addChild(prepared.element); bindings.append(prepared.recipient)
+        }
         header.addChild(remote)
         if jid != owner {
             let ownDevices = realm.objects(SignalDeviceStorageItem.self)
@@ -392,7 +408,10 @@ extension OmemoManager {
             if !ownDevices.isEmpty {
                 let own = DDXMLElement(name: "keys", xmlns: Self.xmlns)
                 own.addAttribute(withName: "jid", stringValue: owner)
-                for device in ownDevices { own.addChild(try doubleRatchet(hmac: sealed.keyAndMAC, jid: owner, deviceId: device.deviceId)) }
+                for device in ownDevices {
+                    let prepared = try preparedOMEMO2Recipient(hmac: sealed.keyAndMAC, jid: owner, deviceID: device.deviceId)
+                    own.addChild(prepared.element); bindings.append(prepared.recipient)
+                }
                 header.addChild(own)
             }
         }
@@ -400,6 +419,8 @@ extension OmemoManager {
         let payload = DDXMLElement(name: "payload", xmlns: Self.xmlns)
         payload.stringValue = sealed.ciphertext.base64EncodedString()
         encrypted.addChild(payload)
+        try rememberOMEMO2Transport(encrypted, peer: jid, localBundle: localBundle,
+            recipients: bindings, requiresTrust: true, reservation: reservation)
         return PreparedEncryptedMessage(element: encrypted, time: prepared.time)
     }
 
@@ -411,14 +432,20 @@ extension OmemoManager {
         guard let metadata = try storage.sessionMetadata(jid: jid, deviceID: deviceID), !metadata.receiveOnly else {
             throw OMEMO2StorageError.receiveOnlySession
         }
+        let reservation = try reserveOMEMO2Transport()
+        defer { releaseOMEMO2TransportReservation(reservation) }
         let message = XMPPMessage(type: "chat", to: XMPPJID(string: jid), elementID: UUID().uuidString)
         let encrypted = DDXMLElement(name: "encrypted", xmlns: Self.xmlns)
         let header = DDXMLElement(name: "header", xmlns: Self.xmlns)
-        header.addAttribute(withName: "sid", integerValue: try storage.localBundle().deviceID)
+        let localBundle = try storage.localBundle()
+        header.addAttribute(withName: "sid", integerValue: localBundle.deviceID)
         let keys = DDXMLElement(name: "keys", xmlns: Self.xmlns)
         keys.addAttribute(withName: "jid", stringValue: jid)
-        keys.addChild(try doubleRatchet(hmac: Data(repeating: 0, count: 32), jid: jid, deviceId: deviceID))
+        let prepared = try preparedOMEMO2Recipient(hmac: Data(repeating: 0, count: 32), jid: jid, deviceID: deviceID)
+        keys.addChild(prepared.element)
         header.addChild(keys); encrypted.addChild(header); message.addChild(encrypted)
+        try rememberOMEMO2Transport(encrypted, peer: jid, localBundle: localBundle,
+            recipients: [prepared.recipient], requiresTrust: false, reservation: reservation)
         message.addChild(DDXMLElement(name: "store", xmlns: "urn:xmpp:hints"))
         Self.synchronizeOutgoingEncryptionMetadata(message)
         return message
@@ -599,4 +626,333 @@ extension OmemoManager {
 
 private extension Array {
     var omemo2Single: Element? { count == 1 ? first : nil }
+}
+
+/// Local evidence of preparation, never a wire attribute or persisted secret.
+/// Exchange EK is stable through normal DH/counter progression; replacements
+/// cannot borrow an older packet's authority by reusing its numeric device ID.
+struct OMEMO2OutgoingTransportProof {
+    struct Recipient {
+        let jid: String
+        let deviceID: Int
+        let identity: Data
+        let exchange: Data
+        var address: OMEMO2PeerAddress { .init(jid: jid, deviceID: deviceID) }
+    }
+    let peer: String
+    let localDeviceID: Int
+    let localIdentity: Data
+    let recipients: [Recipient]
+    let requiresTrust: Bool
+}
+
+final class OMEMO2QueuedTransportAttempt {
+    weak var stanza: XMPPElement?
+    let fingerprints: [Data]
+    var awaitingFinalGate = 0
+    var awaitingResult = 0
+    init(stanza: XMPPElement, fingerprints: [Data]) {
+        self.stanza = stanza; self.fingerprints = fingerprints
+    }
+    var count: Int { awaitingFinalGate + awaitingResult }
+}
+
+extension OmemoManager {
+    internal static let maximumPreparedOMEMO2Transports = 256
+
+    private func reserveOMEMO2Transport() throws -> UUID {
+        omemo2OutgoingProofLock.lock()
+        defer { omemo2OutgoingProofLock.unlock() }
+        reapReleasedOMEMO2Attempts()
+        guard omemo2OutgoingProofs.count + omemo2OutgoingProofReservations.count < Self.maximumPreparedOMEMO2Transports else {
+            throw OmemoManagerError.encryptionFailed
+        }
+        let reservation = UUID()
+        omemo2OutgoingProofReservations.insert(reservation)
+        return reservation
+    }
+
+    private func releaseOMEMO2TransportReservation(_ reservation: UUID) {
+        omemo2OutgoingProofLock.lock()
+        omemo2OutgoingProofReservations.remove(reservation)
+        omemo2OutgoingProofLock.unlock()
+    }
+
+    private func rememberOMEMO2Transport(_ encrypted: DDXMLElement, peer: String,
+        localBundle: OMEMO2LocalBundle, recipients: [OMEMO2OutgoingTransportProof.Recipient],
+        requiresTrust: Bool, reservation: UUID) throws {
+        let fingerprint = try Self.outgoingOMEMO2Fingerprint(encrypted)
+        let proof = OMEMO2OutgoingTransportProof(peer: peer, localDeviceID: localBundle.deviceID,
+            localIdentity: localBundle.identityKey, recipients: recipients, requiresTrust: requiresTrust)
+        omemo2OutgoingProofLock.lock()
+        defer { omemo2OutgoingProofLock.unlock() }
+        guard omemo2OutgoingProofReservations.remove(reservation) != nil else { throw OmemoManagerError.encryptionFailed }
+        omemo2OutgoingProofs[fingerprint] = proof
+    }
+
+    /// Both Account preflight and the last XMPPFramework delegate call this.
+    /// Validation never consumes a candidate or compares mutable ratchet counters.
+    internal func allowsPreparedOMEMO2Transport(_ stanza: XMPPElement) -> Bool {
+        do {
+            let leaves = Self.outgoingOMEMO2Messages(stanza)
+            let recognized = leaves.flatMap { SCEReceivePolicy.children(of: $0, named: "encrypted", xmlns: Self.xmlns) }
+            // KissXML creates new Swift/ObjC wrappers on each child traversal.
+            // Known direct protected leaves are a subset of this complete
+            // canonical subtree census, so equal counts exclude other carriers.
+            guard recognized.count == Self.allOutgoingOMEMO2Elements(stanza).count else { return false }
+            for leaf in leaves {
+                let encrypted = (leaf.children?.compactMap { $0 as? DDXMLElement } ?? []).filter { $0.localName == "encrypted" }
+                guard !encrypted.isEmpty else { continue }
+                guard encrypted.count == 1, let encrypted = encrypted.first,
+                      SCEReceivePolicy.matches(encrypted, name: "encrypted", namespace: Self.xmlns),
+                      let to = leaf.attributeStringValue(forName: "to"),
+                      try OMEMO2OptOutPolicy.bareJID(to) == to else { return false }
+                if let from = leaf.attributeStringValue(forName: "from"),
+                   try OMEMO2OptOutPolicy.bareJID(from) != owner { return false }
+                let fingerprint = try Self.outgoingOMEMO2Fingerprint(encrypted)
+                omemo2OutgoingProofLock.lock()
+                let proof = omemo2OutgoingProofs[fingerprint]
+                omemo2OutgoingProofLock.unlock()
+                guard let proof, proof.peer == to,
+                      let storage = omemo2Storage, storage.owner == owner else { return false }
+                let bundle = try storage.localBundle()
+                guard bundle.deviceID == proof.localDeviceID, bundle.identityKey == proof.localIdentity else { return false }
+                let realm = try WRealm.safe()
+                if !realm.isInWriteTransaction { realm.refresh() }
+                for recipient in proof.recipients {
+                    guard let current = try storage.sessionMetadata(jid: recipient.jid, deviceID: recipient.deviceID),
+                          !current.receiveOnly, current.remoteIdentityKey == recipient.identity,
+                          current.ephemeralKey == recipient.exchange else { return false }
+                    if proof.requiresTrust {
+                        guard OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: recipient.jid, deviceID: recipient.deviceID),
+                              let device = realm.object(ofType: SignalDeviceStorageItem.self,
+                                forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: recipient.jid, deviceId: recipient.deviceID)),
+                              device.state == .trusted,
+                              device.fingerprint == (try Omemo2IdentityRepresentation.fingerprint(for: recipient.identity)) else { return false }
+                    }
+                }
+                if proof.requiresTrust {
+                    guard OmemoSendAvailabilityPolicy.evaluate(owner: owner, jid: to,
+                        conversationType: .omemo, realm: realm).canSend else { return false }
+                    let currentRecipients = realm.objects(SignalDeviceStorageItem.self)
+                        .filter("owner == %@ AND (jid == %@ OR jid == %@) AND isInDeviceList == true AND state_ == %@",
+                            owner, owner, to, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                        .filter { !($0.jid == self.owner && $0.deviceId == bundle.deviceID) }
+                        .map { OMEMO2PeerAddress(jid: $0.jid, deviceID: $0.deviceId) }
+                    guard Set(currentRecipients) == Set(proof.recipients.map(\.address)) else { return false }
+                }
+            }
+            return true
+        } catch { return false }
+    }
+
+    /// Account records each real submission before XMPPFramework's async queue.
+    /// Its last delegate claims that submission; direct stream callers acquire
+    /// one there instead. Repeated pure preflight checks do not acquire leases.
+    internal func queuePreparedOMEMO2Transport(_ stanza: XMPPElement, finalDelegate: Bool) {
+        let fingerprints = Self.outgoingOMEMO2Messages(stanza).flatMap {
+            SCEReceivePolicy.children(of: $0, named: "encrypted", xmlns: Self.xmlns)
+        }.compactMap { try? Self.outgoingOMEMO2Fingerprint($0) }
+        guard !fingerprints.isEmpty else { return }
+        omemo2OutgoingProofLock.lock()
+        defer { omemo2OutgoingProofLock.unlock() }
+        let key = ObjectIdentifier(stanza)
+        let attempt: OMEMO2QueuedTransportAttempt
+        if let existing = omemo2OutgoingQueued[key], existing.stanza === stanza {
+            attempt = existing
+        } else {
+            attempt = OMEMO2QueuedTransportAttempt(stanza: stanza, fingerprints: fingerprints)
+            omemo2OutgoingQueued[key] = attempt
+        }
+        if finalDelegate {
+            if attempt.awaitingFinalGate > 0 { attempt.awaitingFinalGate -= 1 }
+            attempt.awaitingResult += 1
+        } else { attempt.awaitingFinalGate += 1 }
+    }
+
+    /// Caller holds the proof lock. One actual submission finishes; another
+    /// queued copy, or another submission of the same object, keeps its lease.
+    private func finishOMEMO2Attempt(_ stanza: XMPPElement) -> [Data] {
+        let key = ObjectIdentifier(stanza)
+        guard let attempt = omemo2OutgoingQueued[key], attempt.stanza === stanza else { return [] }
+        if attempt.awaitingResult > 0 { attempt.awaitingResult -= 1 }
+        else if attempt.awaitingFinalGate > 0 { attempt.awaitingFinalGate -= 1 }
+        if attempt.count == 0 { omemo2OutgoingQueued.removeValue(forKey: key) }
+        return attempt.fingerprints
+    }
+
+    private func hasQueuedOMEMO2Proof(_ fingerprint: Data) -> Bool {
+        omemo2OutgoingQueued.values.contains { $0.stanza != nil && $0.count > 0 && $0.fingerprints.contains(fingerprint) }
+    }
+
+    /// XMPPFramework normally supplies didSend/didFail. If another delegate
+    /// filters and releases an object without a callback, its weak lease no
+    /// longer protects a queued frame. Never evict a live queued object.
+    private func reapReleasedOMEMO2Attempts() {
+        let released = omemo2OutgoingQueued.filter { $0.value.stanza == nil }
+        for (key, _) in released { omemo2OutgoingQueued.removeValue(forKey: key) }
+        for fingerprint in released.values.flatMap({ $0.fingerprints }) {
+            retireOMEMO2ProofIfUnused(fingerprint)
+        }
+    }
+
+    private func retireOMEMO2ProofIfUnused(_ fingerprint: Data) {
+        if !hasOMEMO2InFlightProof(fingerprint), !hasQueuedOMEMO2Proof(fingerprint) {
+            omemo2OutgoingProofs.removeValue(forKey: fingerprint)
+        }
+    }
+
+    /// Called only after an actual didSend callback. The SM delegate returns
+    /// ACK IDs in transmitted stanza order, including repeated IDs.
+    internal func preparedOMEMO2TransportDidSend(_ stanza: XMPPElement, canResume: Bool) {
+        let fingerprints = Self.outgoingOMEMO2Messages(stanza).flatMap {
+            SCEReceivePolicy.children(of: $0, named: "encrypted", xmlns: Self.xmlns)
+        }.compactMap { try? Self.outgoingOMEMO2Fingerprint($0) }
+        omemo2OutgoingProofLock.lock()
+        defer { omemo2OutgoingProofLock.unlock() }
+        _ = finishOMEMO2Attempt(stanza)
+        if canResume, let id = stanza.elementID, !id.isEmpty {
+            // A transmitted ordinary stanza is an explicit FIFO witness, so
+            // its ACK cannot retire a later same-ID encrypted candidate.
+            omemo2OutgoingTransmitted[id, default: []].append(fingerprints)
+        } else {
+            for fingerprint in fingerprints { retireOMEMO2ProofIfUnused(fingerprint) }
+        }
+    }
+
+    internal func acknowledgePreparedOMEMO2Transports(_ ids: [String]) {
+        omemo2OutgoingProofLock.lock()
+        defer { omemo2OutgoingProofLock.unlock() }
+        for id in ids {
+            guard var sent = omemo2OutgoingTransmitted[id], !sent.isEmpty else { continue }
+            let fingerprints = sent.removeFirst()
+            if sent.isEmpty { omemo2OutgoingTransmitted.removeValue(forKey: id) }
+            else { omemo2OutgoingTransmitted[id] = sent }
+            for fingerprint in fingerprints { retireOMEMO2ProofIfUnused(fingerprint) }
+        }
+    }
+
+    internal func preparedOMEMO2TransportDidDisconnect(canResume: Bool) {
+        guard !canResume else { return }
+        omemo2OutgoingProofLock.lock()
+        defer { omemo2OutgoingProofLock.unlock() }
+        let transmitted = omemo2OutgoingTransmitted.values.flatMap({ $0 }).flatMap({ $0 })
+        omemo2OutgoingTransmitted.removeAll()
+        for fingerprint in transmitted { retireOMEMO2ProofIfUnused(fingerprint) }
+    }
+
+    /// Explicitly known unsent rejection/abandonment. Malformed aliases and
+    /// another peer cannot erase the real candidate; transmitted copies remain
+    /// available for SM replay until ACK or a nonresumable disconnect.
+    internal func abandonPreparedOMEMO2Transport(_ stanza: XMPPElement, queuedAttempt: Bool = false) {
+        omemo2OutgoingProofLock.lock()
+        let queuedFingerprints = queuedAttempt ? finishOMEMO2Attempt(stanza) : []
+        for fingerprint in queuedFingerprints { retireOMEMO2ProofIfUnused(fingerprint) }
+        omemo2OutgoingProofLock.unlock()
+        if !queuedFingerprints.isEmpty { return }
+        let leaves = Self.outgoingOMEMO2Messages(stanza)
+        let recognized = leaves.flatMap { SCEReceivePolicy.children(of: $0, named: "encrypted", xmlns: Self.xmlns) }
+        guard recognized.count == Self.allOutgoingOMEMO2Elements(stanza).count else { return }
+        for message in leaves {
+            let declared = (message.children?.compactMap { $0 as? DDXMLElement } ?? []).filter { $0.localName == "encrypted" }
+            guard declared.count == 1, let candidate = declared.first,
+                  SCEReceivePolicy.matches(candidate, name: "encrypted", namespace: Self.xmlns) else { continue }
+            guard let peer = message.attributeStringValue(forName: "to"),
+                  (try? OMEMO2OptOutPolicy.bareJID(peer)) == peer else { continue }
+            if let from = message.attributeStringValue(forName: "from"),
+               (try? OMEMO2OptOutPolicy.bareJID(from)) != owner { continue }
+            for encrypted in SCEReceivePolicy.children(of: message, named: "encrypted", xmlns: Self.xmlns) {
+                guard let fingerprint = try? Self.outgoingOMEMO2Fingerprint(encrypted) else { continue }
+                omemo2OutgoingProofLock.lock()
+                if omemo2OutgoingProofs[fingerprint]?.peer == peer { retireOMEMO2ProofIfUnused(fingerprint) }
+                omemo2OutgoingProofLock.unlock()
+            }
+        }
+    }
+
+    /// Caller holds omemo2OutgoingProofLock.
+    private func hasOMEMO2InFlightProof(_ fingerprint: Data) -> Bool {
+        omemo2OutgoingTransmitted.values.contains { frames in frames.contains { $0.contains(fingerprint) } }
+    }
+
+    private static func allOutgoingOMEMO2Elements(_ parent: DDXMLElement) -> [DDXMLElement] {
+        let current = SCEReceivePolicy.matches(parent, name: "encrypted", namespace: Self.xmlns) ? [parent] : []
+        return current + (parent.children?.compactMap { $0 as? DDXMLElement } ?? []).flatMap { allOutgoingOMEMO2Elements($0) }
+    }
+
+    private static func outgoingOMEMO2Fingerprint(_ encrypted: DDXMLElement) throws -> Data {
+        func only(_ parent: DDXMLElement, _ name: String) throws -> DDXMLElement {
+            let values = SCEReceivePolicy.children(of: parent, named: name, xmlns: Self.xmlns)
+            guard values.count == 1, let value = values.first else { throw OmemoManagerError.invalidEncryptedPayload }
+            return value
+        }
+        func identifier(_ value: String?) throws -> Int {
+            guard let value, let number = Int(value), number > 0, number <= Int(Int32.max), String(number) == value else {
+                throw OmemoManagerError.invalidEncryptedPayload
+            }
+            return number
+        }
+        var framed = Data("Xabber OMEMO2 outgoing transport proof v1".utf8)
+        func append(_ bytes: Data) {
+            var size = UInt64(bytes.count).bigEndian
+            withUnsafeBytes(of: &size) { framed.append(contentsOf: $0) }
+            framed.append(bytes)
+        }
+        guard SCEReceivePolicy.matches(encrypted, name: "encrypted", namespace: Self.xmlns) else { throw OmemoManagerError.invalidEncryptedPayload }
+        let header = try only(encrypted, "header")
+        append(Data(Self.xmlns.utf8)); append(Data(String(try identifier(header.attributeStringValue(forName: "sid"))).utf8))
+        let groups = SCEReceivePolicy.children(of: header, named: "keys", xmlns: Self.xmlns)
+        guard !groups.isEmpty else { throw OmemoManagerError.invalidEncryptedPayload }
+        append(Data(String(groups.count).utf8))
+        var owners = Set<String>()
+        for group in groups {
+            guard let jid = group.attributeStringValue(forName: "jid"),
+                  try OMEMO2OptOutPolicy.bareJID(jid) == jid, owners.insert(jid).inserted else { throw OmemoManagerError.invalidEncryptedPayload }
+            append(Data(jid.utf8))
+            let keys = SCEReceivePolicy.children(of: group, named: "key", xmlns: Self.xmlns)
+            guard !keys.isEmpty else { throw OmemoManagerError.invalidEncryptedPayload }
+            append(Data(String(keys.count).utf8))
+            var ids = Set<Int>()
+            for key in keys {
+                let rid = try identifier(key.attributeStringValue(forName: "rid"))
+                guard ids.insert(rid).inserted else { throw OmemoManagerError.invalidEncryptedPayload }
+                let kex = key.attributeStringValue(forName: "kex")
+                guard kex == nil || ["true", "false", "1", "0"].contains(kex!) else { throw OmemoManagerError.invalidEncryptedPayload }
+                append(Data(String(rid).utf8)); append(Data([kex == "true" || kex == "1" ? 1 : 0]))
+                guard (key.children?.compactMap { $0 as? DDXMLElement } ?? []).isEmpty else { throw OmemoManagerError.invalidEncryptedPayload }
+                append(try Omemo2PayloadCodec.decodeBase64(key.stringValue ?? ""))
+            }
+        }
+        let payloads = SCEReceivePolicy.children(of: encrypted, named: "payload", xmlns: Self.xmlns)
+        guard payloads.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        append(Data([payloads.isEmpty ? 0 : 1]))
+        if let payload = payloads.first {
+            guard (payload.children?.compactMap { $0 as? DDXMLElement } ?? []).isEmpty else { throw OmemoManagerError.invalidEncryptedPayload }
+            append(try Omemo2PayloadCodec.decodeBase64(payload.stringValue ?? ""))
+        }
+        return Data(SHA256.hash(data: framed))
+    }
+
+    private static func outgoingOMEMO2Messages(_ stanza: DDXMLElement) -> [DDXMLElement] {
+        func children(_ parent: DDXMLElement, _ name: String, _ namespaces: [String]) -> [DDXMLElement] {
+            (parent.children?.compactMap { $0 as? DDXMLElement } ?? []).filter { $0.localName == name && namespaces.contains($0.uri ?? "") }
+        }
+        if stanza.localName == "message", ["", "jabber:client"].contains(stanza.uri ?? "") { return [stanza] }
+        guard stanza.localName == "iq", ["", "jabber:client"].contains(stanza.uri ?? "") else { return [] }
+        var result: [DDXMLElement] = []
+        for replace in children(stanza, "replace", ["https://xabber.com/protocol/rewrite"]) {
+            result += children(replace, "message", ["", "jabber:client", "https://xabber.com/protocol/rewrite"])
+        }
+        for schedule in children(stanza, "schedule", ["https://xabber.com/protocol/schedule"]) {
+            result += children(schedule, "message", ["", "jabber:client"])
+        }
+        for notify in children(stanza, "notify", ["urn:xabber:xen:0"]) {
+            for notification in children(notify, "notification", ["", "urn:xabber:xen:0"]) {
+                for forwarded in children(notification, "forwarded", ["urn:xmpp:forward:0"]) {
+                    result += children(forwarded, "message", ["", "jabber:client", "urn:xmpp:forward:0"])
+                }
+            }
+        }
+        return result
+    }
 }

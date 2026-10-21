@@ -141,6 +141,20 @@ enum PrimaryStreamSendResult: Equatable {
     case queued(stanzaId: String)
     case rejected(PrimaryStreamTrackingLimitViolation)
     case blockedByOptOut(stanzaId: String)
+    case blockedByOMEMORecipient(stanzaId: String)
+}
+
+enum OutgoingOMEMOBlockReason: Equatable {
+    case pendingOptOut
+    case recipientChanged
+
+    var code: String { self == .pendingOptOut ? "omemo-opt-out-pending" : "omemo-recipient-changed" }
+    var diagnostic: String { self == .pendingOptOut ? "pending_opt_out" : "omemo_recipient_changed" }
+    var message: String {
+        self == .pendingOptOut
+            ? L10n.text("omemo_opt_out_review", fallback: "Review encryption request")
+            : OmemoManagerError.noTrustedRecipientDevices.localizedDescription
+    }
 }
 
 final class AccountPrimaryStreamBootstrapSendGate {

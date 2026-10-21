@@ -2157,6 +2157,10 @@ final class AccountSendCoordinator {
                         _ = account.sendCoordinator.localSendBlocked(message: message)
                         return
                     }
+                    if case .blockedByOMEMORecipient = result {
+                        _ = account.sendCoordinator.localSendBlocked(message: message, reason: .recipientChanged)
+                        return
+                    }
                     if case .rejected(let violation) = result {
                         let error = NSError(
                             domain: "AccountPrimaryStreamStanzaTracker",
@@ -2461,7 +2465,7 @@ final class AccountSendCoordinator {
     }
 
     @discardableResult
-    func localSendBlocked(message: XMPPMessage) -> Bool {
+    func localSendBlocked(message: XMPPMessage, reason: OutgoingOMEMOBlockReason = .pendingOptOut) -> Bool {
         guard let originId = message.elementID, let target = message.to?.bare else { return false }
         do {
             let realm = try WRealm.safe()
@@ -2495,8 +2499,8 @@ final class AccountSendCoordinator {
                   XMPPJID(string: bubble.opponent)?.bare == target else { return false }
             try realm.write {
                 bubble.state = .error
-                bubble.messageErrorCode = "omemo-opt-out-pending"
-                bubble.messageError = L10n.text("omemo_opt_out_review", fallback: "Review encryption request")
+                bubble.messageErrorCode = reason.code
+                bubble.messageError = reason.message
                 realm.object(ofType: LastChatsStorageItem.self,
                     forPrimaryKey: LastChatsStorageItem.genPrimary(jid: bubble.opponent, owner: bubble.owner,
                                                                  conversationType: bubble.conversationType))?.hasErrorInChat = true
@@ -3710,6 +3714,10 @@ final class Account: NSObject {
             outgoingStanzaWasBlocked(stanza)
             return .blockedByOptOut(stanzaId: stanza.elementID ?? "")
         }
+        guard omemo.allowsPreparedOMEMO2Transport(stanza) else {
+            outgoingStanzaWasBlocked(stanza, reason: .recipientChanged)
+            return .blockedByOMEMORecipient(stanzaId: stanza.elementID ?? "")
+        }
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
         if shouldTrackPrimaryStreamStanza {
@@ -3719,6 +3727,7 @@ final class Account: NSObject {
                 replayPolicy: effectiveReplayPolicy
             )
             if case .rejected(let violation) = result {
+                omemo.abandonPreparedOMEMO2Transport(stanza)
                 logPrimaryStreamTrackingRejected(stanza: stanza, violation: violation)
                 connectionResilience.notePrimaryStreamTrackingLimitRejected(violation)
                 return .rejected(violation)
@@ -3734,16 +3743,22 @@ final class Account: NSObject {
             )
         }
 
+        omemo.queuePreparedOMEMO2Transport(stanza, finalDelegate: false)
         xmppStream.send(stanza)
         return .sent(stanzaId: stanzaId)
     }
 
     func preparePrimaryStreamStanzaForSend(
         _ stanza: XMPPElement,
-        replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
+        replayPolicy: PrimaryStreamReplayPolicy = .notReplayable,
+        finalDelegate: Bool = false
     ) -> Bool {
         guard OMEMO2OptOutPolicy.allowsOutgoing(stanza, owner: jid, storage: omemo.omemo2Storage) else {
-            outgoingStanzaWasBlocked(stanza)
+            outgoingStanzaWasBlocked(stanza, queuedAttempt: finalDelegate)
+            return false
+        }
+        guard omemo.allowsPreparedOMEMO2Transport(stanza) else {
+            outgoingStanzaWasBlocked(stanza, reason: .recipientChanged, queuedAttempt: finalDelegate)
             return false
         }
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
@@ -3756,6 +3771,7 @@ final class Account: NSObject {
             replayPolicy: effectiveReplayPolicy
         )
         if case .rejected(let violation) = result {
+            omemo.abandonPreparedOMEMO2Transport(stanza, queuedAttempt: finalDelegate)
             logPrimaryStreamTrackingRejected(stanza: stanza, violation: violation)
             connectionResilience.notePrimaryStreamTrackingLimitRejected(violation)
             return false
@@ -3763,7 +3779,8 @@ final class Account: NSObject {
         return true
     }
 
-    func notePrimaryStreamStanzaDidSend(_ stanza: XMPPElement) {
+    func notePrimaryStreamStanzaDidSend(_ stanza: XMPPElement, fromPrimaryStream: Bool = true) {
+        if fromPrimaryStream { omemo.preparedOMEMO2TransportDidSend(stanza, canResume: sm.canResumeStream()) }
         primaryStreamStanzaTracker.noteDidSend(id: stanza.elementID)
         if let message = stanza as? XMPPMessage {
             sendCoordinator.localSendDidTransmit(message: message)
@@ -3798,21 +3815,23 @@ final class Account: NSObject {
         }
     }
 
-    func notePrimaryStreamStanzaDidFailToSend(_ stanza: XMPPElement) {
+    func notePrimaryStreamStanzaDidFailToSend(_ stanza: XMPPElement, fromPrimaryStream: Bool = true) {
+        if fromPrimaryStream { omemo.abandonPreparedOMEMO2Transport(stanza, queuedAttempt: true) }
         _ = primaryStreamStanzaTracker.noteSendFailed(id: stanza.elementID)
     }
 
     /// XMPPFramework deliberately emits no didFail callback when willSend
     /// returns nil. Release only our untransmitted bookkeeping explicitly.
-    func outgoingStanzaWasBlocked(_ stanza: XMPPElement) {
+    func outgoingStanzaWasBlocked(_ stanza: XMPPElement, reason: OutgoingOMEMOBlockReason = .pendingOptOut, queuedAttempt: Bool = false) {
+        omemo.abandonPreparedOMEMO2Transport(stanza, queuedAttempt: queuedAttempt)
         _ = primaryStreamStanzaTracker.noteSendFiltered(id: stanza.elementID)
         if let message = stanza as? XMPPMessage {
-            _ = sendCoordinator.localSendBlocked(message: message)
+            _ = sendCoordinator.localSendBlocked(message: message, reason: reason)
         } else if let iq = stanza as? XMPPIQ {
             messageSchedule.outgoingIQWasBlocked(iq)
             msgDeleteManager.outgoingIQWasBlocked(iq)
         }
-        logConnectionDiagnostics(event: "application_stanza_blocked_pending_opt_out", details: ["id": stanza.elementID ?? "none"])
+        logConnectionDiagnostics(event: "application_stanza_blocked_" + reason.diagnostic, details: ["id": stanza.elementID ?? "none"])
     }
 
     func snapshotTrackedPrimaryStanzas() -> [PrimaryStreamTrackedStanza] {
@@ -3973,6 +3992,7 @@ final class Account: NSObject {
         self.sendReadiness.markDisconnected(cause: self.pendingDisconnectContext.cause ?? .accidentalSocket)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.omemo.preparedOMEMO2TransportDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamAckRequestCoordinator.reset()
         self.roster.clearInitialRosterSession()
         self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
@@ -4471,6 +4491,7 @@ final class Account: NSObject {
             self.sendReadiness.markDisconnected(cause: cause)
             self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
             self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
+            self.omemo.preparedOMEMO2TransportDidDisconnect(canResume: self.sm.canResumeStream())
             AccountManager.shared.markAsConnecting(jid: self.jid)
         }
     }
@@ -4758,6 +4779,7 @@ final class Account: NSObject {
         self.sendReadiness.markDisconnected(cause: resolvedCause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.omemo.preparedOMEMO2TransportDidDisconnect(canResume: self.sm.canResumeStream())
         DDLogDebug("account disconnect requested jid=\(self.jid) hard=\(hard) cause=\(resolvedCause.rawValue) phase=\(self.connectionGate.snapshot().phase.rawValue) streamState=\(self.streamStateDescription)")
         self.logConnectionDiagnostics(
             event: "disconnect_requested",

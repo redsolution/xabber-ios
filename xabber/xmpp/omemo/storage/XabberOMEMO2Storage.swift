@@ -303,6 +303,13 @@ final class XabberOMEMO2Storage {
 
     /// The ciphertext is returned only after the advanced ratchet was stored.
     func encrypt(_ data: Data, jid: String, deviceID: Int) throws -> OMEMO2Ciphertext {
+        try encryptCapturingSession(data, jid: jid, deviceID: deviceID).ciphertext
+    }
+
+    /// Public session binding is returned from the same transaction as the
+    /// ciphertext, so a concurrent replacement cannot relabel a prepared packet.
+    func encryptCapturingSession(_ data: Data, jid: String, deviceID: Int) throws
+        -> (ciphertext: OMEMO2Ciphertext, metadata: OMEMO2SessionMetadata) {
         try synchronized {
             var state = try requireState()
             try requireOptOutAllowsSend(jid: jid, state: state)
@@ -323,7 +330,11 @@ final class XabberOMEMO2Storage {
             state.currentSessions[addressKey(address)] = committedKey
             state.controlsNeeded.remove(address)
             try save(state)
-            return ciphertext
+            let metadata = OMEMO2SessionMetadata(remoteIdentityKey: session.remoteIdentityKey,
+                ephemeralKey: session.ephemeralKey, sendCounter: session.sendCounter,
+                receiveCounter: session.receiveCounter, receiveOnly: stored.receiveOnly,
+                keyExchangePending: session.isKeyExchangePending)
+            return (ciphertext, metadata)
         }
     }
 

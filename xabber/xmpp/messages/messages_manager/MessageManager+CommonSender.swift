@@ -498,6 +498,7 @@ extension MessageManager {
                     OmemoManager.synchronizeOutgoingEncryptionMetadata(stanzaToSend)
                 }
                 guard user.sendReadiness.snapshot.canFlushApplicationStanzas else {
+                    user.omemo.abandonPreparedOMEMO2Transport(stanzaToSend)
                     user.logConnectionDiagnostics(
                         event: "application_message_send_deferred_no_replay_policy",
                         details: [

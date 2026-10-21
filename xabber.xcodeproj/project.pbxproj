@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A32110210000000000000051 /* OMEMO2FinalRecipientTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */; };
 		A32110210000000000000041 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */; };
 		A32110210000000000000003 /* OMEMOThreeClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */; };
 		A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */; };
@@ -1235,6 +1236,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2FinalRecipientTransportTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientAttachmentOpenSafetyTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnostics.swift; sourceTree = "<group>"; };
 		A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnosticSafetyTests.swift; sourceTree = "<group>"; };
@@ -4434,6 +4436,7 @@
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
 				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
 				A32110210000000000000032 /* EncryptedAttachmentHashInteropTests.swift */,
+				A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */,
 				A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */,
 				A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */,
 				A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */,
@@ -6972,6 +6975,7 @@
 				4EB500022FFE00000ABC001 /* ChatSearchLifecycleTests.swift in Sources */,
 				A32010200000000000000033 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */,
 				A32110210000000000000031 /* EncryptedAttachmentHashInteropTests.swift in Sources */,
+				A32110210000000000000051 /* OMEMO2FinalRecipientTransportTests.swift in Sources */,
 				A32010200000000000000041 /* ChatEncryptedAttachmentSendingTests.swift in Sources */,
 				A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */,
 				A32110210000000000000011 /* ChatMessageAccessibilityIdentityTests.swift in Sources */,

@@ -494,7 +494,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         let result = sendPrimaryAware(iq, on: stream, replayPolicy: .notReplayable)
         let rejected: Bool
         switch result {
-        case .rejected, .blockedByOptOut: rejected = true
+        case .rejected, .blockedByOptOut, .blockedByOMEMORecipient: rejected = true
         case .sent, .queued: rejected = false
         }
         if rejected {

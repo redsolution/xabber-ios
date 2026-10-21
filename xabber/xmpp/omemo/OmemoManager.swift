@@ -78,6 +78,11 @@ open class OmemoManager: AbstractXMPPManager {
         omemo2CleanupCoordinator = coordinator
         return coordinator
     }
+    internal let omemo2OutgoingProofLock = NSLock()
+    internal var omemo2OutgoingProofs: [Data: OMEMO2OutgoingTransportProof] = [:]
+    internal var omemo2OutgoingProofReservations = Set<UUID>()
+    internal var omemo2OutgoingTransmitted: [String: [[Data]]] = [:]
+    internal var omemo2OutgoingQueued: [ObjectIdentifier: OMEMO2QueuedTransportAttempt] = [:]
     internal var omemo2ControlSender: ((XMPPMessage) -> Void)?
     internal var omemo2FreshBundleRequester: ((String, Int, String) -> Void)?
     internal var omemo2FreshBundleRequests: [OMEMO2PeerAddress: OMEMO2FreshBundleRequest] = [:]

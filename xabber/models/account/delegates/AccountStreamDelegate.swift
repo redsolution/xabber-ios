@@ -313,8 +313,10 @@ extension Account: XMPPStreamDelegate {
         self.primaryStreamAckRequestCoordinator.reset()
         let ackedIds = (resumedStanzaIds as? [Any])?.compactMap { $0 as? String } ?? []
         if didResume {
+            self.omemo.acknowledgePreparedOMEMO2Transports(ackedIds)
             _ = self.primaryStreamStanzaTracker.noteResumeSucceeded(ackedIds: ackedIds)
         } else {
+            self.omemo.preparedOMEMO2TransportDidDisconnect(canResume: false)
             _ = self.primaryStreamStanzaTracker.noteResumeFailedOrFullReconnect()
         }
         self.cancelDelayedConnectTimer()
@@ -509,6 +511,7 @@ extension Account: XMPPStreamDelegate {
         self.sendReadiness.markDisconnected(cause: disconnect.cause)
         self.sendCoordinator.streamDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamStanzaTracker.noteStreamDidDisconnect(canResume: self.sm.canResumeStream())
+        self.omemo.preparedOMEMO2TransportDidDisconnect(canResume: self.sm.canResumeStream())
         self.primaryStreamAckRequestCoordinator.reset()
         self.roster.clearInitialRosterSession()
         self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
@@ -520,14 +523,16 @@ extension Account: XMPPStreamDelegate {
 
     func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
         guard sender === self.xmppStream else { return iq }
-        return self.preparePrimaryStreamStanzaForSend(iq) ? iq : nil
+        guard self.preparePrimaryStreamStanzaForSend(iq, finalDelegate: true) else { return nil }
+        self.omemo.queuePreparedOMEMO2Transport(iq, finalDelegate: true)
+        return iq
     }
     
     func xmppStream(_ sender: XMPPStream, didSend iq: XMPPIQ) {
         if sender === self.xmppStream {
             self.push.didSend(iq, xmppStream: sender)
         }
-        self.notePrimaryStreamStanzaDidSend(iq)
+        self.notePrimaryStreamStanzaDidSend(iq, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_iq",
             details: [
@@ -661,7 +666,7 @@ extension Account: XMPPStreamDelegate {
 
     func xmppStream(_ sender: XMPPStream, didSend presence: XMPPPresence) {
         guard sender === self.xmppStream else { return }
-        self.notePrimaryStreamStanzaDidSend(presence)
+        self.notePrimaryStreamStanzaDidSend(presence, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_presence",
             details: [
@@ -967,11 +972,13 @@ extension Account: XMPPStreamDelegate {
 
     func xmppStream(_ sender: XMPPStream, willSend message: XMPPMessage) -> XMPPMessage? {
         guard sender === self.xmppStream else { return message }
-        return self.preparePrimaryStreamStanzaForSend(message) ? message : nil
+        guard self.preparePrimaryStreamStanzaForSend(message, finalDelegate: true) else { return nil }
+        self.omemo.queuePreparedOMEMO2Transport(message, finalDelegate: true)
+        return message
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
-        self.notePrimaryStreamStanzaDidSend(message)
+        self.notePrimaryStreamStanzaDidSend(message, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_message",
             details: [
@@ -988,7 +995,7 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didFailToSend message: XMPPMessage, error: Error) {
-        self.notePrimaryStreamStanzaDidFailToSend(message)
+        self.notePrimaryStreamStanzaDidFailToSend(message, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_message",
             details: [
@@ -1006,7 +1013,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
-        self.notePrimaryStreamStanzaDidFailToSend(iq)
+        self.notePrimaryStreamStanzaDidFailToSend(iq, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_iq",
             details: [
@@ -1020,7 +1027,7 @@ extension Account: XMPPStreamDelegate {
 
     func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
         guard sender === self.xmppStream else { return }
-        self.notePrimaryStreamStanzaDidFailToSend(presence)
+        self.notePrimaryStreamStanzaDidFailToSend(presence, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_presence",
             details: [
@@ -1181,6 +1188,7 @@ extension Account: XMPPStreamManagementDelegate {
 
     func xmppStreamManagement(_ sender: XMPPStreamManagement, didReceiveAckForStanzaIds stanzaIds: [Any]) {
         let ackedIds = stanzaIds.compactMap { $0 as? String }
+        if sender === self.sm { self.omemo.acknowledgePreparedOMEMO2Transports(ackedIds) }
         _ = self.primaryStreamStanzaTracker.noteAck(ids: ackedIds)
         self.primaryStreamAckRequestCoordinator.noteAcknowledgedStanzaIds(ackedIds)
         self.logConnectionDiagnostics(
