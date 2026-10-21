@@ -64,6 +64,56 @@ enum OMEMO2ReplayProtection {
         return Data(SHA256.hash(data: framed))
     }
 
+    /// Reuses local authentication only for the same saved ordinary message.
+    /// Transport IDs and XML success flags cannot select another row. This never
+    /// decrypts, creates a message, changes content/trust, or grants archive coverage.
+    static func authenticatedArchiveHistoryMessage(
+        for message: XMPPMessage, owner: String, localDeviceID: Int, in realm: Realm
+    ) -> MessageStorageItem? {
+        guard isArchivedMessage(message), message.from?.bare == owner,
+              message.to?.bare == owner,
+              getMAMQueryId(message)?.isNotEmpty == true,
+              getMAMResultID(message)?.isNotEmpty == true,
+              let path = try? OmemoManager.incomingPath(message, owner: owner),
+              let rawLeaf = path.last else { return nil }
+        let leaf = XMPPMessage(from: rawLeaf)
+        guard ["chat", "normal"].contains(leaf.type ?? "chat"),
+              let sender = leaf.from?.bare, let recipient = leaf.to?.bare,
+              sender == owner || recipient == owner,
+              let fingerprint = Self.fingerprint(for: message, owner: owner, localDeviceID: localDeviceID),
+              let encrypted = SCEReceivePolicy.children(of: leaf, named: "encrypted", xmlns: OmemoManager.xmlns).first,
+              SCEReceivePolicy.children(of: encrypted, named: "payload", xmlns: OmemoManager.xmlns).count == 1,
+              let header = SCEReceivePolicy.children(of: encrypted, named: "header", xmlns: OmemoManager.xmlns).first,
+              let sid = header.attributeStringValue(forName: "sid").flatMap(Int.init)
+        else { return nil }
+        let proofs = realm.objects(MessageStanzaStorageItem.self)
+            .filter("owner == %@ AND omemo2ReplayFingerprint == %@", owner, fingerprint)
+        guard proofs.count == 1, let proof = proofs.first, proof.primary.hasSuffix("_stanza"),
+              let savedXML = try? XMPPMessage(xmlString: proof.stanza),
+              Self.fingerprint(for: savedXML, owner: owner, localDeviceID: localDeviceID) == fingerprint,
+              let savedPath = try? OmemoManager.incomingPath(savedXML, owner: owner),
+              let savedRawLeaf = savedPath.last else { return nil }
+        let savedLeaf = XMPPMessage(from: savedRawLeaf)
+        let primary = String(proof.primary.dropLast("_stanza".count))
+        let peer = sender == owner ? recipient : sender
+        guard let row = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              row.owner == owner, row.opponent == peer, row.conversationType == .omemo,
+              row.outgoing == (sender == owner), !row.isDeleted, !row.isLocallyHiddenByReport,
+              row.primary == MessageStorageItem.genPrimary(messageId: row.messageId, owner: owner),
+              proof.messageId == row.messageId,
+              getUniqueMessageId(leaf, owner: owner) == row.messageId,
+              getUniqueMessageId(savedLeaf, owner: owner) == row.messageId,
+              leaf.elementID == savedLeaf.elementID,
+              let auth = row.systemMetadata?["omemo_authenticated_sender_v1"] as? [String: Any],
+              auth["owner"] as? String == owner, auth["jid"] as? String == sender,
+              auth["deviceID"] as? Int == sid, auth["trusted"] is Bool,
+              let identity = auth["fingerprint"] as? String,
+              identity.replacingOccurrences(of: " ", with: "").count == 64,
+              identity.replacingOccurrences(of: " ", with: "").range(of: "^[0-9a-fA-F]{64}$", options: .regularExpression) != nil
+        else { return nil }
+        return row
+    }
+
     static func hasVerifiedHistory(fingerprint: Data, owner: String) -> Bool {
         guard fingerprint.count == 32, let realm = try? WRealm.safe(),
               MessageStanzaStorageItem().objectSchema.properties.contains(where: { $0.name == "omemo2ReplayFingerprint" }) else { return false }

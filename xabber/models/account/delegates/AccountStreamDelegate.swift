@@ -729,6 +729,13 @@ extension Account: XMPPStreamDelegate {
         let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
             ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)
         let prepared = self.omemo.prepareIncoming(message, context: context)
+        if didObserveArchiveResult, case .consumed(.duplicate) = prepared,
+           let storage = self.omemo.omemo2Storage,
+           let localID = try? storage.localBundle().deviceID,
+           self.messages.receiveAuthenticatedArchivedReplay(message, localDeviceID: localID) {
+            didRouteArchiveResultToPersistence = true
+            return
+        }
         guard let message = prepared.message else {
             didIntentionallyConsumeArchiveResult = true
             return

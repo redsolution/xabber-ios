@@ -1,4 +1,5 @@
 import XCTest
+import RealmSwift
 @testable import xabber
 
 final class ChatInitialTargetFirstFrameTests: XCTestCase {
@@ -789,6 +790,91 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
             controller.initialTargetFirstFrameContext?
                 .isAwaitingPreparationCompletion ?? true
         )
+    }
+
+    @MainActor
+    func testLateVerifiedOMEMOPageAfterNavigationTimeoutReplacesSkeletonAndFinishesExactLocalTarget() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "LateVerifiedOMEMOTarget-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let item = MessageStorageItem()
+        item.primary = "late-verified-target"
+        item.messageId = "2e9a7778-0bd7-4a81-b0bc-9dd63ef0e6ae"
+        item.owner = owner
+        item.opponent = jid
+        item.conversationType = .omemo
+        item.archivedId = "200"
+        item.mamArchiveId = "200"
+        item.date = Date(timeIntervalSince1970: 1_700_000_000)
+        item.sentDate = item.date
+        item.body = "Verified delayed OMEMO page"
+        item.legacyBody = item.body
+        try realm.write { realm.add(item) }
+
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .omemo
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        let request = ChatOpenMessageRequest(chatJid: jid, owner: owner, conversationType: .omemo,
+            anchor: .init(messagePrimary: item.primary, archivedId: nil, archiveCursor: nil,
+                          messageId: item.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+        controller.pendingOpenMessageRequest = request
+        var oldNavigationCompletionCount = 0
+        controller.initialTargetFirstFrameContext = .init(request: request) { oldNavigationCompletionCount += 1 }
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.isStackedNavigationPresentationPreparationCancelled = false
+        controller.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = true
+        controller.timelineSession = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(owner: owner, jid: jid, conversationType: .omemo),
+            pageSize: ArchivePageSizing.history,
+            conversationKey: .init(owner: owner, jid: jid, conversationType: .omemo),
+            observesStoreImmediately: false)
+        controller.archiveWindowStateTask = Task {}
+        controller.archiveWindowIntent = ArchiveWindowIntent(
+            conversation: .init(owner: owner, jid: jid, conversationType: .omemo), locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        controller.archiveWindowState = .skeleton(reason: .opening, target: .latest)
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        defer { controller.stopArchiveEnginePresentationSubscription() }
+
+        controller.stackedNavigationPresentationPreparationDidTimeOut()
+        controller.completeNavigationTransitionDeferral(cancelled: false)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertNotNil(controller.initialTargetFirstFrameContext)
+        let published = expectation(description: "late verified target reaches UIKit after timeout")
+        published.assertForOverFulfill = false
+        controller.datasourceDidSetForTests = { rows in
+            if rows.contains(where: { $0.primary == item.primary && !$0.isFakeMessage }) { published.fulfill() }
+        }
+        let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "late-verified-omemo")
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: cursor, newest: cursor,
+            reachesArchiveStart: true, reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+        try await Task.sleep(nanoseconds: 20_000_000)
+        controller.receiveArchiveWindowState(.verified(ArchiveWindowSnapshot(
+            messagePrimaryIDs: [item.primary], target: .latest, verifiedSegment: segment,
+            coverageGeneration: 1, freshnessToken: freshness)))
+        await fulfillment(of: [published], timeout: 3)
+        // The atomic UIKit receipt follows datasource publication on the same main lane.
+        for _ in 0..<200 where controller.pendingOpenMessageRequest != nil {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.canLoadDatasource)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(oldNavigationCompletionCount, 0, "The expired navigation completion must not be revived")
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), [item.primary])
+        XCTAssertEqual(controller.messagesCollectionView.numberOfSections, controller.datasource.count)
     }
 
     private func makeRequest(

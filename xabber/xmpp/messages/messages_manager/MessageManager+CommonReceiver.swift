@@ -1436,6 +1436,52 @@ extension MessageManager {
         return nil
     }
     
+    /// Admit only transport metadata for a previously authenticated ordinary
+    /// replay. The saved content, attachment references, dates, sender trust and
+    /// original replay proof stay in their existing transaction/identity.
+    @discardableResult
+    internal func receiveAuthenticatedArchivedReplay(_ message: XMPPMessage, localDeviceID: Int) -> Bool {
+        guard let queryID = getMAMQueryId(message), queryID.isNotEmpty,
+              let cursor = getMAMResultID(message), ArchiveCursor(rawValue: cursor) != nil else { return false }
+        return performMessageQueueSync {
+            guard let realm = try? WRealm.safe() else { return false }
+            realm.refresh()
+            guard let existing = OMEMO2ReplayProtection.authenticatedArchiveHistoryMessage(
+                for: message, owner: owner, localDeviceID: localDeviceID, in: realm) else { return false }
+            let projection = MessageStorageItem()
+            projection.primary = existing.primary
+            projection.owner = existing.owner
+            projection.opponent = existing.opponent
+            projection.conversationType = existing.conversationType
+            projection.messageId = existing.messageId
+            projection.date = existing.date
+            projection.sentDate = existing.sentDate
+            projection.mamArchiveId = cursor
+            projection.shouldReconcileMAMArchiveIdentity = true
+            projection.incomingEncryption = .authenticatedSCE(profile: .omemo2)
+            projection.queryIds = queryID
+            projection.shouldPersistArchiveQueryId = shouldPersistArchiveQueryId(queryID)
+            updateArchivePersistenceSummary(for: queryID) { $0.received += 1 }
+            defer { wakeArchivePersistenceRequestAfterIngress(queryId: queryID) }
+            do {
+                var outcome: ArchivePersistenceOutcomeItem?
+                try realm.write {
+                    guard OMEMO2ReplayProtection.authenticatedArchiveHistoryMessage(
+                        for: message, owner: owner, localDeviceID: localDeviceID, in: realm)?.primary == projection.primary
+                    else { throw OMEMO2StorageError.invalidState }
+                    outcome = persistMessage(projection, requiredMediaAttachments: [], in: realm,
+                        silentNotifications: true, runtimeQueryIds: [queryID]).0
+                }
+                if let outcome { recordArchivePersistenceOutcomes([outcome]) }
+            } catch {
+                recordArchivePersistenceOutcomes([failedOutcome(for: projection, runtimeQueryIds: [queryID])])
+            }
+            // Matching ordinary content was routed to persistence even when its
+            // write failed. The MAM receipt must report failure, not a control.
+            return true
+        }
+    }
+
     public func receiveArchived(_ message: XMPPMessage) {
         receiveArchived(message, encryption: .plaintext)
     }
@@ -2246,6 +2292,14 @@ extension MessageManager {
                     ("owner", message.owner),
                     ("reason", "primaryScopeMismatch")
                 ])
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
+            if let existing, existing.conversationType == .omemo,
+               message.incomingEncryption != .authenticatedSCE(profile: .omemo2),
+               realm.object(ofType: MessageStanzaStorageItem.self,
+                   forPrimaryKey: existing.primary + "_stanza")?.omemo2ReplayFingerprint != nil {
+                // A failed/unverified ciphertext with a copied logical ID is
+                // not evidence that this MAM result contains the saved content.
                 return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
             }
             let conflictingPrimary = realm.objects(MessageStorageItem.self)
