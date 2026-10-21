@@ -31,6 +31,60 @@ private let inlineForwardXMLNS = "urn:xmpp:forward:0"
 private let delayedDeliveryXMLNS = "urn:xmpp:delay"
 private let markupXMLNS = "https://xabber.com/protocol/markup"
 
+/// Protected-file wire hashes use XEP-0300; durable attachment metadata keeps hex.
+/// nil means no advertised digest, while an empty value preserves invalid input.
+enum EncryptedAttachmentHashCodec {
+    private static let namespace = "urn:xmpp:hashes:2"
+    private static let filesNamespace = "https://xabber.com/protocol/files"
+
+    static func normalizedHex(_ value: String?) -> String? {
+        guard let value, value.utf8.count == 64,
+              value.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else { return nil }
+        return value.lowercased()
+    }
+
+    static func element(metadata: [String: Any]?) -> DDXMLElement? {
+        guard metadata?.keys.contains("hash") == true else { return nil }
+        let element = DDXMLElement(name: "hash", xmlns: namespace)
+        element.addAttribute(withName: "algo", stringValue: "sha-256")
+        if let hex = normalizedHex(metadata?["hash"] as? String) {
+            var bytes = Data(), index = hex.startIndex
+            while index < hex.endIndex {
+                let end = hex.index(index, offsetBy: 2)
+                bytes.append(UInt8(hex[index..<end], radix: 16)!)
+                index = end
+            }
+            element.stringValue = bytes.base64EncodedString()
+        }
+        // A malformed advertised value must not turn into an absent optional hash.
+        return element
+    }
+
+    static func metadataValue(from file: DDXMLElement) -> String? {
+        let hashes = directElementChildren(of: file).filter { $0.localName == "hash" }
+        let canonical = hashes.filter { effectiveNamespace(of: $0) == namespace }
+        let legacy = hashes.filter {
+            let ns = effectiveNamespace(of: $0)
+            return ns == nil || ns == "" || ns == filesNamespace
+        }
+        if canonical.isEmpty {
+            guard !legacy.isEmpty else { return nil }
+            guard legacy.count == 1, legacy[0].attributeStringValue(forName: "algo") == nil,
+                  directElementChildren(of: legacy[0]).isEmpty,
+                  let value = normalizedHex(legacy[0].stringValue) else { return "" }
+            return value
+        }
+        // Presence of any canonical hash namespace suppresses legacy fallback.
+        guard legacy.isEmpty else { return "" }
+        let supported = canonical.filter { $0.attributeStringValue(forName: "algo") == "sha-256" }
+        guard supported.count == 1, directElementChildren(of: supported[0]).isEmpty else { return "" }
+        let text = (supported[0].stringValue ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n"))
+        guard let bytes = Data(base64Encoded: text), bytes.count == 32,
+              bytes.base64EncodedString() == text else { return "" }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 let inlineForwardMaximumDepth = 8
 
 private func validatedHTTPThumbnailURI(_ rawValue: String) -> String? {
@@ -231,6 +285,32 @@ private func effectiveNamespace(of element: DDXMLElement) -> String? {
 private func referenceChild(_ parent: DDXMLElement, named name: String, xmlns namespace: String? = nil) -> DDXMLElement? {
     guard let namespace = namespace ?? effectiveNamespace(of: parent) else { return nil }
     return SCEReceivePolicy.children(of: parent, named: name, xmlns: namespace).first
+}
+
+private func encryptedFileProtection(in file: DDXMLElement) -> (key: String, iv: String)? {
+    let namespace = "urn:xmpp:esfs:0"
+    let containers = SCEReceivePolicy.children(of: file, named: "encrypted", xmlns: namespace)
+    guard !containers.isEmpty else { return nil }
+    // An advertised ESFS container always retains protection markers. Missing or
+    // ambiguous exact fields must not become an unencrypted URL fallback.
+    guard containers.count == 1 else { return ("", "") }
+    let keys = SCEReceivePolicy.children(of: containers[0], named: "key", xmlns: namespace)
+    let ivs = SCEReceivePolicy.children(of: containers[0], named: "iv", xmlns: namespace)
+    guard keys.count == 1, ivs.count == 1,
+          directElementChildren(of: keys[0]).isEmpty,
+          directElementChildren(of: ivs[0]).isEmpty else { return ("", "") }
+    return (keys[0].stringValue ?? "", ivs[0].stringValue ?? "")
+}
+
+private func protectedFileSize(in file: DDXMLElement) -> Int {
+    let values = SCEReceivePolicy.children(of: file, named: "size", xmlns: "https://xabber.com/protocol/files")
+    guard values.count == 1, directElementChildren(of: values[0]).isEmpty else { return -1 }
+    let text = (values[0].stringValue ?? "").trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n"))
+    // Share exact integer admission with web; never coerce missing/partial text
+    // to a valid empty-file size or lose precision across clients.
+    guard !text.isEmpty, text.utf8.allSatisfy({ (48...57).contains($0) }),
+          let size = Int(text), size <= 9_007_199_254_740_991 else { return -1 }
+    return size
 }
 
 private func referenceMessageBody(_ message: XMPPMessage) -> String {
@@ -652,19 +732,22 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                     }
                 let file = payload.file
                 let uri = payload.uri
-                if let encryptedElement = referenceChild(file, named: "encrypted", xmlns: "urn:xmpp:esfs:0"),
-                   let encryptionKey = referenceChild(encryptedElement, named: "key")?.stringValue,
-                   let iv = referenceChild(encryptedElement, named: "iv")?.stringValue {
-                    metadata["encryption-key"] = encryptionKey
-                    metadata["iv"] = iv
+                if let protection = encryptedFileProtection(in: file) {
+                    metadata["encryption-key"] = protection.key
+                    metadata["iv"] = protection.iv
                 }
                 let mediaType = referenceChild(file, named: "media-type")?.stringValue ?? ""
                 metadata["media-type"] = mediaType
                 reference.mimeType = "audio"//MimeIcon(mediaType).value.rawValue
                 metadata["name"] = referenceChild(file, named: "name")?.stringValue ?? ""
                 metadata["duration"] = referenceChild(file, named: "duration")?.stringValueAsNSInteger() ?? 0
-                metadata["size"] = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
-                metadata["hash"] = referenceChild(file, named: "hash")?.stringValue ?? ""
+                let isProtectedFile = metadata.keys.contains("encryption-key") || metadata.keys.contains("iv")
+                metadata["size"] = isProtectedFile ? protectedFileSize(in: file) : (referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0)
+                if isProtectedFile {
+                    metadata["hash"] = EncryptedAttachmentHashCodec.metadataValue(from: file)
+                } else {
+                    metadata["hash"] = referenceChild(file, named: "hash")?.stringValue ?? ""
+                }
                 let pcmRaw = referenceChild(file, named: "meters")?.stringValue ?? ""
                 if pcmRaw.isNotEmpty {
                     metadata["pcm"] = pcmRaw
@@ -681,11 +764,9 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 
                 var isEncrypted: Bool = false
                 
-                if let encryptedElement = referenceChild(file, named: "encrypted", xmlns: "urn:xmpp:esfs:0"),
-                   let encryptionKey = referenceChild(encryptedElement, named: "key")?.stringValue,
-                   let iv = referenceChild(encryptedElement, named: "iv")?.stringValue {
-                    metadata["encryption-key"] = encryptionKey
-                    metadata["iv"] = iv
+                if let protection = encryptedFileProtection(in: file) {
+                    metadata["encryption-key"] = protection.key
+                    metadata["iv"] = protection.iv
                     isEncrypted = true
                 }
                 
@@ -695,10 +776,14 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 metadata["name"] = referenceChild(file, named: "name")?.stringValue ?? ""
                 metadata["height"] = referenceChild(file, named: "height")?.stringValueAsNSInteger() ?? 0
                 metadata["width"] = referenceChild(file, named: "width")?.stringValueAsNSInteger() ?? 0
-                metadata["size"] = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
+                metadata["size"] = isEncrypted ? protectedFileSize(in: file) : (referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0)
                 metadata["desc"] = referenceChild(file, named: "desc")?.stringValue ?? ""
                 metadata["duration"] = referenceChild(file, named: "duration")?.stringValueAsNSInteger() ?? 0
-                metadata["hash"] = referenceChild(file, named: "hash")?.stringValue ?? ""
+                if isEncrypted {
+                    metadata["hash"] = EncryptedAttachmentHashCodec.metadataValue(from: file)
+                } else {
+                    metadata["hash"] = referenceChild(file, named: "hash")?.stringValue ?? ""
+                }
                 metadata["orientation"] = referenceChild(file, named: "orientation")?.stringValue ?? ""
                 metadata["video_duration"] = referenceChild(file, named: "video_duration")?.stringValue ?? ""
                 metadata["uri"] = uri

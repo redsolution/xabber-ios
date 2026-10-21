@@ -28,6 +28,7 @@ struct ChatEncryptedAttachmentDescriptor: Hashable, CustomStringConvertible, Cus
         let encodedIV = metadata?["iv"] as? String
         key = Self.base64(encodedKey, lengths: [16, 32])
         iv = Self.base64(encodedIV, lengths: [16])
+        let hashAdvertised = metadata?.keys.contains("hash") == true
         ciphertextHash = Self.hex(metadata?["hash"] as? String)
         originalSize = Self.size(metadata?["size"])
         let name = (metadata?["name"] as? String) ?? (metadata?["filename"] as? String) ?? ""
@@ -37,11 +38,12 @@ struct ChatEncryptedAttachmentDescriptor: Hashable, CustomStringConvertible, Cus
         fileExtension = !suffix.isEmpty && suffix.count <= 12 && suffix.utf8.allSatisfy({ (48...57).contains($0) || (97...122).contains($0) }) ? suffix : fallback
         let validURL = url.map { ["https", "http"].contains($0.scheme?.lowercased() ?? "") && $0.host?.isEmpty == false && $0.user == nil && $0.password == nil && $0.fragment == nil } ?? false
         let validOwner = !owner.isEmpty && owner.contains("@") && !owner.contains("/") && !owner.contains(where: { $0.isWhitespace })
-        state = !protected ? .plaintext : (key != nil && iv != nil && ciphertextHash != nil && originalSize != nil && validURL && validOwner && !referenceIdentity.isEmpty ? .encrypted : .invalid)
+        state = !protected ? .plaintext : (key != nil && iv != nil && (!hashAdvertised || ciphertextHash != nil) && originalSize != nil && validURL && validOwner && !referenceIdentity.isEmpty ? .encrypted : .invalid)
         if !protected {
             cacheIdentity = url?.absoluteString ?? ""
         } else {
-            let material = Self.framed([Data("xabber-authenticated-file-v1".utf8), Data(owner.utf8), Data((url?.absoluteString ?? "").utf8), Data((encodedKey ?? "invalid-key").utf8), Data((encodedIV ?? "invalid-iv").utf8), Data(((metadata?["hash"] as? String) ?? "invalid-hash").lowercased().utf8), Data(String(originalSize ?? -1).utf8)])
+            let hashIdentity = hashAdvertised ? ((metadata?["hash"] as? String) ?? "invalid-hash").lowercased() : "absent-ciphertext-hash"
+            let material = Self.framed([Data("xabber-authenticated-file-v1".utf8), Data(owner.utf8), Data((url?.absoluteString ?? "").utf8), Data((encodedKey ?? "invalid-key").utf8), Data((encodedIV ?? "invalid-iv").utf8), Data(hashIdentity.utf8), Data(String(originalSize ?? -1).utf8)])
             cacheIdentity = Self.sha256(material)
         }
     }
@@ -240,8 +242,10 @@ final class ChatEncryptedAttachmentReceiver {
     }
 
     private func authenticate(_ ciphertext: Data, descriptor: ChatEncryptedAttachmentDescriptor) throws -> Data {
-        guard let key = descriptor.key, let iv = descriptor.iv, let expectedHash = descriptor.ciphertextHash, let originalSize = descriptor.originalSize else { throw ChatEncryptedAttachmentReceiveError.invalidMetadata }
-        guard Data(CryptoKit.SHA256.hash(data: ciphertext)) == expectedHash else { throw ChatEncryptedAttachmentReceiveError.ciphertextHashMismatch }
+        guard let key = descriptor.key, let iv = descriptor.iv, let originalSize = descriptor.originalSize else { throw ChatEncryptedAttachmentReceiveError.invalidMetadata }
+        if let expectedHash = descriptor.ciphertextHash {
+            guard Data(CryptoKit.SHA256.hash(data: ciphertext)) == expectedHash else { throw ChatEncryptedAttachmentReceiveError.ciphertextHashMismatch }
+        }
         let plaintext: Data
         do { guard ciphertext.count >= 16, let value = try Data.decrypt(ciphertext, key: Array(key), iv: Array(iv)) else { throw ChatEncryptedAttachmentReceiveError.authenticationFailed }; plaintext = value }
         catch { throw ChatEncryptedAttachmentReceiveError.authenticationFailed }

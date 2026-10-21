@@ -11,6 +11,7 @@
 		A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */; };
 		A32110210000000000000011 /* ChatMessageAccessibilityIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */; };
 		A32010200000000000000051 /* MediaGalleryEncryptedAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000052 /* MediaGalleryEncryptedAttachmentTests.swift */; };
+		A32110210000000000000031 /* EncryptedAttachmentHashInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000032 /* EncryptedAttachmentHashInteropTests.swift */; };
 		A32010200000000000000041 /* ChatEncryptedAttachmentSendingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */; };
 		A32010200000000000000032 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000031 /* OMEMOThreeClientLiveUIAuthorization.swift */; };
 		A32010200000000000000033 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000031 /* OMEMOThreeClientLiveUIAuthorization.swift */; };
@@ -1237,6 +1238,7 @@
 		A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnosticSafetyTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageAccessibilityIdentityTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000052 /* MediaGalleryEncryptedAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryEncryptedAttachmentTests.swift; sourceTree = "<group>"; };
+		A32110210000000000000032 /* EncryptedAttachmentHashInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedAttachmentHashInteropTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEncryptedAttachmentSendingTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000031 /* OMEMOThreeClientLiveUIAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientLiveUIAuthorization.swift; sourceTree = "<group>"; };
 		A32010200000000000000034 /* OMEMOThreeClientLiveUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientLiveUITests.swift; sourceTree = "<group>"; };
@@ -4429,6 +4431,7 @@
 				A32010200000000000000006 /* TrustVerificationInteropTests.swift */,
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
 				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
+				A32110210000000000000032 /* EncryptedAttachmentHashInteropTests.swift */,
 				A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */,
 				A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */,
 				A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */,
@@ -6965,6 +6968,7 @@
 				4EB400022FFD00000ABC001 /* ChatSearchPerformanceTests.swift in Sources */,
 				4EB500022FFE00000ABC001 /* ChatSearchLifecycleTests.swift in Sources */,
 				A32010200000000000000033 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */,
+				A32110210000000000000031 /* EncryptedAttachmentHashInteropTests.swift in Sources */,
 				A32010200000000000000041 /* ChatEncryptedAttachmentSendingTests.swift in Sources */,
 				A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */,
 				A32110210000000000000011 /* ChatMessageAccessibilityIdentityTests.swift in Sources */,

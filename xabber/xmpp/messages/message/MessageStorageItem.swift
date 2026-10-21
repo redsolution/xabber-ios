@@ -2571,6 +2571,10 @@ class MessageStorageItem: Object {
                                     thumb.addAttribute(withName: "uri", stringValue: value)
                                     file.addChild(thumb)
                                 }
+                            case "hash" where reference.metadata?.keys.contains("encryption-key") == true || reference.metadata?.keys.contains("iv") == true:
+                                if let hash = EncryptedAttachmentHashCodec.element(metadata: reference.metadata) {
+                                    file.addChild(hash)
+                                }
                             case "media-type", "name", "height", "width", "size", "desc", "duration", "hash", "orientation", "video_duration":
                                 if let value = $0.value as? String {
                                     file.addChild(DDXMLElement(name: $0.key, stringValue: value))
@@ -2581,8 +2585,9 @@ class MessageStorageItem: Object {
                                 break
                         }
                     }
-                    if let iv = reference.metadata?["iv"] as? String,
-                       let encryptionKey = reference.metadata?["encryption-key"] as? String {
+                    if reference.metadata?.keys.contains("iv") == true || reference.metadata?.keys.contains("encryption-key") == true {
+                        let iv = reference.metadata?["iv"] as? String ?? ""
+                        let encryptionKey = reference.metadata?["encryption-key"] as? String ?? ""
                         let encryptedElement = DDXMLElement(name: "encrypted", xmlns: "urn:xmpp:esfs:0")
                         let keyElement = DDXMLElement(name: "key")
                         keyElement.stringValue = encryptionKey
@@ -2709,8 +2714,9 @@ class MessageStorageItem: Object {
                     }
                     let file = DDXMLElement(name: "file")
                     
-                    if let iv = reference.metadata?["iv"] as? String,
-                       let encryptionKey = reference.metadata?["encryption-key"] as? String {
+                    if reference.metadata?.keys.contains("iv") == true || reference.metadata?.keys.contains("encryption-key") == true {
+                        let iv = reference.metadata?["iv"] as? String ?? ""
+                        let encryptionKey = reference.metadata?["encryption-key"] as? String ?? ""
                         let encryptedElement = DDXMLElement(name: "encrypted", xmlns: "urn:xmpp:esfs:0")
                         let keyElement = DDXMLElement(name: "key")
                         keyElement.stringValue = encryptionKey
@@ -2726,7 +2732,14 @@ class MessageStorageItem: Object {
                     file.addChild(DDXMLElement(name: "desc", stringValue: "Voice message"))
                     file.addChild(DDXMLElement(name: "duration", stringValue: "\(reference.duration ?? 0)"))
                     
-                    if let url = reference.localFileUrl,
+                    if reference.metadata?.keys.contains("encryption-key") == true || reference.metadata?.keys.contains("iv") == true {
+                        if let size = reference.metadata?["size"] {
+                            file.addChild(DDXMLElement(name: "size", stringValue: "\(size)"))
+                        }
+                        if let hash = EncryptedAttachmentHashCodec.element(metadata: reference.metadata) {
+                            file.addChild(hash)
+                        }
+                    } else if let url = reference.localFileUrl,
                        let data = try? Data(contentsOf: url) {
                         file.addChild(DDXMLElement(name: "size", stringValue: "\(data.bytes.count)"))
                         let hashed = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()

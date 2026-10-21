@@ -3062,9 +3062,8 @@ class XabberUploadManager: AbstractXMPPManager {
                         metadata?["duration"] = reference.metadata?["duration"] as? String
                         if reference.localFileUrl == nil,
                            let url = reference.decodedUrl {
-                            let unwrappedUrl = URL(fileURLWithPath: url.absoluteString)
                             try realm.write {
-                                reference.localFileUrl = try? AudioMessageReceiver.shared.encode(url: unwrappedUrl)
+                                reference.localFileUrl = try? AudioMessageReceiver.shared.encode(url: url)
                             }
                         }
                     default:
@@ -3082,6 +3081,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     }
 
                     var data = try Data(contentsOf: localFileUrl as URL)
+                    let originalByteCount = data.count
                     let encryptionKeyb64 = reference.metadata?["encryption-key"] as? String
                     let ivb64 = reference.metadata?["iv"] as? String
                     var encryptedFiles = false
@@ -3118,6 +3118,7 @@ class XabberUploadManager: AbstractXMPPManager {
                         encryptedFiles = true
                     }
 
+                    let ciphertextHash = encryptedFiles ? data.sha256Data.hexEncodedString() : nil
                     logMediaUploadTrace("media_reference_prepared", details: mediaUploadTraceDetails(context: traceContext, extra: [
                         ("filename", filename),
                         ("mediaType", mediaType),
@@ -3140,7 +3141,15 @@ class XabberUploadManager: AbstractXMPPManager {
                                         uploadedReference.metadata?["uri"] = getUrl
                                         uploadedReference.metadata?["fileID"] = fileID
                                         uploadedReference.metadata?["filename"] = name
-                                        uploadedReference.metadata?["hash"] = hash
+                                        if let ciphertextHash {
+                                            // Gallery hashes identify server objects; they are not the
+                                            // protected file's locally computed ciphertext integrity.
+                                            uploadedReference.metadata?["gallery-hash"] = hash
+                                            uploadedReference.metadata?["hash"] = ciphertextHash
+                                            uploadedReference.metadata?["size"] = originalByteCount
+                                        } else {
+                                            uploadedReference.metadata?["hash"] = hash
+                                        }
                                         uploadedReference.isUploaded = true
                                         uploadedReference.url = getUrl
                                     }
