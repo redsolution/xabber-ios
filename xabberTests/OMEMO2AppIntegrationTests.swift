@@ -10,12 +10,28 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
     private final class MemoryPersistence: OMEMO2StatePersistence {
         var records: [String: Data] = [:]
         var failWrites = false
-        func load(owner: String) throws -> Data? { records[owner] }
+        private let directory: URL?
+        init(directory: URL? = nil) { self.directory = directory }
+        func load(owner: String) throws -> Data? {
+            guard let directory else { return records[owner] }
+            let file = directory.appendingPathComponent(owner)
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            let data = try Data(contentsOf: file)
+            records[owner] = data
+            return data
+        }
         func save(_ data: Data, owner: String) throws {
             if failWrites { throw OMEMO2StorageError.persistenceFailed }
+            if let directory { try data.write(to: directory.appendingPathComponent(owner), options: .atomic) }
             records[owner] = data
         }
-        func remove(owner: String) throws { records.removeValue(forKey: owner) }
+        func remove(owner: String) throws {
+            if let directory {
+                let file = directory.appendingPathComponent(owner)
+                if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+            }
+            records.removeValue(forKey: owner)
+        }
         func legacyIdentity(owner: String) throws -> (publicKey: Data, privateKey: Data)? { nil }
         func legacyDeviceID(owner: String) -> Int? { nil }
     }
@@ -219,6 +235,159 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
         XCTAssertFalse(try ciphertext(regular, recipient: fixture.bob.owner, deviceID: fixture.bobBundle.deviceID).isKeyExchange)
     }
 
+    func testSimultaneousManagersKeepBothSessionsAcrossCrossedKEXDroppedACKsAndDurableReopen() throws {
+        // All six scenarios use the production manager, storage and crypto engine.
+        // Only the account persistence transport is a test-owned atomic disk file.
+        for deliveryOrder in 0..<3 {
+            for deliverACKs in [true, false] {
+                let context = "order=\(deliveryOrder), ACKs=\(deliverACKs)"
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("OMEMO2-symmetric-race-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: directory) }
+                let pair = try fixture(persistence: MemoryPersistence(directory: directory))
+                let reverse = reversed(pair)
+                var aliceControls = [XMPPMessage]()
+                var bobControls = [XMPPMessage]()
+                pair.alice.omemo2ControlSender = { aliceControls.append($0) }
+                pair.bob.omemo2ControlSender = { bobControls.append($0) }
+                let initialAlicePreKeys = Set(try pair.aliceStore.localBundle().preKeys.map(\.id))
+                let initialBobPreKeys = Set(try pair.bobStore.localBundle().preKeys.map(\.id))
+
+                // Neither receive path runs until BOTH independent initiators emit.
+                let aliceInitial = try outgoing(envelope("alice initial", fixture: pair), fixture: pair)
+                let bobInitial = try outgoing(envelope("bob initial", fixture: reverse), fixture: reverse)
+                let aliceKEX = try ciphertext(aliceInitial, recipient: pair.bob.owner, deviceID: pair.bobBundle.deviceID)
+                let bobKEX = try ciphertext(bobInitial, recipient: pair.alice.owner, deviceID: pair.aliceBundle.deviceID)
+                let aliceEK = try XCTUnwrap(aliceKEX.ephemeralKey)
+                let bobEK = try XCTUnwrap(bobKEX.ephemeralKey)
+                XCTAssertTrue(aliceKEX.isKeyExchange, context)
+                XCTAssertTrue(bobKEX.isKeyExchange, context)
+                XCTAssertEqual(aliceKEX.counter, 0, context)
+                XCTAssertEqual(bobKEX.counter, 0, context)
+                XCTAssertNotEqual(aliceEK, bobEK, context)
+                XCTAssertTrue(try XCTUnwrap(pair.aliceStore.sessionMetadata(jid: pair.bob.owner,
+                    deviceID: pair.bobBundle.deviceID)).keyExchangePending, context)
+                XCTAssertTrue(try XCTUnwrap(pair.bobStore.sessionMetadata(jid: pair.alice.owner,
+                    deviceID: pair.aliceBundle.deviceID)).keyExchangePending, context)
+                XCTAssertTrue(aliceControls.isEmpty, context)
+                XCTAssertTrue(bobControls.isEmpty, context)
+
+                func receiveInitial(_ encrypted: DDXMLElement, direction: Fixture, body: String) throws {
+                    let received = try XCTUnwrap(direction.bob.decryptMessage(message(encrypted, fixture: direction)))
+                    XCTAssertEqual(received.element(forName: "content")?.element(forName: "body")?.stringValue, body, context)
+                }
+                func receiveACK(_ controls: [XMPPMessage], direction: Fixture) throws {
+                    XCTAssertEqual(controls.count, 1, context)
+                    let ack = try XCTUnwrap(controls.first?.copy() as? XMPPMessage)
+                    XCTAssertEqual(ack.to?.bare, direction.bob.owner, context)
+                    XCTAssertNil(ack.element(forName: "body"), context)
+                    let encrypted = try XCTUnwrap(ack.element(forName: "encrypted", xmlns: OMEMO2BundleCodec.namespace))
+                    XCTAssertNil(encrypted.element(forName: "payload"), context)
+                    let header = try XCTUnwrap(encrypted.element(forName: "header"))
+                    XCTAssertEqual(header.attributeIntegerValue(forName: "sid"), direction.aliceBundle.deviceID, context)
+                    XCTAssertEqual(header.elements(forName: "keys").count, 1, context)
+                    XCTAssertEqual(header.elements(forName: "keys").first?.elements(forName: "key").count, 1, context)
+                    XCTAssertFalse(try ciphertext(encrypted, recipient: direction.bob.owner,
+                        deviceID: direction.bobBundle.deviceID).isKeyExchange, context)
+                    ack.addAttribute(withName: "from", stringValue: direction.alice.owner + "/ios")
+                    XCTAssertNil(try direction.bob.decryptMessage(ack), context)
+                }
+
+                if deliveryOrder == 1 {
+                    try receiveInitial(bobInitial, direction: reverse, body: "bob initial")
+                    try receiveInitial(aliceInitial, direction: pair, body: "alice initial")
+                    if deliverACKs {
+                        try receiveACK(aliceControls, direction: pair)
+                        try receiveACK(bobControls, direction: reverse)
+                    }
+                } else {
+                    try receiveInitial(aliceInitial, direction: pair, body: "alice initial")
+                    if deliveryOrder == 2 && deliverACKs { try receiveACK(bobControls, direction: reverse) }
+                    try receiveInitial(bobInitial, direction: reverse, body: "bob initial")
+                    if deliverACKs {
+                        if deliveryOrder == 0 { try receiveACK(bobControls, direction: reverse) }
+                        try receiveACK(aliceControls, direction: pair)
+                    }
+                }
+                XCTAssertEqual(aliceControls.count, 1, context)
+                XCTAssertEqual(bobControls.count, 1, context)
+                let alicePreKeysAfterCross = Set(try pair.aliceStore.localBundle().preKeys.map(\.id))
+                let bobPreKeysAfterCross = Set(try pair.bobStore.localBundle().preKeys.map(\.id))
+                // Normal authenticated receive replenishes the bundle. Check the
+                // exact consumed IDs, not an artificial total-count invariant.
+                XCTAssertFalse(alicePreKeysAfterCross.contains(bobKEX.preKeyID), context)
+                XCTAssertFalse(bobPreKeysAfterCross.contains(aliceKEX.preKeyID), context)
+                XCTAssertTrue(initialAlicePreKeys.subtracting([bobKEX.preKeyID]).isSubset(of: alicePreKeysAfterCross), context)
+                XCTAssertTrue(initialBobPreKeys.subtracting([aliceKEX.preKeyID]).isSubset(of: bobPreKeysAfterCross), context)
+                XCTAssertEqual(try pair.aliceStore.sessionMetadata(jid: pair.bob.owner,
+                    deviceID: pair.bobBundle.deviceID)?.ephemeralKey, bobEK, context)
+                XCTAssertEqual(try pair.bobStore.sessionMetadata(jid: pair.alice.owner,
+                    deviceID: pair.aliceBundle.deviceID)?.ephemeralKey, aliceEK, context)
+                XCTAssertEqual(try pair.aliceStore.sessionMetadata(jid: pair.bob.owner,
+                    deviceID: pair.bobBundle.deviceID, ephemeralKey: aliceEK)?.keyExchangePending, !deliverACKs, context)
+                XCTAssertEqual(try pair.bobStore.sessionMetadata(jid: pair.alice.owner,
+                    deviceID: pair.aliceBundle.deviceID, ephemeralKey: bobEK)?.keyExchangePending, !deliverACKs, context)
+
+                func ordinary(_ body: String, direction: Fixture, currentEK: Data) throws {
+                    let encrypted = try outgoing(envelope(body, fixture: direction), fixture: direction)
+                    let wrapped = try ciphertext(encrypted, recipient: direction.bob.owner,
+                        deviceID: direction.bobBundle.deviceID)
+                    XCTAssertFalse(wrapped.isKeyExchange, context)
+                    let received = try XCTUnwrap(direction.bob.decryptMessage(message(encrypted, fixture: direction)))
+                    XCTAssertEqual(received.element(forName: "content")?.element(forName: "body")?.stringValue, body, context)
+                    XCTAssertEqual(try direction.aliceStore.sessionMetadata(jid: direction.bob.owner,
+                        deviceID: direction.bobBundle.deviceID)?.ephemeralKey, currentEK, context)
+                }
+                // Dropped automatic ACKs have already consumed counter zero. The
+                // next ordinary counter must authenticate and confirm each retained
+                // initiator, rather than recreate a session or consume another OPK.
+                for counter in 1...6 {
+                    try ordinary("alice ordinary \(counter)", direction: pair, currentEK: bobEK)
+                    try ordinary("bob ordinary \(counter)", direction: reverse, currentEK: aliceEK)
+                }
+                for direction in [pair, reverse] {
+                    for key in [aliceEK, bobEK] {
+                        let metadata = try XCTUnwrap(direction.aliceStore.sessionMetadata(jid: direction.bob.owner,
+                            deviceID: direction.bobBundle.deviceID, ephemeralKey: key))
+                        XCTAssertFalse(metadata.keyExchangePending, context)
+                        XCTAssertFalse(metadata.receiveOnly, context)
+                        XCTAssertEqual(metadata.remoteIdentityKey, direction.bobBundle.identityKey, context)
+                    }
+                    XCTAssertTrue(try direction.aliceStore.pendingControlAddresses().isEmpty, context)
+                }
+                let aliceSaved = try pair.persistence.load(owner: pair.alice.owner)
+                let bobSaved = try pair.persistence.load(owner: pair.bob.owner)
+                XCTAssertNil(try pair.bob.decryptMessage(message(aliceInitial, fixture: pair)), context)
+                XCTAssertNil(try pair.alice.decryptMessage(message(bobInitial, fixture: reverse)), context)
+                XCTAssertEqual(try pair.persistence.load(owner: pair.alice.owner), aliceSaved, context)
+                XCTAssertEqual(try pair.persistence.load(owner: pair.bob.owner), bobSaved, context)
+                XCTAssertEqual(aliceControls.count, 1, context)
+                XCTAssertEqual(bobControls.count, 1, context)
+
+                // New persistence/storage/manager objects reopen only serialized
+                // files. No preparation, bundle fetch or session initiation is used.
+                let persistence = MemoryPersistence(directory: directory)
+                XCTAssertEqual(try persistence.load(owner: pair.alice.owner), aliceSaved, context)
+                XCTAssertEqual(try persistence.load(owner: pair.bob.owner), bobSaved, context)
+                let reopened = try reopened(pair, persistence: persistence)
+                let reopenedReverse = reversed(reopened)
+                var reopenedControls = [XMPPMessage]()
+                reopened.alice.omemo2ControlSender = { reopenedControls.append($0) }
+                reopened.bob.omemo2ControlSender = { reopenedControls.append($0) }
+                XCTAssertEqual(reopened.aliceBundle.deviceID, pair.aliceBundle.deviceID, context)
+                XCTAssertEqual(reopened.bobBundle.deviceID, pair.bobBundle.deviceID, context)
+                XCTAssertEqual(reopened.aliceBundle.identityKey, pair.aliceBundle.identityKey, context)
+                XCTAssertEqual(reopened.bobBundle.identityKey, pair.bobBundle.identityKey, context)
+                try ordinary("alice after durable reopen", direction: reopened, currentEK: bobEK)
+                try ordinary("bob after durable reopen", direction: reopenedReverse, currentEK: aliceEK)
+                XCTAssertTrue(reopenedControls.isEmpty, context)
+                XCTAssertEqual(Set(try reopened.aliceStore.localBundle().preKeys.map(\.id)), alicePreKeysAfterCross, context)
+                XCTAssertEqual(Set(try reopened.bobStore.localBundle().preKeys.map(\.id)), bobPreKeysAfterCross, context)
+            }
+        }
+    }
+
     func testControlAndReplayAreConsumedByLivePushAndStanzaRoutesWithoutAFailureBubble() throws {
         let fixture = try fixture()
         try fixture.aliceStore.initiateSession(jid: fixture.bob.owner, deviceID: fixture.bobBundle.deviceID,
@@ -403,11 +572,10 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
         return message(encryptedElement(ciphertext: ciphertext, payload: nil, fixture: fixture), fixture: fixture)
     }
 
-    private func fixture(aliceDeviceID: Int = 41, bobDeviceID: Int = 42) throws -> Fixture {
+    private func fixture(aliceDeviceID: Int = 41, bobDeviceID: Int = 42, persistence: MemoryPersistence = MemoryPersistence()) throws -> Fixture {
         let suffix = UUID().uuidString.lowercased()
         let aliceJID = "alice-\(suffix)@example.test"
         let bobJID = "bob-\(suffix)@example.test"
-        let persistence = MemoryPersistence()
         let aliceStore = try XabberOMEMO2Storage(owner: aliceJID, persistence: persistence)
         let bobStore = try XabberOMEMO2Storage(owner: bobJID, persistence: persistence)
         let aliceBundle = try aliceStore.prepare(deviceID: aliceDeviceID, preKeyCount: 3)
@@ -424,6 +592,30 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
         try advertiseDevices(to: alice, jid: bobJID, ids: [bobDeviceID])
         try advertiseDevices(to: bob, jid: bobJID, ids: [bobDeviceID])
         try advertiseDevices(to: bob, jid: aliceJID, ids: [aliceDeviceID])
+        return Fixture(alice: alice, bob: bob, aliceStore: aliceStore, bobStore: bobStore,
+                       persistence: persistence, aliceBundle: aliceBundle, bobBundle: bobBundle)
+    }
+
+    private func reversed(_ pair: Fixture) -> Fixture {
+        Fixture(alice: pair.bob, bob: pair.alice, aliceStore: pair.bobStore, bobStore: pair.aliceStore,
+                persistence: pair.persistence, aliceBundle: pair.bobBundle, bobBundle: pair.aliceBundle)
+    }
+
+    private func reopened(_ pair: Fixture, persistence: MemoryPersistence) throws -> Fixture {
+        let aliceStore = try XabberOMEMO2Storage(owner: pair.alice.owner, persistence: persistence)
+        let bobStore = try XabberOMEMO2Storage(owner: pair.bob.owner, persistence: persistence)
+        let aliceBundle = try aliceStore.localBundle()
+        let bobBundle = try bobStore.localBundle()
+        let alice = OmemoManager(withOwner: pair.alice.owner)
+        let bob = OmemoManager(withOwner: pair.bob.owner)
+        alice.omemo2Storage = aliceStore
+        bob.omemo2Storage = bobStore
+        try alice.ensureOMEMO2Prepared(attemptPublication: false)
+        try bob.ensureOMEMO2Prepared(attemptPublication: false)
+        for manager in [alice, bob] {
+            try advertiseDevices(to: manager, jid: alice.owner, ids: [aliceBundle.deviceID])
+            try advertiseDevices(to: manager, jid: bob.owner, ids: [bobBundle.deviceID])
+        }
         return Fixture(alice: alice, bob: bob, aliceStore: aliceStore, bobStore: bobStore,
                        persistence: persistence, aliceBundle: aliceBundle, bobBundle: bobBundle)
     }
