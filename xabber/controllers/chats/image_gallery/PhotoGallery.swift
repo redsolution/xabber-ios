@@ -27,6 +27,7 @@ import CocoaLumberjack
 
 
 public class PhotoGallery: UIViewController {
+    var representedReferencePrimary: String?
     static func getSenderName(messageId: String) -> (senderName: String, date: String, time: String) {
         var senderName = ""
         var date = ""
@@ -338,6 +339,7 @@ public class PhotoGallery: UIViewController {
                                             style: .done,
                                             target: self,
                                             action: #selector(dismissGallery))
+        dismissButton.accessibilityIdentifier = "chat.media.photo.close"
         let linkButton = UIBarButtonItem(image: imageLiteral( "paperclip")?.withRenderingMode(.alwaysTemplate),
                                          style: .plain,
                                          target: self,
@@ -455,6 +457,7 @@ public class PhotoGallery: UIViewController {
 
         // Set up collection view
         let collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
+        collectionView.accessibilityIdentifier = "chat.media.photo.gallery.\(representedReferencePrimary.map { Data($0.utf8).base64EncodedString() } ?? "unbound")"
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.register(PhotoGalleryCell.self, forCellWithReuseIdentifier: "PhotoGalleryCell")
         collectionView.register(PhotoGalleryCell.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter, withReuseIdentifier: "PhotoGalleryCell")

@@ -253,7 +253,9 @@ import RealmSwift
 class InlineVideosGridView: InlineAttachmentView {
     
     class InlineMessageVideoView: UIImageView {
-        var primary: String
+        var primary: String {
+            didSet { playButton.accessibilityIdentifier = primary.isEmpty ? nil : "chat.attachment.video.\(Data(primary.utf8).base64EncodedString())" }
+        }
         var url: URL?
         var previewURL: URL?
         var representedRequest: InlineAttachmentRepresentedRequest
@@ -300,6 +302,7 @@ class InlineVideosGridView: InlineAttachmentView {
             self.isSensitive = isSensitive
             self.representedRequest = representedRequest
             super.init(frame: frame)
+            playButton.accessibilityIdentifier = primary.isEmpty ? nil : "chat.attachment.video.\(Data(primary.utf8).base64EncodedString())"
             playButton.center = self.center
             addSubview(playButton)
             updateSensitiveAppearance()

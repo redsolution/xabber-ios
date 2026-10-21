@@ -422,6 +422,10 @@ public class InlineAudiosGridView: InlineAttachmentView {
         private(set) var renderedIconName: String?
         private(set) var renderedDownloadProgress: Double = 0
         private(set) var renderedState: VoiceMessagePlaybackState = .notDownloaded
+        #if DEBUG
+        private var accessibilityPlaybackEntries = 0
+        private var accessibilityLastRenderedPrimary = ""
+        #endif
         
         internal func setup() {
             layoutAudioContent()
@@ -506,6 +510,12 @@ public class InlineAudiosGridView: InlineAttachmentView {
             )
             durationLabel.text = duration.minuteFormatedString
             self.duration = duration
+            #if DEBUG
+            if self.primary != primary {
+                accessibilityPlaybackEntries = 0
+                accessibilityLastRenderedPrimary = ""
+            }
+            #endif
             self.primary = primary
             
             self.waveform.gradientStartColor = palette.tint500
@@ -574,6 +584,11 @@ public class InlineAudiosGridView: InlineAttachmentView {
             waveform.configureStaticWaveform(levels: [], revision: "")
             delegate = nil
             primary = ""
+            iconButton.accessibilityIdentifier = nil
+            #if DEBUG
+            accessibilityPlaybackEntries = 0
+            accessibilityLastRenderedPrimary = ""
+            #endif
             url = nil
             duration = 0
             durationLabel.text = nil
@@ -585,7 +600,30 @@ public class InlineAudiosGridView: InlineAttachmentView {
         }
 
         func render(state: VoiceMessagePlaybackState) {
+            #if DEBUG
+            if state.isPlaying, !primary.isEmpty,
+               !renderedState.isPlaying || accessibilityLastRenderedPrimary != primary,
+               accessibilityPlaybackEntries < Int.max {
+                accessibilityPlaybackEntries += 1
+            }
+            accessibilityLastRenderedPrimary = primary
+            let witness = ".p\(accessibilityPlaybackEntries)"
+            #else
+            let witness = ""
+            #endif
             renderedState = state
+            let accessibilityState: String
+            switch state {
+            case .notDownloaded: accessibilityState = "notDownloaded"
+            case .queued: accessibilityState = "queued"
+            case .failed: accessibilityState = "failed"
+            case .downloading: accessibilityState = "downloading"
+            case .downloaded: accessibilityState = "downloaded"
+            case .playing: accessibilityState = "playing"
+            case .paused: accessibilityState = "paused"
+            }
+            iconButton.accessibilityIdentifier = primary.isEmpty ? nil
+                : "chat.attachment.voice.\(Data(primary.utf8).base64EncodedString()).\(accessibilityState)\(witness)"
             activityIndicator.removeFromSuperview()
             activityIndicator.stopAnimating()
             iconButton.backgroundColor = palette.tint500

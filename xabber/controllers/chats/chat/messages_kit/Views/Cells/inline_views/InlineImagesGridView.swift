@@ -34,7 +34,9 @@ class InlineImagesGridView: InlineAttachmentView {
             case unavailable
         }
         
-        var primary: String
+        var primary: String {
+            didSet { accessibilityIdentifier = primary.isEmpty ? nil : "chat.attachment.image.\(Data(primary.utf8).base64EncodedString())" }
+        }
         /// Resource used by the bounded thumbnail pipeline.
         var url: URL?
         /// First-choice bounded preview. Kept separate from `url` so a failed
@@ -77,6 +79,7 @@ class InlineImagesGridView: InlineAttachmentView {
             self.isSensitive = isSensitive
             self.representedRequest = representedRequest
             super.init(frame: frame)
+            accessibilityIdentifier = primary.isEmpty ? nil : "chat.attachment.image.\(Data(primary.utf8).base64EncodedString())"
             setup()
             updateSensitiveAppearance()
         }

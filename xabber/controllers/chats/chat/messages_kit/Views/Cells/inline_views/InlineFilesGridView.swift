@@ -90,7 +90,9 @@ class InlineFilesGridView: InlineAttachmentView {
         private(set) var representedRequest: ChatFileAttachmentRequest?
         private(set) var renderedTransferState: ChatFileTransferState = .idle
         private(set) var metadataBindCount = 0
-        var primary = ""
+        var primary = "" {
+            didSet { filenameLabel.accessibilityIdentifier = primary.isEmpty ? nil : "chat.attachment.file.\(Data(primary.utf8).base64EncodedString())" }
+        }
         var url: URL?
         var palette: MDCPalette = .amber
 

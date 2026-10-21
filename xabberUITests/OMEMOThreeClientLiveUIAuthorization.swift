@@ -6,7 +6,15 @@ import CryptoKit
 enum OMEMOThreeClientLiveUIAuthorization {
     enum Role: String, Equatable { case iphone, ipad }
     enum Idiom: Equatable { case phone, pad, other }
-    enum Operation { case report, visibleMessage, terminalDone }
+    enum Operation { case report, visibleMessage, terminalDone, openAttachment, dismissAttachment }
+    enum AttachmentKind: String { case image, file, audio, video, voice }
+    struct Attachment: Equatable {
+        let kind: AttachmentKind
+        let referencePrimary: String
+        let filename: String
+        let byteCount: Int
+        let sha256: String
+    }
 
     struct Configuration: Equatable {
         let role: Role
@@ -19,6 +27,8 @@ enum OMEMOThreeClientLiveUIAuthorization {
         let verifiedSID: String?
         let successLabel: String?
         let doneLabel: String?
+        let attachment: Attachment?
+        let dismissLabel: String?
     }
 
     struct Rejection: LocalizedError {
@@ -51,6 +61,44 @@ enum OMEMOThreeClientLiveUIAuthorization {
             return true
         }
         return matches.count == 1 && matches[0].body == body && matches[0].isVisible
+    }
+
+    static func attachmentIdentifier(kind: AttachmentKind, referencePrimary: String) -> String {
+        "chat.attachment.\(kind == .audio ? "file" : kind.rawValue).\(Data(referencePrimary.utf8).base64EncodedString())"
+    }
+
+    static func viewerIdentifier(for attachment: Attachment) -> String {
+        let kind: String
+        switch attachment.kind {
+        case .image: kind = "photo.gallery"
+        case .file, .audio: kind = "file.viewer"
+        case .video: kind = "video.viewer"
+        case .voice: return ""
+        }
+        return "chat.media.\(kind).\(Data(attachment.referencePrimary.utf8).base64EncodedString())"
+    }
+
+    static func isVoiceReadyForPlayback(referencePrimary: String, identifier: String) -> Bool {
+        guard let witness = voiceWitness(referencePrimary: referencePrimary, identifier: identifier) else { return false }
+        return ["downloaded", "paused"].contains(witness.state)
+    }
+
+    static func hasNewVoicePlayback(referencePrimary: String, before: String, after: String) -> Bool {
+        guard let previous = voiceWitness(referencePrimary: referencePrimary, identifier: before),
+              let current = voiceWitness(referencePrimary: referencePrimary, identifier: after),
+              ["downloaded", "paused"].contains(previous.state),
+              ["playing", "paused", "downloaded"].contains(current.state) else { return false }
+        return current.entries > previous.entries
+    }
+
+    private static func voiceWitness(referencePrimary: String, identifier: String) -> (state: String, entries: Int)? {
+        let prefix = attachmentIdentifier(kind: .voice, referencePrimary: referencePrimary) + "."
+        guard identifier.hasPrefix(prefix) else { return nil }
+        let parts = identifier.dropFirst(prefix.count).split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[1].hasPrefix("p"),
+              let entries = Int(parts[1].dropFirst()), entries >= 0,
+              String(entries) == parts[1].dropFirst() else { return nil }
+        return (String(parts[0]), entries)
     }
 
     private static let prefix = "XABBER_OMEMO_UI_"
@@ -100,11 +148,22 @@ enum OMEMOThreeClientLiveUIAuthorization {
         var verifiedSID: String?
         var successLabel: String?
         var doneLabel: String?
+        var attachment: Attachment?
+        var dismissLabel: String?
         switch operation {
         case .report:
             break
-        case .visibleMessage:
-            guard environment[prefix + "ASSERT_MESSAGE"] == "1" else { return nil }
+        case .visibleMessage, .openAttachment, .dismissAttachment:
+            if case .openAttachment = operation {
+                guard environment[prefix + "OPEN_ATTACHMENT"] == "1" else { return nil }
+            }
+            if case .dismissAttachment = operation {
+                guard environment[prefix + "DISMISS_ATTACHMENT"] == "1" else { return nil }
+            }
+            guard environment[prefix + "ASSERT_MESSAGE"] == "1" else {
+                if case .visibleMessage = operation { return nil }
+                throw reject("Attachment actions require the separate exact-message opt-in.")
+            }
             guard let rawID = environment[prefix + "MESSAGE_ID"],
                   UUID(uuidString: rawID) != nil || matchesEntireString(rawID, pattern: "^[A-Za-z0-9~_]{8}$"),
                   let body = environment[prefix + "MESSAGE_BODY"],
@@ -123,6 +182,19 @@ enum OMEMOThreeClientLiveUIAuthorization {
             messageID = rawID
             messageBody = body
             messageManifestSHA256 = expectedHash
+            switch operation {
+            case .openAttachment, .dismissAttachment:
+                attachment = try decodeAttachment(records.first(where: { $0["id"] as? String == rawID })?["attachments"])
+                if case .dismissAttachment = operation {
+                    guard let attachment, [.file, .audio, .video].contains(attachment.kind),
+                          let label = environment[prefix + "DISMISS_LABEL"],
+                          ["Close", "Done", "Закрыть", "Готово"].contains(label) else {
+                        throw reject("System dismissal requires an exact modal attachment and an actually observed canonical Close/Done label.")
+                    }
+                    dismissLabel = label
+                }
+            default: break
+            }
         case .terminalDone:
             guard environment[prefix + "DISMISS_SUCCESS"] == "1" else { return nil }
             guard let sid = environment[prefix + "VERIFIED_SID"],
@@ -144,8 +216,32 @@ enum OMEMOThreeClientLiveUIAuthorization {
         return Configuration(
             role: role, account: account, token: token, baselineSHA256: baselineSHA256,
             messageID: messageID, messageBody: messageBody, messageManifestSHA256: messageManifestSHA256, verifiedSID: verifiedSID,
-            successLabel: successLabel, doneLabel: doneLabel
+            successLabel: successLabel, doneLabel: doneLabel, attachment: attachment, dismissLabel: dismissLabel
         )
+    }
+
+    private static func decodeAttachment(_ raw: Any?) throws -> Attachment {
+        guard let records = raw as? [[String: Any]], records.count == 1, let value = records.first,
+              Set(value.keys) == ["kind", "referencePrimary", "filename", "byteCount", "sha256"],
+              let kind = AttachmentKind(rawValue: value["kind"] as? String ?? ""),
+              let primary = value["referencePrimary"] as? String, !primary.isEmpty, primary.utf8.count <= 2048,
+              primary.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }),
+              let filename = value["filename"] as? String, let byteCount = value["byteCount"] as? Int,
+              let sha256 = value["sha256"] as? String else {
+            throw reject("Attachment UI requires exactly one bounded reference and fixed fixture metadata in the hash-bound manifest.")
+        }
+        let expected: (String, Int, String)
+        switch kind {
+        case .image: expected = ("QA3-image.png", 14205, "10e3ad9db045757011ccac1be7b224584a2d4a41433c010910423cebf9eb2529")
+        case .file: expected = ("QA3-document.txt", 2738, "37a4be8e8dd6c7fcb7af2a306909b658075b9a00fe1ab8c02be4b64a7d3877d0")
+        case .audio: expected = ("QA3-audio.wav", 16044, "c5b99ceef5c83a371360cad83a267daa6fb69cb96525672d353dddcd8fc33e9c")
+        case .video: expected = ("QA3-video.mp4", 1870, "0c4ecc8cee6f7bf03ee9ffeac5394e2e0860d3e496e5329f5f94bbbc5cbc063a")
+        case .voice: expected = ("QA3-voice.ogg", 1420, "c88e7fddcea31b4b04d98b969fb939f79205bf8019fc9726f969099c18c85b83")
+        }
+        guard filename == expected.0, byteCount == expected.1, sha256 == expected.2 else {
+            throw reject("Attachment UI does not permit unknown fixture names, sizes or hashes.")
+        }
+        return .init(kind: kind, referencePrimary: primary, filename: filename, byteCount: byteCount, sha256: sha256)
     }
 
     private static func reject(_ reason: String) -> Rejection { Rejection(reason: reason) }

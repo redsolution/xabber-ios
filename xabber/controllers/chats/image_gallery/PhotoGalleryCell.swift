@@ -168,6 +168,7 @@ class PhotoGalleryCell: UICollectionViewCell {
         imageLoadGeneration = UUID()
         let generation = imageLoadGeneration
         imageView.image = nil
+        accessibilityIdentifier = "chat.media.photo.loading"
         errorImageView.removeFromSuperview()
         errorLabel.removeFromSuperview()
         guard let url = imageUrl else { return }
@@ -204,6 +205,7 @@ class PhotoGalleryCell: UICollectionViewCell {
     private func applyGalleryImage(_ image: UIImage?) {
         guard let image else { activateErrorImage(); return }
         imageView.image = image
+        accessibilityIdentifier = "chat.media.photo.ready"
         imageView.sizeToFit()
         setZoomScale()
         scrollViewDidZoom(scrollView)
@@ -228,6 +230,7 @@ class PhotoGalleryCell: UICollectionViewCell {
     }
     
     private func activateErrorImage() {
+        accessibilityIdentifier = "chat.media.photo.failed"
         imageView.addSubview(errorImageView)
         imageView.addSubview(errorLabel)
         errorImageView.image = imageLiteral( "badge-blocked")?.withRenderingMode(.alwaysTemplate)
@@ -249,6 +252,7 @@ class PhotoGalleryCell: UICollectionViewCell {
         localImageWork = nil
         imageUrl = nil
         imageView.image = nil
+        accessibilityIdentifier = nil
         errorImageView.removeFromSuperview()
         errorLabel.removeFromSuperview()
     }

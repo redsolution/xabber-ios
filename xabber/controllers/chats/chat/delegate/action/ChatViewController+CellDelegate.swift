@@ -86,7 +86,7 @@ extension ChatViewController {
         }
         var resolved = requested
         var remaining = bindings.filter { $0.descriptor.requiresAuthentication }.count
-        guard remaining > 0 else { presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex]); return }
+        guard remaining > 0 else { presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex], referencePrimary: bindings[selectedIndex].primary); return }
         for (index, binding) in bindings.enumerated() where binding.descriptor.requiresAuthentication {
             guard mediaOpenGeneration == generation else { break }
             let task = mediaAttachmentReceive(binding.descriptor) { [weak self] result in
@@ -101,13 +101,13 @@ extension ChatViewController {
                 guard remaining == 0 else { return }
                 self.mediaOpenTasks.removeAll()
                 self.mediaOpenGeneration = UUID()
-                self.presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex])
+                self.presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex], referencePrimary: bindings[selectedIndex].primary)
             }
             if mediaOpenGeneration == generation { mediaOpenTasks.append(task) } else { task.cancel() }
         }
     }
 
-    internal func presentBoundMedia(kind: ChatMediaOpeningKind, urls: [URL], url: URL) {
+    internal func presentBoundMedia(kind: ChatMediaOpeningKind, urls: [URL], url: URL, referencePrimary: String? = nil) {
         if let callback = mediaPresentationForTesting { callback(kind, urls, url); return }
         guard viewIfLoaded?.window != nil, UIApplication.shared.applicationState == .active else { return }
         var context: UIViewController? = self
@@ -116,12 +116,13 @@ extension ChatViewController {
             context = controller.parent
         }
         switch kind {
-        case .photo: showGallery(urls: urls, from: url)
-        case .video: playVideo(withURL: url)
+        case .photo: showGallery(urls: urls, from: url, referencePrimary: referencePrimary)
+        case .video: playVideo(withURL: url, referencePrimary: referencePrimary)
         case .file:
             if url.isFileURL {
                 documentPreviewURL = url
                 let preview = QLPreviewController()
+                preview.view.accessibilityIdentifier = "chat.media.file.viewer.\(referencePrimary.map { Data($0.utf8).base64EncodedString() } ?? "unbound")"
                 preview.dataSource = self
                 present(preview, animated: true)
             } else { openUnencryptedFile(url) }
@@ -840,12 +841,13 @@ extension ChatViewController: MessageCellDelegate {
         }
     }
     
-    func playVideo(withURL: URL?) {
+    func playVideo(withURL: URL?, referencePrimary: String? = nil) {
         guard let url = withURL else { return }
         
         let player = AVPlayer(url: url)
         
         let controller = AVPlayerViewController()
+        controller.view.accessibilityIdentifier = "chat.media.video.viewer.\(referencePrimary.map { Data($0.utf8).base64EncodedString() } ?? "unbound")"
         controller.player = player
         
         present(controller, animated: true) {
@@ -853,8 +855,9 @@ extension ChatViewController: MessageCellDelegate {
         }
     }
     
-    func showGallery(urls: [URL], from url: URL) {
+    func showGallery(urls: [URL], from url: URL, referencePrimary: String? = nil) {
         let gallery = PhotoGallery(urls: urls, from: url)
+        gallery.representedReferencePrimary = referencePrimary
         gallery.chatVCDelegate = self
         
         let nvc = UINavigationController(rootViewController: gallery)

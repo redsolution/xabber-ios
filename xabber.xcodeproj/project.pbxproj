@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A32110210000000000000041 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */; };
 		A32110210000000000000003 /* OMEMOThreeClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */; };
 		A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */; };
 		A32110210000000000000011 /* ChatMessageAccessibilityIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */; };
@@ -1234,6 +1235,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientAttachmentOpenSafetyTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnostics.swift; sourceTree = "<group>"; };
 		A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnosticSafetyTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageAccessibilityIdentityTests.swift; sourceTree = "<group>"; };
@@ -4435,6 +4437,7 @@
 				A32010200000000000000042 /* ChatEncryptedAttachmentSendingTests.swift */,
 				A32110210000000000000002 /* OMEMOThreeClientDiagnosticSafetyTests.swift */,
 				A32110210000000000000012 /* ChatMessageAccessibilityIdentityTests.swift */,
+				A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */,
 				A32010200000000000000052 /* MediaGalleryEncryptedAttachmentTests.swift */,
 				A32010200000000000000036 /* OMEMOThreeClientLiveUISafetyTests.swift */,
 				A32010200000000000000028 /* ChatAuthenticatedMediaOpeningTests.swift */,
@@ -6972,6 +6975,7 @@
 				A32010200000000000000041 /* ChatEncryptedAttachmentSendingTests.swift in Sources */,
 				A32110210000000000000001 /* OMEMOThreeClientDiagnosticSafetyTests.swift in Sources */,
 				A32110210000000000000011 /* ChatMessageAccessibilityIdentityTests.swift in Sources */,
+				A32110210000000000000041 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift in Sources */,
 				A32010200000000000000051 /* MediaGalleryEncryptedAttachmentTests.swift in Sources */,
 				A32010200000000000000037 /* OMEMOThreeClientLiveUISafetyTests.swift in Sources */,
 				4EB000062FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */,

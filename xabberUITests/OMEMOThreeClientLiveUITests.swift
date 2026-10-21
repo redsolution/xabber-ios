@@ -16,29 +16,98 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
         let authorization = try requireAuthorization(operation: .visibleMessage)
         let app = try activateExistingApplication(authorization)
         do {
-            let messageID = try XCTUnwrap(authorization.messageID)
-            let body = try XCTUnwrap(authorization.messageBody)
-            let collections = app.collectionViews.matching(identifier: OMEMOThreeClientLiveUIAuthorization.conversationCollectionIdentifier)
-            try wait(for: "one identity-bound message inside the visible conversation collection", app: app) {
-                guard collections.count == 1 else { return false }
-                let collection = collections.element(boundBy: 0)
-                guard self.isVisible(collection, in: app) else { return false }
-                let cells = collection.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@",
-                    OMEMOThreeClientLiveUIAuthorization.messageIdentifierPrefix(messageID)))
-                let witnesses = (0..<min(cells.count, 2)).map { index in
-                    let cell = cells.element(boundBy: index)
-                    let texts = cell.staticTexts.matching(NSPredicate(format: "label == %@", body))
-                    return OMEMOThreeClientLiveUIAuthorization.VisibleMessageWitness(
-                        collectionIdentifier: collection.identifier, cellIdentifier: cell.identifier,
-                        body: texts.count == 1 ? texts.element(boundBy: 0).label : "",
-                        isVisible: texts.count == 1 && self.isVisible(cell, in: app)
-                            && self.isVisible(texts.element(boundBy: 0), in: app))
-                }
-                return OMEMOThreeClientLiveUIAuthorization.hasExactlyOneVisibleMessage(id: messageID, body: body, witnesses: witnesses)
-            }
+            _ = try exactVisibleCell(authorization, app: app)
             attachPrivateEvidence(app, authorization: authorization, stage: "exact-tagged-message-visible")
         } catch {
             attachPrivateEvidence(app, authorization: authorization, stage: "visible-message-failure")
+            throw error
+        }
+    }
+
+    func testExactTaggedAttachmentOpensWithNormalControl() throws {
+        let authorization = try requireAuthorization(operation: .openAttachment)
+        let app = try activateExistingApplication(authorization)
+        do {
+            let media = try XCTUnwrap(authorization.attachment)
+            let existingViewers = app.descendants(matching: .any).matching(NSPredicate(format:
+                "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@ OR identifier BEGINSWITH %@",
+                "chat.media.photo.gallery.", "chat.media.file.viewer.", "chat.media.video.viewer."))
+            guard existingViewers.count == 0 else {
+                throw OMEMOThreeClientLiveUIAuthorization.Rejection(reason: "A media viewer is already presented; no attachment was tapped.")
+            }
+            let cell = try exactVisibleCell(authorization, app: app)
+            let targetID = OMEMOThreeClientLiveUIAuthorization.attachmentIdentifier(kind: media.kind, referencePrimary: media.referencePrimary)
+            let targets = media.kind == .voice
+                ? cell.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", targetID + "."))
+                : cell.descendants(matching: .any).matching(identifier: targetID)
+            try wait(for: "one exact reference-bound attachment control inside the authorized message", app: app) {
+                targets.count == 1 && self.isVisible(targets.element(boundBy: 0), in: app)
+            }
+            if media.kind == .voice {
+                try wait(for: "the exact voice to be downloaded or paused before normal playback", app: app) {
+                    targets.count == 1 && OMEMOThreeClientLiveUIAuthorization.isVoiceReadyForPlayback(
+                        referencePrimary: media.referencePrimary, identifier: targets.element(boundBy: 0).identifier)
+                }
+                let previous = targets.element(boundBy: 0).identifier
+                attachPrivateEvidence(app, authorization: authorization, stage: "normal-voice-before-tap")
+                targets.element(boundBy: 0).tap()
+                try wait(for: "a new real render playing entry for the same voice reference", app: app) {
+                    targets.count == 1 && OMEMOThreeClientLiveUIAuthorization.hasNewVoicePlayback(
+                        referencePrimary: media.referencePrimary, before: previous, after: targets.element(boundBy: 0).identifier)
+                }
+                attachPrivateEvidence(app, authorization: authorization, stage: "normal-voice-new-render-playing")
+                return
+            }
+            attachPrivateEvidence(app, authorization: authorization, stage: "normal-attachment-before-tap")
+            targets.element(boundBy: 0).tap()
+            let viewers = app.descendants(matching: .any).matching(identifier:
+                OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media))
+            try wait(for: "the normal viewer bound to the exact authorized reference", app: app) {
+                guard viewers.count == 1, self.isVisible(viewers.element(boundBy: 0), in: app) else { return false }
+                if media.kind == .image {
+                    let ready = viewers.element(boundBy: 0).cells.matching(identifier: "chat.media.photo.ready")
+                    return ready.count == 1 && self.isVisible(ready.element(boundBy: 0), in: app)
+                }
+                return true
+            }
+            // System video/audio/file roots establish opening only; they do not prove playback or sound.
+            attachPrivateEvidence(app, authorization: authorization, stage: "normal-\(media.kind.rawValue)-viewer-open")
+            if media.kind == .image {
+                let close = app.buttons.matching(identifier: "chat.media.photo.close")
+                try wait(for: "the gallery's normal Close button", app: app) {
+                    close.count == 1 && self.isVisible(close.element(boundBy: 0), in: app)
+                }
+                close.element(boundBy: 0).tap()
+                try wait(for: "the exact photo gallery to close normally", app: app) { viewers.count == 0 }
+                attachPrivateEvidence(app, authorization: authorization, stage: "normal-photo-gallery-closed")
+            }
+        } catch {
+            attachPrivateEvidence(app, authorization: authorization, stage: "attachment-open-failure")
+            throw error
+        }
+    }
+
+    func testExactTaggedAttachmentViewerDismissesWithObservedNormalButton() throws {
+        let authorization = try requireAuthorization(operation: .dismissAttachment)
+        let app = try activateExistingApplication(authorization)
+        do {
+            let media = try XCTUnwrap(authorization.attachment)
+            let label = try XCTUnwrap(authorization.dismissLabel)
+            let viewers = app.descendants(matching: .any).matching(identifier:
+                OMEMOThreeClientLiveUIAuthorization.viewerIdentifier(for: media))
+            try wait(for: "one viewer bound to the exact authorized attachment", app: app) {
+                viewers.count == 1 && self.isVisible(viewers.element(boundBy: 0), in: app)
+            }
+            let close = viewers.element(boundBy: 0).descendants(matching: .button).matching(NSPredicate(format: "label == %@", label))
+            try wait(for: "the actually observed normal dismissal button inside that viewer", app: app) {
+                close.count == 1 && self.isVisible(close.element(boundBy: 0), in: app)
+            }
+            attachPrivateEvidence(app, authorization: authorization, stage: "normal-viewer-before-dismiss")
+            close.element(boundBy: 0).tap()
+            try wait(for: "the exact viewer to close normally", app: app) { viewers.count == 0 }
+            attachPrivateEvidence(app, authorization: authorization, stage: "normal-viewer-dismissed")
+        } catch {
+            attachPrivateEvidence(app, authorization: authorization, stage: "attachment-dismiss-failure")
             throw error
         }
     }
@@ -67,6 +136,31 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
             attachPrivateEvidence(app, authorization: authorization, stage: "terminal-done-failure")
             throw error
         }
+    }
+
+    private func exactVisibleCell(_ authorization: OMEMOThreeClientLiveUIAuthorization.Configuration, app: XCUIApplication) throws -> XCUIElement {
+        let messageID = try XCTUnwrap(authorization.messageID)
+        let body = try XCTUnwrap(authorization.messageBody)
+        let collections = app.collectionViews.matching(identifier: OMEMOThreeClientLiveUIAuthorization.conversationCollectionIdentifier)
+        try wait(for: "one identity-bound message inside the visible conversation collection", app: app) {
+            guard collections.count == 1 else { return false }
+            let collection = collections.element(boundBy: 0)
+            guard self.isVisible(collection, in: app) else { return false }
+            let cells = collection.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                OMEMOThreeClientLiveUIAuthorization.messageIdentifierPrefix(messageID)))
+            let witnesses = (0..<min(cells.count, 2)).map { index in
+                let cell = cells.element(boundBy: index)
+                let texts = cell.staticTexts.matching(NSPredicate(format: "label == %@", body))
+                return OMEMOThreeClientLiveUIAuthorization.VisibleMessageWitness(
+                    collectionIdentifier: collection.identifier, cellIdentifier: cell.identifier,
+                    body: texts.count == 1 ? texts.element(boundBy: 0).label : "",
+                    isVisible: texts.count == 1 && self.isVisible(cell, in: app)
+                        && self.isVisible(texts.element(boundBy: 0), in: app))
+            }
+            return OMEMOThreeClientLiveUIAuthorization.hasExactlyOneVisibleMessage(id: messageID, body: body, witnesses: witnesses)
+        }
+        return collections.element(boundBy: 0).cells.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+            OMEMOThreeClientLiveUIAuthorization.messageIdentifierPrefix(messageID))).element(boundBy: 0)
     }
 
     private func requireAuthorization(
@@ -156,6 +250,11 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
             "messageIDExpectation=\(authorization.messageID ?? "none")",
             "messageManifestSHA256=\(authorization.messageManifestSHA256 ?? "none")",
             "verifiedSIDExpectation=\(authorization.verifiedSID ?? "none")",
+            "expectedAttachmentKind=\(authorization.attachment?.kind.rawValue ?? "none")",
+            "expectedReferencePrimary=\(authorization.attachment?.referencePrimary ?? "none")",
+            "expectedFixtureSHA256=\(authorization.attachment?.sha256 ?? "none")",
+            "expectedFixtureByteCount=\(authorization.attachment.map { String($0.byteCount) } ?? "none")",
+            "attachmentBytesAndSoundProvedByThisTest=false",
             "accountAndCryptographicStateProvedByThisTest=false"
         ].joined(separator: "\n"))
         metadata.name = "\(authorization.token)-\(authorization.role.rawValue)-\(stage)-private-metadata"
