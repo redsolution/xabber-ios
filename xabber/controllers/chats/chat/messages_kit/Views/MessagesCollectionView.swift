@@ -44,6 +44,7 @@ class MessagesCollectionView: UICollectionView {
 
     override init(frame: CGRect, collectionViewLayout layout: UICollectionViewLayout) {
         super.init(frame: frame, collectionViewLayout: layout)
+        accessibilityIdentifier = "chat.conversation.messages"
 //        backgroundColor = .white
         registerReusableViews()
         setupGestureRecognizers()

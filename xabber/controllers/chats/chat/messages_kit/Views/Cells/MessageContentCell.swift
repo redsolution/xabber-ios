@@ -187,6 +187,7 @@ public class MessageContentCell: MessageCollectionViewCell {
 
     public override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         isSelectedMessage = false
         drawSelectionMode()
         ChatAnchorHighlightOverlay.remove(from: self)
@@ -230,6 +231,7 @@ public class MessageContentCell: MessageCollectionViewCell {
     }
 
     private func applyBaseContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
+        accessibilityIdentifier = "chat.message.\(Data(message.messageId.utf8).base64EncodedString()).\(Data(message.primary.utf8).base64EncodedString())"
         guard let dataSource = messagesCollectionView.messagesDataSource else {
             fatalError(MessageKitError.nilMessagesDataSource)
         }

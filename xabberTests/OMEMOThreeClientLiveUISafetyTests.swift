@@ -210,6 +210,52 @@ final class OMEMOThreeClientLiveUISafetyTests: XCTestCase {
         env[prefix + "MESSAGE_MANIFEST_SHA256"] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    private let visibleID = "36c43080-cca4-4605-a303-79910bbd7d54"
+    private let visibleBody = "QA3-E07-W-PNG01"
+
+    private func witness(collection: String = "chat.conversation.messages", id: String? = nil,
+                         primary: String = "current-primary", body: String? = nil, visible: Bool = true)
+        -> OMEMOThreeClientLiveUIAuthorization.VisibleMessageWitness {
+        .init(collectionIdentifier: collection,
+              cellIdentifier: "chat.message.\(Data((id ?? visibleID).utf8).base64EncodedString()).\(Data(primary.utf8).base64EncodedString())",
+              body: body ?? visibleBody, isVisible: visible)
+    }
+
+    private func visible(_ candidates: [OMEMOThreeClientLiveUIAuthorization.VisibleMessageWitness]) -> Bool {
+        OMEMOThreeClientLiveUIAuthorization.hasExactlyOneVisibleMessage(id: visibleID, body: visibleBody, witnesses: candidates)
+    }
+
+    func testVisibleWitnessAcceptsExactMessageInsideConversationCollection() {
+        XCTAssertTrue(visible([witness()]))
+    }
+
+    func testActualSplitViewChatListPreviewCannotSatisfyMessageVisibility() {
+        XCTAssertFalse(visible([witness(collection: "chat-list-preview")]))
+        XCTAssertFalse(visible([.init(collectionIdentifier: "", cellIdentifier: "", body: visibleBody, isVisible: true)]))
+    }
+
+    func testCorrectBodyWithMissingOrDifferentAccessibleMessageIdentityIsRejected() {
+        XCTAssertFalse(visible([witness(id: UUID().uuidString)]))
+        XCTAssertFalse(visible([.init(collectionIdentifier: "chat.conversation.messages", cellIdentifier: "",
+                                      body: visibleBody, isVisible: true)]))
+    }
+
+    func testAccessibleMessageIdentityRequiresNonemptyCanonicalPrimary() {
+        XCTAssertFalse(visible([witness(primary: "")]))
+        XCTAssertFalse(visible([.init(collectionIdentifier: "chat.conversation.messages",
+            cellIdentifier: "chat.message.\(Data(visibleID.utf8).base64EncodedString()).not-base64",
+            body: visibleBody, isVisible: true)]))
+    }
+
+    func testExactAccessibleIDWithoutExactVisibleBodyIsRejected() {
+        XCTAssertFalse(visible([witness(body: visibleBody + " other")]))
+        XCTAssertFalse(visible([witness(visible: false)]))
+    }
+
+    func testDuplicateLogicalIDsRemainAmbiguousEvenWithOneHiddenCell() {
+        XCTAssertFalse(visible([witness(), witness(primary: "different-primary", visible: false)]))
+    }
+
     func testTerminalDismissalNeedsAnExplicitAlreadySuccessfulSessionWitness() throws {
         var env = environment()
         env[prefix + "DISMISS_SUCCESS"] = "1"

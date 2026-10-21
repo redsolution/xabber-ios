@@ -250,6 +250,95 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         XCTAssertTrue(pending.isEmpty)
     }
 
+    func testTargetedRouteAcceptsOnlyTheCompleteBoundedMessagePair() throws {
+        for id in ["36c43080-cca4-4605-a303-79910bbd7d54", "F~jFuDwQ"] {
+            let data = try JSONSerialization.data(withJSONObject: command(["messageID": id, "messageToken": "QA3-E07-W-PNG01"]))
+            XCTAssertNoThrow(try OMEMOThreeClientDiagnosticPolicy.decode(data, basename: token + ".json", now: now))
+        }
+        for change: [String: Any] in [["messageID": "F~jFuDwQ"], ["messageToken": "QA3-E07-W-PNG01"],
+            ["messageID": "not-an-id", "messageToken": "QA3-E07-W-PNG01"],
+            ["messageID": "F~jFuDwQ", "messageToken": "personal-message"],
+            ["messageID": "F~jFuDwQ", "messageToken": "QA3-E07-W-PNG01", "fixture": "QA3-image.png"],
+            ["operation": "sendAttachment", "fixture": "QA3-image.png", "messageID": "F~jFuDwQ", "messageToken": "QA3-E07-W-PNG01"]] {
+            let data = try JSONSerialization.data(withJSONObject: command(change))
+            XCTAssertThrowsError(try OMEMOThreeClientDiagnosticPolicy.decode(data, basename: token + ".json", now: now))
+        }
+    }
+
+    private func targetedRouteCommand() -> OMEMOThreeClientDiagnosticCommand {
+        .init(token: token, operation: .route, role: .tablet, expires: now + 120, expectedPID: 200,
+              fixture: nil, messageID: "36c43080-cca4-4605-a303-79910bbd7d54", messageToken: "QA3-E07-W-PNG01")
+    }
+
+    private func routeTarget() -> OMEMOThreeClientDiagnosticRouteTarget {
+        .init(owner: "test.omemo.igor@dxs.xabber.com", peer: "igor.boldin@redsolution.com",
+              conversationType: "urn:xmpp:omemo:2", messageID: targetedRouteCommand().messageID!,
+              primary: "exact-local-row", body: "QA3-E07-W-PNG01", outgoing: true,
+              deleted: false, locallyHidden: false, hasError: false,
+              hasAuthenticationMetadata: false, authenticatedSource: nil)
+    }
+
+    private func validateRoute(_ target: OMEMOThreeClientDiagnosticRouteTarget?, count: Int = 1) throws {
+        try OMEMOThreeClientDiagnosticPolicy.validateRouteTarget(target, matchingRowCount: count, command: targetedRouteCommand())
+    }
+
+    func testTargetedRouteSupportsCurrentNativeLocalOutgoingWithoutInventingSenderMetadata() {
+        XCTAssertNoThrow(try validateRoute(routeTarget()))
+        var target = routeTarget()
+        target.hasAuthenticationMetadata = true
+        target.authenticatedSource = .init(owner: target.owner, jid: target.owner,
+            sid: OMEMOThreeClientDiagnosticRole.tablet.sid,
+            fingerprint: OMEMOThreeClientDiagnosticRole.tablet.fingerprint, trusted: true)
+        XCTAssertNoThrow(try validateRoute(target))
+    }
+
+    func testTargetedRouteSupportsAuthenticatedIncomingAndKnownOwnWebCarbon() {
+        var target = routeTarget()
+        target.outgoing = false; target.hasAuthenticationMetadata = true
+        target.authenticatedSource = .init(owner: target.owner, jid: target.peer,
+            sid: OMEMOThreeClientDiagnosticRole.phone.sid,
+            fingerprint: OMEMOThreeClientDiagnosticRole.phone.fingerprint, trusted: true)
+        XCTAssertNoThrow(try validateRoute(target))
+        target.outgoing = true
+        target.authenticatedSource = .init(owner: target.owner, jid: target.owner, sid: 1761201430,
+            fingerprint: "868390cb370b3b6ce0e40203807fff0ef0ecbd232a4e3a56ceec64d8ff6c133d", trusted: true)
+        XCTAssertNoThrow(try validateRoute(target))
+    }
+
+    func testTargetedRouteRejectsMissingDuplicateUnrelatedDeletedHiddenOrErroredRows() {
+        XCTAssertThrowsError(try validateRoute(nil))
+        XCTAssertThrowsError(try validateRoute(routeTarget(), count: 0))
+        XCTAssertThrowsError(try validateRoute(routeTarget(), count: 2))
+        let mutations: [(inout OMEMOThreeClientDiagnosticRouteTarget) -> Void] = [
+            { $0.owner = "stranger@example.test" }, { $0.peer = "stranger@example.test" },
+            { $0.conversationType = "jabber:client" }, { $0.messageID = "F~jFuDwQ" },
+            { $0.primary = "" }, { $0.body = "unrelated personal text" },
+            { $0.deleted = true }, { $0.locallyHidden = true }, { $0.hasError = true }
+        ]
+        for mutate in mutations { var target = routeTarget(); mutate(&target); XCTAssertThrowsError(try validateRoute(target)) }
+    }
+
+    func testTargetedRouteNeverIgnoresMissingInvalidUnknownOrUntrustedRemoteAuthentication() {
+        var target = routeTarget(); target.outgoing = false
+        XCTAssertThrowsError(try validateRoute(target))
+        target.outgoing = true; target.hasAuthenticationMetadata = true
+        XCTAssertThrowsError(try validateRoute(target))
+        let phone = OMEMOThreeClientDiagnosticRole.phone
+        for source in [
+            OMEMOThreeClientDiagnosticRouteTarget.AuthenticatedSource(owner: "stranger@example.test", jid: phone.owner, sid: phone.sid, fingerprint: phone.fingerprint, trusted: true),
+            .init(owner: target.owner, jid: phone.owner, sid: phone.sid, fingerprint: phone.fingerprint, trusted: false),
+            .init(owner: target.owner, jid: phone.owner, sid: 42, fingerprint: phone.fingerprint, trusted: true),
+            .init(owner: target.owner, jid: phone.owner, sid: phone.sid, fingerprint: String(repeating: "0", count: 64), trusted: true),
+            .init(owner: target.owner, jid: "stranger@example.test", sid: phone.sid, fingerprint: phone.fingerprint, trusted: true)
+        ] {
+            target.authenticatedSource = source
+            XCTAssertThrowsError(try validateRoute(target))
+            target.outgoing = false
+            XCTAssertThrowsError(try validateRoute(target))
+            target.outgoing = true
+        }
+    }
+
     func testNormalAttachmentDispatchReceivesVerifiedPrivateCopyAndEncryptedContext() throws {
         let name = try store(command(["operation": "sendAttachment", "fixture": "QA3-image.png"]))
         let sut = runner(); XCTAssertEqual(sut.submit(name), "scheduled"); drain()

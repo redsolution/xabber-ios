@@ -16,10 +16,25 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
         let authorization = try requireAuthorization(operation: .visibleMessage)
         let app = try activateExistingApplication(authorization)
         do {
+            let messageID = try XCTUnwrap(authorization.messageID)
             let body = try XCTUnwrap(authorization.messageBody)
-            let exactText = app.staticTexts.matching(NSPredicate(format: "label == %@", body))
-            try wait(for: "one exact tagged message in the current viewport", app: app) {
-                exactText.count == 1 && self.isVisible(exactText.element(boundBy: 0), in: app)
+            let collections = app.collectionViews.matching(identifier: OMEMOThreeClientLiveUIAuthorization.conversationCollectionIdentifier)
+            try wait(for: "one identity-bound message inside the visible conversation collection", app: app) {
+                guard collections.count == 1 else { return false }
+                let collection = collections.element(boundBy: 0)
+                guard self.isVisible(collection, in: app) else { return false }
+                let cells = collection.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                    OMEMOThreeClientLiveUIAuthorization.messageIdentifierPrefix(messageID)))
+                let witnesses = (0..<min(cells.count, 2)).map { index in
+                    let cell = cells.element(boundBy: index)
+                    let texts = cell.staticTexts.matching(NSPredicate(format: "label == %@", body))
+                    return OMEMOThreeClientLiveUIAuthorization.VisibleMessageWitness(
+                        collectionIdentifier: collection.identifier, cellIdentifier: cell.identifier,
+                        body: texts.count == 1 ? texts.element(boundBy: 0).label : "",
+                        isVisible: texts.count == 1 && self.isVisible(cell, in: app)
+                            && self.isVisible(texts.element(boundBy: 0), in: app))
+                }
+                return OMEMOThreeClientLiveUIAuthorization.hasExactlyOneVisibleMessage(id: messageID, body: body, witnesses: witnesses)
             }
             attachPrivateEvidence(app, authorization: authorization, stage: "exact-tagged-message-visible")
         } catch {

@@ -26,6 +26,33 @@ enum OMEMOThreeClientLiveUIAuthorization {
         var errorDescription: String? { reason }
     }
 
+    struct VisibleMessageWitness {
+        let collectionIdentifier: String
+        let cellIdentifier: String
+        let body: String
+        let isVisible: Bool
+    }
+
+    static let conversationCollectionIdentifier = "chat.conversation.messages"
+
+    static func messageIdentifierPrefix(_ id: String) -> String {
+        "chat.message.\(Data(id.utf8).base64EncodedString())."
+    }
+
+    static func hasExactlyOneVisibleMessage(id: String, body: String, witnesses: [VisibleMessageWitness]) -> Bool {
+        let prefix = messageIdentifierPrefix(id)
+        let matches = witnesses.filter { witness in
+            guard witness.collectionIdentifier == conversationCollectionIdentifier,
+                  witness.cellIdentifier.hasPrefix(prefix) else { return false }
+            let encodedPrimary = String(witness.cellIdentifier.dropFirst(prefix.count))
+            guard let primary = Data(base64Encoded: encodedPrimary), !primary.isEmpty,
+                  primary.base64EncodedString() == encodedPrimary,
+                  String(data: primary, encoding: .utf8)?.isEmpty == false else { return false }
+            return true
+        }
+        return matches.count == 1 && matches[0].body == body && matches[0].isVisible
+    }
+
     private static let prefix = "XABBER_OMEMO_UI_"
 
     /// `nil` means skip before XCUIApplication creation. Invalid opted-in inputs fail closed.

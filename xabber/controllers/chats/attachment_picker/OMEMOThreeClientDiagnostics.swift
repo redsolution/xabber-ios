@@ -67,6 +67,28 @@ struct OMEMOThreeClientDiagnosticCommand {
     let messageToken: String?
 }
 
+struct OMEMOThreeClientDiagnosticRouteTarget {
+    struct AuthenticatedSource {
+        let owner: String
+        let jid: String
+        let sid: Int
+        let fingerprint: String
+        let trusted: Bool
+    }
+    var owner: String
+    var peer: String
+    var conversationType: String
+    var messageID: String
+    var primary: String
+    var body: String
+    var outgoing: Bool
+    var deleted: Bool
+    var locallyHidden: Bool
+    var hasError: Bool
+    var hasAuthenticationMetadata: Bool
+    var authenticatedSource: AuthenticatedSource?
+}
+
 enum OMEMOThreeClientDiagnosticPolicy {
     enum Rejection: Error { case invalidCommand, unsafePath, invalidFixture, invalidRuntime }
     static func directory(underTrustedTemporaryRoot root: URL) -> URL {
@@ -102,7 +124,11 @@ enum OMEMOThreeClientDiagnosticPolicy {
         let messageToken = fields["messageToken"] as? String
         switch operation {
         case .route:
-            guard fields["fixture"] == nil, fields["messageID"] == nil, fields["messageToken"] == nil else { throw Rejection.invalidCommand }
+            guard fields["fixture"] == nil else { throw Rejection.invalidCommand }
+            if fields["messageID"] != nil || fields["messageToken"] != nil {
+                guard let messageID, isMessageID(messageID), let messageToken, isToken(messageToken)
+                else { throw Rejection.invalidCommand }
+            }
         case .sendAttachment:
             guard fixture != nil, fields["messageID"] == nil, fields["messageToken"] == nil else { throw Rejection.invalidCommand }
         case .receiveAttachment:
@@ -139,6 +165,28 @@ enum OMEMOThreeClientDiagnosticPolicy {
                                      _ body: String, _ token: String, _ referenceCount: Int,
                                      _ protectedReference: Bool, _ noError: Bool) -> Bool {
         didAdmit && rowCount == 1 && outgoing && body == token && referenceCount == 1 && protectedReference && noError
+    }
+    static func validateRouteTarget(_ target: OMEMOThreeClientDiagnosticRouteTarget?, matchingRowCount: Int,
+                                    command: OMEMOThreeClientDiagnosticCommand) throws {
+        guard command.operation == .route, command.fixture == nil,
+              let id = command.messageID, isMessageID(id), let token = command.messageToken, isToken(token),
+              matchingRowCount == 1, let target, target.owner == command.role.owner,
+              target.peer == command.role.peer, target.conversationType == "urn:xmpp:omemo:2",
+              target.messageID == id, !target.primary.isEmpty, target.body.contains(token),
+              target.body.utf8.count <= 16_384, !target.deleted, !target.locallyHidden, !target.hasError
+        else { throw Rejection.invalidRuntime }
+        if !target.hasAuthenticationMetadata {
+            guard target.outgoing, target.authenticatedSource == nil else { throw Rejection.invalidRuntime }
+            return
+        }
+        guard let source = target.authenticatedSource, source.owner == command.role.owner, source.trusted
+        else { throw Rejection.invalidRuntime }
+        let canonical = source.fingerprint.replacingOccurrences(of: " ", with: "").lowercased()
+        let localNative = target.outgoing && source.jid == command.role.owner
+            && source.sid == command.role.sid && canonical == command.role.fingerprint
+        guard localNative || validSender(source.jid, sid: source.sid, fingerprint: source.fingerprint,
+                                         role: command.role, outgoing: target.outgoing)
+        else { throw Rejection.invalidRuntime }
     }
     static func validSender(_ sender: String, sid: Int, fingerprint: String,
                             role: OMEMOThreeClientDiagnosticRole, outgoing: Bool) -> Bool {
@@ -285,8 +333,13 @@ final class OMEMOThreeClientDiagnostics: NSObject {
         guard Thread.isMainThread else { completion(.init(stage: .rejected, success: false)); return nil }
         switch request.command.operation {
         case .route:
+            let openMessageRequest: ChatOpenMessageRequest?
+            do {
+                if request.command.messageID == nil { openMessageRequest = nil }
+                else { openMessageRequest = try targetedRoute(request) }
+            } catch { completion(.init(stage: .rejected, success: false)); return nil }
             let accepted = AppRootCoordinator.active?.route(.chatMessage(owner: request.context.owner, jid: request.context.jid,
-                conversationType: .omemo, openMessageRequest: nil, configure: nil)) ?? false
+                conversationType: .omemo, openMessageRequest: openMessageRequest, configure: nil)) ?? false
             completion(.init(stage: accepted ? .routeAccepted : .routeDeclined, success: accepted))
         case .sendAttachment:
             send(request, completion: completion)
@@ -294,6 +347,30 @@ final class OMEMOThreeClientDiagnostics: NSObject {
             return receive(request, completion: completion)
         }
         return nil
+    }
+    private static func targetedRoute(_ request: OMEMOThreeClientDiagnosticExecution) throws -> ChatOpenMessageRequest {
+        guard let id = request.command.messageID else { throw OMEMOThreeClientDiagnosticPolicy.Rejection.invalidCommand }
+        let realm = try WRealm.safe(); realm.refresh()
+        let rows = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageId == %@",
+            request.context.owner, request.context.jid, "urn:xmpp:omemo:2", id)
+        guard let row = rows.first else { throw OMEMOThreeClientDiagnosticPolicy.Rejection.invalidRuntime }
+        let rawAuth = row.systemMetadata?["omemo_authenticated_sender_v1"]
+        var source: OMEMOThreeClientDiagnosticRouteTarget.AuthenticatedSource?
+        if let auth = rawAuth as? [String: Any], let owner = auth["owner"] as? String,
+           let jid = auth["jid"] as? String, let sid = auth["deviceID"] as? Int,
+           let fingerprint = auth["fingerprint"] as? String, let trusted = auth["trusted"] as? Bool {
+            source = .init(owner: owner, jid: jid, sid: sid, fingerprint: fingerprint, trusted: trusted)
+        }
+        let target = OMEMOThreeClientDiagnosticRouteTarget(owner: row.owner, peer: row.opponent,
+            conversationType: row.conversationType_, messageID: row.messageId, primary: row.primary, body: row.body,
+            outgoing: row.outgoing, deleted: row.isDeleted, locallyHidden: row.isLocallyHiddenByReport,
+            hasError: row.state == .error || !(row.messageError ?? "").isEmpty || !(row.messageErrorCode ?? "").isEmpty,
+            hasAuthenticationMetadata: rawAuth != nil, authenticatedSource: source)
+        try OMEMOThreeClientDiagnosticPolicy.validateRouteTarget(target, matchingRowCount: rows.count, command: request.command)
+        return .init(chatJid: request.context.jid, owner: request.context.owner, conversationType: .omemo,
+            anchor: .init(messagePrimary: row.primary, archivedId: nil, archiveCursor: nil,
+                          messageId: row.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
     }
     private static func send(_ request: OMEMOThreeClientDiagnosticExecution,
                              completion: @escaping (OMEMOThreeClientDiagnosticOutcome) -> Void) {
