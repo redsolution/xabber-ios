@@ -934,6 +934,147 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testSequentialLatestReopenKeepsPendingLiveTargetUntilFreshVerifiedPageWins() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "SequentialLatestReopen-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        func row(_ suffix: String, cursor: String) -> MessageStorageItem {
+            let item = MessageStorageItem()
+            item.primary = "sequential-\(suffix)"
+            item.messageId = "message-\(suffix)"
+            item.owner = owner
+            item.opponent = jid
+            item.conversationType = .omemo
+            item.archivedId = cursor
+            item.mamArchiveId = cursor
+            item.date = Date(timeIntervalSince1970: 1_700_000_000 + (suffix == "A" ? 0 : 1))
+            item.sentDate = item.date
+            item.body = "Verified sequential \(suffix)"
+            item.legacyBody = item.body
+            return item
+        }
+        func request(_ item: MessageStorageItem) -> ChatOpenMessageRequest {
+            .init(chatJid: jid, owner: owner, conversationType: .omemo,
+                anchor: .init(messagePrimary: item.primary, archivedId: nil, archiveCursor: nil,
+                    messageId: item.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+                highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+        }
+        func page(_ primaries: [String], newest: String, generation: UInt64) throws -> ArchiveWindowSnapshot {
+            let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "sequential-\(generation)")
+            let segment = try XCTUnwrap(ArchiveCoverageSegment(
+                oldest: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
+                newest: try XCTUnwrap(ArchiveCursor(rawValue: newest)),
+                reachesArchiveStart: true, reachesLiveEdge: true,
+                fingerprint: freshness.fingerprint, isVerified: true))
+            return .init(messagePrimaryIDs: primaries, target: .latest, verifiedSegment: segment,
+                coverageGeneration: generation, freshnessToken: freshness)
+        }
+        let a = row("A", cursor: "200")
+        try realm.write { realm.add(a) }
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .omemo
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        controller.timelineSession = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(owner: owner, jid: jid, conversationType: .omemo),
+            pageSize: ArchivePageSizing.history,
+            conversationKey: .init(owner: owner, jid: jid, conversationType: .omemo),
+            observesStoreImmediately: false)
+        controller.archiveWindowStateTask = Task {}
+        controller.archiveWindowIntent = .init(conversation: .init(owner: owner, jid: jid, conversationType: .omemo),
+            locator: .latest, contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        defer { controller.stopArchiveEnginePresentationSubscription() }
+        var loadedPositions = 0
+        controller.loadedAnchorPositioningDriverForTests = { completion in loadedPositions += 1; completion(true) }
+        let requestA = request(a)
+        var completedA = 0
+        controller.pendingOpenMessageRequest = requestA
+        controller.initialTargetFirstFrameContext = .init(request: requestA) { completedA += 1 }
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.isStackedNavigationPresentationPreparationCancelled = false
+        controller.archiveWindowState = .skeleton(reason: .opening, target: .latest)
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        let oldPage = try page([a.primary], newest: "200", generation: 1)
+        controller.receiveArchiveWindowState(.verified(oldPage))
+        for _ in 0..<400 where controller.pendingOpenMessageRequest != nil || controller.initialTargetFirstFrameContext != nil {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(completedA, 1)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.initialTargetFirstFrameContext)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), [a.primary])
+        let oldApplyGeneration = controller.archiveWindowApplyGeneration
+
+        // B is a real durable live row; its raw stanza ID is not MAM proof.
+        let b = row("B", cursor: "300")
+        b.mamArchiveId = ""
+        try realm.write { realm.add(b) }
+        let requestB = request(b)
+        controller.queueOpenMessageRequest(requestB)
+        var completedB = 0
+        controller.initialTargetFirstFrameContext = .init(request: requestB) { completedB += 1 }
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.receiveArchiveWindowState(.skeleton(reason: .loadingTarget, target: .latest))
+        var publishedWrongTarget = false
+        var freshBSubmitted = false
+        var publishedRealRowBeforeFreshProof = false
+        controller.datasourceDidSetForTests = { [weak controller] rows in
+            guard let controller else { return }
+            if !freshBSubmitted && rows.contains(where: { !$0.isFakeMessage }) {
+                publishedRealRowBeforeFreshProof = true
+            }
+            if controller.pendingOpenMessageRequest == requestB && rows.contains(where: { !$0.isFakeMessage && $0.primary != b.primary }) && !rows.contains(where: { $0.primary == b.primary }) {
+                publishedWrongTarget = true
+            }
+        }
+        controller.receiveArchiveWindowState(.verified(oldPage))
+        for _ in 0..<400 where controller.archiveWindowAtomicApplyRetryCount == 0 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertGreaterThan(controller.archiveWindowAtomicApplyRetryCount, 0, "The actual stale page must reach the target-publication guard")
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertEqual(controller.pendingOpenMessageRequest, requestB)
+        XCTAssertEqual(controller.initialTargetFirstFrameContext?.request, requestB)
+        XCTAssertEqual(completedB, 0)
+        XCTAssertFalse(publishedWrongTarget)
+        XCTAssertFalse(publishedRealRowBeforeFreshProof, "Neither A nor raw durable B may be published before fresh proof")
+        controller.completeInitialTargetFirstFrameIfNeeded(request: requestA, applyGeneration: oldApplyGeneration)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, requestB, "A's old receipt cannot finish B")
+
+        // Only the subsequent real MAM materialization establishes B's cursor.
+        try realm.write { b.mamArchiveId = "300" }
+        let freshPage = try page([a.primary, b.primary], newest: "300", generation: 2)
+        freshBSubmitted = true
+        controller.receiveArchiveWindowState(.verified(freshPage))
+        for _ in 0..<400 where controller.pendingOpenMessageRequest != nil || controller.initialTargetFirstFrameContext != nil {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.canLoadDatasource)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.initialTargetFirstFrameContext)
+        XCTAssertEqual(completedA, 1)
+        XCTAssertEqual(completedB, 1)
+        XCTAssertEqual(controller.retainedMessageAnchor?.primary, b.primary)
+        XCTAssertEqual(controller.archiveWindowCommittedCoverageGeneration, 2)
+        XCTAssertEqual(controller.timelineSession?.verifiedScope?.coverageGeneration, 2)
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), [a.primary, b.primary])
+        XCTAssertEqual(loadedPositions, 0, "Only the winning atomic frame may position either target")
+        XCTAssertFalse(publishedWrongTarget)
+        XCTAssertFalse(publishedRealRowBeforeFreshProof, "Neither A nor raw durable B may be published before fresh proof")
+    }
+
     private func makeRequest(
         archivedID: String,
         highlight: Bool = false,

@@ -46,6 +46,16 @@ final class RealmArchiveCoverageRepository:
             ), storage.archiveFreshnessFingerprint == freshnessToken.fingerprint else {
                 return nil
             }
+            switch intent.locator {
+            case .latest, .firstUnread(.none):
+                if Self.hasCurrentLiveTailWithoutMAMIdentity(
+                    conversation: intent.conversation, in: realm
+                ) {
+                    return nil
+                }
+            default:
+                break
+            }
             let verified = storage.segments.filter {
                 $0.isVerified && $0.fingerprint == freshnessToken.fingerprint
             }
@@ -882,6 +892,32 @@ final class RealmArchiveCoverageRepository:
             return nil
         }
         return ArchiveCursor(rawValue: message.mamArchiveId)
+    }
+
+    private static func hasCurrentLiveTailWithoutMAMIdentity(
+        conversation: ArchiveConversationKey,
+        in realm: Realm
+    ) -> Bool {
+        guard let chat = realm.object(ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversation.jid,
+                owner: conversation.owner, conversationType: conversation.conversationType)),
+              let message = chat.lastMessage,
+              chat.owner == conversation.owner, chat.jid == conversation.jid,
+              chat.conversationType == conversation.conversationType,
+              message.owner == conversation.owner,
+              message.opponent == conversation.jid,
+              message.conversationType == conversation.conversationType,
+              !message.isDeleted, !message.isLocallyHiddenByReport,
+              message.deleteState == .visible,
+              (message.effectiveAutoDeleteExpiresAt <= 0 ||
+                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970),
+              message.archivedId.isNotEmpty, message.mamArchiveId.isEmpty else {
+            return false
+        }
+        // A normal server-accepted live tail can outgrow a cached latest MAM
+        // page while detached. Its raw stanza reference invalidates freshness;
+        // only a subsequent owned MAM result may establish archive membership.
+        return true
     }
 
     private static func diagnosticLocatorCode(

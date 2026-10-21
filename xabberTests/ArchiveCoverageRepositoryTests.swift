@@ -1,5 +1,6 @@
 import XCTest
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 @MainActor
@@ -756,6 +757,179 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             admission,
             "A newer durable MAM cursor must force a fresh latest request"
         )
+    }
+
+    func testLatestAdmissionRequiresFreshMAMForCurrentNormallyPersistedLiveTail() async throws {
+        let repository = makeRepository()
+        let token = try await seedCurrentTailCoverage(repository)
+        let primary = try persistNormalLiveTail()
+        let before = try await repository.verifiedAdmission(
+            for: currentTailIntent(.latest), freshnessToken: token
+        )
+        XCTAssertNil(before, "A server-accepted current live tail must invalidate the cached latest page")
+
+        let realm = try await Realm(configuration: configuration)
+        realm.refresh()
+        let live = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(live.archivedId, "opaque-delivery-reference")
+        XCTAssertEqual(live.mamArchiveId, "", "A raw stanza reference cannot become a MAM cursor")
+        XCTAssertEqual(realm.object(ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversation.jid,
+                owner: conversation.owner, conversationType: conversation.conversationType))?.lastMessage?.primary,
+            primary, "Use the current tail produced by ordinary message persistence")
+
+        let request = makeRequest(queryID: "q-current-live-tail-owned-MAM")
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: ["30", "20", "10"], primaryIDs: [primary, "p20", "p10"], complete: true), for: request)
+        // The normal MAM projection reconciles the actual outer result identity
+        // before the validated transport page can commit archive membership.
+        try realm.write {
+            let projection = MessageStorageItem()
+            projection.owner = live.owner
+            projection.opponent = live.opponent
+            projection.conversationType = live.conversationType
+            projection.messageId = live.messageId
+            projection.date = live.date
+            projection.sentDate = live.sentDate
+            projection.shouldReconcileMAMArchiveIdentity = true
+            projection.mamArchiveId = "30"
+            _ = projection.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+        _ = try await repository.commit(page, request: request, freshnessToken: token)
+        let after = try await repository.verifiedAdmission(
+            for: currentTailIntent(.latest), freshnessToken: token
+        )
+        guard case .verified(let snapshot) = after else {
+            return XCTFail("Only the fresh owned archive page should restore latest admission")
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p10", "p20", primary])
+        XCTAssertEqual(snapshot.verifiedSegment.newest.rawValue, "30")
+    }
+
+    func testFirstUnreadWithoutBoundaryRejectsCachedPageMissingCurrentLiveTail() async throws {
+        let repository = makeRepository()
+        let token = try await seedCurrentTailCoverage(repository)
+        _ = try persistNormalLiveTail()
+        let admission = try await repository.verifiedAdmission(
+            for: currentTailIntent(.firstUnread(after: nil)), freshnessToken: token
+        )
+        XCTAssertNil(admission)
+    }
+
+    func testAuthoritativeEmptyCannotReadmitAfterCurrentNormallyPersistedLiveTail() async throws {
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "q-empty-before-normal-live-tail")
+        let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: request.queryID)
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: [], primaryIDs: [], complete: true), for: request)
+        _ = try await repository.commit(page, request: request, freshnessToken: token)
+        _ = try persistNormalLiveTail()
+        let admission = try await repository.verifiedAdmission(
+            for: currentTailIntent(.latest), freshnessToken: token
+        )
+        XCTAssertNil(admission, "The old empty proof cannot suppress a new durable current live tail")
+    }
+
+    func testCurrentTailInvalidationIgnoresOlderNonTailAndUnacknowledgedOrInvisibleRows() async throws {
+        let repository = makeRepository()
+        let token = try await seedCurrentTailCoverage(repository)
+        _ = try persistNormalLiveTail(originID: "older-live", stamp: "1970-01-01T00:00:15Z")
+        try await assertCurrentTailAdmission(repository, token: token, context: "older non-tail")
+
+        _ = try persistNormalLiveTail(originID: "pending-outgoing", rawReference: nil) {
+            $0.outgoing = true
+            $0.state = .sending
+        }
+        try await assertCurrentTailAdmission(repository, token: token, context: "unacknowledged pending tail")
+
+        let hidden = try persistNormalLiveTail(originID: "hidden-live")
+        try mutateTail(hidden) { $0.isLocallyHiddenByReport = true }
+        try await assertCurrentTailAdmission(repository, token: token, context: "hidden tail")
+
+        let deleted = try persistNormalLiveTail(originID: "deleted-live")
+        try mutateTail(deleted) { $0.isDeleted = true }
+        try await assertCurrentTailAdmission(repository, token: token, context: "deleted tail")
+
+        let tombstoned = try persistNormalLiveTail(originID: "tombstoned-live")
+        try mutateTail(tombstoned) { $0.deleteState = .autoDeleted }
+        try await assertCurrentTailAdmission(repository, token: token, context: "nonvisible tombstone tail")
+
+        let expired = try persistNormalLiveTail(originID: "expired-live")
+        try mutateTail(expired) { $0.autoDeleteExpiresAt = 1 }
+        try await assertCurrentTailAdmission(repository, token: token, context: "operationally expired tail")
+
+        for field in ["owner", "opponent", "conversationType"] {
+            let foreign = try persistNormalLiveTail(originID: "wrong-\(field)")
+            try mutateTail(foreign) {
+                switch field {
+                case "owner": $0.owner = "other-owner@example.org"
+                case "opponent": $0.opponent = "other-peer@example.org"
+                default: $0.conversationType = .omemo
+                }
+            }
+            try await assertCurrentTailAdmission(repository, token: token, context: "wrong \(field)")
+        }
+    }
+
+    private func currentTailIntent(_ locator: ArchiveWindowLocator) -> ArchiveWindowIntent {
+        ArchiveWindowIntent(conversation: conversation, locator: locator,
+            contextBefore: 80, contextAfter: 0, priority: .visibleIntegrity)
+    }
+
+    private func seedCurrentTailCoverage(_ repository: RealmArchiveCoverageRepository) async throws -> ArchiveFreshnessToken {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let request = makeRequest(queryID: "q-proven-before-live-tail")
+        let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: request.queryID)
+        _ = try await repository.commit(validatedPage(request: request, primaryIDs: ["p20", "p10"]),
+            request: request, freshnessToken: token)
+        let realm = try await Realm(configuration: configuration)
+        try realm.write {
+            let chat = LastChatsStorageItem()
+            chat.owner = conversation.owner
+            chat.jid = conversation.jid
+            chat.conversationType = conversation.conversationType
+            chat.primary = LastChatsStorageItem.genPrimary(jid: conversation.jid,
+                owner: conversation.owner, conversationType: conversation.conversationType)
+            chat.lastMessage = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "p20")
+            chat.lastMessageId = "m20"
+            realm.add(chat, update: .modified)
+        }
+        return token
+    }
+
+    private func persistNormalLiveTail(originID: String = "normal-live-tail",
+        rawReference: String? = "opaque-delivery-reference", stamp: String = "1970-01-01T00:00:30Z",
+        configure: (MessageStorageItem) -> Void = { _ in }) throws -> String {
+        let reference = rawReference.map {
+            "<stanza-id xmlns='urn:xmpp:sid:0' by='\(conversation.owner)' id='\($0)'/>"
+        } ?? ""
+        let wire = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(conversation.jid)/device' to='\(conversation.owner)' id='\(originID)' type='chat'><body>live tail</body><origin-id xmlns='urn:xmpp:sid:0' id='\(originID)'/>\(reference)<time xmlns='https://xabber.com/protocol/delivery' by='\(conversation.owner)' stamp='\(stamp)'/></message>")
+        let item = MessageStorageItem()
+        item.configureIncomingMessage(wire, owner: conversation.owner, opponent: conversation.jid,
+            outgoing: false, isRead: false, date: try XCTUnwrap(getDeliveryTime(wire, owner: conversation.owner)))
+        item.state = .deliver
+        configure(item)
+        let realm = try Realm(configuration: configuration)
+        try realm.write { _ = item.applyMessagePersistence(in: realm, silentNotifications: true) }
+        return item.primary
+    }
+
+    private func mutateTail(_ primary: String, _ change: (MessageStorageItem) -> Void) throws {
+        let realm = try Realm(configuration: configuration)
+        let item = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+        try realm.write { change(item) }
+    }
+
+    private func assertCurrentTailAdmission(_ repository: RealmArchiveCoverageRepository,
+        token: ArchiveFreshnessToken, context: String, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let admission = try await repository.verifiedAdmission(
+            for: currentTailIntent(.latest), freshnessToken: token
+        )
+        guard case .verified(let snapshot) = admission else {
+            return XCTFail("Valid cached MAM proof must remain available: \(context)", file: file, line: line)
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p10", "p20"], context, file: file, line: line)
     }
 
     func testLegacySessionOneCoverageCannotAdmitRandomizedProcessGeneration() async throws {
