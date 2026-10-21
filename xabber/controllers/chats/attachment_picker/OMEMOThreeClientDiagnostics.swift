@@ -150,6 +150,19 @@ enum OMEMOThreeClientDiagnosticPolicy {
               SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == sha256
         else { throw Rejection.invalidFixture }
     }
+    static func preparedVoiceReference(verifiedSource source: URL, decodedSource: URL, fixture: OMEMOThreeClientDiagnosticFixture,
+                                       context: ChatAttachmentFlowContext) throws -> MessageReferenceStorageItem {
+        guard fixture == .voice, source.isFileURL, source.lastPathComponent == fixture.rawValue,
+              decodedSource.isFileURL, source.resolvingSymlinksInPath() != decodedSource.resolvingSymlinksInPath(),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: decodedSource.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              FileManager.default.isReadableFile(atPath: decodedSource.path)
+        else { throw Rejection.invalidFixture }
+        let reference = VoiceMessageReferenceBuilder.make(owner: context.owner, jid: context.jid,
+            conversationType: context.conversationType, rawUrl: decodedSource, duration: 1, meteringLevels: [0.25, 0.5, 0.25])
+        reference.localFileUrl = source
+        return reference
+    }
     static func read(_ url: URL, limit: Int) throws -> Data {
         guard url.isFileURL, url.standardizedFileURL == url.resolvingSymlinksInPath().standardizedFileURL else { throw Rejection.unsafePath }
         let file = try FileHandle(forReadingFrom: url)
@@ -406,8 +419,9 @@ final class OMEMOThreeClientDiagnostics: NSObject {
                 } catch { completion(.init(stage: .rejected, success: false)) }
             }
             if fixture == .voice {
-                let reference = VoiceMessageReferenceBuilder.make(owner: request.context.owner, jid: request.context.jid,
-                    conversationType: .omemo, rawUrl: source, duration: 1, meteringLevels: [0.25, 0.5, 0.25])
+                let decoded = try AudioMessageReceiver.shared.decode(url: source)
+                let reference = try OMEMOThreeClientDiagnosticPolicy.preparedVoiceReference(verifiedSource: source, decodedSource: decoded,
+                    fixture: fixture, context: request.context)
                 AccountChatAttachmentMediaMessageSender().sendMediaMessage(references: [reference], body: request.command.token,
                     legacyBody: request.command.token, requiresUpload: true, context: request.context, completion: admission)
             } else {

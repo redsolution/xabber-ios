@@ -383,6 +383,60 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         XCTAssertThrowsError(try OMEMOThreeClientDiagnosticPolicy.validateFixtureBytes(Data(repeating: 1, count: 2_097_153), count: 2_097_153, sha256: hash))
     }
 
+    func testPreparedDiagnosticVoiceRetainsTheExactVerifiedOGGSourceAndBytes() throws {
+        let source = directory.appendingPathComponent("QA3-voice.ogg")
+        try fixtureBytes.write(to: source)
+        let decoded = directory.appendingPathComponent("voice-decoded-cache")
+        try Data("decoded playback bytes".utf8).write(to: decoded)
+        let reference = try OMEMOThreeClientDiagnosticPolicy.preparedVoiceReference(verifiedSource: source,
+            decodedSource: decoded, fixture: .voice, context: voiceContext())
+        XCTAssertEqual(reference.localFileUrl, source)
+        XCTAssertEqual(reference.decodedUrl, decoded)
+        XCTAssertEqual(reference.url, decoded.absoluteString)
+        XCTAssertEqual(reference.metadata?["uri"] as? String, decoded.absoluteString)
+        XCTAssertEqual(reference.owner, voiceContext().owner)
+        XCTAssertEqual(reference.jid, voiceContext().jid)
+        XCTAssertEqual(reference.conversationType, .omemo)
+        XCTAssertEqual(reference.kind, .voice)
+        XCTAssertEqual(reference.metadata?["media-type"] as? String, "audio/ogg")
+        XCTAssertEqual(try Data(contentsOf: source), fixtureBytes)
+    }
+
+    func testPreparedDiagnosticVoiceCannotAcceptOtherFixturePathsOrRemoteSources() {
+        for (source, fixture) in [(directory.appendingPathComponent("QA3-image.png"), OMEMOThreeClientDiagnosticFixture.png),
+            (directory.appendingPathComponent("different.ogg"), .voice),
+            (URL(string: "https://example.test/QA3-voice.ogg")!, .voice)] {
+            XCTAssertThrowsError(try OMEMOThreeClientDiagnosticPolicy.preparedVoiceReference(verifiedSource: source,
+                decodedSource: directory.appendingPathComponent("voice-decoded-cache"), fixture: fixture, context: voiceContext()))
+        }
+    }
+
+    func testPreparedDiagnosticVoiceRejectsRemoteEncodedMissingOrNonFilePlaybackURL() throws {
+        let source = directory.appendingPathComponent("QA3-voice.ogg")
+        let decoded = directory.appendingPathComponent("voice-decoded-cache")
+        try Data("decoded playback bytes".utf8).write(to: decoded)
+        let link = directory.appendingPathComponent("decoded-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: decoded)
+        for playback in [source, URL(string: "https://example.test/decoded")!,
+                         directory.appendingPathComponent("missing"), directory.appendingPathComponent("."), link] {
+            XCTAssertThrowsError(try OMEMOThreeClientDiagnosticPolicy.preparedVoiceReference(verifiedSource: source,
+                decodedSource: playback, fixture: .voice, context: voiceContext()))
+        }
+    }
+
+    func testOrdinaryVoiceBuilderStillRepresentsRawRecordingWithoutPreparedFileOverride() {
+        let raw = directory.appendingPathComponent("normal-recording.m4a")
+        let reference = VoiceMessageReferenceBuilder.make(owner: voiceContext().owner, jid: voiceContext().jid,
+            conversationType: .omemo, rawUrl: raw, duration: 1, meteringLevels: [0.25])
+        XCTAssertNil(reference.localFileUrl)
+        XCTAssertEqual(reference.decodedUrl, raw)
+    }
+
+    private func voiceContext() -> ChatAttachmentFlowContext {
+        .init(owner: "test.omemo.igor@dxs.xabber.com", jid: "igor.boldin@redsolution.com",
+              conversationType: .omemo, forwardedMessageIds: [])
+    }
+
     func testFirstCompletionWinsAndTimeoutDoesNotClaimDelivery() throws {
         let name = try store(command()); XCTAssertEqual(runner().submit(name), "scheduled"); drain()
         completions[0](.init(stage: .routeAccepted, success: true))
