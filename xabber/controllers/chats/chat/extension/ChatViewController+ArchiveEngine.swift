@@ -1694,6 +1694,21 @@ extension ChatViewController {
         cancelArchiveReferenceResolution()
         let locator = ChatAnchorArchiveLocatorPolicy.locator(for: resolvedArchiveAnchor(for: request))
         if locator == nil {
+            if isPrimaryOnlyCurrentAuthenticatedLiveTail(request) {
+                // Expanded navigation reuses a stable controller, so it has no
+                // initial-load latest request to revalidate the outgrown cache.
+                // This local identity selects latest only; MAM still owns proof.
+                let intent = ArchiveWindowIntent(conversation: archiveEngineConversationKey, locator: .latest,
+                    contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .target)
+                guard prepareArchiveEngineTargetIntent(intent) else { return false }
+                if initialTargetFirstFrameContext?.request != request {
+                    let context = ChatInitialTargetFirstFrameContext(request: request, completion: {})
+                    context.releasePreparationCompletion()
+                    initialTargetFirstFrameContext = context
+                }
+                Task { await account.archiveEngine.submit(intent) }
+                return true
+            }
             guard pendingOpenMessageRequest == request, request.anchor.archivedId?.isNotEmpty == true else {
                 return false
             }
@@ -1720,6 +1735,44 @@ extension ChatViewController {
         )
         guard prepareArchiveEngineTargetIntent(intent) else { return false }
         Task { await account.archiveEngine.submit(intent) }
+        return true
+    }
+
+    private func isPrimaryOnlyCurrentAuthenticatedLiveTail(_ request: ChatOpenMessageRequest) -> Bool {
+        guard pendingOpenMessageRequest == request,
+              request.source == .directOpenAtMessage,
+              case .anchor = request.targetResolution,
+              conversationType == .omemo,
+              request.anchor.archivedId == nil, request.anchor.archiveCursor == nil,
+              request.anchor.sourceDate == nil,
+              let primary = request.anchor.messagePrimary, primary.isNotEmpty,
+              let messageID = request.anchor.messageId, messageID.isNotEmpty,
+              let realm = try? WRealm.safe() else { return false }
+        // Account live persistence may have committed on another queue before
+        // this main-thread navigation turn receives Realm's automatic refresh.
+        realm.refresh()
+        guard let chat = realm.object(ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)),
+              chat.owner == owner, chat.jid == jid, chat.conversationType == conversationType,
+              chat.lastMessageId == messageID,
+              let message = chat.lastMessage,
+              message.primary == primary, message.messageId == messageID,
+              message.primary == MessageStorageItem.genPrimary(messageId: messageID, owner: owner),
+              message.owner == owner, message.opponent == jid, message.conversationType == conversationType,
+              !message.isDeleted, !message.isLocallyHiddenByReport, message.deleteState == .visible,
+              message.state != .error,
+              message.effectiveAutoDeleteExpiresAt <= 0 ||
+                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970,
+              message.archivedId.isNotEmpty, message.mamArchiveId.isEmpty,
+              let auth = message.systemMetadata?["omemo_authenticated_sender_v1"] as? [String: Any],
+              auth["owner"] as? String == owner,
+              auth["jid"] as? String == (message.outgoing ? owner : jid),
+              let deviceID = auth["deviceID"] as? Int, deviceID > 0,
+              auth["trusted"] is Bool,
+              let fingerprint = auth["fingerprint"] as? String,
+              fingerprint.range(of: #"\A(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{8}(?: [0-9a-fA-F]{8}){7})\z"#, options: .regularExpression) != nil else {
+            return false
+        }
         return true
     }
 

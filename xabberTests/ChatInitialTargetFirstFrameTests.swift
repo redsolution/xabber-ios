@@ -1075,6 +1075,204 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         XCTAssertFalse(publishedRealRowBeforeFreshProof, "Neither A nor raw durable B may be published before fresh proof")
     }
 
+    @MainActor
+    func testReusedVerifiedChatQueuesPrimaryOnlyCurrentLiveTailThroughOwnedLatest() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "ReusedPrimaryLiveTail-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let accountOwner = "live-target-\(UUID().uuidString.lowercased())@example.org"
+        let previousUsers = AccountManager.shared.users
+        let account = Account(jid: accountOwner, queue: DispatchQueue(label: "ReusedPrimaryLiveTail-account"))
+        AccountManager.shared.users = previousUsers + [account]
+        defer {
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+            AccountManager.shared.users = previousUsers
+        }
+        let key = ArchiveConversationKey(owner: accountOwner, jid: jid, conversationType: .omemo)
+        func row(_ id: String, mamID: String) -> MessageStorageItem {
+            let item = MessageStorageItem()
+            item.messageId = id
+            item.primary = MessageStorageItem.genPrimary(messageId: id, owner: accountOwner)
+            item.owner = accountOwner
+            item.opponent = jid
+            item.conversationType = .omemo
+            item.archivedId = mamID.isEmpty ? "opaque-live-reference" : mamID
+            item.mamArchiveId = mamID
+            item.date = Date(timeIntervalSince1970: 1_700_000_000 + (mamID.isEmpty ? 1 : 0))
+            item.sentDate = item.date
+            item.body = "Authenticated live \(id)"
+            item.legacyBody = item.body
+            item.state = .deliver
+            item.systemMetadata = ["omemo_authenticated_sender_v1": ["owner": accountOwner,
+                "jid": jid, "deviceID": 42, "fingerprint": String(repeating: "a", count: 64), "trusted": true]]
+            return item
+        }
+        let a = row("reuse-A", mamID: "200")
+        try realm.write { realm.add(a) }
+        let controller = ChatViewController()
+        controller.owner = accountOwner
+        controller.jid = jid
+        controller.conversationType = .omemo
+        controller.ownerSender = Sender(id: accountOwner, displayName: accountOwner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        controller.timelineSession = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(owner: accountOwner, jid: jid, conversationType: .omemo),
+            pageSize: ArchivePageSizing.history, conversationKey: .init(owner: accountOwner, jid: jid, conversationType: .omemo), observesStoreImmediately: false)
+        controller.archiveWindowStateTask = Task {}
+        controller.archiveWindowIntent = .init(conversation: key, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "old-reused-latest")
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: cursor, newest: cursor,
+            reachesArchiveStart: true, reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+        controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: [a.primary], target: .latest,
+            verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
+        for _ in 0..<400 where controller.timelineSession?.verifiedScope == nil || controller.showSkeletonObserver.value {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), [a.primary])
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertNil(controller.initialTargetFirstFrameContext)
+        let oldIntent = try XCTUnwrap(controller.archiveWindowIntent)
+        let oldApplyGeneration = controller.archiveWindowApplyGeneration
+        let demandID = UUID()
+        await account.archiveEngine.attachPresentationDemand(for: key, demandID: demandID)
+        controller.archiveEnginePresentationDemandID = demandID
+        controller.archiveEnginePresentationDemandConversation = key
+        controller.archiveEnginePresentationDemandEngine = account.archiveEngine
+        defer { controller.stopArchiveEnginePresentationSubscription() }
+
+        let b = row("reuse-B", mamID: "")
+        b.outgoing = true // W carbon on T belongs to the same account as the sender.
+        b.systemMetadata = ["omemo_authenticated_sender_v1": ["owner": accountOwner,
+            "jid": accountOwner, "deviceID": 1761201430,
+            "fingerprint": "868390cb 370b3b6c e0e40203 807fff0e f0ecbd23 2a4e3a56 ceec64d8 ff6c133d", "trusted": true]]
+        try realm.write {
+            realm.add(b)
+            let chat = LastChatsStorageItem()
+            chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: accountOwner, conversationType: .omemo)
+            chat.owner = accountOwner
+            chat.jid = jid
+            chat.conversationType = .omemo
+            chat.lastMessage = b
+            chat.lastMessageId = b.messageId
+            realm.add(chat)
+        }
+        let request = ChatOpenMessageRequest(chatJid: jid, owner: accountOwner, conversationType: .omemo,
+            anchor: .init(messagePrimary: b.primary, archivedId: nil, archiveCursor: nil,
+                messageId: b.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+
+        let chat = try XCTUnwrap(realm.object(ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: accountOwner, conversationType: .omemo)))
+        let authenticatedMetadata = b.systemMetadata
+        for invalid in ["non-current-tail", "hidden", "deleted", "tombstone", "expired",
+                        "foreign-owner", "foreign-peer", "foreign-type", "wrong-message-id", "missing-auth", "malformed-fingerprint", "malformed-grouping", "foreign-auth-sender", "missing-reference", "mismatched-tail-id"] {
+            try realm.write {
+                switch invalid {
+                case "non-current-tail": chat.lastMessage = a
+                case "hidden": b.isLocallyHiddenByReport = true
+                case "deleted": b.isDeleted = true
+                case "tombstone": b.deleteState = .autoDeleted
+                case "expired": b.autoDeleteExpiresAt = 1
+                case "foreign-owner": b.owner = "other@example.org"
+                case "foreign-peer": b.opponent = "other@example.org"
+                case "foreign-type": b.conversationType = .regular
+                case "wrong-message-id": b.messageId = "different-message"
+                case "missing-auth": b.systemMetadata = nil
+                case "malformed-fingerprint":
+                    var auth = authenticatedMetadata?["omemo_authenticated_sender_v1"] as? [String: Any] ?? [:]
+                    auth["fingerprint"] = "868390cb not-a-native-fingerprint"
+                    b.systemMetadata = ["omemo_authenticated_sender_v1": auth]
+                case "malformed-grouping":
+                    var auth = authenticatedMetadata?["omemo_authenticated_sender_v1"] as? [String: Any] ?? [:]
+                    auth["fingerprint"] = String(repeating: "a ", count: 32)
+                    b.systemMetadata = ["omemo_authenticated_sender_v1": auth]
+                case "foreign-auth-sender":
+                    var auth = authenticatedMetadata?["omemo_authenticated_sender_v1"] as? [String: Any] ?? [:]
+                    auth["jid"] = jid
+                    b.systemMetadata = ["omemo_authenticated_sender_v1": auth]
+                case "mismatched-tail-id": chat.lastMessageId = "newer-live-C"
+                default: b.archivedId = ""
+                }
+            }
+            controller.queueOpenMessageRequest(request)
+            XCTAssertNil(controller.pendingOpenMessageRequest, invalid)
+            XCTAssertNil(controller.initialTargetFirstFrameContext, invalid)
+            XCTAssertEqual(controller.archiveWindowIntent?.id, oldIntent.id, "No latest handoff for \(invalid)")
+            try realm.write {
+                chat.lastMessage = b
+                chat.lastMessageId = "reuse-B"
+                b.isLocallyHiddenByReport = false
+                b.isDeleted = false
+                b.deleteState = .visible
+                b.autoDeleteExpiresAt = -1
+                b.owner = accountOwner
+                b.opponent = jid
+                b.conversationType = .omemo
+                b.messageId = "reuse-B"
+                b.systemMetadata = authenticatedMetadata
+                b.archivedId = "opaque-live-reference"
+            }
+        }
+
+        // The real reused-controller entry point must create the handoff itself.
+        // Do not install a B context, skeleton, cursor or verified page in this test.
+        let previousTransactionCount = controller.anchorTransactionGate.snapshot.transactionBeginCount
+        controller.queueOpenMessageRequest(request)
+
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request, "A live primary-only target must survive normal expanded-chat reuse")
+        XCTAssertNotEqual(controller.archiveWindowIntent?.id, oldIntent.id, "A new owned latest request must revalidate the outgrown cache")
+        XCTAssertEqual(controller.archiveWindowIntent?.locator, .latest)
+        XCTAssertEqual(controller.archiveWindowTargetOpenRequest, request)
+        XCTAssertTrue(controller.showSkeletonObserver.value, "Old verified A cannot be presented as successful B navigation")
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertNotNil(controller.anchorTransactionGate.snapshot.activeToken)
+        XCTAssertGreaterThan(controller.anchorTransactionGate.snapshot.transactionBeginCount, previousTransactionCount)
+        XCTAssertEqual(b.mamArchiveId, "", "A raw stanza reference must never be promoted to an archive cursor")
+        XCTAssertEqual(controller.initialTargetFirstFrameContext?.request, request,
+            "Normal queue(B), not the fixture, must create exact first-frame ownership")
+        let requestA = ChatOpenMessageRequest(chatJid: jid, owner: accountOwner, conversationType: .omemo,
+            anchor: .init(messagePrimary: a.primary, archivedId: nil, archiveCursor: nil,
+                messageId: a.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+        controller.completeInitialTargetFirstFrameIfNeeded(request: requestA, applyGeneration: oldApplyGeneration)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertEqual(controller.initialTargetFirstFrameContext?.request, request)
+        controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: [a.primary], target: .latest,
+            verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
+        for _ in 0..<400 where controller.archiveWindowAtomicApplyRetryCount == 0 {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertGreaterThan(controller.archiveWindowAtomicApplyRetryCount, 0)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage), "Old A cannot stand in for B")
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+
+        // Only a subsequent owned MAM materialization can grant B a cursor.
+        try realm.write { b.mamArchiveId = "300" }
+        let freshToken = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "fresh-reused-latest")
+        let freshSegment = try XCTUnwrap(ArchiveCoverageSegment(oldest: cursor,
+            newest: try XCTUnwrap(ArchiveCursor(rawValue: "300")), reachesArchiveStart: true,
+            reachesLiveEdge: true, fingerprint: freshToken.fingerprint, isVerified: true))
+        controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: [a.primary, b.primary], target: .latest,
+            verifiedSegment: freshSegment, coverageGeneration: 2, freshnessToken: freshToken)))
+        for _ in 0..<400 where controller.pendingOpenMessageRequest != nil || controller.initialTargetFirstFrameContext != nil {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.initialTargetFirstFrameContext)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.retainedMessageAnchor?.primary, b.primary)
+        XCTAssertEqual(controller.timelineSession?.verifiedScope?.coverageGeneration, 2)
+        XCTAssertEqual(controller.anchorTransactionGate.snapshot.lastTerminalOutcome, .positioned)
+    }
+
     private func makeRequest(
         archivedID: String,
         highlight: Bool = false,
