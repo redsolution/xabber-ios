@@ -179,6 +179,20 @@ enum OMEMOThreeClientDiagnosticPolicy {
                                      _ protectedReference: Bool, _ noError: Bool) -> Bool {
         didAdmit && rowCount == 1 && outgoing && body == token && referenceCount == 1 && protectedReference && noError
     }
+    static func routeTarget(from row: MessageStorageItem) -> OMEMOThreeClientDiagnosticRouteTarget {
+        let rawAuth = row.systemMetadata?["omemo_authenticated_sender_v1"]
+        var source: OMEMOThreeClientDiagnosticRouteTarget.AuthenticatedSource?
+        if let auth = rawAuth as? [String: Any], let owner = auth["owner"] as? String,
+           let jid = auth["jid"] as? String, let sid = auth["deviceID"] as? Int,
+           let fingerprint = auth["fingerprint"] as? String, let trusted = auth["trusted"] as? Bool {
+            source = .init(owner: owner, jid: jid, sid: sid, fingerprint: fingerprint, trusted: trusted)
+        }
+        return .init(owner: row.owner, peer: row.opponent,
+            conversationType: row.conversationType_, messageID: row.messageId, primary: row.primary, body: row.body,
+            outgoing: row.outgoing, deleted: row.isDeleted, locallyHidden: row.isLocallyHiddenByReport,
+            hasError: row.state == .error || !(row.messageError ?? "").isEmpty || !(row.messageErrorCode ?? "").isEmpty,
+            hasAuthenticationMetadata: rawAuth != nil, authenticatedSource: source)
+    }
     static func validateRouteTarget(_ target: OMEMOThreeClientDiagnosticRouteTarget?, matchingRowCount: Int,
                                     command: OMEMOThreeClientDiagnosticCommand) throws {
         guard command.operation == .route, command.fixture == nil,
@@ -230,6 +244,32 @@ struct OMEMOThreeClientDiagnosticOutcome: Encodable {
     var messageIDs: [String] = []
     var byteCount: Int? = nil
     var sha256: String? = nil
+    enum RejectionStage: String, Encodable { case runtimeBeforeAction, targetRoute, runtimeAfterAction }
+    struct RuntimeFlags: Encodable {
+        let snapshotPresent: Bool
+        let authenticated: Bool
+        let canFlush: Bool
+        let expectedPID: Bool
+        let expectedOwner: Bool
+        let expectedIdentity: Bool
+        let commandUnexpired: Bool
+        let sameConnection: Bool?
+
+        init(snapshot: OMEMOThreeClientDiagnosticSnapshot?, command: OMEMOThreeClientDiagnosticCommand,
+             now: TimeInterval, previousFullJID: String? = nil) {
+            snapshotPresent = snapshot != nil
+            authenticated = snapshot?.authenticated == true
+            canFlush = snapshot?.canFlush == true
+            expectedPID = snapshot?.pid == command.expectedPID
+            expectedOwner = snapshot?.owner == command.role.owner
+            expectedIdentity = snapshot?.sid == command.role.sid
+                && snapshot?.fingerprint.replacingOccurrences(of: " ", with: "").lowercased() == command.role.fingerprint
+            commandUnexpired = command.expires > now
+            sameConnection = previousFullJID.map { snapshot?.fullJID == $0 }
+        }
+    }
+    var rejectionStage: RejectionStage? = nil
+    var runtimeFlags: RuntimeFlags? = nil
 }
 
 /// File claims/output are confined to disposable QA files. All app state changes go through the normal action sink.
@@ -266,7 +306,14 @@ final class OMEMOThreeClientDiagnosticRunner {
     private func run(_ command: OMEMOThreeClientDiagnosticCommand) {
         do {
             let runtime = snapshot(command.role)
-            try OMEMOThreeClientDiagnosticPolicy.validate(runtime, command: command, now: now())
+            let checkedAt = now()
+            do {
+                try OMEMOThreeClientDiagnosticPolicy.validate(runtime, command: command, now: checkedAt)
+            } catch {
+                write(.init(stage: .rejected, success: false, rejectionStage: .runtimeBeforeAction,
+                    runtimeFlags: .init(snapshot: runtime, command: command, now: checkedAt)), command: command)
+                return
+            }
             guard let runtime else { throw OMEMOThreeClientDiagnosticPolicy.Rejection.invalidRuntime }
             var fixtureURL: URL?
             if command.operation == .sendAttachment, let fixture = command.fixture {
@@ -281,11 +328,17 @@ final class OMEMOThreeClientDiagnosticRunner {
             }
             let task = execute(.init(command: command, fixtureURL: fixtureURL, runtimeSnapshot: runtime)) { [self] outcome in
                 if outcome.success {
+                    let current = snapshot(command.role)
+                    let checkedAt = now()
                     do {
-                        let current = snapshot(command.role)
-                        try OMEMOThreeClientDiagnosticPolicy.validate(current, command: command, now: now())
+                        try OMEMOThreeClientDiagnosticPolicy.validate(current, command: command, now: checkedAt)
                         guard current?.fullJID == runtime.fullJID else { throw OMEMOThreeClientDiagnosticPolicy.Rejection.invalidRuntime }
-                    } catch { write(.init(stage: .rejected, success: false), command: command); return }
+                    } catch {
+                        write(.init(stage: .rejected, success: false, rejectionStage: .runtimeAfterAction,
+                            runtimeFlags: .init(snapshot: current, command: command, now: checkedAt,
+                                                previousFullJID: runtime.fullJID)), command: command)
+                        return
+                    }
                 }
                 write(outcome, command: command)
             }
@@ -346,14 +399,14 @@ final class OMEMOThreeClientDiagnostics: NSObject {
         guard Thread.isMainThread else { completion(.init(stage: .rejected, success: false)); return nil }
         switch request.command.operation {
         case .route:
-            let openMessageRequest: ChatOpenMessageRequest?
-            do {
-                if request.command.messageID == nil { openMessageRequest = nil }
-                else { openMessageRequest = try targetedRoute(request) }
-            } catch { completion(.init(stage: .rejected, success: false)); return nil }
-            let accepted = AppRootCoordinator.active?.route(.chatMessage(owner: request.context.owner, jid: request.context.jid,
-                conversationType: .omemo, openMessageRequest: openMessageRequest, configure: nil)) ?? false
-            completion(.init(stage: accepted ? .routeAccepted : .routeDeclined, success: accepted))
+            let outcome = routeOutcome(prepare: {
+                if request.command.messageID == nil { return nil }
+                return try targetedRoute(request)
+            }, route: { openMessageRequest in
+                AppRootCoordinator.active?.route(.chatMessage(owner: request.context.owner, jid: request.context.jid,
+                    conversationType: .omemo, openMessageRequest: openMessageRequest, configure: nil)) ?? false
+            })
+            completion(outcome)
         case .sendAttachment:
             send(request, completion: completion)
         case .receiveAttachment:
@@ -361,24 +414,21 @@ final class OMEMOThreeClientDiagnostics: NSObject {
         }
         return nil
     }
+    static func routeOutcome(prepare: () throws -> ChatOpenMessageRequest?,
+                             route: (ChatOpenMessageRequest?) -> Bool) -> OMEMOThreeClientDiagnosticOutcome {
+        do {
+            let openMessageRequest = try prepare()
+            let accepted = route(openMessageRequest)
+            return .init(stage: accepted ? .routeAccepted : .routeDeclined, success: accepted)
+        } catch { return .init(stage: .rejected, success: false, rejectionStage: .targetRoute) }
+    }
     private static func targetedRoute(_ request: OMEMOThreeClientDiagnosticExecution) throws -> ChatOpenMessageRequest {
         guard let id = request.command.messageID else { throw OMEMOThreeClientDiagnosticPolicy.Rejection.invalidCommand }
         let realm = try WRealm.safe(); realm.refresh()
         let rows = realm.objects(MessageStorageItem.self).filter("owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageId == %@",
             request.context.owner, request.context.jid, "urn:xmpp:omemo:2", id)
         guard let row = rows.first else { throw OMEMOThreeClientDiagnosticPolicy.Rejection.invalidRuntime }
-        let rawAuth = row.systemMetadata?["omemo_authenticated_sender_v1"]
-        var source: OMEMOThreeClientDiagnosticRouteTarget.AuthenticatedSource?
-        if let auth = rawAuth as? [String: Any], let owner = auth["owner"] as? String,
-           let jid = auth["jid"] as? String, let sid = auth["deviceID"] as? Int,
-           let fingerprint = auth["fingerprint"] as? String, let trusted = auth["trusted"] as? Bool {
-            source = .init(owner: owner, jid: jid, sid: sid, fingerprint: fingerprint, trusted: trusted)
-        }
-        let target = OMEMOThreeClientDiagnosticRouteTarget(owner: row.owner, peer: row.opponent,
-            conversationType: row.conversationType_, messageID: row.messageId, primary: row.primary, body: row.body,
-            outgoing: row.outgoing, deleted: row.isDeleted, locallyHidden: row.isLocallyHiddenByReport,
-            hasError: row.state == .error || !(row.messageError ?? "").isEmpty || !(row.messageErrorCode ?? "").isEmpty,
-            hasAuthenticationMetadata: rawAuth != nil, authenticatedSource: source)
+        let target = OMEMOThreeClientDiagnosticPolicy.routeTarget(from: row)
         try OMEMOThreeClientDiagnosticPolicy.validateRouteTarget(target, matchingRowCount: rows.count, command: request.command)
         return .init(chatJid: request.context.jid, owner: request.context.owner, conversationType: .omemo,
             anchor: .init(messagePrimary: row.primary, archivedId: nil, archiveCursor: nil,

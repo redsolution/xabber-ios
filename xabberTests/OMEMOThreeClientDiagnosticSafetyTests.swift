@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import RealmSwift
 import XCTest
 @testable import xabber
 
@@ -79,6 +80,7 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         XCTAssertEqual(actions.first?.context.conversationType, .omemo)
         completions[0](.init(stage: .routeAccepted, success: true))
         XCTAssertEqual(try result()["stage"] as? String, "routeAccepted")
+        XCTAssertNil(try result()["rejectionStage"]); XCTAssertNil(try result()["runtimeFlags"])
         XCTAssertEqual(try result()["deliveryProved"] as? Bool, false)
     }
 
@@ -449,6 +451,7 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         let name = try store(command()); XCTAssertEqual(runner().submit(name), "scheduled"); drain()
         timeouts[0](); completions[0](.init(stage: .localAdmission, success: true))
         XCTAssertEqual(try result()["stage"] as? String, "timedOut")
+        XCTAssertNil(try result()["rejectionStage"]); XCTAssertNil(try result()["runtimeFlags"])
         XCTAssertEqual(try result()["deliveryProved"] as? Bool, false)
     }
 
@@ -486,6 +489,119 @@ final class OMEMOThreeClientDiagnosticSafetyTests: XCTestCase {
         XCTAssertFalse(accepted(true, 1, true, token, token, 2, true, true))
         XCTAssertFalse(accepted(true, 1, true, token, token, 1, false, true))
         XCTAssertFalse(accepted(true, 1, true, token, token, 1, true, false))
+    }
+
+
+    func testRuntimeReadinessLossBeforeScheduledActionReportsOnlyClosedDiagnostics() throws {
+        let name = try store(command()); let sut = runner()
+        XCTAssertEqual(sut.submit(name), "scheduled")
+        identity = snapshot(canFlush: false)
+        drain()
+        XCTAssertTrue(actions.isEmpty)
+        let output = try result()
+        XCTAssertEqual(output["stage"] as? String, "rejected")
+        XCTAssertEqual(output["success"] as? Bool, false)
+        XCTAssertEqual(output["rejectionStage"] as? String, "runtimeBeforeAction")
+        let flags = try XCTUnwrap(output["runtimeFlags"] as? [String: Bool])
+        XCTAssertEqual(Set(flags.keys), Set(["snapshotPresent", "authenticated", "canFlush", "expectedPID", "expectedOwner", "expectedIdentity", "commandUnexpired"]))
+        XCTAssertEqual(flags["canFlush"], false)
+        for key in ["snapshotPresent", "authenticated", "expectedPID", "expectedOwner", "expectedIdentity", "commandUnexpired"] {
+            XCTAssertEqual(flags[key], true, key)
+        }
+        XCTAssertNil(output["sameConnection"])
+    }
+
+    func testRuntimeAuthenticationLossAfterNormalActionReportsPostActionPhase() throws {
+        let name = try store(command()); let sut = runner()
+        XCTAssertEqual(sut.submit(name), "scheduled"); drain()
+        XCTAssertEqual(actions.count, 1)
+        identity = snapshot(authenticated: false)
+        completions[0](.init(stage: .routeAccepted, success: true))
+        let output = try result()
+        XCTAssertEqual(output["stage"] as? String, "rejected")
+        XCTAssertEqual(output["success"] as? Bool, false)
+        XCTAssertEqual(output["rejectionStage"] as? String, "runtimeAfterAction")
+        let flags = try XCTUnwrap(output["runtimeFlags"] as? [String: Bool])
+        XCTAssertEqual(flags["authenticated"], false)
+        XCTAssertEqual(flags["canFlush"], true)
+        XCTAssertEqual(flags["sameConnection"], true)
+    }
+
+    func testCommandExpiryDuringScheduledWaitRetainsRejectionAndReportsClockFlag() throws {
+        let name = try store(command()); let sut = runner()
+        XCTAssertEqual(sut.submit(name), "scheduled")
+        now += 121; drain()
+        XCTAssertTrue(actions.isEmpty)
+        let output = try result()
+        XCTAssertEqual(output["stage"] as? String, "rejected")
+        XCTAssertEqual(output["success"] as? Bool, false)
+        XCTAssertEqual(output["rejectionStage"] as? String, "runtimeBeforeAction")
+        XCTAssertEqual((output["runtimeFlags"] as? [String: Bool])?["commandUnexpired"], false)
+    }
+
+    func testNormalRouteDeclineKeepsExistingOutcomeWithoutRejectionDiagnostics() throws {
+        let name = try store(command()); let sut = runner()
+        XCTAssertEqual(sut.submit(name), "scheduled"); drain()
+        completions[0](.init(stage: .routeDeclined, success: false))
+        let output = try result()
+        XCTAssertEqual(output["stage"] as? String, "routeDeclined")
+        XCTAssertNil(output["rejectionStage"]); XCTAssertNil(output["runtimeFlags"])
+    }
+
+
+    func testStoredRealmWebCarbonMetadataReachesTheExactTargetPolicy() throws {
+        let realm = try Realm(configuration: .init(inMemoryIdentifier: "DiagnosticRoute-\(UUID())"))
+        let row = storedWebCarbonRow()
+        try realm.write { realm.add(row) }
+        let stored = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: row.primary))
+        let target = OMEMOThreeClientDiagnosticPolicy.routeTarget(from: stored)
+        XCTAssertTrue(target.hasAuthenticationMetadata)
+        XCTAssertEqual(target.authenticatedSource?.sid, 1761201430)
+        XCTAssertEqual(target.authenticatedSource?.trusted, true)
+        var didRoute = false
+        let outcome = OMEMOThreeClientDiagnostics.routeOutcome(prepare: {
+            try self.validateRoute(target)
+            return nil
+        }, route: { _ in didRoute = true; return true })
+        XCTAssertTrue(didRoute)
+        XCTAssertEqual(outcome.stage, .routeAccepted)
+        XCTAssertTrue(outcome.success)
+        XCTAssertNil(outcome.rejectionStage); XCTAssertNil(outcome.runtimeFlags)
+    }
+
+    func testStoredMalformedAuthenticationAndDuplicateTargetsReportPolicyPhaseWithoutRouting() throws {
+        let realm = try Realm(configuration: .init(inMemoryIdentifier: "DiagnosticRouteNegative-\(UUID())"))
+        let row = storedWebCarbonRow()
+        try realm.write { realm.add(row) }
+        let original = try XCTUnwrap(row.systemMetadata?["omemo_authenticated_sender_v1"] as? [String: Any])
+        var stringSID = original; stringSID["deviceID"] = "1761201430"
+        var stringTrust = original; stringTrust["trusted"] = "true"
+        for (metadata, count): (Any, Int) in [(stringSID, 1), (stringTrust, 1), ("invalid-source", 1), (original, 2)] {
+            try realm.write { row.systemMetadata = ["omemo_authenticated_sender_v1": metadata] }
+            let target = OMEMOThreeClientDiagnosticPolicy.routeTarget(from: row)
+            XCTAssertTrue(target.hasAuthenticationMetadata)
+            var didRoute = false
+            let outcome = OMEMOThreeClientDiagnostics.routeOutcome(prepare: {
+                try self.validateRoute(target, count: count)
+                return nil
+            }, route: { _ in didRoute = true; return true })
+            XCTAssertFalse(didRoute)
+            XCTAssertEqual(outcome.stage, .rejected)
+            XCTAssertFalse(outcome.success)
+            XCTAssertEqual(outcome.rejectionStage, .targetRoute)
+            XCTAssertNil(outcome.runtimeFlags)
+        }
+    }
+
+    private func storedWebCarbonRow() -> MessageStorageItem {
+        let row = MessageStorageItem()
+        let target = routeTarget()
+        row.owner = target.owner; row.opponent = target.peer; row.conversationType_ = target.conversationType
+        row.primary = target.primary; row.messageId = target.messageID; row.body = target.body; row.outgoing = true
+        row.systemMetadata = ["omemo_authenticated_sender_v1": ["owner": target.owner, "jid": target.owner,
+            "deviceID": NSNumber(value: 1761201430), "trusted": NSNumber(value: true),
+            "fingerprint": "868390cb 370b3b6c e0e40203 807fff0e f0ecbd23 2a4e3a56 ceec64d8 ff6c133d"]]
+        return row
     }
 
     func testRuntimeChangeDuringAsynchronousActionRejectsSuccessfulCompletion() throws {
