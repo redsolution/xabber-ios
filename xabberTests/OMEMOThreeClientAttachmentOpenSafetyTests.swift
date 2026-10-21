@@ -42,6 +42,39 @@ final class OMEMOThreeClientAttachmentOpenSafetyTests: XCTestCase {
         try Policy.authorize(environment: env, isSimulator: false, idiom: .phone, operation: operation)
     }
 
+    func testVisibleConversationContainerNeedNotBeAHitTargetWhenExactAttachmentLeafIsHittable() {
+        let viewport = CGRect(x: 0, y: 0, width: 390, height: 844)
+        XCTAssertTrue(Policy.isVisibleContainer(.init(
+            exists: true, isHittable: false, frame: viewport, viewport: viewport)))
+        let image = Policy.ElementVisibilityWitness(exists: true, isHittable: true,
+            frame: CGRect(x: 16, y: 413, width: 310, height: 310), viewport: viewport)
+        XCTAssertTrue(Policy.isTappable(image))
+    }
+
+    func testAttachmentTapStillRequiresItsActualLeafToBeHittable() {
+        let viewport = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let image = Policy.ElementVisibilityWitness(exists: true, isHittable: false,
+            frame: CGRect(x: 16, y: 413, width: 310, height: 310), viewport: viewport)
+        XCTAssertFalse(Policy.isTappable(image))
+        XCTAssertFalse(Policy.isVisible(image), "Existing cell, body and viewer visibility keeps its hittability guard")
+    }
+
+    func testMissingEmptyAndOffscreenElementsCannotAuthorizeVisibilityOrTaps() {
+        let viewport = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let witnesses: [Policy.ElementVisibilityWitness] = [
+            .init(exists: false, isHittable: true, frame: viewport, viewport: viewport),
+            .init(exists: true, isHittable: true, frame: .zero, viewport: viewport),
+            .init(exists: true, isHittable: true, frame: CGRect(x: 0, y: 845, width: 390, height: 50), viewport: viewport)
+        ]
+        for witness in witnesses {
+            XCTAssertFalse(Policy.isVisible(witness))
+            XCTAssertFalse(Policy.isVisibleContainer(witness))
+            XCTAssertFalse(Policy.isTappable(witness))
+        }
+        XCTAssertFalse(Policy.isVisibleContainer(.init(
+            exists: true, isHittable: true, frame: viewport, viewport: .zero)))
+    }
+
     func testOpenRequiresSeparateExplicitOptInBeforeCreatingApplication() throws {
         var env = try environment(); env[prefix + "OPEN_ATTACHMENT"] = nil
         XCTAssertNil(try authorize(env))

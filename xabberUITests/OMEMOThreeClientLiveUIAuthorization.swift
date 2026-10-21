@@ -43,6 +43,28 @@ enum OMEMOThreeClientLiveUIAuthorization {
         let isVisible: Bool
     }
 
+    struct ElementVisibilityWitness {
+        let exists: Bool
+        let isHittable: Bool
+        let frame: CGRect
+        let viewport: CGRect
+    }
+
+    static func isVisible(_ witness: ElementVisibilityWitness) -> Bool {
+        witness.exists && witness.isHittable && !witness.frame.isEmpty
+            && witness.frame.intersects(witness.viewport)
+    }
+
+    static func isTappable(_ witness: ElementVisibilityWitness) -> Bool {
+        isVisible(witness) && witness.isHittable
+    }
+
+    static func isVisibleContainer(_ witness: ElementVisibilityWitness) -> Bool {
+        // The collection is a read-only scope, never the target of the tap.
+        witness.exists && !witness.frame.isEmpty && !witness.viewport.isEmpty
+            && witness.frame.intersects(witness.viewport)
+    }
+
     static let conversationCollectionIdentifier = "chat.conversation.messages"
 
     static func messageIdentifierPrefix(_ id: String) -> String {

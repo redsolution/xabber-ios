@@ -145,7 +145,7 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
         try wait(for: "one identity-bound message inside the visible conversation collection", app: app) {
             guard collections.count == 1 else { return false }
             let collection = collections.element(boundBy: 0)
-            guard self.isVisible(collection, in: app) else { return false }
+            guard self.isVisibleContainer(collection, in: app) else { return false }
             let cells = collection.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@",
                 OMEMOThreeClientLiveUIAuthorization.messageIdentifierPrefix(messageID)))
             let witnesses = (0..<min(cells.count, 2)).map { index in
@@ -219,8 +219,60 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
     }
 
     private func isVisible(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
-        element.exists && element.isHittable && !element.frame.isEmpty
-            && element.frame.intersects(app.frame)
+        guard element.exists else { return false }
+        return OMEMOThreeClientLiveUIAuthorization.isVisible(.init(
+            exists: true, isHittable: element.isHittable, frame: element.frame, viewport: app.frame))
+    }
+
+    private func isVisibleContainer(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists else { return false }
+        return OMEMOThreeClientLiveUIAuthorization.isVisibleContainer(.init(
+            exists: true, isHittable: false, frame: element.frame, viewport: app.frame))
+    }
+
+    private func attachExactVisibilityDiagnostic(
+        _ app: XCUIApplication,
+        authorization: OMEMOThreeClientLiveUIAuthorization.Configuration
+    ) {
+        guard let id = authorization.messageID, let body = authorization.messageBody else { return }
+        var values: [String] = []
+        func sample(_ name: String, _ element: XCUIElement) {
+            let exists = element.exists
+            values.append("\(name).exists=\(exists)")
+            guard exists else { return }
+            let frame = element.frame
+            values += ["\(name).isHittable=\(element.isHittable)",
+                       "\(name).nonempty=\(!frame.isEmpty)",
+                       "\(name).intersectsViewport=\(frame.intersects(app.frame))"]
+        }
+        let collections = app.collectionViews.matching(identifier: OMEMOThreeClientLiveUIAuthorization.conversationCollectionIdentifier)
+        values.append("exactCollectionCount=\(collections.count)")
+        if collections.count == 1 {
+            let collection = collections.element(boundBy: 0)
+            sample("collection", collection)
+            let cells = collection.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@",
+                OMEMOThreeClientLiveUIAuthorization.messageIdentifierPrefix(id)))
+            values.append("exactCellCount=\(cells.count)")
+            for index in 0..<min(cells.count, 2) {
+                let cell = cells.element(boundBy: index)
+                sample("cell\(index)", cell)
+                let texts = cell.staticTexts.matching(NSPredicate(format: "label == %@", body))
+                values.append("cell\(index).exactBodyCount=\(texts.count)")
+                if texts.count > 0 { sample("cell\(index).body", texts.element(boundBy: 0)) }
+                if let media = authorization.attachment {
+                    let targetID = OMEMOThreeClientLiveUIAuthorization.attachmentIdentifier(kind: media.kind, referencePrimary: media.referencePrimary)
+                    let targets = media.kind == .voice
+                        ? cell.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", targetID + "."))
+                        : cell.descendants(matching: .any).matching(identifier: targetID)
+                    values.append("cell\(index).exactAttachmentCount=\(targets.count)")
+                    if targets.count > 0 { sample("cell\(index).attachment", targets.element(boundBy: 0)) }
+                }
+            }
+        }
+        let diagnostic = XCTAttachment(string: values.joined(separator: "\n"))
+        diagnostic.name = "\(authorization.token)-\(authorization.role.rawValue)-private-exact-visibility"
+        diagnostic.lifetime = .keepAlways
+        add(diagnostic)
     }
 
     private func attachPrivateEvidence(
@@ -237,6 +289,8 @@ final class OMEMOThreeClientLiveUITests: XCTestCase {
         accessibility.name = "\(authorization.token)-\(authorization.role.rawValue)-\(stage)-private-accessibility"
         accessibility.lifetime = .keepAlways
         add(accessibility)
+
+        if stage.hasSuffix("-failure") { attachExactVisibilityDiagnostic(app, authorization: authorization) }
 
         let metadata = XCTAttachment(string: [
             "stage=\(stage)",
