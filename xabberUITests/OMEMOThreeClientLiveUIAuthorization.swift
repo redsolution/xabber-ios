@@ -281,7 +281,13 @@ enum OMEMOThreeClientLiveUIAuthorization {
         let expected: (String, Int, String)
         switch kind {
         case .image: expected = ("QA3-image.png", 14205, "10e3ad9db045757011ccac1be7b224584a2d4a41433c010910423cebf9eb2529")
-        case .file: expected = ("QA3-document.txt", 2738, "37a4be8e8dd6c7fcb7af2a306909b658075b9a00fe1ab8c02be4b64a7d3877d0")
+        case .file:
+            // Ordinary file uploads may carry this exact OGG fixture without being voice messages.
+            if filename == "QA3-voice.ogg" {
+                expected = ("QA3-voice.ogg", 1420, "c88e7fddcea31b4b04d98b969fb939f79205bf8019fc9726f969099c18c85b83")
+            } else {
+                expected = ("QA3-document.txt", 2738, "37a4be8e8dd6c7fcb7af2a306909b658075b9a00fe1ab8c02be4b64a7d3877d0")
+            }
         case .audio: expected = ("QA3-audio.wav", 16044, "c5b99ceef5c83a371360cad83a267daa6fb69cb96525672d353dddcd8fc33e9c")
         case .video: expected = ("QA3-video.mp4", 1870, "0c4ecc8cee6f7bf03ee9ffeac5394e2e0860d3e496e5329f5f94bbbc5cbc063a")
         case .voice: expected = ("QA3-voice.ogg", 1420, "c88e7fddcea31b4b04d98b969fb939f79205bf8019fc9726f969099c18c85b83")

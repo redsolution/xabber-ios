@@ -179,6 +179,142 @@ final class OMEMOThreeClientAttachmentOpenSafetyTests: XCTestCase {
             XCTAssertEqual(config.messageID, messageID); XCTAssertEqual(config.messageBody, body)
         }
     }
+    private func genericOGGFileFixture() -> [String: Any] {
+        var media = fixture(.voice)
+        media["kind"] = Policy.AttachmentKind.file.rawValue
+        return media
+    }
+
+    func testExactOGGFileUsesNormalFileControlAndViewerWithoutVoiceRelabeling() throws {
+        var env = try environment()
+        try bind(&env, attachments: [genericOGGFileFixture()])
+
+        let config = try XCTUnwrap(authorize(env))
+        let attachment = try XCTUnwrap(config.attachment)
+        let encodedReference = Data(reference.utf8).base64EncodedString()
+
+        XCTAssertEqual(attachment.kind, .file)
+        XCTAssertEqual(attachment.filename, "QA3-voice.ogg")
+        XCTAssertEqual(attachment.byteCount, 1420)
+        XCTAssertEqual(attachment.sha256, fixture(.voice)["sha256"] as? String)
+        XCTAssertEqual(attachment.referencePrimary, reference)
+        XCTAssertEqual(Policy.attachmentIdentifier(kind: attachment.kind, referencePrimary: reference),
+                       "chat.attachment.file." + encodedReference)
+        XCTAssertEqual(Policy.viewerIdentifier(for: attachment), "chat.media.file.viewer." + encodedReference)
+        XCTAssertNotEqual(Policy.attachmentIdentifier(kind: attachment.kind, referencePrimary: reference),
+                          Policy.attachmentIdentifier(kind: .voice, referencePrimary: reference))
+    }
+
+    func testExactOGGFileDismissRequiresObservedCanonicalButtonAndSameManifest() throws {
+        for label in ["Close", "Done", "Закрыть", "Готово"] {
+            var env = try environment()
+            try bind(&env, attachments: [genericOGGFileFixture()])
+            env[prefix + "DISMISS_ATTACHMENT"] = "1"
+            env[prefix + "DISMISS_LABEL"] = label
+
+            let config = try XCTUnwrap(authorize(env, operation: .dismissAttachment))
+
+            XCTAssertEqual(config.attachment?.kind, .file)
+            XCTAssertEqual(config.attachment?.filename, "QA3-voice.ogg")
+            XCTAssertEqual(config.attachment?.referencePrimary, reference)
+            XCTAssertEqual(config.dismissLabel, label)
+            env[prefix + "DISMISS_ATTACHMENT"] = nil
+            XCTAssertNil(try authorize(env, operation: .dismissAttachment))
+        }
+        for label in ["", "Delete", "Done ", "Other personal button"] {
+            var env = try environment()
+            try bind(&env, attachments: [genericOGGFileFixture()])
+            env[prefix + "DISMISS_ATTACHMENT"] = "1"
+            env[prefix + "DISMISS_LABEL"] = label
+            XCTAssertThrowsError(try authorize(env, operation: .dismissAttachment))
+        }
+    }
+
+    func testOGGFileAllowlistRejectsOtherNamesBytesHashesAndExtraMetadata() throws {
+        let changes: [(String, Any)] = [
+            ("filename", "personal.ogg"), ("filename", "QA3-voice.OGG"),
+            ("byteCount", 0), ("byteCount", 1421),
+            ("sha256", String(repeating: "0", count: 64)),
+            ("url", "https://example.test/file"), ("mimeType", "audio/ogg")
+        ]
+        for (key, value) in changes {
+            var media = genericOGGFileFixture()
+            media[key] = value
+            var env = try environment()
+            try bind(&env, attachments: [media])
+
+            XCTAssertThrowsError(try authorize(env), key)
+        }
+    }
+
+    func testOGGBytesDoNotAuthorizeImageWAVOrVideoControls() throws {
+        for kind in [Policy.AttachmentKind.image, .audio, .video] {
+            var media = genericOGGFileFixture()
+            media["kind"] = kind.rawValue
+            var env = try environment()
+            try bind(&env, attachments: [media])
+
+            XCTAssertThrowsError(try authorize(env), kind.rawValue)
+        }
+    }
+
+    func testPreparedNativeOGGVoiceRetainsItsVoiceControlAndNonmodalSemantics() throws {
+        var env = try environment()
+        try bind(&env, attachments: [fixture(.voice)])
+
+        let config = try XCTUnwrap(authorize(env))
+        let attachment = try XCTUnwrap(config.attachment)
+        let encodedReference = Data(reference.utf8).base64EncodedString()
+
+        XCTAssertEqual(attachment.kind, .voice)
+        XCTAssertEqual(Policy.attachmentIdentifier(kind: attachment.kind, referencePrimary: reference),
+                       "chat.attachment.voice." + encodedReference)
+        XCTAssertEqual(Policy.viewerIdentifier(for: attachment), "")
+        env[prefix + "DISMISS_ATTACHMENT"] = "1"
+        env[prefix + "DISMISS_LABEL"] = "Done"
+        XCTAssertThrowsError(try authorize(env, operation: .dismissAttachment))
+    }
+
+    func testOGGFileRetainsPhysicalOptInManifestMessageAndReferenceGuards() throws {
+        var valid = try environment()
+        try bind(&valid, attachments: [genericOGGFileFixture()])
+        XCTAssertEqual(try XCTUnwrap(authorize(valid)).attachment?.kind, .file)
+
+        var missingOptIn = valid
+        missingOptIn[prefix + "ACCEPTANCE"] = nil
+        XCTAssertNil(try authorize(missingOptIn))
+        var missingOpenOptIn = valid
+        missingOpenOptIn[prefix + "OPEN_ATTACHMENT"] = nil
+        XCTAssertNil(try authorize(missingOpenOptIn))
+
+        for (key, value) in [
+            ("ACCOUNT", "another@example.test"), ("BASELINE_SHA256", ""),
+            ("ASSERT_MESSAGE", "0"), ("MESSAGE_MANIFEST_SHA256", String(repeating: "0", count: 64)),
+            ("MESSAGE_ID", "57ac412c-c316-4bf3-91b4-f2041b8060d2"),
+            ("MESSAGE_BODY", body + " changed"), ("RESET", "1")
+        ] {
+            var env = valid
+            env[prefix + key] = value
+            XCTAssertThrowsError(try authorize(env), key)
+        }
+        XCTAssertThrowsError(try Policy.authorize(environment: valid, isSimulator: true,
+                                                 idiom: .phone, operation: .openAttachment))
+        XCTAssertThrowsError(try Policy.authorize(environment: valid, isSimulator: false,
+                                                 idiom: .pad, operation: .openAttachment))
+        for invalidReference in ["", String(repeating: "x", count: 2049), "ref\nother"] {
+            var media = genericOGGFileFixture()
+            media["referencePrimary"] = invalidReference
+            var env = valid
+            try bind(&env, attachments: [media])
+            XCTAssertThrowsError(try authorize(env))
+        }
+        for entries in [[], [genericOGGFileFixture(), genericOGGFileFixture()]] {
+            var env = valid
+            try bind(&env, attachments: entries)
+            XCTAssertThrowsError(try authorize(env))
+        }
+    }
+
     func testMissingOrMultipleAttachmentsCannotAuthorizeAnAmbiguousTap() throws {
         for entries in [[], [fixture(.image), fixture(.image)]] {
             var env = try environment(); try bind(&env, attachments: entries)
