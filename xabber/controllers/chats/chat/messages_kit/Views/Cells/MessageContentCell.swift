@@ -131,6 +131,7 @@ public class MessageContentCell: MessageCollectionViewCell {
     let backgroundContentView: UIView = {
         let view = UIView()
         view.backgroundColor = .clear
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         
         return view
     }()
@@ -213,7 +214,7 @@ public class MessageContentCell: MessageCollectionViewCell {
     
     public override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
-        backgroundContentView.frame = contentView.frame
+        backgroundContentView.frame = contentView.bounds
         
         guard let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes else { return }
         
@@ -222,7 +223,7 @@ public class MessageContentCell: MessageCollectionViewCell {
         layoutReplyIcon()
         layoutAvatarView(with: attributes)
         
-        self.initialFrame = self.contentView.frame
+        self.initialFrame = self.backgroundContentView.frame
     }
 
     @objc
@@ -325,7 +326,7 @@ public class MessageContentCell: MessageCollectionViewCell {
                 let origin = CGPoint(x: self.initialFrame.minX +
                                         deltaX,
                                      y: self.initialFrame.minY)
-                self.backgroundContentView.frame = CGRect(origin: origin, size: messageContainerView.frame.size)
+                self.backgroundContentView.frame.origin = origin
                 self.setNeedsLayout()
                 self.layoutIfNeeded()
                 let alpha = abs(deltaX) / abs(max)

@@ -169,6 +169,7 @@
 		4EC200063A1C00000ABC001 /* ChatPerformanceRouteHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC200053A1C00000ABC001 /* ChatPerformanceRouteHost.swift */; };
 		4E9000042FF000000ABC001 /* ChatRenderOperationCounterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9000032FF000000ABC001 /* ChatRenderOperationCounterTests.swift */; };
 		4E9100022FF100000ABC001 /* TextMessageCellLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9100012FF100000ABC001 /* TextMessageCellLayoutTests.swift */; };
+		9798112FDB708099F29F8958 /* ChatMediaCellHitAreaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E220E8C99833A0D9BDC91A5 /* ChatMediaCellHitAreaTests.swift */; };
 		4E9100042FF100000ABC001 /* MessagesCollectionViewLayoutAttributesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9100032FF100000ABC001 /* MessagesCollectionViewLayoutAttributesTests.swift */; };
 		4E9100062FF100000ABC001 /* InlineForwardLayoutOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9100052FF100000ABC001 /* InlineForwardLayoutOrderingTests.swift */; };
 		4E9100082FF100000ABC001 /* ChatMessageFrameGeometryValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E9100072FF100000ABC001 /* ChatMessageFrameGeometryValidator.swift */; };
@@ -1443,6 +1444,7 @@
 		4EC200053A1C00000ABC001 /* ChatPerformanceRouteHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPerformanceRouteHost.swift; sourceTree = "<group>"; };
 		4E9000032FF000000ABC001 /* ChatRenderOperationCounterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRenderOperationCounterTests.swift; sourceTree = "<group>"; };
 		4E9100012FF100000ABC001 /* TextMessageCellLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextMessageCellLayoutTests.swift; sourceTree = "<group>"; };
+		8E220E8C99833A0D9BDC91A5 /* ChatMediaCellHitAreaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMediaCellHitAreaTests.swift; sourceTree = "<group>"; };
 		4E9100032FF100000ABC001 /* MessagesCollectionViewLayoutAttributesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesCollectionViewLayoutAttributesTests.swift; sourceTree = "<group>"; };
 		4E9100052FF100000ABC001 /* InlineForwardLayoutOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineForwardLayoutOrderingTests.swift; sourceTree = "<group>"; };
 		4E9100072FF100000ABC001 /* ChatMessageFrameGeometryValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessageFrameGeometryValidator.swift; sourceTree = "<group>"; };
@@ -4597,6 +4599,7 @@
 				4EC200033A1C00000ABC001 /* ChatOpenBackdropTests.swift */,
 				4E9000032FF000000ABC001 /* ChatRenderOperationCounterTests.swift */,
 				4E9100012FF100000ABC001 /* TextMessageCellLayoutTests.swift */,
+				8E220E8C99833A0D9BDC91A5 /* ChatMediaCellHitAreaTests.swift */,
 				4E9100032FF100000ABC001 /* MessagesCollectionViewLayoutAttributesTests.swift */,
 				4E9100052FF100000ABC001 /* InlineForwardLayoutOrderingTests.swift */,
 				4E9200012FF200000ABC001 /* ChatAttributedBodyFormattingTests.swift */,
@@ -6998,6 +7001,7 @@
 				4EC200043A1C00000ABC001 /* ChatOpenBackdropTests.swift in Sources */,
 				4E9000042FF000000ABC001 /* ChatRenderOperationCounterTests.swift in Sources */,
 				4E9100022FF100000ABC001 /* TextMessageCellLayoutTests.swift in Sources */,
+				9798112FDB708099F29F8958 /* ChatMediaCellHitAreaTests.swift in Sources */,
 				4E9100042FF100000ABC001 /* MessagesCollectionViewLayoutAttributesTests.swift in Sources */,
 				4E9100062FF100000ABC001 /* InlineForwardLayoutOrderingTests.swift in Sources */,
 				4E9200022FF200000ABC001 /* ChatAttributedBodyFormattingTests.swift in Sources */,
