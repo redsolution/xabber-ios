@@ -959,8 +959,22 @@ extension ChatViewController {
 
     internal func resolvedArchiveAnchor(for request: ChatOpenMessageRequest) -> ChatMessageAnchorRef {
         guard request.owner == owner, request.chatJid == jid,
-              request.conversationType == conversationType,
-              case .firstIncomingAfterBoundary(let boundary) = request.targetResolution else {
+              request.conversationType == conversationType else {
+            return request.anchor
+        }
+        if case .anchor = request.targetResolution,
+           let cursor = persistedPrimaryOnlyArchiveCursor(for: request) {
+            return ChatMessageAnchorRef(
+                messagePrimary: request.anchor.messagePrimary,
+                archivedId: request.anchor.archivedId,
+                archiveCursor: cursor,
+                messageId: request.anchor.messageId,
+                authorId: request.anchor.authorId,
+                bodyFingerprint: request.anchor.bodyFingerprint,
+                sourceDate: request.anchor.sourceDate
+            )
+        }
+        guard case .firstIncomingAfterBoundary(let boundary) = request.targetResolution else {
             return request.anchor
         }
         return ChatMessageAnchorRef(
@@ -972,6 +986,28 @@ extension ChatViewController {
             bodyFingerprint: request.anchor.bodyFingerprint,
             sourceDate: nil
         )
+    }
+
+    /// MAM persistence can finish before the matching row reaches the displayed
+    /// window. Its exact owned result ID remains a cursor, not coverage or a
+    /// successful UI positioning receipt. Raw stanza IDs never supply it.
+    private func persistedPrimaryOnlyArchiveCursor(for request: ChatOpenMessageRequest) -> ArchiveCursor? {
+        guard request.source == .directOpenAtMessage,
+              request.anchor.archiveCursor == nil, request.anchor.archivedId == nil,
+              request.anchor.sourceDate == nil,
+              let primary = request.anchor.messagePrimary, primary.isNotEmpty,
+              let messageID = request.anchor.messageId, messageID.isNotEmpty,
+              let realm = try? WRealm.safe() else { return nil }
+        realm.refresh()
+        guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              !message.isInvalidated, message.owner == owner, message.opponent == jid,
+              message.conversationType == conversationType,
+              message.primary == primary, message.messageId == messageID,
+              primary == MessageStorageItem.genPrimary(messageId: messageID, owner: owner),
+              !message.isDeleted, !message.isLocallyHiddenByReport, message.deleteState == .visible,
+              message.effectiveAutoDeleteExpiresAt <= 0 ||
+                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970 else { return nil }
+        return ArchiveCursor(rawValue: message.mamArchiveId)
     }
 
     internal func retainArchiveHistoryVisibleMessages() {

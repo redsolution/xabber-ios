@@ -1273,6 +1273,288 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         XCTAssertEqual(controller.anchorTransactionGate.snapshot.lastTerminalOutcome, .positioned)
     }
 
+    @MainActor
+    func testReusedLiveImageRouteSurvivesMAMCursorCommitBeforeWindowPresentation() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "ReusedMaterializedMedia-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let accountOwner = "materialized-media-\(UUID().uuidString.lowercased())@example.org"
+        let previousUsers = AccountManager.shared.users
+        let account = Account(jid: accountOwner, queue: DispatchQueue(label: "ReusedMaterializedMedia-account"))
+        AccountManager.shared.users = previousUsers + [account]
+        defer {
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+            AccountManager.shared.users = previousUsers
+        }
+        let key = ArchiveConversationKey(owner: accountOwner, jid: jid, conversationType: .omemo)
+        func row(_ id: String, mamID: String, image: Bool) -> MessageStorageItem {
+            let item = MessageStorageItem()
+            item.messageId = id
+            item.primary = MessageStorageItem.genPrimary(messageId: id, owner: accountOwner)
+            item.owner = accountOwner; item.opponent = jid; item.conversationType = .omemo
+            item.archivedId = mamID.isEmpty ? "opaque-live-reference" : mamID
+            item.mamArchiveId = mamID
+            item.date = Date(timeIntervalSince1970: 1_700_000_000 + (mamID.isEmpty ? 1 : 0))
+            item.sentDate = item.date
+            item.body = image ? "QA3 image \(id)" : "Prior text \(id)"
+            item.legacyBody = item.body
+            item.state = .deliver
+            item.outgoing = true
+            item.systemMetadata = ["omemo_authenticated_sender_v1": ["owner": accountOwner,
+                "jid": accountOwner, "deviceID": 101,
+                "fingerprint": String(repeating: "a", count: 64), "trusted": true]]
+            if image {
+                let reference = MessageReferenceStorageItem()
+                reference.primary = id + "-image-reference"
+                reference.owner = accountOwner; reference.jid = jid; reference.conversationType = .omemo
+                reference.messageId = id; reference.kind = .media; reference.mimeType = "image"
+                // No remote URL: exercise the normal mapped image geometry and
+                // placeholder without issuing thumbnail or attachment requests.
+                reference.metadata = ["width": 64, "height": 64, "name": "QA3-image.png",
+                    "media-type": "image/png", "size": 14205]
+                item.references.append(reference)
+            }
+            return item
+        }
+        let history = (0..<12).map { row("history-\($0)", mamID: String(100 + $0), image: false) }
+        let a = row("media-A", mamID: "200", image: true)
+        let oldRows = history + [a]
+        try realm.write { realm.add(oldRows) }
+        let controller = ChatViewController()
+        controller.owner = accountOwner; controller.jid = jid; controller.conversationType = .omemo
+        controller.ownerSender = Sender(id: accountOwner, displayName: accountOwner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 765.5, height: 820)
+        controller.view.layoutIfNeeded()
+        controller.timelineSession = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(owner: accountOwner, jid: jid, conversationType: .omemo),
+            pageSize: ArchivePageSizing.history,
+            conversationKey: .init(owner: accountOwner, jid: jid, conversationType: .omemo),
+            observesStoreImmediately: false)
+        controller.archiveWindowStateTask = Task {}
+        controller.archiveWindowIntent = .init(conversation: key, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "old-media-window")
+        let oldest = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: oldest,
+            newest: try XCTUnwrap(ArchiveCursor(rawValue: "200")), reachesArchiveStart: true,
+            reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+        controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: oldRows.map(\.primary), target: .latest,
+            verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
+        for _ in 0..<400 where controller.timelineSession?.verifiedScope == nil || controller.showSkeletonObserver.value {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), oldRows.map(\.primary))
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertGreaterThan(controller.messagesCollectionView.contentSize.height, 820)
+        let oldIntentID = try XCTUnwrap(controller.archiveWindowIntent?.id)
+        let demandID = UUID()
+        await account.archiveEngine.attachPresentationDemand(for: key, demandID: demandID)
+        controller.archiveEnginePresentationDemandID = demandID
+        controller.archiveEnginePresentationDemandConversation = key
+        controller.archiveEnginePresentationDemandEngine = account.archiveEngine
+        defer { controller.stopArchiveEnginePresentationSubscription() }
+
+        let b = row("media-B", mamID: "", image: true)
+        try realm.write {
+            realm.add(b)
+            let chat = LastChatsStorageItem()
+            chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: accountOwner, conversationType: .omemo)
+            chat.owner = accountOwner; chat.jid = jid; chat.conversationType = .omemo
+            chat.lastMessage = b; chat.lastMessageId = b.messageId
+            realm.add(chat)
+        }
+        let request = ChatOpenMessageRequest(chatJid: jid, owner: accountOwner, conversationType: .omemo,
+            anchor: .init(messagePrimary: b.primary, archivedId: nil, archiveCursor: nil,
+                messageId: b.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+
+        // Owned MAM persistence can win this race before its new window reaches
+        // UIKit. The exact route still has only its original primary/message ID.
+        try realm.write { b.mamArchiveId = "300" }
+        let transactionCount = controller.anchorTransactionGate.snapshot.transactionBeginCount
+        controller.queueOpenMessageRequest(request)
+
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request,
+            "A committed owned cursor must not turn an exact live-media route into targetMissing")
+        XCTAssertNotEqual(controller.archiveWindowIntent?.id, oldIntentID)
+        XCTAssertGreaterThan(controller.anchorTransactionGate.snapshot.transactionBeginCount, transactionCount)
+        XCTAssertEqual(b.archivedId, "opaque-live-reference", "Raw stanza reference is not the MAM cursor")
+        XCTAssertTrue(controller.showSkeletonObserver.value, "Old A is not proof that B has been positioned")
+        let freshTarget = controller.archiveWindowIntent?.locator ?? .latest
+
+        let freshToken = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "fresh-media-window")
+        let freshSegment = try XCTUnwrap(ArchiveCoverageSegment(oldest: oldest,
+            newest: try XCTUnwrap(ArchiveCursor(rawValue: "300")), reachesArchiveStart: true,
+            reachesLiveEdge: true, fingerprint: freshToken.fingerprint, isVerified: true))
+        controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: (oldRows + [b]).map(\.primary),
+            target: freshTarget, verifiedSegment: freshSegment, coverageGeneration: 2, freshnessToken: freshToken)))
+        for _ in 0..<400 {
+            if controller.datasource.contains(where: { $0.primary == b.primary && !$0.isFakeMessage }),
+               controller.pendingOpenMessageRequest == nil, !controller.isChatDatasourceStructuralTransactionActive { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.anchorTransactionGate.snapshot.lastTerminalOutcome, .positioned)
+        XCTAssertEqual(controller.retainedMessageAnchor?.primary, b.primary)
+
+        // A later normal datasource apply and inset/layout settlement must not
+        // replace the successful exact anchor with the prior window position.
+        let flow = try XCTUnwrap(controller.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)
+        controller.applyChatDatasource(controller.datasource, mode: .fullReload(keepOffset: true), animated: false,
+            preparedLayouts: flow.cache.reuseSnapshot(), suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertEqual(controller.anchorTransactionGate.snapshot.lastTerminalOutcome, .positioned)
+        XCTAssertEqual(controller.retainedMessageAnchor?.primary, b.primary)
+
+        let section = try XCTUnwrap(controller.datasourceSnapshot.primaryIndex[b.primary])
+        let path = IndexPath(item: 0, section: section)
+        let attributes = try XCTUnwrap(controller.messagesCollectionView.layoutAttributesForItem(at: path))
+        let collection = controller.messagesCollectionView
+        let expected = ChatAnchorContentOffsetPolicy.centeredOffsetY(targetMidY: attributes.frame.midY,
+            viewportHeight: collection.bounds.height, contentHeight: collection.contentSize.height,
+            adjustedContentInsets: collection.adjustedContentInset)
+        XCTAssertEqual(collection.contentOffset.y, expected, accuracy: 1)
+        let cell = try XCTUnwrap(collection.cellForItem(at: path) as? TextMessageCell)
+        XCTAssertGreaterThan(cell.imagesView.frame.height, 400)
+        let caption = cell.messageLabel.convert(cell.messageLabel.bounds, to: collection)
+        let image = cell.imagesView.convert(cell.imagesView.bounds, to: collection)
+        XCTAssertTrue(collection.bounds.contains(CGPoint(x: caption.midX, y: caption.midY)))
+        XCTAssertTrue(collection.bounds.contains(CGPoint(x: image.midX, y: image.midY)))
+    }
+
+    @MainActor
+    func testPrimaryOnlyExactAnchorUsesOwnedMAMCursorWithoutGrantingArchiveOrReadAuthority() throws {
+        try withPrimaryOnlyMAMAnchorFixture { controller, row, request in
+            let resolved = controller.resolvedArchiveAnchor(for: request)
+            XCTAssertEqual(resolved.archiveCursor, ArchiveCursor(rawValue: "300"))
+            XCTAssertEqual(resolved.messagePrimary, request.anchor.messagePrimary)
+            XCTAssertEqual(resolved.messageId, request.anchor.messageId)
+            XCTAssertNil(resolved.archivedId)
+            XCTAssertNil(resolved.sourceDate)
+            XCTAssertNil(controller.archiveWindowState)
+            XCTAssertNil(controller.timelineSession?.verifiedScope)
+            XCTAssertFalse(row.isRead)
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyExactAnchorKeepsOwnedArchivedErrorContentNavigable() throws {
+        try withPrimaryOnlyMAMAnchorFixture(mutate: {
+            $0.state = .error
+            $0.messageError = "Stored decrypt failure"
+            $0.systemMetadata = nil
+        }) { controller, _, request in
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: request).archiveCursor,
+                           ArchiveCursor(rawValue: "300"))
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyExactAnchorRejectsUnqualifiedHiddenExpiredAndMissingMAMRows() throws {
+        for mutation in ["owner", "peer", "type", "primary", "messageID", "deleted", "hidden",
+                         "tombstone", "expired", "empty-MAM", "invalid-MAM"] {
+            try withPrimaryOnlyMAMAnchorFixture(mutate: { row in
+                switch mutation {
+                case "owner": row.owner = "other@example.org"
+                case "peer": row.opponent = "other@example.org"
+                case "type": row.conversationType = .regular
+                case "primary": row.primary = "other-primary"
+                case "messageID": row.messageId = "other-message"
+                case "deleted": row.isDeleted = true
+                case "hidden": row.isLocallyHiddenByReport = true
+                case "tombstone": row.deleteState = .autoDeleted
+                case "expired": row.autoDeleteExpiresAt = 1
+                case "empty-MAM":
+                    row.mamArchiveId = ""
+                    row.archivedId = "999"
+                default: row.mamArchiveId = "opaque-not-a-MAM-cursor"
+                }
+            }) { controller, _, request in
+                XCTAssertNil(controller.resolvedArchiveAnchor(for: request).archiveCursor, mutation)
+            }
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyExactAnchorRejectsMatchingRowWithNoncanonicalPrimary() throws {
+        try withPrimaryOnlyMAMAnchorFixture(mutate: { $0.primary = "noncanonical-alias-primary" }) {
+            controller, row, original in
+            let request = ChatOpenMessageRequest(chatJid: original.chatJid, owner: original.owner,
+                conversationType: original.conversationType,
+                anchor: .init(messagePrimary: row.primary, archivedId: nil, archiveCursor: nil,
+                    messageId: row.messageId, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+                highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+
+            XCTAssertNil(controller.resolvedArchiveAnchor(for: request).archiveCursor,
+                "A row found by the requested alias must still match the canonical owner/message identity")
+        }
+    }
+
+    @MainActor
+    func testExactMAMResolutionPreservesExplicitCursorDateReferenceAndFirstUnreadPrecedence() throws {
+        try withPrimaryOnlyMAMAnchorFixture { controller, _, original in
+            func request(cursor: ArchiveCursor? = nil, reference: String? = nil, date: Date? = nil,
+                         source: ChatOpenMessageRequestSource = .directOpenAtMessage,
+                         resolution: ChatOpenMessageTargetResolution = .anchor) -> ChatOpenMessageRequest {
+                .init(chatJid: original.chatJid, owner: original.owner, conversationType: original.conversationType,
+                    anchor: .init(messagePrimary: original.anchor.messagePrimary, archivedId: reference,
+                        archiveCursor: cursor, messageId: original.anchor.messageId, authorId: nil,
+                        bodyFingerprint: nil, sourceDate: date), highlight: false, markReadOnVisible: false,
+                    source: source, targetResolution: resolution)
+            }
+            let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "500"))
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: request(cursor: cursor)).archiveCursor, cursor)
+            let dated = request(date: Date(timeIntervalSince1970: 123))
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: dated), dated.anchor)
+            let reference = request(reference: "999")
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: reference), reference.anchor)
+            let search = request(source: .search)
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: search), search.anchor)
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for:
+                request(cursor: cursor, resolution: .firstIncomingAfterBoundary("900"))).archiveCursor, cursor)
+        }
+    }
+
+    @MainActor
+    private func withPrimaryOnlyMAMAnchorFixture(
+        mutate: (MessageStorageItem) -> Void = { _ in },
+        body: (ChatViewController, MessageStorageItem, ChatOpenMessageRequest) throws -> Void
+    ) throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "ExactPersistedMAM-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let owner = "exact-mam-\(UUID().uuidString.lowercased())@example.org"
+        let messageID = "exact-mam-message"
+        let primary = MessageStorageItem.genPrimary(messageId: messageID, owner: owner)
+        let row = MessageStorageItem()
+        row.primary = primary; row.messageId = messageID
+        row.owner = owner; row.opponent = jid; row.conversationType = .omemo
+        row.archivedId = "opaque-stanza-reference"; row.mamArchiveId = "300"
+        row.date = Date(timeIntervalSince1970: 100); row.sentDate = row.date
+        row.body = "QA3 archived message"; row.legacyBody = row.body
+        row.state = .deliver; row.isRead = false
+        mutate(row)
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(row) }
+        let controller = ChatViewController()
+        controller.owner = owner; controller.jid = jid; controller.conversationType = .omemo
+        let request = ChatOpenMessageRequest(chatJid: jid, owner: owner, conversationType: .omemo,
+            anchor: .init(messagePrimary: primary, archivedId: nil, archiveCursor: nil, messageId: messageID,
+                authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+        try body(controller, row, request)
+    }
+
     private func makeRequest(
         archivedID: String,
         highlight: Bool = false,
