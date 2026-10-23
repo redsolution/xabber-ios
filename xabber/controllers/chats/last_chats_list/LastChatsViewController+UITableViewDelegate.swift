@@ -1795,9 +1795,28 @@ extension LastChatsViewController: UITableViewDelegate {
 
 protocol LastChatsDisplayDelegate: AnyObject {
     func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType)
+    func didCloseSplitChat(_ chat: ChatViewController)
 }
 
 extension LastChatsViewController: LastChatsDisplayDelegate {
+    func didCloseSplitChat(_ chat: ChatViewController) {
+        guard let split = chat.splitViewController, !split.isCollapsed,
+              let navigation = chat.navigationController else { return }
+        let ownsDetail = {
+            split.viewController(for: .secondary) === navigation &&
+                navigation.topViewController === chat
+        }
+        guard ownsDetail() else { return }
+        resetChatNavigationTransaction(cancelled: true)
+        guard ownsDetail() else { return }
+        resetExpandedSplitChatNavigationTransaction(restorePreviousDetail: false)
+        guard ownsDetail() else { return }
+        clearChatOpenIntentOwnership(destination: chat)
+        currentChatVC = nil
+        playerViewToolbar.delegate = nil
+        clearSelectedChatSelection(animated: false)
+    }
+
     func shouldMakeDialogSelected(jid: String, owner: String, conversationType: ClientSynchronizationManager.ConversationType) {
         setSelectedChat(
             jid: jid,

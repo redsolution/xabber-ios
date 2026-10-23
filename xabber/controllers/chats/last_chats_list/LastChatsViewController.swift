@@ -3459,7 +3459,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         guard LastChatsSelectionReturnPolicy.shouldClearSelectedChat(route: route) else {
             return
         }
+        clearSelectedChatSelection(animated: animated)
+    }
 
+    internal final func clearSelectedChatSelection(animated: Bool) {
         let selectedIndexPath = selectedChatIdentity.flatMap {
             Self.indexPathForChat($0, in: datasourceSections)
         } ?? tableView.indexPathForSelectedRow

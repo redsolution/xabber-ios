@@ -2813,6 +2813,7 @@ class ChatViewController: MessagesViewController {
     }
     internal var navigationAvatarItem: UIBarButtonItem? = nil
     internal var savedMessagesSearchNavigationItem: UIBarButtonItem? = nil
+    private var splitChatCloseNavigationItem: UIBarButtonItem?
     private var navigationTitleWidthConstraint: NSLayoutConstraint? = nil
     private var navigationTitleHeightConstraint: NSLayoutConstraint? = nil
 
@@ -6241,13 +6242,7 @@ class ChatViewController: MessagesViewController {
         guard !isInSelectionMode.value, !inSearchMode.value else {
             return
         }
-        if navigationItem.hidesBackButton {
-            navigationItem.setHidesBackButton(false, animated: false)
-        }
-        if navigationItem.leftItemsSupplementBackButton {
-            navigationItem.leftItemsSupplementBackButton = false
-        }
-
+        setupNavigationLeadingItem()
         setupNavigationTitleView()
         setupNavigationTrailingItem()
 
@@ -6257,6 +6252,75 @@ class ChatViewController: MessagesViewController {
         }
         initStatus()
         updateNavbarTitleWidth()
+    }
+
+    private func currentExpandedSplitChatContext() -> (
+        split: UISplitViewController, navigation: UINavigationController
+    )? {
+        guard UIDevice.current.userInterfaceIdiom == .pad,
+              let split = splitViewController, !split.isCollapsed,
+              let navigation = navigationController,
+              navigation.topViewController === self,
+              split.viewController(for: .secondary) === navigation else {
+            return nil
+        }
+        return (split, navigation)
+    }
+
+    private func setupNavigationLeadingItem() {
+        guard !isInSelectionMode.value, !inSearchMode.value else { return }
+        let showsClose = currentExpandedSplitChatContext() != nil
+        if navigationItem.hidesBackButton != showsClose {
+            navigationItem.setHidesBackButton(showsClose, animated: false)
+        }
+        if navigationItem.leftItemsSupplementBackButton {
+            navigationItem.leftItemsSupplementBackButton = false
+        }
+        if showsClose {
+            if splitChatCloseNavigationItem == nil {
+                let item = UIBarButtonItem(
+                    image: UIImage(systemName: "xmark"),
+                    style: .plain,
+                    target: self,
+                    action: #selector(onCloseSplitChat(_:))
+                )
+                item.accessibilityIdentifier = "chat.navigation.close"
+                item.accessibilityLabel = L10n.text("common__action__close", fallback: "Close")
+                splitChatCloseNavigationItem = item
+            }
+            if let splitChatCloseNavigationItem {
+                NavigationBarItemOwnership.setIfChanged(
+                    .item(splitChatCloseNavigationItem), on: navigationItem,
+                    side: .left, animated: false
+                )
+            }
+        } else if let splitChatCloseNavigationItem,
+                  navigationItem.leftBarButtonItem === splitChatCloseNavigationItem {
+            NavigationBarItemOwnership.setIfChanged(
+                .none, on: navigationItem, side: .left, animated: false
+            )
+        }
+    }
+
+    @objc internal func onCloseSplitChat(_ sender: UIBarButtonItem) {
+        guard !isInSelectionMode.value, !inSearchMode.value,
+              sender === splitChatCloseNavigationItem,
+              navigationItem.leftBarButtonItem === sender,
+              let context = currentExpandedSplitChatContext() else { return }
+        viewIfLoaded?.endEditing(true)
+        let listNavigation = context.split.viewController(for: .supplementary) as? UINavigationController
+        let listDelegate = lastChatsDisplayDelegate
+            ?? (listNavigation?.topViewController as? LastChatsDisplayDelegate)
+        listDelegate?.didCloseSplitChat(self)
+        // Cancelling pending navigation may synchronously install another chat.
+        guard let current = currentExpandedSplitChatContext(),
+              current.split === context.split,
+              current.navigation === context.navigation else { return }
+        let empty = EmptyChatViewController()
+        let emptyNavigation = makeStackedDetailNavigationController(
+            rootViewController: empty, splitViewController: context.split
+        )
+        context.split.setViewController(emptyNavigation, for: .secondary)
     }
 
     private func setupNavigationTitleView() {
@@ -8311,6 +8375,7 @@ class ChatViewController: MessagesViewController {
             self?.view.layoutIfNeeded()
         }, completion: { [weak self] _ in
             self?.handleChatSearchLayoutInterruption()
+            self?.setupNavigationLeadingItem()
         })
     }
 
