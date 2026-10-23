@@ -317,7 +317,7 @@ protocol ChatTimelineSessionStore: ChatTimelinePageProviding, AnyObject {
 
 struct ChatTimelineResidentIndex {
     private let primaryPositions: [String: Int]
-    private let mamArchiveCursorPositions: [String: Int]
+    private let mamArchiveCursorPositions: [ArchiveCursor: Int]
     private let protocolStanzaIdPositions: [String: Int]
     private let messageIdPositions: [String: Int]
 
@@ -331,10 +331,10 @@ struct ChatTimelineResidentIndex {
 
     init(items: [MessageStorageItem]) {
         var primaryPositions: [String: Int] = [:]
-        var mamArchiveCursorPositions: [String: Int] = [:]
+        var mamArchiveCursorPositions: [ArchiveCursor: Int] = [:]
         var protocolStanzaIdPositions: [String: Int] = [:]
         var messageIdPositions: [String: Int] = [:]
-        var ambiguousMAMArchiveCursorIDs = Set<String>()
+        var ambiguousMAMArchiveCursorIDs = Set<ArchiveCursor>()
         var ambiguousProtocolStanzaIDs = Set<String>()
         primaryPositions.reserveCapacity(items.count)
         mamArchiveCursorPositions.reserveCapacity(items.count)
@@ -346,7 +346,7 @@ struct ChatTimelineResidentIndex {
                 primaryPositions[item.primary] = index
             }
             if let archiveCursor = ArchiveCursor(rawValue: item.mamArchiveId) {
-                let archiveID = archiveCursor.rawValue
+                let archiveID = archiveCursor
                 if mamArchiveCursorPositions[archiveID] != nil {
                     mamArchiveCursorPositions.removeValue(forKey: archiveID)
                     ambiguousMAMArchiveCursorIDs.insert(archiveID)
@@ -383,7 +383,7 @@ struct ChatTimelineResidentIndex {
 
     func index(archiveCursor: ArchiveCursor?) -> Int? {
         guard let archiveCursor else { return nil }
-        return mamArchiveCursorPositions[archiveCursor.rawValue]
+        return mamArchiveCursorPositions[archiveCursor]
     }
 
     func index(archivedId: String?) -> Int? {
@@ -414,6 +414,7 @@ struct ChatTimelineResidentIndex {
 struct ChatTimelineReadBoundary: Equatable {
     let primary: String
     let position: ChatTimelinePositionKey
+    let archiveCursor: ArchiveCursor?
 }
 
 enum ChatTimelineSessionSnapshotCause: Equatable {
@@ -935,7 +936,7 @@ final class ChatTimelineSession {
                     anchorRestore: nil,
                     pageSize: previous.pageSize,
                     residentIndex: ChatTimelineResidentIndex(items: []),
-                    readBoundary: previous.readBoundary,
+                    readBoundary: nil,
                     unreadMetadata: previous.unreadMetadata,
                     residentHardLimit: previous.residentHardLimit,
                     residentChangeSet: nil
@@ -1089,7 +1090,6 @@ final class ChatTimelineSession {
                         previousScope.freshnessFingerprint,
                       scope.coverageGeneration >
                         previousScope.coverageGeneration,
-                      scope.newest >= previousScope.newest,
                       scope.canExtend(previousScope, direction: .newer) else {
                     return nil
                 }
@@ -1298,7 +1298,7 @@ final class ChatTimelineSession {
 
     /// Admits exactly one locally-authored row after its initial durable save.
     /// This is a presentation overlay: the archive proof remains unchanged
-    /// until the numeric delivery receipt extends the live-edge scope.
+    /// until a verified delivery receipt extends the live-edge scope.
     @discardableResult
     func admitLocalOutgoing(
         _ admission: ChatTimelineLocalOutgoingAdmission
@@ -1675,14 +1675,16 @@ final class ChatTimelineSession {
             additionally: provisional,
             direction: direction,
             hardLimit: base.residentHardLimit,
-            promotingPrimaryIDs: Set(primaryIDs)
+            promotingPrimaryIDs: Set(primaryIDs),
+            scope: scope
         )
         return ChatTimelineSnapshot(
             items: merged.items,
             state: stateByReplacingResidentItems(
                 merged.verifiedItems,
                 in: candidate.state,
-                retentionDirection: direction
+                retentionDirection: direction,
+                scope: scope
             ),
             anchorRestore: candidate.anchorRestore
         )
@@ -2013,11 +2015,17 @@ final class ChatTimelineSession {
             }
             let candidate = ChatTimelineReadBoundary(
                 primary: item.primary,
-                position: ChatTimelinePositionKey(message: item)
+                position: ChatTimelinePositionKey(message: item),
+                archiveCursor: ArchiveCursor(rawValue: item.mamArchiveId)
             )
-            if let current = base.readBoundary,
-               candidate.position <= current.position {
-                return false
+            if let current = base.readBoundary {
+                if let scope = verifiedScope,
+                   let candidateCursor = candidate.archiveCursor,
+                   let currentCursor = current.archiveCursor {
+                    guard scope.isBefore(currentCursor, candidateCursor) else { return false }
+                } else if candidate.position <= current.position {
+                    return false
+                }
             }
             _ = publish(
                 items: base.items,
@@ -2045,7 +2053,24 @@ final class ChatTimelineSession {
     ) -> ChatTimelineSessionSnapshot {
         let hardLimit = ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
         let immutableItems = items.map(Self.frozen)
-        let ordered = ChatTimelineOrdering.deduplicatedChronological(immutableItems)
+        let orderingScope: ChatTimelineVerifiedScope?
+        switch verifiedScopeMutation {
+        case .unchanged: orderingScope = verifiedScope
+        case .replace(let scope): orderingScope = scope
+        }
+        let scopedReadBoundary: ChatTimelineReadBoundary?
+        switch verifiedScopeMutation {
+        case .unchanged:
+            scopedReadBoundary = readBoundary
+        case .replace(let scope):
+            if let cursor = readBoundary?.archiveCursor,
+               scope?.contains(cursor) == true {
+                scopedReadBoundary = readBoundary
+            } else {
+                scopedReadBoundary = nil
+            }
+        }
+        let ordered = orderedPresentationItems(immutableItems, scope: orderingScope)
         let boundedItems: [MessageStorageItem]
         if ordered.count > hardLimit {
             switch retentionDirection {
@@ -2062,7 +2087,8 @@ final class ChatTimelineSession {
             : stateByReplacingResidentItems(
                 boundedItems,
                 in: state,
-                retentionDirection: retentionDirection
+                retentionDirection: retentionDirection,
+                scope: orderingScope
             )
 
         let result: (ChatTimelineSessionSnapshot, SnapshotHandler?) = lock.withLock {
@@ -2083,7 +2109,7 @@ final class ChatTimelineSession {
                 anchorRestore: anchorRestore,
                 pageSize: pageSize,
                 residentIndex: ChatTimelineResidentIndex(items: boundedItems),
-                readBoundary: readBoundary,
+                readBoundary: scopedReadBoundary,
                 unreadMetadata: unreadMetadata,
                 residentHardLimit: hardLimit,
                 residentChangeSet: residentChangeSet,
@@ -2112,7 +2138,8 @@ final class ChatTimelineSession {
         additionally: [MessageStorageItem] = [],
         direction: ChatHistoryPageDirection?,
         hardLimit: Int,
-        promotingPrimaryIDs: Set<String> = []
+        promotingPrimaryIDs: Set<String> = [],
+        scope: ChatTimelineVerifiedScope? = nil
     ) -> (
         items: [MessageStorageItem],
         verifiedItems: [MessageStorageItem],
@@ -2129,8 +2156,10 @@ final class ChatTimelineSession {
         let nonSupersededAdditionalItems = additionally.filter {
             !candidatePromotionPrimaries.contains($0.primary)
         }
-        let ordered = ChatTimelineOrdering.deduplicatedChronological(
-            verifiedAndResidentItems + nonSupersededAdditionalItems
+        let orderingScope = scope ?? verifiedScope
+        let ordered = orderedPresentationItems(
+            verifiedAndResidentItems + nonSupersededAdditionalItems,
+            scope: orderingScope
         )
         let provisional = ordered.filter { item in
             provisionalLocalOutgoingPrimaryIDs.contains(item.primary) &&
@@ -2154,8 +2183,9 @@ final class ChatTimelineSession {
         } else {
             boundedVerified = verified
         }
-        let items = ChatTimelineOrdering.deduplicatedChronological(
-            boundedVerified + boundedProvisional
+        let items = orderedPresentationItems(
+            boundedVerified + boundedProvisional,
+            scope: orderingScope
         )
         let retained = Set(items.map(\.primary))
         return (
@@ -2170,10 +2200,11 @@ final class ChatTimelineSession {
     private func stateByReplacingResidentItems(
         _ items: [MessageStorageItem],
         in state: ChatVirtualTimelineState,
-        retentionDirection: ChatHistoryPageDirection? = nil
+        retentionDirection: ChatHistoryPageDirection? = nil,
+        scope: ChatTimelineVerifiedScope? = nil
     ) -> ChatVirtualTimelineState {
         let alreadyProvedResidentPrimaryIDs = Set(state.residentPrimaryKeys)
-        let ordered = ChatTimelineOrdering.deduplicatedChronological(items)
+        let ordered = orderedPresentationItems(items, scope: scope ?? verifiedScope)
             .filter { item in
                 !provisionalLocalOutgoingPrimaryIDs.contains(item.primary) ||
                     alreadyProvedResidentPrimaryIDs.contains(item.primary)
@@ -2193,8 +2224,8 @@ final class ChatTimelineSession {
         let oldest = bounded.first.map(ChatTimelineBoundary.init(message:))
         let newest = bounded.last.map(ChatTimelineBoundary.init(message:))
         let loadedRange = ChatVirtualSegment.loadedRange(
-            oldestArchiveId: oldest?.archivedId,
-            newestArchiveId: newest?.archivedId
+            oldestArchiveId: oldest?.archiveCursor?.rawValue ?? oldest?.archivedId,
+            newestArchiveId: newest?.archiveCursor?.rawValue ?? newest?.archivedId
         )
         var replacedLoadedRange = false
         var segments = state.segments.compactMap { segment -> ChatVirtualSegment? in
@@ -2220,10 +2251,31 @@ final class ChatTimelineSession {
             newest: newest,
             residentPrimaryKeys: bounded.map(\.primary),
             residentArchivedIds: bounded.compactMap {
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0.mamArchiveCursorID)
+                ArchiveCursor(rawValue: $0.mamArchiveId)?.rawValue
             },
             isResidentAtLiveTail: state.isResidentAtLiveTail
         )
+    }
+
+    private func orderedPresentationItems(
+        _ items: [MessageStorageItem],
+        scope: ChatTimelineVerifiedScope?
+    ) -> [MessageStorageItem] {
+        guard let scope else {
+            return ChatTimelineOrdering.deduplicatedChronological(items)
+        }
+        let verified = scope.ordered(items)
+        let provisional = ChatTimelineOrdering.deduplicatedChronological(items.filter {
+            provisionalLocalOutgoingPrimaryIDs.contains($0.primary) &&
+                !scope.contains($0) && !$0.isDeleted && !$0.isLocallyHiddenByReport
+        })
+        var seen = Set<String>()
+        return (verified + provisional).filter { item in
+            let keys = ChatTimelineMessageIdentity.keys(for: item)
+            guard !keys.contains(where: { seen.contains($0) }) else { return false }
+            seen.formUnion(keys)
+            return true
+        }
     }
 
     private func handleStoreChange(_ change: ChatTimelineStoreChange) {
@@ -2570,6 +2622,14 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
         withProvider(default: []) { provider in
             let items = provider.items(primaryKeys: primaryKeys).map(Self.frozen)
             recordSupplemental(operation: "resident", candidateCount: items.count)
+            return items
+        }
+    }
+
+    func items(archiveCursorIDs: [String]) -> [MessageStorageItem] {
+        withProvider(default: []) { provider in
+            let items = provider.items(archiveCursorIDs: archiveCursorIDs).map(Self.frozen)
+            recordSupplemental(operation: "archiveMembers", candidateCount: items.count)
             return items
         }
     }

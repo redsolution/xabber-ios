@@ -22,25 +22,10 @@ import Foundation
 import XMPPFramework
 
 func compareArchiveIds(_ lhs: String?, _ rhs: String?) -> ComparisonResult? {
-    guard let lhs = lhs?.trimmingCharacters(in: .whitespacesAndNewlines),
-          let rhs = rhs?.trimmingCharacters(in: .whitespacesAndNewlines),
-          lhs.isNotEmpty,
-          rhs.isNotEmpty else {
-        return nil
-    }
-
-    if let lhsNumeric = Int64(lhs), let rhsNumeric = Int64(rhs) {
-        if lhsNumeric == rhsNumeric {
-            return .orderedSame
-        }
-        return lhsNumeric < rhsNumeric ? .orderedAscending : .orderedDescending
-    }
-
-    if lhs == rhs {
-        return .orderedSame
-    }
-
-    return lhs < rhs ? .orderedAscending : .orderedDescending
+    guard let lhs, let rhs, lhs.isNotEmpty, rhs.isNotEmpty else { return nil }
+    // A token carries identity only. Callers needing order must resolve both
+    // references in an observed archive page or an existing local timeline.
+    return lhs.utf8.elementsEqual(rhs.utf8) ? .orderedSame : nil
 }
 
 func isArchiveId(_ candidate: String?, newerThan boundary: String?) -> Bool? {
@@ -125,8 +110,7 @@ func getMAMResultID(_ message: XMPPMessage) -> String? {
         return nil
     }
     let resultID = getMAMResultElement(message)?
-        .attributeStringValue(forName: "id")?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .attributeStringValue(forName: "id")
     return resultID?.isNotEmpty == true ? resultID : nil
 }
 

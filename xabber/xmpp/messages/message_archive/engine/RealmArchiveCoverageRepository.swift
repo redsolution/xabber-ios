@@ -26,9 +26,19 @@ final class RealmArchiveCoverageRepository:
 
     private let queue = DispatchQueue(label: "com.xabber.archive-coverage-repository")
     private let realmProvider: RealmProvider
+    private let materializationBatchObserver: (@Sendable (Int, Int) -> Void)?
 
     init(realmProvider: @escaping RealmProvider = { try WRealm.safe() }) {
         self.realmProvider = realmProvider
+        self.materializationBatchObserver = nil
+    }
+
+    init(
+        realmProvider: @escaping RealmProvider,
+        materializationBatchObserver: @escaping @Sendable (Int, Int) -> Void
+    ) {
+        self.realmProvider = realmProvider
+        self.materializationBatchObserver = materializationBatchObserver
     }
 
     func verifiedAdmission(
@@ -43,7 +53,8 @@ final class RealmArchiveCoverageRepository:
                     jid: intent.conversation.jid,
                     conversationType: intent.conversation.conversationType
                 )
-            ), storage.archiveFreshnessFingerprint == freshnessToken.fingerprint else {
+            ), storage.archiveFreshnessFingerprint == freshnessToken.fingerprint,
+               storage.hasReadableCoverageMetadata else {
                 return nil
             }
             switch intent.locator {
@@ -59,7 +70,7 @@ final class RealmArchiveCoverageRepository:
             let verified = storage.segments.filter {
                 $0.isVerified && $0.fingerprint == freshnessToken.fingerprint
             }
-            if verified.isEmpty,
+            if verified.isEmpty, storage.segments.isEmpty,
                storage.coverageGeneration > 0,
                case .latest = intent.locator {
                 return .authoritativeEmpty
@@ -72,16 +83,11 @@ final class RealmArchiveCoverageRepository:
             ) else {
                 return nil
             }
-            let durableMessages = Self.messageIdentities(
-                realm: realm,
-                conversation: intent.conversation
-            )
             switch intent.locator {
             case .latest, .firstUnread(.none):
-                if let newestDurableCursor = durableMessages.last?.cursor,
-                   newestDurableCursor > segment.newest {
-                    return nil
-                }
+                if let tail = Self.currentVisibleLinkedTail(conversation: intent.conversation, in: realm),
+                   let cursor = Self.archiveCursor(for: tail),
+                   !segment.contains(cursor) { return nil }
             default:
                 break
             }
@@ -89,17 +95,20 @@ final class RealmArchiveCoverageRepository:
                 for: intent,
                 segment: segment,
                 realm: realm,
-                preloadedIdentities: durableMessages
+                batchObserver: self.materializationBatchObserver
             )
             guard primaryIDs.isNotEmpty else {
                 return nil
             }
             if case .firstUnread(.some(let boundary)) = intent.locator {
-                guard let incoming = durableMessages.first(where: {
-                    $0.cursor > boundary && $0.cursor <= segment.newest && $0.isVisibleIncoming
-                }), primaryIDs.contains(incoming.primary) else {
-                    return nil
-                }
+                let rows = realm.objects(MessageStorageItem.self).filter("primary IN %@", primaryIDs)
+                guard rows.contains(where: { row in
+                    guard !row.outgoing, row.deleteState == .visible,
+                          row.effectiveAutoDeleteExpiresAt <= 0 ||
+                            row.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970,
+                          let cursor = Self.archiveCursor(for: row) else { return false }
+                    return segment.isBefore(boundary, cursor)
+                }) else { return nil }
             }
             return .verified(
                 ArchiveWindowSnapshot(
@@ -140,12 +149,16 @@ final class RealmArchiveCoverageRepository:
                 page,
                 request: request,
                 freshnessToken: freshnessToken,
-                realm: realm
+                realm: realm,
+                batchObserver: self.materializationBatchObserver
             ) {
                 return completedBoundary
             }
 
             guard let segment = page.segment else {
+                if page.deliveredResultCount == 0, page.messagePrimaryIDs.isEmpty {
+                    return .noProgress
+                }
                 return .materializedWithoutCoverage
             }
             let isConsumedOnlyPage = page.messagePrimaryIDs.isEmpty &&
@@ -162,7 +175,7 @@ final class RealmArchiveCoverageRepository:
             if page.messagePrimaryIDs.isNotEmpty {
                 let persistedRows = realm.objects(MessageStorageItem.self)
                     .filter("primary IN %@", page.messagePrimaryIDs)
-                guard persistedRows.count == Set(page.messagePrimaryIDs).count else {
+                guard persistedRows.count == Set(page.messagePrimaryIDs.map { Data($0.utf8) }).count else {
                     Self.logCommitRejection(
                         .missingPersistedRows,
                         page: page,
@@ -188,8 +201,7 @@ final class RealmArchiveCoverageRepository:
                         throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
                     }
                     guard let cursor = Self.archiveCursor(for: message),
-                          cursor >= segment.oldest,
-                          cursor <= segment.newest else {
+                          segment.contains(cursor) else {
                         Self.logCommitRejection(
                             .malformedPersistedArchiveID,
                             page: page,
@@ -212,6 +224,9 @@ final class RealmArchiveCoverageRepository:
                     storage.archiveFreshnessFingerprint == freshnessToken.fingerprint
                     ? storage.segments
                     : []
+                guard !ArchiveCoverageReducer.hasConflictingOverlap(segment, with: currentSessionSegments) else {
+                    throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+                }
                 storage.segments = ArchiveCoverageReducer.adding(
                     segment,
                     to: currentSessionSegments,
@@ -273,7 +288,8 @@ final class RealmArchiveCoverageRepository:
             let orderedPrimaryIDs = Self.messagePrimaryIDs(
                 for: intent,
                 segment: admittedSegment,
-                realm: realm
+                realm: realm,
+                batchObserver: self.materializationBatchObserver
             )
             guard orderedPrimaryIDs.isNotEmpty || isConsumedOnlyPage else {
                 let rowDiagnostics = Self.visibleRowDiagnostics(
@@ -312,7 +328,8 @@ final class RealmArchiveCoverageRepository:
         _ page: ValidatedArchiveTransportPage,
         request: ArchiveTransportRequest,
         freshnessToken: ArchiveFreshnessToken,
-        realm: Realm
+        realm: Realm,
+        batchObserver: (@Sendable (Int, Int) -> Void)?
     ) throws -> ArchiveRepositoryCommit? {
         guard request.isUnfiltered,
               request.producesContinuousCoverage,
@@ -348,7 +365,8 @@ final class RealmArchiveCoverageRepository:
                 reachesArchiveStart: true,
                 reachesLiveEdge: segments[index].reachesLiveEdge,
                 fingerprint: segments[index].fingerprint,
-                isVerified: true
+                isVerified: true,
+                orderedArchiveIDs: segments[index].orderedArchiveIDs
             ) else {
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
@@ -365,7 +383,8 @@ final class RealmArchiveCoverageRepository:
                 reachesArchiveStart: segments[index].reachesArchiveStart,
                 reachesLiveEdge: true,
                 fingerprint: segments[index].fingerprint,
-                isVerified: true
+                isVerified: true,
+                orderedArchiveIDs: segments[index].orderedArchiveIDs
             ) else {
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
@@ -391,7 +410,8 @@ final class RealmArchiveCoverageRepository:
                 reachesArchiveStart: older.reachesArchiveStart,
                 reachesLiveEdge: newer.reachesLiveEdge,
                 fingerprint: freshnessToken.fingerprint,
-                isVerified: true
+                isVerified: true,
+                orderedArchiveIDs: older.orderedArchiveIDs + newer.orderedArchiveIDs
             ) else {
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
@@ -414,24 +434,21 @@ final class RealmArchiveCoverageRepository:
         var primaryIDs = messagePrimaryIDs(
             for: intent,
             segment: updatedSegment,
-            realm: realm
+            realm: realm,
+            batchObserver: batchObserver
         )
         if primaryIDs.isEmpty {
-            let identities = messageIdentities(
-                realm: realm,
-                conversation: request.conversation
-            ).filter {
-                $0.cursor >= updatedSegment.oldest &&
-                    $0.cursor <= updatedSegment.newest
-            }
+            let fallbackLocator: ArchiveWindowLocator
             switch request.locator {
-            case .newer, .firstUnread:
-                primaryIDs = identities.last.map { [$0.primary] } ?? []
-            case .older, .gap:
-                primaryIDs = identities.first.map { [$0.primary] } ?? []
-            case .latest, .archiveID, .timestamp:
-                break
+            case .newer, .firstUnread: fallbackLocator = .latest
+            case .older, .gap: fallbackLocator = .older(before: updatedSegment.oldest)
+            case .latest, .archiveID, .timestamp: fallbackLocator = request.locator
             }
+            let fallback = ArchiveWindowIntent(conversation: request.conversation,
+                locator: fallbackLocator, contextBefore: 1, contextAfter: 1, priority: .visibleIntegrity)
+            primaryIDs = messagePrimaryIDs(for: fallback, segment: updatedSegment,
+                realm: realm, batchObserver: batchObserver)
+            if primaryIDs.count > 1 { primaryIDs = Array(primaryIDs.prefix(1)) }
         }
         guard primaryIDs.isNotEmpty else {
             throw ArchiveCoverageRepositoryError.missingPersistedMessages
@@ -458,7 +475,11 @@ final class RealmArchiveCoverageRepository:
         conversation: ArchiveConversationKey,
         archiveIDs: [String]
     ) async throws -> [ArchiveMaterializedMessageIdentity] {
-        let requested = Set(archiveIDs.filter(\.isNotEmpty))
+        let requestedIDs = archiveIDs.compactMap { ArchiveCursor(rawValue: $0) }
+        let positions = requestedIDs.enumerated().reduce(into: [ArchiveCursor: Int]()) {
+            if $0[$1.element] == nil { $0[$1.element] = $1.offset }
+        }
+        let requested = Set(requestedIDs)
         guard requested.isNotEmpty else { return [] }
         return try await perform { realm in
             let materialized = realm.objects(MessageStorageItem.self)
@@ -467,7 +488,7 @@ final class RealmArchiveCoverageRepository:
                     conversation.owner,
                     conversation.jid,
                     conversation.conversationType.rawValue,
-                    Array(requested)
+                    requested.map(\.rawValue)
                 )
                 .compactMap { message -> (ArchiveMaterializedMessageIdentity, ArchiveCursor)? in
                     guard let cursor = Self.archiveCursor(for: message) else {
@@ -483,15 +504,15 @@ final class RealmArchiveCoverageRepository:
                 }
             let hasDuplicateArchiveIdentity = Dictionary(
                 grouping: materialized,
-                by: { $0.0.archiveID }
+                by: { $0.1 }
             ).values.contains { identities in
-                Set(identities.map { $0.0.primaryID }).count > 1
+                Set(identities.map { Data($0.0.primaryID.utf8) }).count > 1
             }
             guard !hasDuplicateArchiveIdentity else {
                 throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
             }
             return materialized
-                .sorted { $0.1 < $1.1 }
+                .sorted { positions[$0.1, default: Int.max] < positions[$1.1, default: Int.max] }
                 .map(\.0)
         }
     }
@@ -502,6 +523,10 @@ final class RealmArchiveCoverageRepository:
         candidateArchiveIDs: [String]
     ) async throws -> ArchiveMaterializedAnchor? {
         guard candidateArchiveIDs.isNotEmpty else { return nil }
+        let positions = candidateArchiveIDs.compactMap { ArchiveCursor(rawValue: $0) }
+            .enumerated().reduce(into: [ArchiveCursor: Int]()) {
+                if $0[$1.element] == nil { $0[$1.element] = $1.offset }
+            }
         return try await perform { realm in
             let incoming = realm.objects(MessageStorageItem.self).filter(
                 "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId IN %@ AND outgoing == false AND isDeleted == false AND isLocallyHiddenByReport == false",
@@ -509,17 +534,19 @@ final class RealmArchiveCoverageRepository:
                 candidateArchiveIDs
             ).compactMap { message -> ArchiveMaterializedAnchor? in
                 let expiresAt = message.effectiveAutoDeleteExpiresAt
-                guard let cursor = Self.archiveCursor(for: message), cursor > boundary,
+                guard let cursor = Self.archiveCursor(for: message), cursor != boundary,
                       message.deleteState == .visible,
                       expiresAt <= 0 || expiresAt > Date().timeIntervalSince1970 else { return nil }
                 return ArchiveMaterializedAnchor(cursor: cursor, primaryID: message.primary)
             }
             guard Dictionary(grouping: incoming, by: \.cursor).values.allSatisfy({
-                Set($0.map(\.primaryID)).count == 1
+                Set($0.map { Data($0.primaryID.utf8) }).count == 1
             }) else {
                 throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
             }
-            return incoming.min { $0.cursor < $1.cursor }
+            return incoming.min {
+                positions[$0.cursor, default: Int.max] < positions[$1.cursor, default: Int.max]
+            }
         }
     }
 
@@ -528,13 +555,14 @@ final class RealmArchiveCoverageRepository:
         locator: ArchiveWindowLocator,
         candidateArchiveIDs: [String]
     ) async throws -> ArchiveMaterializedAnchor? {
-        let candidates = Set(candidateArchiveIDs.compactMap { ArchiveCursor(rawValue: $0)?.rawValue })
+        let candidates = Set(candidateArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)))
         guard candidates.isNotEmpty else { return nil }
         return try await perform { realm in
             let messages = Self.messageIdentities(
                 realm: realm,
-                conversation: conversation
-            ).filter { candidates.contains($0.cursor.rawValue) }
+                conversation: conversation,
+                orderedArchiveIDs: candidateArchiveIDs.compactMap(ArchiveCursor.init(rawValue:))
+            ).filter { candidates.contains($0.cursor) }
             let selected: MessageIdentity?
             switch locator {
             case .archiveID(let requested):
@@ -565,10 +593,10 @@ final class RealmArchiveCoverageRepository:
     ) async throws -> ArchiveWindowSnapshot {
         try await perform { realm in
             for page in [exactPage, olderPage, newerPage] {
-                let allowedArchiveIDs = Set(page.chronologicalArchiveIDs)
+                let allowedArchiveIDs = Set(page.chronologicalArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)))
                 let rows = realm.objects(MessageStorageItem.self)
                     .filter("primary IN %@", page.messagePrimaryIDs)
-                guard rows.count == Set(page.messagePrimaryIDs).count else {
+                guard rows.count == Set(page.messagePrimaryIDs.map { Data($0.utf8) }).count else {
                     throw ArchiveCoverageRepositoryError.missingPersistedMessages
                 }
                 for row in rows {
@@ -578,13 +606,13 @@ final class RealmArchiveCoverageRepository:
                         throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
                     }
                     guard let archiveID = Self.archiveCursor(for: row),
-                          allowedArchiveIDs.contains(archiveID.rawValue) else {
+                          allowedArchiveIDs.contains(archiveID) else {
                         throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
                     }
                 }
             }
-            guard exactPage.chronologicalArchiveIDs.contains(anchor.cursor.rawValue),
-                  exactPage.messagePrimaryIDs.contains(anchor.primaryID),
+            guard exactPage.chronologicalArchiveIDs.contains(where: { ArchiveCursor(rawValue: $0) == anchor.cursor }),
+                  exactPage.messagePrimaryIDs.contains(where: { $0.utf8.elementsEqual(anchor.primaryID.utf8) }),
                   let exactMessage = realm.object(
                     ofType: MessageStorageItem.self,
                     forPrimaryKey: anchor.primaryID
@@ -595,21 +623,20 @@ final class RealmArchiveCoverageRepository:
                   Self.archiveCursor(for: exactMessage) == anchor.cursor else {
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
-            if let older = olderPage.segment, older.newest >= anchor.cursor {
+            if olderPage.segment?.contains(anchor.cursor) == true {
                 throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
             }
-            if let newer = newerPage.segment, newer.oldest <= anchor.cursor {
+            if newerPage.segment?.contains(anchor.cursor) == true {
                 throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
             }
             guard olderPage.segment != nil || olderPage.deliveredResultCount == 0,
                   newerPage.segment != nil || newerPage.deliveredResultCount == 0 else {
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
-            let oldest = olderPage.segment?.oldest ?? anchor.cursor
-            let newest = newerPage.segment?.newest ?? anchor.cursor
+            let orderedIDs = (olderPage.segment?.orderedArchiveIDs ?? []) + [anchor.cursor] +
+                (newerPage.segment?.orderedArchiveIDs ?? [])
             guard let compoundSegment = ArchiveCoverageSegment(
-                oldest: oldest,
-                newest: newest,
+                orderedArchiveIDs: orderedIDs,
                 reachesArchiveStart:
                     olderPage.segment?.reachesArchiveStart ?? olderPage.requestComplete,
                 reachesLiveEdge:
@@ -628,6 +655,9 @@ final class RealmArchiveCoverageRepository:
                     storage.archiveFreshnessFingerprint == freshnessToken.fingerprint
                     ? storage.segments
                     : []
+                guard !ArchiveCoverageReducer.hasConflictingOverlap(compoundSegment, with: currentSessionSegments) else {
+                    throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+                }
                 storage.segments = ArchiveCoverageReducer.adding(
                     compoundSegment,
                     to: currentSessionSegments,
@@ -642,9 +672,10 @@ final class RealmArchiveCoverageRepository:
             let primaryIDs = Self.messagePrimaryIDs(
                 for: intent,
                 segment: compoundSegment,
-                realm: realm
+                realm: realm,
+                batchObserver: self.materializationBatchObserver
             )
-            guard primaryIDs.contains(anchor.primaryID) else {
+            guard primaryIDs.contains(where: { $0.utf8.elementsEqual(anchor.primaryID.utf8) }) else {
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
             return ArchiveWindowSnapshot(
@@ -680,7 +711,8 @@ final class RealmArchiveCoverageRepository:
                        conversationType: intent.conversation.conversationType
                    )
                ),
-               storage.archiveFreshnessFingerprint == freshnessToken.fingerprint else {
+               storage.archiveFreshnessFingerprint == freshnessToken.fingerprint,
+               storage.hasReadableCoverageMetadata else {
                 return nil
             }
 
@@ -690,10 +722,10 @@ final class RealmArchiveCoverageRepository:
             let currentLiveEdge = verifiedSegments.last(where: { $0.reachesLiveEdge })
             let expanded: ArchiveCoverageSegment
             if let currentLiveEdge {
-                guard cursor >= currentLiveEdge.oldest else { return nil }
+                let orderedIDs = currentLiveEdge.contains(cursor)
+                    ? currentLiveEdge.orderedArchiveIDs : currentLiveEdge.orderedArchiveIDs + [cursor]
                 guard let value = ArchiveCoverageSegment(
-                    oldest: currentLiveEdge.oldest,
-                    newest: max(currentLiveEdge.newest, cursor),
+                    orderedArchiveIDs: orderedIDs,
                     reachesArchiveStart: currentLiveEdge.reachesArchiveStart,
                     reachesLiveEdge: true,
                     fingerprint: freshnessToken.fingerprint,
@@ -705,7 +737,8 @@ final class RealmArchiveCoverageRepository:
             } else {
                 // A durable authoritative-empty proof may be followed by the
                 // first live stanza in the same authenticated session.
-                guard verifiedSegments.isEmpty, storage.coverageGeneration > 0,
+                guard verifiedSegments.isEmpty, storage.segments.isEmpty,
+                      storage.coverageGeneration > 0,
                       let value = ArchiveCoverageSegment(
                           oldest: cursor,
                           newest: cursor,
@@ -743,7 +776,8 @@ final class RealmArchiveCoverageRepository:
             let primaryIDs = Self.messagePrimaryIDs(
                 for: intent,
                 segment: admitted,
-                realm: realm
+                realm: realm,
+                batchObserver: self.materializationBatchObserver
             )
             guard primaryIDs.isNotEmpty else { return nil }
             return ArchiveWindowSnapshot(
@@ -781,26 +815,26 @@ final class RealmArchiveCoverageRepository:
             return segments.last(where: { $0.reachesLiveEdge })
         case .older(let boundary):
             return segments.first(where: {
-                $0.oldest < boundary && $0.newest >= boundary
+                $0.isBefore($0.oldest, boundary)
             })
         case .newer(let boundary), .firstUnread(.some(let boundary)):
             return segments.first(where: {
-                $0.oldest <= boundary && $0.newest > boundary
+                $0.isBefore(boundary, $0.newest)
             })
         case .firstUnread(.none):
             return segments.last(where: { $0.reachesLiveEdge })
         case .archiveID(let cursor):
-            return segments.first(where: { $0.oldest <= cursor && $0.newest >= cursor })
+            return segments.first(where: { $0.contains(cursor) })
         case .timestamp(let date):
             guard let cursor = closestCursor(
                 to: date,
                 realm: realm,
                 conversation: conversation
             ) else { return nil }
-            return segments.first(where: { $0.oldest <= cursor && $0.newest >= cursor })
+            return segments.first(where: { $0.contains(cursor) })
         case .gap(let olderBoundary, let newerBoundary):
             return segments.first(where: {
-                $0.oldest <= olderBoundary && $0.newest >= newerBoundary
+                $0.isBefore(olderBoundary, newerBoundary)
             })
         }
     }
@@ -841,7 +875,7 @@ final class RealmArchiveCoverageRepository:
                 ("deliveredResultCount", page.deliveredResultCount),
                 ("consumedResultCount", page.intentionallyConsumedResultCount),
                 ("pagePrimaryCount", page.messagePrimaryIDs.count),
-                ("uniquePagePrimaryCount", Set(page.messagePrimaryIDs).count),
+                ("uniquePagePrimaryCount", Set(page.messagePrimaryIDs.map { Data($0.utf8) }).count),
                 ("archiveResultCount", page.chronologicalArchiveIDs.count)
             ] + fields
         )
@@ -871,8 +905,7 @@ final class RealmArchiveCoverageRepository:
             }
             if !message.isDeleted,
                !message.isLocallyHiddenByReport,
-               cursor >= segment.oldest,
-               cursor <= segment.newest {
+               segment.contains(cursor) {
                 visibleInsideSegment += 1
             }
         }
@@ -894,30 +927,28 @@ final class RealmArchiveCoverageRepository:
         return ArchiveCursor(rawValue: message.mamArchiveId)
     }
 
-    private static func hasCurrentLiveTailWithoutMAMIdentity(
-        conversation: ArchiveConversationKey,
-        in realm: Realm
-    ) -> Bool {
+    private static func currentVisibleLinkedTail(
+        conversation: ArchiveConversationKey, in realm: Realm
+    ) -> MessageStorageItem? {
         guard let chat = realm.object(ofType: LastChatsStorageItem.self,
             forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversation.jid,
                 owner: conversation.owner, conversationType: conversation.conversationType)),
               let message = chat.lastMessage,
               chat.owner == conversation.owner, chat.jid == conversation.jid,
               chat.conversationType == conversation.conversationType,
-              message.owner == conversation.owner,
-              message.opponent == conversation.jid,
+              message.owner == conversation.owner, message.opponent == conversation.jid,
               message.conversationType == conversation.conversationType,
-              !message.isDeleted, !message.isLocallyHiddenByReport,
-              message.deleteState == .visible,
-              (message.effectiveAutoDeleteExpiresAt <= 0 ||
-                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970),
-              message.archivedId.isNotEmpty, message.mamArchiveId.isEmpty else {
-            return false
-        }
-        // A normal server-accepted live tail can outgrow a cached latest MAM
-        // page while detached. Its raw stanza reference invalidates freshness;
-        // only a subsequent owned MAM result may establish archive membership.
-        return true
+              !message.isDeleted, !message.isLocallyHiddenByReport, message.deleteState == .visible,
+              message.effectiveAutoDeleteExpiresAt <= 0 ||
+                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970 else { return nil }
+        return message
+    }
+
+    private static func hasCurrentLiveTailWithoutMAMIdentity(
+        conversation: ArchiveConversationKey, in realm: Realm
+    ) -> Bool {
+        guard let message = currentVisibleLinkedTail(conversation: conversation, in: realm) else { return false }
+        return message.archivedId.isNotEmpty && message.mamArchiveId.isEmpty
     }
 
     private static func diagnosticLocatorCode(
@@ -943,102 +974,104 @@ final class RealmArchiveCoverageRepository:
 
     private static func messageIdentities(
         realm: Realm,
-        conversation: ArchiveConversationKey
+        conversation: ArchiveConversationKey,
+        orderedArchiveIDs: [ArchiveCursor],
+        batchObserver: (@Sendable (Int, Int) -> Void)? = nil
     ) -> [MessageIdentity] {
-        realm.objects(MessageStorageItem.self)
-            .filter(
-                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId != '' AND isDeleted == false AND isLocallyHiddenByReport == false",
-                conversation.owner,
-                conversation.jid,
-                conversation.conversationType.rawValue
-            )
-            .compactMap { message in
-                guard let cursor = archiveCursor(for: message) else { return nil }
-                return MessageIdentity(
-                    primary: message.primary,
-                    cursor: cursor,
-                    date: message.date,
-                    isVisibleIncoming: !message.outgoing && message.deleteState == .visible
-                        && (message.effectiveAutoDeleteExpiresAt <= 0
-                            || message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970)
-                )
-            }
-            .sorted { $0.cursor < $1.cursor }
+        guard !orderedArchiveIDs.isEmpty else { return [] }
+        let rows = realm.objects(MessageStorageItem.self).filter(
+            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId IN %@ AND isDeleted == false AND isLocallyHiddenByReport == false",
+            conversation.owner, conversation.jid, conversation.conversationType.rawValue,
+            orderedArchiveIDs.map(\.rawValue)
+        )
+        // Corrupt duplicate identities cannot force an unbounded hydration.
+        let values = rows.prefix(orderedArchiveIDs.count + 1).compactMap { message -> MessageIdentity? in
+            guard let cursor = archiveCursor(for: message) else { return nil }
+            return MessageIdentity(primary: message.primary, cursor: cursor, date: message.date,
+                isVisibleIncoming: !message.outgoing && message.deleteState == .visible &&
+                    (message.effectiveAutoDeleteExpiresAt <= 0 ||
+                        message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970))
+        }
+        batchObserver?(orderedArchiveIDs.count, values.count)
+        guard Set(values.map(\.cursor)).count == values.count else { return [] }
+        let positions = Dictionary(uniqueKeysWithValues: orderedArchiveIDs.enumerated().map { ($0.element, $0.offset) })
+        return values.sorted { positions[$0.cursor, default: Int.max] < positions[$1.cursor, default: Int.max] }
     }
 
     private static func messagePrimaryIDs(
         for intent: ArchiveWindowIntent,
         segment: ArchiveCoverageSegment,
         realm: Realm,
-        preloadedIdentities: [MessageIdentity]? = nil
+        batchObserver: (@Sendable (Int, Int) -> Void)? = nil
     ) -> [String] {
-        let all = (preloadedIdentities ?? messageIdentities(
-            realm: realm,
-            conversation: intent.conversation
-        ))
-            .filter { $0.cursor >= segment.oldest && $0.cursor <= segment.newest }
-        guard all.isNotEmpty else { return [] }
+        let ledger = segment.orderedArchiveIDs
+        guard !ledger.isEmpty else { return [] }
+        func scan(_ range: Range<Int>, backwards: Bool, limit: Int) -> [MessageIdentity] {
+            guard limit > 0, !range.isEmpty else { return [] }
+            var values: [MessageIdentity] = []
+            var edge = backwards ? range.upperBound : range.lowerBound
+            var previousBatchWasEmpty = false
+            while values.count < limit && (backwards ? edge > range.lowerBound : edge < range.upperBound) {
+                let requested = previousBatchWasEmpty ? 100 : min(100, limit - values.count)
+                let count = min(requested, backwards ? edge - range.lowerBound : range.upperBound - edge)
+                let batchRange = backwards ? (edge - count)..<edge : edge..<(edge + count)
+                let ids = Array(ledger[batchRange])
+                let batch = messageIdentities(realm: realm, conversation: intent.conversation,
+                    orderedArchiveIDs: ids, batchObserver: batchObserver)
+                let remaining = limit - values.count
+                if backwards { values = Array(batch.suffix(remaining)) + values; edge -= count }
+                else { values += batch.prefix(remaining); edge += count }
+                previousBatchWasEmpty = batch.isEmpty
+            }
+            return values
+        }
+        func around(_ index: Int) -> [String] {
+            (scan(0..<index, backwards: true, limit: intent.contextBefore) +
+             scan(index..<(index + 1), backwards: false, limit: 1) +
+             scan((index + 1)..<ledger.count, backwards: false, limit: intent.contextAfter)).map(\.primary)
+        }
         switch intent.locator {
-        case .latest:
-            return Array(all.suffix(max(1, intent.contextBefore))).map(\.primary)
+        case .latest, .firstUnread(.none):
+            return scan(0..<ledger.count, backwards: true, limit: max(1, intent.contextBefore)).map(\.primary)
         case .older(let boundary):
-            let before = all.filter { $0.cursor < boundary }
-            let atAndAfter = all.filter { $0.cursor >= boundary }
-            return (
-                Array(before.suffix(max(1, intent.contextBefore))) +
-                Array(atAndAfter.prefix(intent.contextAfter))
-            ).map(\.primary)
+            guard let index = segment.index(of: boundary) else { return [] }
+            return (scan(0..<index, backwards: true, limit: max(1, intent.contextBefore)) +
+                scan(index..<ledger.count, backwards: false, limit: intent.contextAfter)).map(\.primary)
         case .newer(let boundary), .firstUnread(.some(let boundary)):
-            let atAndBefore = all.filter { $0.cursor <= boundary }
-            let after = all.filter { $0.cursor > boundary }
-            return (
-                Array(atAndBefore.suffix(intent.contextBefore)) +
-                Array(after.prefix(max(1, intent.contextAfter)))
-            ).map(\.primary)
-        case .firstUnread(.none):
-            return Array(all.suffix(max(1, intent.contextBefore))).map(\.primary)
+            guard let index = segment.index(of: boundary) else { return [] }
+            return (scan(0..<(index + 1), backwards: true, limit: intent.contextBefore) +
+                scan((index + 1)..<ledger.count, backwards: false, limit: max(1, intent.contextAfter))).map(\.primary)
         case .archiveID(let cursor):
-            guard let index = all.firstIndex(where: { $0.cursor == cursor }) else { return [] }
-            let lower = max(0, index - intent.contextBefore)
-            let upper = min(all.count, index + intent.contextAfter + 1)
-            return Array(all[lower..<upper]).map(\.primary)
+            guard let index = segment.index(of: cursor) else { return [] }
+            return around(index)
         case .timestamp(let date):
-            guard let target = all.enumerated().min(by: {
-                abs($0.element.date.timeIntervalSince(date)) <
-                    abs($1.element.date.timeIntervalSince(date))
-            })?.offset else { return [] }
-            let lower = max(0, target - intent.contextBefore)
-            let upper = min(all.count, target + intent.contextAfter + 1)
-            return Array(all[lower..<upper]).map(\.primary)
+            guard let cursor = closestCursor(to: date, realm: realm,
+                conversation: intent.conversation, segment: segment),
+                  let index = segment.index(of: cursor) else { return [] }
+            return around(index)
         case .gap(let olderBoundary, let newerBoundary):
-            return all.filter {
-                $0.cursor >= olderBoundary && $0.cursor <= newerBoundary
-            }.map(\.primary)
+            guard let lower = segment.index(of: olderBoundary),
+                  let upper = segment.index(of: newerBoundary), lower < upper else { return [] }
+            return scan(lower..<(upper + 1), backwards: false,
+                limit: min(600, max(1, intent.contextBefore + intent.contextAfter))).map(\.primary)
         }
     }
 
     private static func closestCursor(
         to date: Date,
         realm: Realm,
-        conversation: ArchiveConversationKey
+        conversation: ArchiveConversationKey,
+        segment: ArchiveCoverageSegment? = nil
     ) -> ArchiveCursor? {
-        messageIdentities(realm: realm, conversation: conversation).min {
+        var rows = realm.objects(MessageStorageItem.self).filter(
+            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId != '' AND isDeleted == false AND isLocallyHiddenByReport == false",
+            conversation.owner, conversation.jid, conversation.conversationType.rawValue)
+        if let segment { rows = rows.filter("mamArchiveId IN %@", segment.orderedArchiveIDs.map(\.rawValue)) }
+        let before = rows.filter("date <= %@", date).sorted(byKeyPath: "date", ascending: false).first
+        let after = rows.filter("date >= %@", date).sorted(byKeyPath: "date", ascending: true).first
+        return [before, after].compactMap { $0 }.min {
             abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
-        }?.cursor
-    }
-
-    private static func orderedPrimaryIDs(
-        _ primaryIDs: [String],
-        in realm: Realm
-    ) -> [String] {
-        realm.objects(MessageStorageItem.self)
-            .filter("primary IN %@", primaryIDs)
-            .compactMap { message -> (String, ArchiveCursor)? in
-                guard let cursor = archiveCursor(for: message) else { return nil }
-                return (message.primary, cursor)
-            }
-            .sorted { $0.1 < $1.1 }
-            .map(\.0)
+        }.flatMap { archiveCursor(for: $0) }
     }
 
     private static func projectAuthoritativeEmpty(

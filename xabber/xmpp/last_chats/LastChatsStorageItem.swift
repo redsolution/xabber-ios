@@ -321,7 +321,7 @@ enum LastChatUnreadCounter {
         var preservedCount = 0
         runtimeMessages.forEach { message in
             if let snapshotLastArchiveId,
-               archiveId(message.archivedId, isNewerThan: snapshotLastArchiveId) {
+               snapshotOrder(of: message, boundary: snapshotLastArchiveId, chat: chat) == .orderedDescending {
                 preservedCount += 1
             } else {
                 message.unreadCounterBucket = .none
@@ -368,7 +368,12 @@ enum LastChatUnreadCounter {
         guard let snapshotLastArchiveId = normalizedId(chat.syncSnapshotLastArchiveId) else {
             return true
         }
-        return archiveId(message.archivedId, isNewerThan: snapshotLastArchiveId)
+        guard let order = snapshotOrder(of: message, boundary: snapshotLastArchiveId, chat: chat) else {
+            // Admission already requires authoritative live ingress. An unavailable
+            // snapshot row cannot prove that this newly persisted message was counted.
+            return true
+        }
+        return order == .orderedDescending
     }
 
     private static func isMessageAtOrAfterSnapshotLast(
@@ -378,49 +383,49 @@ enum LastChatUnreadCounter {
         guard let snapshotLastArchiveId = normalizedId(chat.syncSnapshotLastArchiveId) else {
             return false
         }
-        return archiveId(message.archivedId, isAtOrNewerThan: snapshotLastArchiveId)
+        let order = snapshotOrder(of: message, boundary: snapshotLastArchiveId, chat: chat)
+        return order == .orderedSame || order == .orderedDescending
     }
 
-    private static func archiveId(_ value: String?, isNewerThan boundary: String) -> Bool {
-        guard let lhs = archiveIdNumber(value),
-              let rhs = archiveIdNumber(boundary) else {
-            return false
-        }
-        return lhs > rhs
-    }
-
-    private static func archiveId(_ value: String?, isAtOrNewerThan boundary: String) -> Bool {
-        guard let lhs = archiveIdNumber(value),
-              let rhs = archiveIdNumber(boundary) else {
-            return false
-        }
-        return lhs >= rhs
-    }
-
-    private static func archiveIdNumber(_ value: String?) -> Int64? {
-        guard let value = normalizedId(value) else {
-            return nil
-        }
-        return Int64(value)
+    private static func snapshotOrder(
+        of message: MessageStorageItem, boundary: String, chat: LastChatsStorageItem
+    ) -> ComparisonResult? {
+        if message.archivedId == boundary { return .orderedSame }
+        guard let realm = message.realm ?? chat.realm,
+              let anchor = realm.objects(MessageStorageItem.self).filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND archivedId == %@",
+                chat.owner, chat.jid, chat.conversationType.rawValue, boundary
+              ).first else { return nil }
+        let key = MessageHistoryOrderKey(message: message)
+        let anchorKey = MessageHistoryOrderKey(message: anchor)
+        return key < anchorKey ? .orderedAscending : .orderedDescending
     }
 
     private static func normalizedId(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              value.isNotEmpty else {
-            return nil
-        }
+        guard let value, value.isNotEmpty else { return nil }
         return value
     }
+
 }
 
 struct RegularChatArchiveIDRange: Codable, Equatable {
     let oldestArchiveId: String
     let newestArchiveId: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.oldestArchiveId.utf8.elementsEqual(rhs.oldestArchiveId.utf8) &&
+            lhs.newestArchiveId.utf8.elementsEqual(rhs.newestArchiveId.utf8)
+    }
 }
 
 struct RegularChatArchiveGap: Codable, Equatable {
     let olderRangeNewestArchiveId: String
     let newerRangeOldestArchiveId: String
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.olderRangeNewestArchiveId.utf8.elementsEqual(rhs.olderRangeNewestArchiveId.utf8) &&
+            lhs.newerRangeOldestArchiveId.utf8.elementsEqual(rhs.newerRangeOldestArchiveId.utf8)
+    }
 }
 
 enum RegularArchiveCoverageUpdateKind: Equatable, Hashable {
@@ -538,22 +543,13 @@ class RegularChatArchiveSyncStateStorageItem: Object {
     }
 
     static func normalizedArchiveId(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              value.isNotEmpty else {
-            return nil
-        }
+        guard let value, value.isNotEmpty else { return nil }
         return value
     }
 
     static func orderedRange(first: String, last: String) -> RegularChatArchiveIDRange? {
-        guard let first = normalizedArchiveId(first),
-              let last = normalizedArchiveId(last) else {
-            return nil
-        }
-        let comparison = compareArchiveIds(first, last) ?? (first <= last ? .orderedAscending : .orderedDescending)
-        if comparison == .orderedDescending {
-            return RegularChatArchiveIDRange(oldestArchiveId: last, newestArchiveId: first)
-        }
+        guard let first = normalizedArchiveId(first), let last = normalizedArchiveId(last) else { return nil }
+        // Endpoint order must already have been established by the page.
         return RegularChatArchiveIDRange(oldestArchiveId: first, newestArchiveId: last)
     }
 
@@ -568,10 +564,32 @@ class RegularChatArchiveSyncStateStorageItem: Object {
         let currentRanges = loadedRanges
         var ranges: [RegularChatArchiveIDRange]
         if let cursorArchiveId = updateKind.adjacencyCursorArchiveId,
-           let adjacencyIndex = currentRanges.firstIndex(where: { Self.range($0, contains: cursorArchiveId) }) {
+           let adjacencyIndex = currentRanges.firstIndex(where: {
+               switch updateKind {
+               case .pageOlder, .gapRepairOlder:
+                   return $0.oldestArchiveId.utf8.elementsEqual(cursorArchiveId.utf8)
+               case .pageNewer, .gapRepairNewer:
+                   return $0.newestArchiveId.utf8.elementsEqual(cursorArchiveId.utf8)
+               default:
+                   return false
+               }
+           }) {
             ranges = currentRanges
             let adjacentRange = currentRanges[adjacencyIndex]
-            ranges[adjacencyIndex] = Self.union(adjacentRange, range)
+            switch updateKind {
+            case .pageOlder, .gapRepairOlder:
+                ranges[adjacencyIndex] = RegularChatArchiveIDRange(
+                    oldestArchiveId: range.oldestArchiveId,
+                    newestArchiveId: adjacentRange.newestArchiveId
+                )
+            case .pageNewer, .gapRepairNewer:
+                ranges[adjacencyIndex] = RegularChatArchiveIDRange(
+                    oldestArchiveId: adjacentRange.oldestArchiveId,
+                    newestArchiveId: range.newestArchiveId
+                )
+            default:
+                break
+            }
         } else {
             ranges = currentRanges + [range]
         }
@@ -581,33 +599,11 @@ class RegularChatArchiveSyncStateStorageItem: Object {
     }
 
     private static func normalizedRanges(_ ranges: [RegularChatArchiveIDRange]) -> [RegularChatArchiveIDRange] {
-        var ranges = ranges
-        ranges.sort { lhs, rhs in
-            (compareArchiveIds(lhs.oldestArchiveId, rhs.oldestArchiveId) ?? .orderedAscending) == .orderedAscending
-        }
-
-        var merged: [RegularChatArchiveIDRange] = []
-        for current in ranges {
-            guard let previous = merged.last else {
-                merged.append(current)
-                continue
-            }
-
-            let overlaps = (compareArchiveIds(current.oldestArchiveId, previous.newestArchiveId) ?? .orderedDescending) != .orderedDescending
-            if overlaps {
-                let newest = (compareArchiveIds(current.newestArchiveId, previous.newestArchiveId) ?? .orderedAscending) == .orderedDescending
-                    ? current.newestArchiveId
-                    : previous.newestArchiveId
-                merged[merged.count - 1] = RegularChatArchiveIDRange(
-                    oldestArchiveId: previous.oldestArchiveId,
-                    newestArchiveId: newest
-                )
-            } else {
-                merged.append(current)
-            }
-        }
-
-        return merged
+        // Legacy endpoint-only rows cannot prove overlap or interior members.
+        // Active archive coverage uses the explicit server-order ledger.
+        var result: [RegularChatArchiveIDRange] = []
+        for range in ranges where !result.contains(range) { result.append(range) }
+        return result
     }
 
     func recordKnownNewerGap(to snapshotArchiveId: String) {
@@ -640,29 +636,11 @@ class RegularChatArchiveSyncStateStorageItem: Object {
     }
 
     func recomputeBoundsAndGaps() {
-        let ranges = loadedRanges.sorted {
-            (compareArchiveIds($0.oldestArchiveId, $1.oldestArchiveId) ?? .orderedAscending) == .orderedAscending
-        }
+        let ranges = Self.normalizedRanges(loadedRanges)
         loadedRanges = ranges
-        oldestLoadedArchiveId = ranges.first?.oldestArchiveId
-        newestLoadedArchiveId = ranges.last?.newestArchiveId
-
-        var gaps: [RegularChatArchiveGap] = []
-        if ranges.count > 1 {
-            for index in 1..<ranges.count {
-                let older = ranges[index - 1]
-                let newer = ranges[index]
-                if (compareArchiveIds(older.newestArchiveId, newer.oldestArchiveId) ?? .orderedAscending) == .orderedAscending {
-                    gaps.append(
-                        RegularChatArchiveGap(
-                            olderRangeNewestArchiveId: older.newestArchiveId,
-                            newerRangeOldestArchiveId: newer.oldestArchiveId
-                        )
-                    )
-                }
-            }
-        }
-        knownGaps = gaps
+        oldestLoadedArchiveId = ranges.count == 1 ? ranges[0].oldestArchiveId : nil
+        newestLoadedArchiveId = ranges.count == 1 ? ranges[0].newestArchiveId : nil
+        knownGaps = []
         updatedAt = Date()
     }
 
@@ -689,21 +667,7 @@ class RegularChatArchiveSyncStateStorageItem: Object {
     }
 
     private static func range(_ range: RegularChatArchiveIDRange, contains archiveId: String) -> Bool {
-        let lower = compareArchiveIds(archiveId, range.oldestArchiveId) ?? .orderedAscending
-        let upper = compareArchiveIds(archiveId, range.newestArchiveId) ?? .orderedDescending
-        return lower != .orderedAscending && upper != .orderedDescending
-    }
-
-    private static func union(
-        _ lhs: RegularChatArchiveIDRange,
-        _ rhs: RegularChatArchiveIDRange
-    ) -> RegularChatArchiveIDRange {
-        let oldest = (compareArchiveIds(lhs.oldestArchiveId, rhs.oldestArchiveId) ?? .orderedAscending) == .orderedDescending
-            ? rhs.oldestArchiveId
-            : lhs.oldestArchiveId
-        let newest = (compareArchiveIds(lhs.newestArchiveId, rhs.newestArchiveId) ?? .orderedAscending) == .orderedAscending
-            ? rhs.newestArchiveId
-            : lhs.newestArchiveId
-        return RegularChatArchiveIDRange(oldestArchiveId: oldest, newestArchiveId: newest)
+        archiveId.utf8.elementsEqual(range.oldestArchiveId.utf8) ||
+            archiveId.utf8.elementsEqual(range.newestArchiveId.utf8)
     }
 }

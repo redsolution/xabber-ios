@@ -26,40 +26,40 @@ final class ChatTimelineCursorTests: XCTestCase {
         super.tearDown()
     }
 
-    func testSameDateArchivedIdsOrderDeterministically() throws {
+    func testSameDateLocalPrimariesOrderIndependentlyOfArchiveIDs() throws {
         try insertMessages([
-            spec("p300", archivedId: "300", date: sharedDate),
-            spec("p100", archivedId: "100", date: sharedDate),
-            spec("p200", archivedId: "200", date: sharedDate)
+            spec("p300", archivedId: "0001", mamArchiveId: "a-first", date: sharedDate),
+            spec("p100", archivedId: "z-last", mamArchiveId: "9", date: sharedDate),
+            spec("p200", archivedId: "9", mamArchiveId: "0001", date: sharedDate)
         ])
 
         XCTAssertEqual(try provider().latest(limit: 10).map(\.primary), ["p100", "p200", "p300"])
     }
 
-    func testOlderBoundaryIncludesEqualDateItemsBeforeArchivedId() throws {
+    func testOlderBoundaryIncludesEqualDateItemsBeforeLocalPrimary() throws {
         try insertMessages([
             spec("older", archivedId: "050", date: sharedDate.addingTimeInterval(-60)),
-            spec("p100", archivedId: "100", date: sharedDate),
-            spec("p200", archivedId: "200", date: sharedDate),
-            spec("p300", archivedId: "300", date: sharedDate),
-            spec("p400", archivedId: "400", date: sharedDate)
+            spec("p100", archivedId: "z-last", date: sharedDate),
+            spec("p200", archivedId: "9", date: sharedDate),
+            spec("p300", archivedId: "0001", date: sharedDate),
+            spec("p400", archivedId: "a-first", date: sharedDate)
         ])
 
-        let items = try provider().older(before: boundary(primary: "p300", archivedId: "300"), limit: 2)
+        let items = try provider().older(before: boundary(primary: "p300", archivedId: "0001"), limit: 2)
 
         XCTAssertEqual(items.map(\.primary), ["p100", "p200"])
     }
 
-    func testNewerBoundaryIncludesEqualDateItemsAfterArchivedId() throws {
+    func testNewerBoundaryIncludesEqualDateItemsAfterLocalPrimary() throws {
         try insertMessages([
-            spec("p100", archivedId: "100", date: sharedDate),
-            spec("p200", archivedId: "200", date: sharedDate),
-            spec("p300", archivedId: "300", date: sharedDate),
-            spec("p400", archivedId: "400", date: sharedDate),
+            spec("p100", archivedId: "z-last", date: sharedDate),
+            spec("p200", archivedId: "9", date: sharedDate),
+            spec("p300", archivedId: "0001", date: sharedDate),
+            spec("p400", archivedId: "a-first", date: sharedDate),
             spec("newer", archivedId: "500", date: sharedDate.addingTimeInterval(60))
         ])
 
-        let items = try provider().newer(after: boundary(primary: "p200", archivedId: "200"), limit: 2)
+        let items = try provider().newer(after: boundary(primary: "p200", archivedId: "9"), limit: 2)
 
         XCTAssertEqual(items.map(\.primary), ["p300", "p400"])
     }
@@ -79,11 +79,11 @@ final class ChatTimelineCursorTests: XCTestCase {
         XCTAssertEqual(items.map(\.primary), ["p200", "p300", "p400"])
     }
 
-    func testMissingArchivedIdFallsBackToMessageIdAndPrimary() throws {
+    func testMissingArchivedIdUsesLocalPrimaryIndependentOfMessageID() throws {
         try insertMessages([
-            spec("fallback-c", archivedId: "", messageId: "message-c", date: sharedDate),
-            spec("fallback-a", archivedId: "", messageId: "message-a", date: sharedDate),
-            spec("fallback-b", archivedId: "", messageId: "message-b", date: sharedDate)
+            spec("fallback-c", archivedId: "", messageId: "message-a", date: sharedDate),
+            spec("fallback-a", archivedId: "", messageId: "message-z", date: sharedDate),
+            spec("fallback-b", archivedId: "", messageId: "message-m", date: sharedDate)
         ])
 
         let provider = try provider()
@@ -91,7 +91,7 @@ final class ChatTimelineCursorTests: XCTestCase {
             before: ChatTimelineBoundary(
                 primary: "fallback-c",
                 archivedId: nil,
-                messageId: "message-c",
+                messageId: "message-a",
                 date: sharedDate
             ),
             limit: 2
@@ -100,7 +100,7 @@ final class ChatTimelineCursorTests: XCTestCase {
             after: ChatTimelineBoundary(
                 primary: "fallback-a",
                 archivedId: nil,
-                messageId: "message-a",
+                messageId: "message-z",
                 date: sharedDate
             ),
             limit: 2
@@ -109,6 +109,33 @@ final class ChatTimelineCursorTests: XCTestCase {
         XCTAssertEqual(provider.latest(limit: 10).map(\.primary), ["fallback-a", "fallback-b", "fallback-c"])
         XCTAssertEqual(older.map(\.primary), ["fallback-a", "fallback-b"])
         XCTAssertEqual(newer.map(\.primary), ["fallback-b", "fallback-c"])
+    }
+
+    func testEqualDateQueriesMatchLocalOrderWhenOnlyFinalIdentityComponentDiffers() throws {
+        // Both local-primary chunks are identical. Only the stable local
+        // discriminator can distinguish these rows, never their archive UIDs.
+        let prefix = String(repeating: "p", count: 14)
+        let primaries = (1...20).map { prefix + "-\($0)" }
+        try insertMessages(primaries.enumerated().map { index, primary in
+            spec(primary, archivedId: "raw/\(100 - index)",
+                 mamArchiveId: "mam/\(index)", date: sharedDate)
+        })
+        let expected = primaries.sorted {
+            MessageHistoryPositionComponents.make(primary: $0, archivedId: nil,
+                messageId: nil, date: sharedDate) <
+                MessageHistoryPositionComponents.make(primary: $1, archivedId: nil,
+                    messageId: nil, date: sharedDate)
+        }
+        let provider = try provider()
+        let anchor = try XCTUnwrap(message(primary: expected[10]))
+
+        XCTAssertEqual(provider.latest(limit: 2).map(\.primary), Array(expected.suffix(2)))
+        XCTAssertEqual(provider.older(before: ChatTimelineBoundary(message: anchor), limit: 2).map(\.primary),
+                       Array(expected[8...9]))
+        XCTAssertEqual(provider.newer(after: ChatTimelineBoundary(message: anchor), limit: 2).map(\.primary),
+                       Array(expected[11...12]))
+        XCTAssertEqual(provider.around(anchor: anchor, before: 1, after: 1).map(\.primary),
+                       Array(expected[9...11]))
     }
 
     func testCanonicalIdentityDedupeRemovesMamLiveDuplicateRows() throws {
@@ -124,41 +151,29 @@ final class ChatTimelineCursorTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.primary)).count, 2)
     }
 
-    func testFirstIncomingUnreadUsesRawProtocolStanzaIdRatherThanMAMCursor() throws {
-        let boundary = "1700000000000150"
+    func testFirstIncomingUnreadResolvesOpaqueBoundaryThenUsesLocalPosition() throws {
+        let boundary = "raw-boundary-z"
         try insertMessages([
-            spec(
-                "raw-before-boundary",
-                archivedId: "1700000000000149",
-                mamArchiveId: "1700000000000900",
-                date: sharedDate
-            ),
-            spec(
-                "outgoing-after-boundary",
-                archivedId: "1700000000000151",
-                mamArchiveId: "1700000000000100",
-                outgoing: true,
-                date: sharedDate
-            ),
-            spec(
-                "raw-first",
-                archivedId: "1700000000000152",
-                mamArchiveId: "1700000000000300",
-                date: sharedDate
-            ),
-            spec(
-                "mam-first",
-                archivedId: "1700000000000200",
-                mamArchiveId: "1700000000000200",
-                date: sharedDate
-            )
+            spec("boundary", archivedId: boundary, mamArchiveId: "mam-z", date: sharedDate),
+            spec("outgoing", archivedId: "raw-a", mamArchiveId: "mam-0", outgoing: true,
+                 date: sharedDate.addingTimeInterval(1)),
+            spec("incoming", archivedId: "raw-before-lexically", mamArchiveId: "001",
+                 date: sharedDate.addingTimeInterval(2)),
+            spec("later", archivedId: "0", mamArchiveId: "0", date: sharedDate.addingTimeInterval(3))
         ])
+        XCTAssertEqual(try provider().firstIncoming(afterArchiveBoundaryId: boundary)?.primary, "incoming")
+        XCTAssertNil(try provider().firstIncoming(afterArchiveBoundaryId: "not-locally-resolved"))
+    }
 
-        XCTAssertEqual(
-            try provider().firstIncoming(afterArchiveBoundaryId: boundary)?.primary,
-            "raw-first",
-            "sync unread@after is compared to raw stanza IDs, never outer MAM result IDs"
-        )
+    func testExactArchiveBatchPreservesRequestedServerOrderAndScope() throws {
+        try insertMessages([
+            spec("first", archivedId: "raw-1", mamArchiveId: "z-first", date: sharedDate.addingTimeInterval(5)),
+            spec("second", archivedId: "raw-2", mamArchiveId: "001", date: sharedDate),
+            spec("third", archivedId: "raw-3", mamArchiveId: "a-last", date: sharedDate.addingTimeInterval(-5))
+        ])
+        XCTAssertEqual(try provider().items(archiveCursorIDs: ["z-first", "001", "a-last"]).map(\.primary),
+                       ["first", "second", "third"])
+        XCTAssertTrue(try provider().items(archiveCursorIDs: ["raw-1"]).isEmpty)
     }
 
     private func provider() throws -> ChatLocalHistoryPageProvider {

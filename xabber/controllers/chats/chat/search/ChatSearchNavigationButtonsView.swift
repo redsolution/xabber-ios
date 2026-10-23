@@ -116,7 +116,7 @@ struct ChatSearchOlderPageNavigationGate {
         generation eventGeneration: UInt64,
         loadedResultCount eventLoadedResultCount: Int
     ) -> Bool {
-        let normalizedCursor = rawCursor.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCursor = rawCursor
         guard eventGeneration == generation,
               normalizedCursor.isNotEmpty,
               phase != .terminal else {

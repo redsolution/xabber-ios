@@ -1024,8 +1024,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         let responseLastCursor = responseLastCursor.flatMap {
             $0.isNotEmpty ? $0 : nil
         }
-        let hasAdvancingCursor = responseLastCursor.map {
-            $0 != requestedPageCursor
+        let hasAdvancingCursor = responseLastCursor.flatMap(ArchiveCursor.init(rawValue:)).map {
+            $0 != requestedPageCursor.flatMap(ArchiveCursor.init(rawValue:))
         } ?? false
         let queryExhausted = complete || deliveredResultCount == 0
         return ArchivePageFinalDisposition(
@@ -1149,7 +1149,7 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     private struct StanzaReferenceResolution {
         let request: ArchiveStanzaReferenceResolutionRequest
-        var boundArchiveIDs = Set<String>()
+        var boundArchiveIDs = Set<ArchiveCursor>()
         var rejectedResult = false
 
         mutating func record(_ envelope: XMPPMessage, resultID: String?) {
@@ -1164,7 +1164,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                   (from == conversation.owner && to == conversation.jid)
                     || (from == conversation.jid && to == conversation.owner),
                   let resultID,
-                  ArchiveCursor(rawValue: resultID) != nil else {
+                  let cursor = ArchiveCursor(rawValue: resultID) else {
                 rejectedResult = true
                 return
             }
@@ -1177,22 +1177,24 @@ class MessageArchiveManager: AbstractXMPPManager {
                     ? encrypted.count == 1 && encrypted.first?.xmlns == conversation.conversationTypeRaw
                     : encrypted.isEmpty)
             guard identities.count == 1,
-                  identities.first?.attributeStringValue(forName: "id") == request.reference,
+                  identities.first?.attributeStringValue(forName: "id").flatMap(ArchiveCursor.init(rawValue:))
+                    == ArchiveCursor(rawValue: request.reference),
                   typeMatches else {
                 rejectedResult = true
                 return
             }
-            boundArchiveIDs.insert(resultID)
+            boundArchiveIDs.insert(cursor)
         }
     }
 
     struct DeferredArchiveTransportProof {
         var deliveredResultCount: Int = 0
-        var deliveredResultIds: Set<String> = []
+        var deliveredResultIds: Set<ArchiveCursor> = []
+        var deliveredResultIDsInWireOrder: [String] = []
         var deliveredResultsWithoutId: Int = 0
-        var intentionallyConsumedResultIds: Set<String> = []
+        var intentionallyConsumedResultIds: Set<ArchiveCursor> = []
         var intentionallyConsumedResultsWithoutId: Int = 0
-        var persistenceRoutedResultIds: Set<String> = []
+        var persistenceRoutedResultIds: Set<ArchiveCursor> = []
         var persistenceRoutedResultsWithoutId: Int = 0
 
         var intentionallyConsumedResultCount: Int {
@@ -1207,7 +1209,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 deliveredResultsWithoutId += 1
                 return
             }
-            if deliveredResultIds.insert(resultId).inserted {
+            if let cursor = ArchiveCursor(rawValue: resultId), deliveredResultIds.insert(cursor).inserted {
+                deliveredResultIDsInWireOrder.append(resultId)
                 deliveredResultCount += 1
             }
         }
@@ -1221,10 +1224,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 intentionallyConsumedResultsWithoutId += 1
                 return
             }
-            guard !persistenceRoutedResultIds.contains(resultId) else {
+            guard let cursor = ArchiveCursor(rawValue: resultId),
+                  !persistenceRoutedResultIds.contains(cursor) else {
                 return
             }
-            intentionallyConsumedResultIds.insert(resultId)
+            intentionallyConsumedResultIds.insert(cursor)
         }
 
         mutating func recordPersistenceRouting(resultId: String?) {
@@ -1237,8 +1241,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 )
                 return
             }
-            persistenceRoutedResultIds.insert(resultId)
-            intentionallyConsumedResultIds.remove(resultId)
+            guard let cursor = ArchiveCursor(rawValue: resultId) else { return }
+            persistenceRoutedResultIds.insert(cursor)
+            intentionallyConsumedResultIds.remove(cursor)
         }
     }
 
@@ -2897,14 +2902,14 @@ class MessageArchiveManager: AbstractXMPPManager {
         let resultArchiveIDs: [String]
         let deliveredResultCount: Int
         let intentionallyConsumedResultCount: Int
-        let intentionallyConsumedArchiveIDs: Set<String>
+        let intentionallyConsumedArchiveIDs: Set<ArchiveCursor>
     }
 
     internal func registerStanzaReferenceResolution(
         _ request: ArchiveStanzaReferenceResolutionRequest
     ) -> Bool {
         guard request.conversation.owner == owner,
-              request.reference.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+              request.reference.isNotEmpty else {
             return false
         }
         deferredArchiveCommitLock.lock()
@@ -2922,11 +2927,12 @@ class MessageArchiveManager: AbstractXMPPManager {
         defer { deferredArchiveCommitLock.unlock() }
         guard let resolution = stanzaReferenceResolutions[queryID],
               !resolution.rejectedResult,
-              resolution.boundArchiveIDs == Set(deliveredArchiveIDs),
+              deliveredArchiveIDs.allSatisfy({ ArchiveCursor(rawValue: $0) != nil }),
+              resolution.boundArchiveIDs == Set(deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:))),
               resolution.boundArchiveIDs.count <= 1 else {
             throw ArchiveTransportError.protocolViolation
         }
-        return resolution.boundArchiveIDs.first.flatMap(ArchiveCursor.init(rawValue:))
+        return resolution.boundArchiveIDs.first
     }
 
     internal func archiveTransportAccountingSnapshot(
@@ -2938,7 +2944,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let proof = sealedArchiveTransportProofsByQueryId[queryId] ??
             deferredArchiveTransportProofsByQueryId[queryId]
         guard let proof else { return nil }
-        var archiveIDs = Array(proof.deliveredResultIds)
+        var archiveIDs = proof.deliveredResultIDsInWireOrder
         archiveIDs.append(
             contentsOf: Array(
                 repeating: "",

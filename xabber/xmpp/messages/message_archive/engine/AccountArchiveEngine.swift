@@ -85,7 +85,17 @@ enum ArchiveAdmissionRetryPolicy {
     }
 }
 
+private struct ArchiveRetryBudgetKey: Hashable {
+    let conversation: ArchiveConversationKey
+    let locator: ArchiveWindowLocator
+    init(_ descriptor: ArchiveIntentDescriptor) {
+        conversation = descriptor.conversation
+        locator = descriptor.locator
+    }
+}
+
 actor AccountArchiveEngine {
+    private struct NoProgress: Error {}
     private struct UnreadScanProgress {
         let generation: UInt64
         let boundary: ArchiveCursor
@@ -113,14 +123,18 @@ actor AccountArchiveEngine {
         var requestIDs: Set<UUID>
     }
 
-    /// Ownership retained after a terminal archive failure while presentation
-    /// backoff is waiting. A retry callback may only consume the exact failed
-    /// execution in the same authenticated stream generation. Any newer submit,
-    /// replacement or reconnect invalidates this value before it can start work.
-    private struct AutomaticRetryOwnership {
-        let descriptor: ArchiveIntentDescriptor
-        let failedExecutionID: UUID
+    /// Retry ownership outlives UIKit demand. Reopening a conversation cannot
+    /// replenish the budget for the same request on the same authenticated stream.
+    private struct RetryBudget {
         let connectionGeneration: UInt64
+        var failureCount: Int = 0
+        var terminalFailure: ArchiveRetryableFailure?
+    }
+
+    private struct ReferenceResolutionKey: Hashable {
+        let conversation: ArchiveConversationKey
+        let reference: ArchiveCursor
+        let generation: UInt64
     }
 
     private struct SearchExecution {
@@ -129,7 +143,8 @@ actor AccountArchiveEngine {
         let query: String
         let generation: UInt64
         var residentPages: [ArchiveSearchPage] = []
-        var cursorStack: [String] = []
+        // nil is the initial unbounded page; every actual UID compares by bytes.
+        var cursorStack: [ArchiveCursor?] = []
         var nextCursor: String?
         var loadedPageCount = 0
         var requestAttempt = 0
@@ -160,8 +175,8 @@ actor AccountArchiveEngine {
         [ArchiveConversationKey: ArchiveLiveEdgeAdmission] = [:]
     private var activities: [ArchiveConversationKey: ArchiveWindowActivity] = [:]
     private var activeByDescriptor: [ArchiveIntentDescriptor: ActiveExecution] = [:]
-    private var automaticRetryOwnershipByConversation:
-        [ArchiveConversationKey: AutomaticRetryOwnership] = [:]
+    private var retryBudgets: [ArchiveRetryBudgetKey: RetryBudget] = [:]
+    private var referenceResolutionTasks: [ReferenceResolutionKey: Task<ArchiveCursor?, Error>] = [:]
     private var continuations: [ArchiveConversationKey: [UUID: AsyncStream<ArchiveWindowState>.Continuation]] = [:]
     private var liveEdgeContinuations:
         [ArchiveConversationKey: [UUID: AsyncStream<ArchiveLiveEdgeAdmission>.Continuation]] = [:]
@@ -219,32 +234,43 @@ actor AccountArchiveEngine {
         guard conversation.owner == owner else {
             throw ArchiveTransportError.authentication
         }
-        guard reference.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+        guard let referenceCursor = ArchiveCursor(rawValue: reference) else {
             throw ArchiveTransportError.malformedCursor
         }
         guard let generation = connection?.generation else {
             throw ArchiveTransportError.disconnected
         }
-        _ = try await admissionProvider.admit(
-            conversation, connectionGeneration: generation
-        )
-        guard connection?.generation == generation else {
-            throw ArchiveTransportError.disconnected
+        let key = ReferenceResolutionKey(conversation: conversation, reference: referenceCursor, generation: generation)
+        if let pending = referenceResolutionTasks[key] { return try await pending.value }
+        let task = Task { try await executeReferenceResolution(key, priority: priority) }
+        referenceResolutionTasks[key] = task
+        return try await task.value
+    }
+
+    private func executeReferenceResolution(
+        _ key: ReferenceResolutionKey, priority: ArchiveIntentPriority
+    ) async throws -> ArchiveCursor? {
+        var failures = 0
+        while connection?.generation == key.generation {
+            do {
+                _ = try await admissionProvider.admit(key.conversation, connectionGeneration: key.generation)
+                guard connection?.generation == key.generation else { throw ArchiveTransportError.disconnected }
+                let cursor = try await transport.resolveStanzaReference(
+                    ArchiveStanzaReferenceResolutionRequest(
+                        queryID: "archive.engine.reference.\(UUID().uuidString)",
+                        conversation: key.conversation, reference: key.reference.rawValue, connectionGeneration: key.generation
+                    ), priority: priority
+                )
+                guard connection?.generation == key.generation else { throw ArchiveTransportError.disconnected }
+                return cursor
+            } catch {
+                failures += 1
+                guard connection?.generation == key.generation,
+                      isRetryable(error), failures <= retryDelays.count else { throw error }
+                await retryClock.sleep(retryClock.jitter(retryDelays[failures - 1]))
+            }
         }
-        let cursor = try await transport.resolveStanzaReference(
-            ArchiveStanzaReferenceResolutionRequest(
-                queryID: "archive.engine.reference.\(UUID().uuidString)",
-                conversation: conversation,
-                reference: reference,
-                connectionGeneration: generation
-            ),
-            priority: priority
-        )
-        guard connection?.generation == generation else {
-            throw ArchiveTransportError.disconnected
-        }
-        // Identity resolution neither admits coverage nor publishes a window.
-        return cursor
+        throw ArchiveTransportError.disconnected
     }
 
     func liveEdgeAdmissions(
@@ -376,7 +402,6 @@ actor AccountArchiveEngine {
         unreadScanProgress.removeValue(forKey: conversation)
         latestIntentByConversation.removeValue(forKey: conversation)
         replacementIntentByConversation.removeValue(forKey: conversation)
-        automaticRetryOwnershipByConversation.removeValue(forKey: conversation)
         states.removeValue(forKey: conversation)
         currentLiveEdgeAdmissions.removeValue(forKey: conversation)
         activities.removeValue(forKey: conversation)
@@ -523,11 +548,6 @@ actor AccountArchiveEngine {
             .queued,
             value: intent.priority.rawValue
         )
-        // A concrete submit supersedes every delayed callback retained for an
-        // older failed execution, even when the semantic descriptor is equal.
-        automaticRetryOwnershipByConversation.removeValue(
-            forKey: intent.conversation
-        )
         let acceptedIntent: ArchiveWindowIntent
         if let current = latestIntentByConversation[intent.conversation],
            current.semanticDescriptor == intent.semanticDescriptor,
@@ -590,7 +610,8 @@ actor AccountArchiveEngine {
         pendingConnectionGeneration = generation
         unreadScanProgress.removeAll()
         currentLiveEdgeAdmissions.removeAll(keepingCapacity: true)
-        automaticRetryOwnershipByConversation.removeAll(keepingCapacity: true)
+        retryBudgets.removeAll(keepingCapacity: true)
+        referenceResolutionTasks.removeAll(keepingCapacity: true)
         let formerlyActiveConversations = cancelAllActiveExecutions()
         formerlyActiveConversations.forEach { publishActivity(for: $0) }
         await admissionProvider.connectionDidBecomeReady(generation: generation)
@@ -631,7 +652,6 @@ actor AccountArchiveEngine {
         pendingConnectionGeneration = nil
         unreadScanProgress.removeAll()
         currentLiveEdgeAdmissions.removeAll(keepingCapacity: true)
-        automaticRetryOwnershipByConversation.removeAll(keepingCapacity: true)
         let formerlyActiveConversations = cancelAllActiveExecutions()
         formerlyActiveConversations.forEach { publishActivity(for: $0) }
         replaceDirectionalIntentsForFreshConnection()
@@ -656,32 +676,9 @@ actor AccountArchiveEngine {
     }
 
     func retry(conversation: ArchiveConversationKey) {
-        guard let connection,
-              let ownership = automaticRetryOwnershipByConversation[conversation],
-              ownership.connectionGeneration == connection.generation,
-              let intent = latestIntentByConversation[conversation],
-              intent.semanticDescriptor == ownership.descriptor,
-              hasPresentationDemand(for: conversation) else {
-            automaticRetryOwnershipByConversation.removeValue(
-                forKey: conversation
-            )
-            return
-        }
-        guard activeByDescriptor[ownership.descriptor]?.id !=
-                ownership.failedExecutionID else {
-            return
-        }
-        guard activeByDescriptor[ownership.descriptor] == nil else {
-            // A newer submit or reconnect already owns this semantic request.
-            // Joining requires no second transport request and, crucially, no
-            // cancelled terminal that could release its presentation gate.
-            automaticRetryOwnershipByConversation.removeValue(
-                forKey: conversation
-            )
-            return
-        }
-        automaticRetryOwnershipByConversation.removeValue(forKey: conversation)
-        startOrJoin(intent, skeletonReason: .loadingTarget)
+        // Compatibility entry point for old callbacks. Only execute() owns
+        // automatic retry; a UI timer cannot restart an exhausted execution.
+        _ = conversation
     }
 
     func liveMessageDidPersist(
@@ -739,8 +736,7 @@ actor AccountArchiveEngine {
                snapshot.freshnessToken.fingerprint == freshnessToken.fingerprint,
                snapshot.coverageGeneration >= initialCoverageGeneration,
                initialSegment.map({
-                   snapshot.verifiedSegment.oldest <= $0.oldest &&
-                       snapshot.verifiedSegment.newest >= $0.newest
+                   snapshot.verifiedSegment.containsSegment($0)
                }) ?? true,
                self.connection?.generation == connection.generation,
                hasPresentationDemand(for: conversation),
@@ -835,7 +831,30 @@ actor AccountArchiveEngine {
             return
         }
         let intent = execution.intent
-        var admissionFailureCount = 0
+        if let budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)],
+           budget.connectionGeneration == connection.generation,
+           let failure = budget.terminalFailure {
+            // A failed wire request cannot veto proof independently committed
+            // on this stream. Recheck local admission without replenishing budget.
+            let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: connection.generation,
+                queryID: "archive.engine.admission.\(connection.generation)")
+            if let admission = try? await repository.verifiedAdmission(for: intent, freshnessToken: token),
+               isCurrentPresentation(executionID, descriptor: descriptor, intent: intent, generation: connection.generation) {
+                switch admission {
+                case .verified(let snapshot): publish(.verified(snapshot), for: intent.conversation)
+                case .authoritativeEmpty: publish(.authoritativeEmpty(target: intent.locator, freshnessToken: token), for: intent.conversation)
+                }
+                finish(executionID, descriptor: descriptor, result: .succeeded, preserveRetryBudget: true)
+                return
+            }
+            if isCurrentPresentation(executionID, descriptor: descriptor, intent: intent, generation: connection.generation),
+               !preservesVerifiedPresentation(for: intent) {
+                publish(.retryableFailure(failure, target: intent.locator), for: intent.conversation)
+            }
+            finish(executionID, descriptor: descriptor, result: .failed(failure))
+            return
+        }
+        var admissionFailureCount = retryBudgets[ArchiveRetryBudgetKey(descriptor)]?.failureCount ?? 0
         while isCurrent(
             executionID,
             descriptor: descriptor,
@@ -857,17 +876,15 @@ actor AccountArchiveEngine {
                 )
                 break
             } catch {
-                guard isCurrentPresentation(
-                    executionID,
-                    descriptor: descriptor,
-                    intent: intent,
-                    generation: connection.generation
-                ) else {
-                    finish(executionID, descriptor: descriptor)
-                    return
-                }
-                admissionFailureCount += 1
+                guard isCurrent(executionID, descriptor: descriptor, generation: connection.generation) else { return }
+                admissionFailureCount = recordFailure(descriptor, generation: connection.generation)
                 let retryable = isRetryable(error)
+                if !retryable || admissionFailureCount > retryDelays.count {
+                    retainTerminalFailure(for: intent, descriptor: descriptor,
+                        failedExecutionID: executionID, connectionGeneration: connection.generation,
+                        failure: ArchiveRetryableFailure(message: String(describing: error),
+                            retryCount: admissionFailureCount, canRetry: false, recoveryAction: recoveryAction(for: error)))
+                }
                 ArchiveEngineObservability.event(
                     .retry,
                     value: admissionFailureCount,
@@ -884,10 +901,10 @@ actor AccountArchiveEngine {
                         let terminalFailure = ArchiveRetryableFailure(
                             message: String(describing: error),
                             retryCount: admissionFailureCount,
-                            canRetry: retryable,
+                            canRetry: false,
                             recoveryAction: recoveryAction(for: error)
                         )
-                        retainAutomaticRetryOwnership(
+                        retainTerminalFailure(
                             for: intent,
                             descriptor: descriptor,
                             failedExecutionID: executionID,
@@ -909,6 +926,7 @@ actor AccountArchiveEngine {
                             result: .failed(terminalFailure)
                         )
                     }
+                    finish(executionID, descriptor: descriptor)
                     return
                 }
                 let upperBound = retryDelays[admissionFailureCount - 1]
@@ -962,8 +980,9 @@ actor AccountArchiveEngine {
             // still the only proof that may make the window visible.
         }
 
-        var failureCount = 0
+        var failureCount = retryBudgets[ArchiveRetryBudgetKey(descriptor)]?.failureCount ?? 0
         var nextGapBoundary: ArchiveCursor?
+        var visitedGapBoundaries = Set<ArchiveCursor>()
         var consumedOnlyContinuationBoundary: ArchiveCursor?
         var consumedOnlyContinuationBoundaries = Set<ArchiveCursor>()
         while isCurrentPresentation(
@@ -988,14 +1007,14 @@ actor AccountArchiveEngine {
                     contextAfter: intent.contextAfter,
                     priority: intent.priority
                 )
-            } else if case .gap(let olderBoundary, let originalNewerBoundary) = intent.locator,
+            } else if case .gap(let olderBoundary, _) = intent.locator,
                let nextGapBoundary {
                 requestIntent = ArchiveWindowIntent(
                     id: intent.id,
                     conversation: intent.conversation,
                     locator: .gap(
                         olderBoundary: olderBoundary,
-                        newerBoundary: min(nextGapBoundary, originalNewerBoundary)
+                        newerBoundary: nextGapBoundary
                     ),
                     contextBefore: intent.contextBefore,
                     contextAfter: intent.contextAfter,
@@ -1057,7 +1076,7 @@ actor AccountArchiveEngine {
                        !snapshot.verifiedSegment.reachesArchiveStart {
                         let nextBoundary = snapshot.verifiedSegment.oldest
                         if case .older(let previousBoundary) = request.locator,
-                           nextBoundary >= previousBoundary {
+                           nextBoundary == previousBoundary {
                             throw ArchiveTransportValidationError.nonAdvancingCursor
                         }
                         guard consumedOnlyContinuationBoundaries.insert(nextBoundary).inserted else {
@@ -1073,7 +1092,6 @@ actor AccountArchiveEngine {
                             finish(executionID, descriptor: descriptor)
                             return
                         }
-                        failureCount = 0
                         continue
                     }
                     if ownsPresentation {
@@ -1094,6 +1112,12 @@ actor AccountArchiveEngine {
                             for: intent.conversation
                         )
                     }
+                case .noProgress:
+                    // Successful but incomplete empty pages prove neither end
+                    // nor failure. Do not turn them into anchor lookup/retry loops.
+                    finishNoProgress(intent: intent, descriptor: descriptor,
+                        executionID: executionID, generation: connection.generation)
+                    return
                 case .materializedWithoutCoverage:
                     guard ownsPresentation else {
                         finish(executionID, descriptor: descriptor)
@@ -1124,12 +1148,12 @@ actor AccountArchiveEngine {
                         return
                     }
                     guard case .gap(let olderBoundary, let newerBoundary) = request.locator,
-                          boundary > olderBoundary,
-                          boundary < newerBoundary else {
+                          boundary != olderBoundary, boundary != newerBoundary,
+                          page.chronologicalArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)).contains(boundary),
+                          visitedGapBoundaries.insert(boundary).inserted else {
                         throw ArchiveTransportError.malformedCursor
                     }
                     nextGapBoundary = boundary
-                    failureCount = 0
                     continue
                 }
                 finish(
@@ -1139,17 +1163,20 @@ actor AccountArchiveEngine {
                 )
                 return
             } catch {
-                guard isCurrentPresentation(
-                    executionID,
-                    descriptor: descriptor,
-                    intent: intent,
-                    generation: connection.generation
-                ) else {
-                    finish(executionID, descriptor: descriptor)
+                guard isCurrent(executionID, descriptor: descriptor, generation: connection.generation) else { return }
+                if error is NoProgress {
+                    finishNoProgress(intent: intent, descriptor: descriptor,
+                        executionID: executionID, generation: connection.generation)
                     return
                 }
-                failureCount += 1
+                failureCount = recordFailure(descriptor, generation: connection.generation)
                 let retryable = isRetryable(error)
+                if !retryable || failureCount > retryDelays.count {
+                    retainTerminalFailure(for: intent, descriptor: descriptor,
+                        failedExecutionID: executionID, connectionGeneration: connection.generation,
+                        failure: ArchiveRetryableFailure(message: String(describing: error),
+                            retryCount: failureCount, canRetry: false, recoveryAction: recoveryAction(for: error)))
+                }
                 ChatArchiveDebugTrace.logDiagnostic(
                     "archiveEngineRequestRejected",
                     context: ChatArchiveDebugTrace.DiagnosticContext(
@@ -1183,10 +1210,10 @@ actor AccountArchiveEngine {
                         let terminalFailure = ArchiveRetryableFailure(
                             message: String(describing: error),
                             retryCount: failureCount,
-                            canRetry: retryable,
+                            canRetry: false,
                             recoveryAction: recoveryAction(for: error)
                         )
-                        retainAutomaticRetryOwnership(
+                        retainTerminalFailure(
                             for: intent,
                             descriptor: descriptor,
                             failedExecutionID: executionID,
@@ -1211,6 +1238,7 @@ actor AccountArchiveEngine {
                             result: .failed(terminalFailure)
                         )
                     }
+                    finish(executionID, descriptor: descriptor)
                     return
                 }
                 let upperBound = retryDelays[failureCount - 1]
@@ -1337,6 +1365,7 @@ actor AccountArchiveEngine {
             }
             var page = newerPage
             var previousBoundary = newerStart
+            var visitedBoundaries: Set<ArchiveCursor> = [newerStart]
             var newerPageCount = 1
             while true {
                 guard isCurrentPresentation(
@@ -1371,8 +1400,8 @@ actor AccountArchiveEngine {
                     guard let admission = try await repository.verifiedAdmission(
                         for: centered, freshnessToken: freshnessToken
                     ), case .verified(let snapshot) = admission,
-                        snapshot.verifiedSegment.oldest <= boundary,
-                        snapshot.verifiedSegment.newest >= incoming.cursor else {
+                        snapshot.verifiedSegment.contains(boundary),
+                        snapshot.verifiedSegment.contains(incoming.cursor) else {
                         throw ArchiveCoverageRepositoryError.storageFailure
                     }
                     guard try await repository.firstIncomingAnchor(
@@ -1388,12 +1417,14 @@ actor AccountArchiveEngine {
                     unreadScanProgress.removeValue(forKey: intent.conversation)
                     return retarget(snapshot, to: intent.locator)
                 }
-                guard !page.requestComplete, page.deliveredResultCount > 0 else {
+                if !page.requestComplete, page.deliveredResultCount == 0 { throw NoProgress() }
+                guard !page.requestComplete else {
                     unreadScanProgress.removeValue(forKey: intent.conversation)
                     throw ArchiveTransportError.targetNotFound
                 }
                 guard let last = page.chronologicalArchiveIDs.last.flatMap(ArchiveCursor.init(rawValue:)),
-                      last > previousBoundary else {
+                      last != previousBoundary,
+                      visitedBoundaries.insert(last).inserted else {
                     throw ArchiveTransportValidationError.nonAdvancingCursor
                 }
                 previousBoundary = last
@@ -1514,8 +1545,8 @@ actor AccountArchiveEngine {
                 return
             }
 
-            let requestCursorKey = request.pageCursor ?? ""
-            if let continuation = page.continuationCursor,
+            let requestCursorKey = request.pageCursor.flatMap(ArchiveCursor.init(rawValue:))
+            if let continuation = page.continuationCursor.flatMap(ArchiveCursor.init(rawValue:)),
                current.cursorStack.contains(continuation) ||
                 continuation == requestCursorKey {
                 throw ArchiveTransportValidationError.nonAdvancingCursor
@@ -1589,7 +1620,7 @@ actor AccountArchiveEngine {
             generation: execution.generation,
             query: execution.query,
             residentPages: execution.residentPages,
-            cursorStack: execution.cursorStack,
+            cursorStack: execution.cursorStack.map { $0?.rawValue ?? "" },
             requestAttempt: execution.requestAttempt,
             continuationCursor: execution.nextCursor,
             isComplete: execution.isComplete,
@@ -1852,30 +1883,42 @@ actor AccountArchiveEngine {
             activeByDescriptor[descriptor]?.id == executionID
     }
 
-    private func retainAutomaticRetryOwnership(
+    private func recordFailure(_ descriptor: ArchiveIntentDescriptor, generation: UInt64) -> Int {
+        var budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)].flatMap {
+            $0.connectionGeneration == generation ? $0 : nil
+        } ?? RetryBudget(connectionGeneration: generation)
+        budget.failureCount += 1
+        retryBudgets[ArchiveRetryBudgetKey(descriptor)] = budget
+        return budget.failureCount
+    }
+
+    private func finishNoProgress(
+        intent: ArchiveWindowIntent, descriptor: ArchiveIntentDescriptor,
+        executionID: UUID, generation: UInt64
+    ) {
+        let pending = ArchiveRetryableFailure(message: "Archive page made no progress",
+            retryCount: retryBudgets[ArchiveRetryBudgetKey(descriptor)]?.failureCount ?? 0, canRetry: false, recoveryAction: .retry)
+        retainTerminalFailure(for: intent, descriptor: descriptor,
+            failedExecutionID: executionID, connectionGeneration: generation, failure: pending)
+        if isCurrentPresentation(executionID, descriptor: descriptor, intent: intent, generation: generation),
+           !preservesVerifiedPresentation(for: intent) {
+            publish(.retryableFailure(pending, target: intent.locator), for: intent.conversation)
+        }
+        finish(executionID, descriptor: descriptor, result: .cancelled)
+    }
+
+    private func retainTerminalFailure(
         for intent: ArchiveWindowIntent,
         descriptor: ArchiveIntentDescriptor,
         failedExecutionID: UUID,
         connectionGeneration: UInt64,
         failure: ArchiveRetryableFailure
     ) {
-        guard failure.recoveryAction == .retry,
-              isCurrent(
-                failedExecutionID,
-                descriptor: descriptor,
-                generation: connectionGeneration
-              ),
-              hasPresentationDemand(for: intent.conversation),
-              latestIntentByConversation[intent.conversation]?
-                .semanticDescriptor == descriptor else {
-            return
-        }
-        automaticRetryOwnershipByConversation[intent.conversation] =
-            AutomaticRetryOwnership(
-                descriptor: descriptor,
-                failedExecutionID: failedExecutionID,
-                connectionGeneration: connectionGeneration
-            )
+        guard isCurrent(failedExecutionID, descriptor: descriptor, generation: connectionGeneration) else { return }
+        var budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)] ?? RetryBudget(connectionGeneration: connectionGeneration)
+        budget.failureCount = max(budget.failureCount, failure.retryCount)
+        budget.terminalFailure = failure
+        retryBudgets[ArchiveRetryBudgetKey(descriptor)] = budget
     }
 
     private func hasPresentationDemand(
@@ -1903,7 +1946,8 @@ actor AccountArchiveEngine {
     private func finish(
         _ executionID: UUID,
         descriptor: ArchiveIntentDescriptor,
-        result: ArchiveBoundaryTerminalResult = .cancelled
+        result: ArchiveBoundaryTerminalResult = .cancelled,
+        preserveRetryBudget: Bool = false
     ) {
         guard let execution = activeByDescriptor[descriptor],
               execution.id == executionID else { return }
@@ -1912,6 +1956,7 @@ actor AccountArchiveEngine {
             descriptor: descriptor,
             execution: execution
         )
+        if case .succeeded = result, !preserveRetryBudget { retryBudgets.removeValue(forKey: ArchiveRetryBudgetKey(descriptor)) }
         activeByDescriptor.removeValue(forKey: descriptor)
         preKeyCleanup?.finishCatchUp(id: execution.id)
         publishActivity(for: execution.intent.conversation)
@@ -1996,8 +2041,7 @@ actor AccountArchiveEngine {
                 current.freshnessToken.fingerprint == fingerprint &&
                 snapshot.freshnessToken.fingerprint == fingerprint &&
                 snapshot.coverageGeneration >= current.coverageGeneration &&
-                snapshot.verifiedSegment.oldest <= current.verifiedSegment.oldest &&
-                snapshot.verifiedSegment.newest >= current.verifiedSegment.newest
+                snapshot.verifiedSegment.containsSegment(current.verifiedSegment)
         case .authoritativeEmpty(_, let freshnessToken):
             return freshnessToken.fingerprint == fingerprint &&
                 snapshot.freshnessToken.fingerprint == fingerprint

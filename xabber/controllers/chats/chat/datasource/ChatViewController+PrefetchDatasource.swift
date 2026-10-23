@@ -55,9 +55,11 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         // resident window, even when the scope itself reaches the archive
         // edge. The session is the only owner of that distinction.
         let canRequestOlder = isOlderBoundaryVisible &&
-            canRequestTimelineBoundary(direction: .older)
+            canRequestTimelineBoundary(direction: .older) &&
+            (!shouldSuppressPassiveRemoteTimelineBoundary(direction: .older) || gestureTranslationY >= 64)
         let canRequestNewer = isNewerBoundaryVisible &&
-            canRequestTimelineBoundary(direction: .newer)
+            canRequestTimelineBoundary(direction: .newer) &&
+            (!shouldSuppressPassiveRemoteTimelineBoundary(direction: .newer) || gestureTranslationY <= -64)
 
         switch (canRequestOlder, canRequestNewer) {
         case (true, false):

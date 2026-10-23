@@ -48,7 +48,7 @@ struct ChatDatasourceSnapshot {
     let items: [ChatViewController.Datasource]
     let primaryIndex: [String: Int]
     /// Explicit outer MAM result IDs. Raw stanza IDs never enter this index.
-    let mamArchiveIdIndex: [String: Int]
+    let mamArchiveIdIndex: [ArchiveCursor: Int]
     /// Opaque local/protocol stanza IDs used by local positioning only.
     let archivedIdIndex: [String: Int]
     let hasDuplicatePrimaries: Bool
@@ -64,9 +64,9 @@ struct ChatDatasourceSnapshot {
     init(items: [ChatViewController.Datasource]) {
         self.items = items
         var primaryIndex: [String: Int] = [:]
-        var mamArchiveIdIndex: [String: Int] = [:]
+        var mamArchiveIdIndex: [ArchiveCursor: Int] = [:]
         var archivedIdIndex: [String: Int] = [:]
-        var ambiguousMAMArchiveIds = Set<String>()
+        var ambiguousMAMArchiveIds = Set<ArchiveCursor>()
         var ambiguousArchivedIds = Set<String>()
         var duplicatePrimaryCount = 0
         var duplicateMAMArchiveIdCount = 0
@@ -77,9 +77,7 @@ struct ChatDatasourceSnapshot {
                 duplicatePrimaryCount += 1
             }
 
-            if let mamArchiveId = item.mamArchiveId?.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ), mamArchiveId.isNotEmpty {
+            if let mamArchiveId = item.mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) {
                 if mamArchiveIdIndex[mamArchiveId] != nil {
                     duplicateMAMArchiveIdCount += 1
                     mamArchiveIdIndex.removeValue(forKey: mamArchiveId)
@@ -121,7 +119,7 @@ struct ChatDatasourceSnapshot {
     init(
         items: [ChatViewController.Datasource],
         primaryIndex: [String: Int],
-        mamArchiveIdIndex: [String: Int],
+        mamArchiveIdIndex: [ArchiveCursor: Int],
         archivedIdIndex: [String: Int],
         hasDuplicatePrimaries: Bool,
         hasDuplicateMAMArchiveIds: Bool,
@@ -2368,11 +2366,9 @@ struct ChatTimelinePositionKey: Comparable, Equatable {
 enum ChatTimelineMessageIdentity {
     static func keys(for item: MessageStorageItem) -> [String] {
         var keys: [String] = []
-        let mamArchiveId = item.mamArchiveId.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
+        let mamArchiveId = item.mamArchiveId
         if mamArchiveId.isNotEmpty {
-            keys.append("mam:\(mamArchiveId)")
+            keys.append("mam:\(Data(mamArchiveId.utf8).base64EncodedString())")
         }
         if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
             item.archivedId
@@ -2397,9 +2393,9 @@ enum ChatTimelineOrdering {
     }
 
     static func deduplicatedChronological(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
-        var seen = Set<String>()
+        var seen = Set<Data>()
         return chronological(items).filter { item in
-            let keys = ChatTimelineMessageIdentity.keys(for: item)
+            let keys = ChatTimelineMessageIdentity.keys(for: item).map { Data($0.utf8) }
             guard keys.contains(where: { seen.contains($0) }) == false else {
                 return false
             }
@@ -2418,9 +2414,18 @@ protocol ChatTimelinePageProviding {
     func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem?
     func searchMessageResolution(anchor: ChatMessageAnchorRef) -> ChatTimelineSearchMessageResolution
     func items(primaryKeys: [String]) -> [MessageStorageItem]
+    func items(archiveCursorIDs: [String]) -> [MessageStorageItem]
 }
 
 extension ChatTimelinePageProviding {
+    func items(archiveCursorIDs: [String]) -> [MessageStorageItem] {
+        archiveCursorIDs.compactMap { id in
+            guard let item = message(primary: nil, archivedId: id, messageId: nil),
+                  ArchiveCursor(rawValue: item.mamArchiveId) == ArchiveCursor(rawValue: id) else { return nil }
+            return item
+        }
+    }
+
     func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
         message(
             primary: anchor.messagePrimary,
@@ -3059,44 +3064,38 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
     }
 
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {
-        guard let numericBoundary = ChatUnreadBoundaryTargetPolicy.numericValue(
-                boundaryArchivedId
-              ),
-              numericBoundary <= UInt64(Int64.max) else {
-            return nil
-        }
-
-        // XEP-SYNC `unread@after` is a raw protocol stanza ID. Do not route it
-        // through `historyPositionOrdinal`, which is deliberately MAM-cursor
-        // based after the outer-result-ID migration. Realm does not support a
-        // numeric comparison against the source string, so use its indexed,
-        // raw-ID-only signed projection and recheck the raw value in-memory.
+        // The sync boundary is an identity. Resolve its local position before
+        // asking for the next incoming row; an unknown ID cannot be compared.
+        guard boundaryArchivedId.isNotEmpty,
+              let boundary = baseQuery().filter("archivedId == %@", boundaryArchivedId).first else { return nil }
         return boundedCandidateWindow(
             operation: "firstIncoming",
-            scoped: baseQuery()
-                .filter(
-                    "outgoing == false AND rawProtocolStanzaIDNumericValue > %@",
-                    NSNumber(value: Int64(numericBoundary))
-                ),
-            sortDescriptors: [
-                RealmSwift.SortDescriptor(
-                    keyPath: "rawProtocolStanzaIDNumericValue",
-                    ascending: true
-                ),
-                RealmSwift.SortDescriptor(
-                    keyPath: "primary",
-                    ascending: true
-                )
-            ],
+            scoped: baseQuery().filter("outgoing == false")
+                .filter(Self.cursorPredicate(after: ChatTimelineBoundary(message: boundary))),
+            sortDescriptors: Self.sortDescriptors(ascending: true),
             requestedLimit: 1
-        ) { candidates in
-            ChatUnreadBoundaryTargetPolicy.firstIncoming(
-                in: candidates,
-                after: boundaryArchivedId,
-                archivedId: { $0.archivedId },
-                isOutgoing: { $0.outgoing }
-            ).map { [$0] } ?? []
-        }.first
+        ) { candidates in Array(candidates.prefix(1)) }.first
+    }
+
+    func items(archiveCursorIDs: [String]) -> [MessageStorageItem] {
+        guard archiveCursorIDs.isNotEmpty, !isCancelled() else { return [] }
+        let rows = realm.objects(MessageStorageItem.self).filter(
+            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId IN %@",
+            owner, jid, conversationType.rawValue, archiveCursorIDs
+        )
+        var byCursor: [ArchiveCursor: MessageStorageItem] = [:]
+        var ambiguous = Set<ArchiveCursor>()
+        for row in rows {
+            guard let cursor = ArchiveCursor(rawValue: row.mamArchiveId) else { continue }
+            if byCursor[cursor] != nil { ambiguous.insert(cursor) }
+            byCursor[cursor] = row
+        }
+        diagnostics?.record(operation: "archiveBatch", candidateCount: rows.count)
+        guard !isCancelled() else { return [] }
+        return archiveCursorIDs.compactMap {
+            guard let cursor = ArchiveCursor(rawValue: $0), !ambiguous.contains(cursor) else { return nil }
+            return byCursor[cursor]
+        }
     }
 
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
@@ -3202,34 +3201,49 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
 
     private static func sortDescriptors(ascending: Bool) -> [RealmSwift.SortDescriptor] {
         [
-            RealmSwift.SortDescriptor(keyPath: "historyPositionOrdinal", ascending: ascending)
+            RealmSwift.SortDescriptor(keyPath: "historyPositionOrdinal", ascending: ascending),
+            RealmSwift.SortDescriptor(keyPath: "historyPositionKind", ascending: ascending),
+            RealmSwift.SortDescriptor(keyPath: "historyPositionHigh", ascending: ascending),
+            RealmSwift.SortDescriptor(keyPath: "historyPositionLow", ascending: ascending),
+            RealmSwift.SortDescriptor(keyPath: "historyPositionDiscriminator", ascending: ascending)
         ]
     }
 
     private static func cursorPredicate(before boundary: ChatTimelineBoundary) -> NSPredicate {
-        let position = MessageHistoryPositionComponents.make(
-            primary: boundary.primary,
-            archivedId: boundary.archivedId,
-            messageId: boundary.messageId,
-            date: boundary.date
-        )
-        return NSPredicate(
-            format: "historyPositionOrdinal < %@",
-            NSNumber(value: position.ordinal)
-        )
+        cursorPredicate(boundary: boundary, comparison: "<")
     }
 
     private static func cursorPredicate(after boundary: ChatTimelineBoundary) -> NSPredicate {
+        cursorPredicate(boundary: boundary, comparison: ">")
+    }
+
+    private static func cursorPredicate(
+        boundary: ChatTimelineBoundary,
+        comparison: String
+    ) -> NSPredicate {
         let position = MessageHistoryPositionComponents.make(
             primary: boundary.primary,
-            archivedId: boundary.archivedId,
+            archivedId: nil,
             messageId: boundary.messageId,
             date: boundary.date
         )
-        return NSPredicate(
-            format: "historyPositionOrdinal > %@",
-            NSNumber(value: position.ordinal)
-        )
+        let fields: [(String, NSNumber)] = [
+            ("historyPositionOrdinal", NSNumber(value: position.ordinal)),
+            ("historyPositionKind", NSNumber(value: position.kind)),
+            ("historyPositionHigh", NSNumber(value: position.high)),
+            ("historyPositionLow", NSNumber(value: position.low)),
+            ("historyPositionDiscriminator", NSNumber(value: position.discriminator))
+        ]
+        // Match the complete local-position tuple used by sorting. Comparing
+        // the date-derived ordinal alone drops all equal-date neighbours.
+        var equalPrefix: [NSPredicate] = []
+        var branches: [NSPredicate] = []
+        for (key, value) in fields {
+            let term = NSPredicate(format: "%K \(comparison) %@", key, value)
+            branches.append(NSCompoundPredicate(andPredicateWithSubpredicates: equalPrefix + [term]))
+            equalPrefix.append(NSPredicate(format: "%K == %@", key, value))
+        }
+        return NSCompoundPredicate(orPredicateWithSubpredicates: branches)
     }
 
     private static func deduplicatedChronologicalItems(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
@@ -5655,6 +5669,12 @@ extension ChatViewController {
     @discardableResult
     internal func commitArchiveEngineOpeningSkeletonSynchronously() -> Bool {
         assert(Thread.isMainThread, "Opening skeleton commits are main-owned")
+        if archiveOpeningWaitExpired,
+           archiveOpeningWaitDescriptor == archiveWindowIntent?.semanticDescriptor,
+           isArchiveHistoryUnavailable {
+            showNeutralArchivePendingStateIfNeeded(allowPendingRequest: true)
+            return true
+        }
         if hasVisibleArchiveFallbackAwaitingCommit { return true }
         if restoreArchiveHistoryFailurePresentationIfNeeded() { return true }
         let expectedPrimaries = ChatSkeletonTemplate.descriptors.map(\.primary)

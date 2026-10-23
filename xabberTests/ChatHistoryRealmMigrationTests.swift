@@ -1,5 +1,6 @@
 import XCTest
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 final class ChatHistoryRealmMigrationTests: XCTestCase {
@@ -22,7 +23,7 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
     }
 
     func testCurrentSchemaIsNonDestructiveAndIndexesActualHistoryPredicates() {
-        XCTAssertEqual(XabberRealmSchema.current, 26)
+        XCTAssertEqual(XabberRealmSchema.current, 27)
         let configuration = makeRealmMigrationConfiguration(
             scheme: XabberRealmSchema.current
         )
@@ -51,6 +52,73 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             "associatedJid",
             "date"
         ]))
+    }
+
+    func testLocalPositionDoesNotInterpretOrChangeWhenArchiveIdentityChanges() {
+        let date = Date(timeIntervalSince1970: 100)
+        let ids = ["z-first", "001", "184467440737095516160000", " a ", "0"]
+        let positions = ids.map {
+            MessageHistoryPositionComponents.make(
+                primary: "stable-local-primary", archivedId: $0, messageId: "origin", date: date
+            )
+        }
+        XCTAssertTrue(positions.dropFirst().allSatisfy { $0 == positions.first })
+        let keys = ids.map {
+            MessageHistoryOrderKey(primary: "stable-local-primary", archivedId: $0,
+                                   messageId: "origin", date: date)
+        }
+        for key in keys.dropFirst() {
+            XCTAssertFalse(key < keys[0])
+            XCTAssertFalse(keys[0] < key)
+        }
+    }
+
+    func testLegacyArchiveComparisonDoesNotInventAnOrderOrNormalizeIdentity() {
+        XCTAssertEqual(compareArchiveIds("same", "same"), .orderedSame)
+        XCTAssertNil(compareArchiveIds("9", "10"))
+        XCTAssertNil(compareArchiveIds("001", "1"))
+        XCTAssertNil(compareArchiveIds("z", "a"))
+        XCTAssertNil(compareArchiveIds(" a ", "a"))
+        XCTAssertNil(compareArchiveIds("\u{e9}", "e\u{301}"))
+        XCTAssertNil(isArchiveId("next", newerThan: "previous"))
+    }
+
+    func testOuterMAMIdentityIsExtractedWithoutTrimming() throws {
+        let message = XMPPMessage(from: try DDXMLElement(xmlString:
+            "<message xmlns='jabber:client'><result xmlns='urn:xmpp:mam:2' id=' 001 ' queryid='q'><forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client'><body>body</body></message></forwarded></result></message>"))
+        XCTAssertEqual(getMAMResultID(message), " 001 ")
+    }
+
+    func testSchema26UpgradePreservesOpaqueIDsAndHistoryWhileRebuildingLocalOrder() throws {
+        var old = makeRealmMigrationConfiguration(scheme: 26)
+        old.fileURL = realmURL
+        try autoreleasepool {
+            let realm = try Realm(configuration: old)
+            let row = message(primary: "opaque-history", archivedId: " raw-id ",
+                              messageId: "origin", timestamp: 100, isDeleted: false, deleteState: .visible)
+            row.mamArchiveId = "00042"
+            row.body = "retained history"
+            row.historyPositionOrdinal = 9
+            row.historyPositionHigh = 42
+            row.historyLinkedIndexVersion = 1
+            row.rawProtocolStanzaIDNumericValue = 42
+            try realm.write { realm.add(row) }
+        }
+        var upgraded = makeRealmMigrationConfiguration(scheme: XabberRealmSchema.current)
+        upgraded.fileURL = realmURL
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgraded)
+            let row = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "opaque-history"))
+            XCTAssertEqual(row.mamArchiveId, "00042")
+            XCTAssertEqual(row.archivedId, " raw-id ")
+            XCTAssertEqual(row.body, "retained history")
+            XCTAssertEqual(row.rawProtocolStanzaIDNumericValue, 0)
+            XCTAssertEqual(row.historyLinkedIndexVersion, 0)
+            let expected = MessageHistoryPositionComponents.make(primary: row.primary,
+                archivedId: nil, messageId: row.messageId, date: row.date)
+            XCTAssertEqual(row.historyPositionOrdinal, expected.ordinal)
+            XCTAssertEqual(row.historyPositionHigh, expected.high)
+        }
     }
 
     func testSchema25KeepsDecryptedHistoryAndDoesNotPromoteRetiredIdentityToNativeAuthority() throws {
@@ -89,7 +157,7 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
         }
     }
 
-    func testSchema20RebuildsRawProtocolStanzaNumericValueWithoutChangingMAMIdentity() throws {
+    func testSchema20RetiresNumericStanzaValueWithoutChangingExactIDs() throws {
         var legacyConfiguration = makeRealmMigrationConfiguration(scheme: 20)
         legacyConfiguration.fileURL = realmURL
         legacyConfiguration.deleteRealmIfMigrationNeeded = false
@@ -125,14 +193,14 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             )
             XCTAssertEqual(
                 migrated.rawProtocolStanzaIDNumericValue,
-                1_700_000_000_000_151
+                0
             )
             XCTAssertEqual(migrated.archivedId, "1700000000000151")
             XCTAssertEqual(migrated.mamArchiveId, "1700000000000300")
         }
     }
 
-    func testSchema18CoverageMigratesAsProvisionalAndRejectsMalformedRanges() throws {
+    func testSchema18CoverageKeepsOpaqueEndpointsAsProvisionalWithoutInferringOrder() throws {
         let owner = "archive-migration-owner"
         let jid = "archive-migration-peer"
         let conversationType = ClientSynchronizationManager.ConversationType.regular
@@ -191,14 +259,19 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             XCTAssertEqual(migrated.conversationType, conversationType)
             XCTAssertEqual(migrated.coverageGeneration, 0)
             XCTAssertNotNil(migrated.lastObservedXEPSYNCFingerprint)
-            XCTAssertEqual(migrated.segments.count, 1)
+            XCTAssertEqual(migrated.segments.count, 2)
             let segment = try XCTUnwrap(migrated.segments.first)
             XCTAssertEqual(segment.oldest.rawValue, "100")
             XCTAssertEqual(segment.newest.rawValue, "200")
             XCTAssertTrue(segment.reachesArchiveStart)
-            XCTAssertTrue(segment.reachesLiveEdge)
+            XCTAssertFalse(segment.reachesLiveEdge)
             XCTAssertFalse(segment.isVerified)
             XCTAssertEqual(segment.fingerprint, migrated.lastObservedXEPSYNCFingerprint)
+            let opaqueSegment = try XCTUnwrap(migrated.segments.last)
+            XCTAssertEqual(opaqueSegment.oldest.rawValue, "invalid")
+            XCTAssertEqual(opaqueSegment.newest.rawValue, "300")
+            XCTAssertFalse(opaqueSegment.isVerified)
+            XCTAssertTrue(opaqueSegment.reachesLiveEdge)
 
             XCTAssertNotNil(realm.object(
                 ofType: RegularChatArchiveSyncStateStorageItem.self,
@@ -558,23 +631,58 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
                 conversationType: .regular
             )
             XCTAssertEqual(provider.latest(limit: 10).map(\.primary), ["visible-a", "visible-b"])
-            let indexState = try XCTUnwrap(ChatLocalHistoryLinkedIndex.state(
+            XCTAssertNil(ChatLocalHistoryLinkedIndex.state(
                 owner: "migration-owner",
                 jid: "migration-peer",
                 conversationType: .regular,
                 in: realm
             ))
-            XCTAssertEqual(indexState.oldestMessagePrimary, "visible-a")
-            XCTAssertEqual(indexState.newestMessagePrimary, "visible-b")
-            XCTAssertEqual(indexState.indexedVisibleCount, 2)
-            XCTAssertEqual(realm.object(
+            XCTAssertNil(realm.object(
                 ofType: MessageStorageItem.self,
                 forPrimaryKey: "visible-a"
-            )?.historyNextMessagePrimary, "visible-b")
-            XCTAssertEqual(realm.object(
+            )?.historyNextMessagePrimary)
+            XCTAssertNil(realm.object(
                 ofType: MessageStorageItem.self,
                 forPrimaryKey: "visible-b"
-            )?.historyPreviousMessagePrimary, "visible-a")
+            )?.historyPreviousMessagePrimary)
+        }
+    }
+
+    func testSchema26UpgradeRebuildsEntireLinkedHistoryOnNextMessageWrite() throws {
+        var old = makeRealmMigrationConfiguration(scheme: 26)
+        old.fileURL = realmURL
+        try autoreleasepool {
+            let realm = try Realm(configuration: old)
+            let first = message(primary: "local-first", archivedId: "z", messageId: "m1",
+                timestamp: 100, isDeleted: false, deleteState: .visible)
+            let second = message(primary: "local-second", archivedId: "001", messageId: "m2",
+                timestamp: 200, isDeleted: false, deleteState: .visible)
+            try realm.write {
+                realm.add([first, second])
+                ChatLocalHistoryLinkedIndex.upsert(first, in: realm)
+                ChatLocalHistoryLinkedIndex.upsert(second, in: realm)
+            }
+        }
+        var upgraded = makeRealmMigrationConfiguration(scheme: XabberRealmSchema.current)
+        upgraded.fileURL = realmURL
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgraded)
+            XCTAssertNil(ChatLocalHistoryLinkedIndex.state(owner: "migration-owner",
+                jid: "migration-peer", conversationType: .regular, in: realm))
+            let next = message(primary: "local-next", archivedId: "a", messageId: "m3",
+                timestamp: 300, isDeleted: false, deleteState: .visible)
+            try realm.write {
+                realm.add(next)
+                ChatLocalHistoryLinkedIndex.upsert(next, in: realm)
+            }
+            let provider = ChatLocalHistoryPageProvider(realm: realm, owner: "migration-owner",
+                jid: "migration-peer", conversationType: .regular)
+            XCTAssertEqual(provider.latest(limit: 10).map(\.primary),
+                ["local-first", "local-second", "local-next"])
+            XCTAssertEqual(realm.object(ofType: MessageStorageItem.self,
+                forPrimaryKey: "local-first")?.historyNextMessagePrimary, "local-second")
+            XCTAssertEqual(realm.object(ofType: MessageStorageItem.self,
+                forPrimaryKey: "local-second")?.historyNextMessagePrimary, "local-next")
         }
     }
 

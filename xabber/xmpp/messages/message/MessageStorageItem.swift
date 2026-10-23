@@ -263,36 +263,24 @@ struct MessageHistoryOrderKey: Comparable, Equatable {
     }
 
     static func < (lhs: MessageHistoryOrderKey, rhs: MessageHistoryOrderKey) -> Bool {
-        if lhs.date != rhs.date {
-            return lhs.date < rhs.date
-        }
+        // This is only the deterministic local cache order. Verified MAM
+        // windows use their server page ledger, never the spelling of a UID.
+        MessageHistoryPositionComponents.make(primary: lhs.primary, archivedId: nil,
+            messageId: lhs.messageId, date: lhs.date)
+            < MessageHistoryPositionComponents.make(primary: rhs.primary, archivedId: nil,
+                messageId: rhs.messageId, date: rhs.date)
+    }
 
-        let cursorComparison = compareIdentifier(lhs.cursorId, rhs.cursorId)
-        if cursorComparison != .orderedSame {
-            return cursorComparison == .orderedAscending
-        }
-
-        let messageComparison = compareIdentifier(lhs.messageId, rhs.messageId)
-        if messageComparison != .orderedSame {
-            return messageComparison == .orderedAscending
-        }
-
-        let primaryComparison = compareIdentifier(lhs.primary, rhs.primary)
-        if primaryComparison != .orderedSame {
-            return primaryComparison == .orderedAscending
-        }
-        return lhs.primary < rhs.primary
+    static func == (lhs: MessageHistoryOrderKey, rhs: MessageHistoryOrderKey) -> Bool {
+        MessageHistoryPositionComponents.make(primary: lhs.primary, archivedId: nil,
+            messageId: lhs.messageId, date: lhs.date)
+            == MessageHistoryPositionComponents.make(primary: rhs.primary, archivedId: nil,
+                messageId: rhs.messageId, date: rhs.date)
     }
 
     private static func normalized(_ value: String?) -> String? {
-        guard let value, value.isNotEmpty else {
-            return nil
-        }
+        guard let value, value.isNotEmpty else { return nil }
         return value
-    }
-
-    private static func compareIdentifier(_ lhs: String, _ rhs: String) -> ComparisonResult {
-        lhs.compare(rhs, options: [.numeric, .caseInsensitive])
     }
 }
 
@@ -309,28 +297,16 @@ struct MessageHistoryPositionComponents: Comparable, Equatable {
         messageId: String?,
         date: Date
     ) -> MessageHistoryPositionComponents {
-        let archivedId = archivedId?.isNotEmpty == true ? archivedId! : ""
-        let messageId = messageId?.isNotEmpty == true ? messageId! : ""
-        let identity = archivedId + "\u{1F}" + messageId + "\u{1F}" + primary
-
-        if let numericArchiveId = Int64(archivedId), archivedId.isNotEmpty {
-            return MessageHistoryPositionComponents(
-                ordinal: chronologicalOrdinal(date: date, numericArchiveId: numericArchiveId, cursor: archivedId),
-                kind: 1,
-                high: numericArchiveId,
-                low: 0,
-                discriminator: stableDiscriminator(identity)
-            )
-        }
-
-        let cursor = archivedId.isNotEmpty ? archivedId : (messageId.isNotEmpty ? messageId : primary)
-        let bytes = Array(cursor.utf8)
+        // A local primary is stable when an archive replay adds/replaces its
+        // opaque MAM token. No part of that token supplies chronology.
+        let identity = primary.isNotEmpty ? primary : (messageId ?? "")
+        let discriminator = stableDiscriminator(identity)
         return MessageHistoryPositionComponents(
-            ordinal: chronologicalOrdinal(date: date, numericArchiveId: nil, cursor: cursor),
-            kind: archivedId.isNotEmpty ? 2 : 0,
-            high: lexicographicChunk(bytes, offset: 0),
-            low: lexicographicChunk(bytes, offset: 7),
-            discriminator: stableDiscriminator(identity)
+            ordinal: chronologicalOrdinal(date: date, tie: 0),
+            kind: 0,
+            high: localIdentityChunk(Array(identity.utf8), offset: 0),
+            low: localIdentityChunk(Array(identity.utf8), offset: 7),
+            discriminator: discriminator
         )
     }
 
@@ -342,14 +318,11 @@ struct MessageHistoryPositionComponents: Comparable, Equatable {
         return lhs.discriminator < rhs.discriminator
     }
 
-    private static func lexicographicChunk(_ bytes: [UInt8], offset: Int) -> Int64 {
+    private static func localIdentityChunk(_ bytes: [UInt8], offset: Int) -> Int64 {
         var value: UInt64 = 0
         for index in 0..<7 {
             value <<= 8
-            let sourceIndex = offset + index
-            if sourceIndex < bytes.count {
-                value |= UInt64(bytes[sourceIndex])
-            }
+            if offset + index < bytes.count { value |= UInt64(bytes[offset + index]) }
         }
         return Int64(value)
     }
@@ -363,26 +336,12 @@ struct MessageHistoryPositionComponents: Comparable, Equatable {
         return Int64(value & UInt64(Int64.max))
     }
 
-    private static func chronologicalOrdinal(
-        date: Date,
-        numericArchiveId: Int64?,
-        cursor: String
-    ) -> Int64 {
+    private static func chronologicalOrdinal(date: Date, tie: Int64) -> Int64 {
         let millisecondsSinceUnixEpoch = Int64((date.timeIntervalSince1970 * 1_000).rounded(.towardZero))
-        let millisecondsAtReferenceEpoch: Int64 = 946_684_800_000 // 2000-01-01T00:00:00Z
+        let millisecondsAtReferenceEpoch: Int64 = 946_684_800_000
         let timeComponent = millisecondsSinceUnixEpoch - millisecondsAtReferenceEpoch
         let scale: Int64 = 1_048_576
         let tieRange: Int64 = 1_000_000
-        let tie: Int64
-        if let numericArchiveId {
-            tie = ((numericArchiveId % tieRange) + tieRange) % tieRange
-        } else {
-            var suffix: UInt64 = 0
-            for byte in cursor.utf8.suffix(3) {
-                suffix = (suffix << 8) | UInt64(byte)
-            }
-            tie = Int64(suffix % UInt64(tieRange))
-        }
         let (scaled, overflow) = timeComponent.multipliedReportingOverflow(by: scale)
         guard !overflow else {
             return timeComponent >= 0 ? Int64.max - tieRange + tie : Int64.min + tie
@@ -654,18 +613,13 @@ class MessageStorageItem: Object {
     
     @objc dynamic var archivedId: String = "" {
         didSet {
-            rawProtocolStanzaIDNumericValue = Self.rawProtocolStanzaIDNumericValue(
-                from: archivedId
-            )
+            rawProtocolStanzaIDNumericValue = 0
             refreshHistoryPositionComponents()
         }
     }
 
-    /// Numeric projection of the raw protocol stanza ID in `archivedId`.
-    /// It is intentionally separate from `mamArchiveId`: XEP-SYNC unread
-    /// boundaries are compared against the former, while MAM/RSM cursors use
-    /// only the latter. Zero means the raw ID is absent, nonnumeric, or cannot
-    /// fit in Realm's signed integer storage.
+    /// Legacy schema column retained for non-destructive upgrades. Archive
+    /// and stanza IDs are opaque; runtime code never derives a number here.
     @objc dynamic var rawProtocolStanzaIDNumericValue: Int64 = 0
 
     /// The outer XEP-0313 `<result id>` assigned by the archive. Unlike
@@ -987,14 +941,9 @@ class MessageStorageItem: Object {
     }
 
     static func rawProtocolStanzaIDNumericValue(from rawValue: String?) -> Int64 {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let numericValue = UInt64(rawValue),
-              numericValue > 0,
-              numericValue <= UInt64(Int64.max) else {
-            return 0
-        }
-        return Int64(numericValue)
+        0
     }
+
     var groupMentionIntent: GroupMessageMentionIntent? {
         get { GroupMessageMentionsCodec.intent(fromStorageValue: groupMentionIntent_) }
         set { groupMentionIntent_ = GroupMessageMentionsCodec.storageValue(for: newValue) }

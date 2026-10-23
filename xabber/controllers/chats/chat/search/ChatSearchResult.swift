@@ -58,7 +58,7 @@ enum ChatSearchSelectionIdentity {
             return primary == payload
         }
         if let payload = payload(in: selectedID, prefix: mamPrefix) {
-            return normalizedMAMArchiveID(mamArchiveId) == payload
+            return mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) == ArchiveCursor(rawValue: payload)
         }
         if let payload = payload(in: selectedID, prefix: rawPrefix) {
             return archivedId == payload
@@ -67,14 +67,13 @@ enum ChatSearchSelectionIdentity {
         // Read transient pre-namespace selection state deterministically while
         // all newly created identities remain namespaced.
         return primary == selectedID ||
-            normalizedMAMArchiveID(mamArchiveId) == selectedID ||
+            mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) == ArchiveCursor(rawValue: selectedID) ||
             archivedId == selectedID
     }
 
     private static func normalizedMAMArchiveID(_ value: String?) -> String? {
         guard let value else { return nil }
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isNotEmpty ? normalized : nil
+        return value.isNotEmpty ? value : nil
     }
 
     private static func payload(in value: String, prefix: String) -> String? {
@@ -88,6 +87,29 @@ struct ChatSearchResult: Equatable, Sendable {
     enum ID: Hashable, Sendable {
         case archived(String)
         case primary(String)
+
+        static func == (lhs: ID, rhs: ID) -> Bool {
+            switch (lhs, rhs) {
+            case let (.archived(a), .archived(b)):
+                return a.utf8.elementsEqual(b.utf8)
+            case let (.primary(a), .primary(b)):
+                return a == b
+            default:
+                return false
+            }
+        }
+
+        func hash(into hasher: inout Hasher) {
+            switch self {
+            case .archived(let value):
+                hasher.combine(0)
+                hasher.combine(value.utf8.count)
+                for byte in value.utf8 { hasher.combine(byte) }
+            case .primary(let value):
+                hasher.combine(1)
+                hasher.combine(value)
+            }
+        }
     }
 
     struct Scope: Equatable, Sendable {
@@ -399,7 +421,7 @@ enum ChatSearchResultMapper {
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
-        guard let value,
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               value.isNotEmpty else {
             return nil
         }
@@ -412,14 +434,21 @@ enum ChatSearchResultCollection {
         _ results: [ChatSearchResult]
     ) -> [ChatSearchResult] {
         var uniqueById: [ChatSearchResult.ID: ChatSearchResult] = [:]
+        var order: [ChatSearchResult.ID] = []
         for result in results {
             if let existing = uniqueById[result.id] {
                 uniqueById[result.id] = preferred(existing, result)
             } else {
                 uniqueById[result.id] = result
+                order.append(result.id)
             }
         }
-        return uniqueById.values.sorted(by: sortsBefore)
+        return order.compactMap { uniqueById[$0] }.enumerated().sorted { lhs, rhs in
+            if lhs.element.anchor.date != rhs.element.anchor.date {
+                return lhs.element.anchor.date > rhs.element.anchor.date
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     static func preferred(
@@ -451,21 +480,8 @@ enum ChatSearchResultCollection {
             return lhs.anchor.date > rhs.anchor.date
         }
 
-        switch (lhs.id, rhs.id) {
-        case let (.archived(lhsId), .archived(rhsId)):
-            if let lhsNumber = Int64(lhsId),
-               let rhsNumber = Int64(rhsId),
-               lhsNumber != rhsNumber {
-                return lhsNumber > rhsNumber
-            }
-            return lhsId > rhsId
-        case (.archived, .primary):
-            return true
-        case (.primary, .archived):
-            return false
-        case let (.primary(lhsId), .primary(rhsId)):
-            return lhsId > rhsId
-        }
+        // Equal timestamps do not make opaque archive tokens comparable.
+        return false
     }
 
     private static func completenessScore(_ result: ChatSearchResult) -> Int {

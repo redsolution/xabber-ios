@@ -121656,6 +121656,23 @@
           }
         }
       }
+    },
+    "chat__history__not_loaded_yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages aren’t loaded yet"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения ещё не загружены"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -635,46 +635,19 @@ enum ChatScrollDownTargetPolicy {
         chat: ChatState,
         visibleMessages: [VisibleMessage]
     ) -> Target {
-        guard chat.unread > 0,
-              chat.syncUnreadCount > 0,
-              let boundaryId = normalizedPositiveNumericBoundary(chat.syncUnreadAfterId)
-                ?? normalizedPositiveNumericBoundary(chat.lastReadId),
-              let boundaryValue = Double(boundaryId) else {
-            return .latest
+        guard chat.unread > 0, chat.syncUnreadCount > 0,
+              let boundaryId = nonemptyReference(chat.syncUnreadAfterId) ?? nonemptyReference(chat.lastReadId) else { return .latest }
+        let boundaryIsVisible = visibleMessages.contains {
+            $0.rowKind == .message && !$0.isFakeMessage && $0.archivedId == boundaryId
         }
-
-        let realVisibleMessages = visibleMessages.filter {
-            $0.rowKind == .message && !$0.isFakeMessage
-        }
-        guard realVisibleMessages.isNotEmpty else {
-            return .unreadBoundary(boundaryId)
-        }
-
-        var maxVisibleValue: Double?
-        for message in realVisibleMessages {
-            guard let archivedId = message.archivedId,
-                  let visibleValue = Double(archivedId),
-                  visibleValue.isFinite else {
-                return .latest
-            }
-            maxVisibleValue = max(maxVisibleValue ?? visibleValue, visibleValue)
-        }
-
-        guard let maxVisibleValue else {
-            return .unreadBoundary(boundaryId)
-        }
-        return boundaryValue > maxVisibleValue ? .unreadBoundary(boundaryId) : .latest
+        return boundaryIsVisible ? .latest : .unreadBoundary(boundaryId)
     }
 
-    private static func normalizedPositiveNumericBoundary(_ value: String?) -> String? {
-        guard let normalized = ChatInitialPositionPolicy.normalizedId(value),
-              let numericValue = Double(normalized),
-              numericValue.isFinite,
-              numericValue > 0 else {
-            return nil
-        }
-        return normalized
+    private static func nonemptyReference(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
+
 }
 
 enum ChatViewportReadBoundaryPolicy {
@@ -2668,10 +2641,11 @@ class ChatViewController: MessagesViewController {
     var committedTimelineSensitiveRevealRemapRetryCount = 0
     var archiveWindowAtomicApplyRetryCount = 0
     var archiveWindowAtomicApplyRetryWorkItem: DispatchWorkItem?
-    var archiveHistoryAutomaticRetryWorkItem: DispatchWorkItem?
-    var archiveHistoryAutomaticRetryEpoch: UInt64 = 0
-    var archiveHistoryAutomaticRetryAttempt = 0
     var archiveHistoryFailureVisibleSnapshot: ChatArchiveFailureVisibleSnapshot?
+    var archiveOpeningWaitWorkItem: DispatchWorkItem?
+    var archiveOpeningWaitDescriptor: ArchiveIntentDescriptor?
+    var archiveOpeningWaitToken: UUID?
+    var archiveOpeningWaitExpired = false
     var archiveHistoryFailureFallbackRequestID: UUID?
     var archiveHistoryFailureFallbackIsVisible = false
     var archiveReferenceResolutionID: UUID?
@@ -3130,6 +3104,12 @@ class ChatViewController: MessagesViewController {
 
     internal func setSkeletonVisible(_ isVisible: Bool) {
         self.performOnMain {
+            if isVisible, self.archiveOpeningWaitExpired,
+               self.archiveOpeningWaitDescriptor == self.archiveWindowIntent?.semanticDescriptor,
+               self.isArchiveHistoryUnavailable {
+                self.showNeutralArchivePendingStateIfNeeded(allowPendingRequest: true)
+                return
+            }
             if isVisible, self.hasVisibleArchiveFallbackAwaitingCommit {
                 self.refreshArchiveHistoryRecoveryPresentation()
                 return
@@ -4172,6 +4152,20 @@ class ChatViewController: MessagesViewController {
         return bar
     }()
     
+    internal lazy var archiveHistoryPendingLabel: UILabel = {
+        let label = UILabel()
+        label.text = L10n.text("chat__history__not_loaded_yet", fallback: "Messages aren’t loaded yet")
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.isHidden = true
+        label.accessibilityIdentifier = "chat.history.pending"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
     internal lazy var archiveHistoryRecoveryStatusView: UIStackView = {
         let label = UILabel()
         label.font = .preferredFont(forTextStyle: .body)

@@ -37,6 +37,11 @@ final class ConversationArchiveCoverageStorageItem: Object {
         set { lastObservedXEPSYNCFingerprint = newValue }
     }
 
+    var hasReadableCoverageMetadata: Bool {
+        guard let data = segmentsJSON.data(using: .utf8) else { return false }
+        return (try? JSONDecoder().decode([ArchiveCoverageSegment].self, from: data)) != nil
+    }
+
     var segments: [ArchiveCoverageSegment] {
         get {
             guard let data = segmentsJSON.data(using: .utf8),
@@ -107,7 +112,12 @@ final class ConversationArchiveCoverageStorageItem: Object {
         }
         legacy.olderArchiveEndReached = verified.contains(where: { $0.reachesArchiveStart })
         legacy.newerLiveEdgeReached = verified.contains(where: { $0.reachesLiveEdge })
-        legacy.recomputeBoundsAndGaps()
+        // Compatibility endpoints are projections of server-proved ledgers;
+        // the legacy numeric range reducer must not reinterpret opaque UIDs.
+        legacy.oldestLoadedArchiveId = verified.count == 1 ? verified[0].oldest.rawValue : nil
+        legacy.newestLoadedArchiveId = verified.count == 1 ? verified[0].newest.rawValue : nil
+        legacy.knownGaps = []
+        legacy.updatedAt = Date()
 
         if let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
             chat.isSynced = true

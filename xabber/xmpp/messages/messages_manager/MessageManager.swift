@@ -237,9 +237,9 @@ class MessageManager: AbstractXMPPManager {
         var updatedExisting: Int = 0
         var skipped: Int = 0
         var failed: Int = 0
-        private(set) var skippedArchiveIds: Set<String> = []
+        private(set) var skippedArchiveIds: Set<ArchiveCursor> = []
         private var visibleRowsByConversationKey: [String: Int] = [:]
-        private var persistedArchiveIdsByConversationKey: [String: Set<String>] = [:]
+        private var persistedArchiveIdsByConversationKey: [String: Set<ArchiveCursor>] = [:]
 
         var persistedRows: Int {
             savedNew + updatedExisting
@@ -286,10 +286,10 @@ class MessageManager: AbstractXMPPManager {
         }
 
         mutating func recordSkippedArchiveId(_ archiveId: String) {
-            guard archiveId.isNotEmpty else {
+            guard let cursor = ArchiveCursor(rawValue: archiveId) else {
                 return
             }
-            skippedArchiveIds.insert(archiveId)
+            skippedArchiveIds.insert(cursor)
         }
 
         mutating func recordVisibleRow(
@@ -319,17 +319,17 @@ class MessageManager: AbstractXMPPManager {
             jid: String,
             conversationType: ClientSynchronizationManager.ConversationType
         ) {
-            guard archiveId.isNotEmpty else {
+            guard let cursor = ArchiveCursor(rawValue: archiveId) else {
                 return
             }
             persistedArchiveIdsByConversationKey[
                 Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType),
                 default: []
-            ].insert(archiveId)
+            ].insert(cursor)
         }
 
         func containsPersistedArchiveIds(
-            _ archiveIds: Set<String>,
+            _ archiveIds: Set<ArchiveCursor>,
             owner: String,
             jid: String,
             conversationType: ClientSynchronizationManager.ConversationType
@@ -349,7 +349,7 @@ class MessageManager: AbstractXMPPManager {
             owner: String,
             jid: String,
             conversationType: ClientSynchronizationManager.ConversationType
-        ) -> Set<String> {
+        ) -> Set<ArchiveCursor> {
             persistedArchiveIdsByConversationKey[
                 Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType)
             ] ?? []

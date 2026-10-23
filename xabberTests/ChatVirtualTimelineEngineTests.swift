@@ -5,6 +5,150 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
     private let owner = "owner@example.com"
     private let jid = "chat@example.com"
 
+    func testOpaqueScopeMembershipComesOnlyFromServerLedger() throws {
+        let ids = ["z-first", "0009", "A/middle", "2", "!last"]
+        let scope = try makeScope(orderedIDs: ids)
+
+        for id in ids {
+            XCTAssertTrue(scope.contains(try XCTUnwrap(ArchiveCursor(rawValue: id))))
+        }
+        XCTAssertFalse(scope.contains(try XCTUnwrap(ArchiveCursor(rawValue: "9"))))
+        XCTAssertFalse(scope.contains(try XCTUnwrap(ArchiveCursor(rawValue: "1"))))
+        XCTAssertTrue(scope.isBefore(
+            try XCTUnwrap(ArchiveCursor(rawValue: "z-first")),
+            try XCTUnwrap(ArchiveCursor(rawValue: "!last"))
+        ))
+        XCTAssertFalse(scope.isBefore(
+            try XCTUnwrap(ArchiveCursor(rawValue: "unproved")),
+            try XCTUnwrap(ArchiveCursor(rawValue: "!last"))
+        ))
+    }
+
+    func testResidentMAMIndexDistinguishesCanonicalUnicodeSpellings() throws {
+        let ids = ["caf\u{00E9}", "cafe\u{0301}"]
+        let index = ChatTimelineResidentIndex(items: makeOpaqueMessages(ids))
+
+        XCTAssertEqual(index.index(archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: ids[0]))), 0)
+        XCTAssertEqual(index.index(archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: ids[1]))), 1)
+    }
+
+    func testVerifiedInstallAndRematerializationPreserveServerOrderOverReversedDates() throws {
+        let ids = ["z-first", "0009", "A/middle", "!last"]
+        let messages = makeOpaqueMessages(ids)
+        let scope = try makeScope(orderedIDs: ids)
+        var engine = makeEngine(
+            provider: VirtualTimelinePageProvider(messages: messages.reversed()),
+            scope: scope
+        )
+
+        let snapshot = try XCTUnwrap(engine.installVerified(
+            items: [messages[3], messages[1], messages[0], messages[2]],
+            expectedPrimaryIDs: messages.map(\.primary),
+            direction: nil,
+            scope: scope
+        ))
+
+        XCTAssertEqual(snapshot.items.map(\.mamArchiveId), ids)
+        XCTAssertEqual(snapshot.state.residentArchivedIds, ids)
+        XCTAssertEqual(engine.currentSnapshot().items.map(\.mamArchiveId), ids)
+    }
+
+    func testOpaqueReversePagingUsesLedgerDespiteReversedTimestamps() throws {
+        let ids = (1...601).map { "uid/\(10_000 - $0 * 3)" }
+        let messages = makeOpaqueMessages(ids)
+        let provider = VirtualTimelinePageProvider(messages: messages.reversed())
+        let scope = try makeScope(orderedIDs: ids)
+        var engine = makeEngine(provider: provider, scope: scope)
+        _ = try XCTUnwrap(engine.installVerified(
+            items: Array(messages.suffix(500)),
+            expectedPrimaryIDs: messages.suffix(500).map(\.primary),
+            direction: nil,
+            scope: scope
+        ))
+
+        let firstOlder = try localSnapshot(engine.page(.older))
+        XCTAssertEqual(firstOlder.items.map(\.mamArchiveId), Array(ids.suffix(600)))
+        let secondOlder = try localSnapshot(engine.page(.older))
+        XCTAssertEqual(secondOlder.items.map(\.mamArchiveId), Array(ids.prefix(600)))
+        let newer = try localSnapshot(engine.page(.newer))
+        XCTAssertEqual(newer.items.map(\.mamArchiveId), Array(ids.suffix(600)))
+        XCTAssertTrue(newer.state.isResidentAtLiveTail)
+        XCTAssertEqual(provider.olderCalls, 0, "verified paging cannot use timestamp-based queries")
+        XCTAssertEqual(provider.newerCalls, 0, "verified paging cannot use timestamp-based queries")
+        XCTAssertTrue(provider.archiveCursorQuerySizes.allSatisfy { $0 <= 100 })
+    }
+
+    func testScopeExtensionRequiresPriorLedgerAsContiguousOrderedSubsequence() throws {
+        let previous = try makeScope(orderedIDs: ["b", "alpha", "0009"])
+        XCTAssertTrue(try makeScope(
+            orderedIDs: ["older/z", "b", "alpha", "0009"], generation: 2
+        ).canExtend(previous, direction: .older))
+        XCTAssertTrue(try makeScope(
+            orderedIDs: ["b", "alpha", "0009", "newer/!"], generation: 2
+        ).canExtend(previous, direction: .newer))
+        XCTAssertFalse(try makeScope(
+            orderedIDs: ["b", "0009", "alpha"], generation: 2
+        ).canExtend(previous, direction: .newer))
+        XCTAssertFalse(try makeScope(
+            orderedIDs: ["b", "unproved-gap", "alpha", "0009"], generation: 2
+        ).canExtend(previous, direction: .older))
+        XCTAssertFalse(try makeScope(
+            orderedIDs: ["b", "alpha"], generation: 2
+        ).canExtend(previous, direction: .older))
+    }
+
+    func testScopeIdentityRejectsContradictorySameGenerationLedgerAndChangedGeneration() throws {
+        let original = try makeScope(orderedIDs: ["first", "ab", "c", "last"])
+        XCTAssertEqual(original, try makeScope(orderedIDs: ["first", "ab", "c", "last"]))
+        XCTAssertNotEqual(original, try makeScope(orderedIDs: ["first", "c", "ab", "last"]))
+        XCTAssertNotEqual(original, try makeScope(orderedIDs: ["first", "a", "bc", "last"]))
+        XCTAssertNotEqual(original, try makeScope(
+            orderedIDs: ["first", "ab", "c", "last"], generation: 2
+        ))
+    }
+
+    func testOpaqueTargetContextUsesLedgerNotTimestampOrLexicalExtrema() throws {
+        let ids = ["z-first", "9", "A-target", "0001", "!last"]
+        let messages = makeOpaqueMessages(ids)
+        let provider = VirtualTimelinePageProvider(messages: messages.reversed())
+        let scope = try makeScope(orderedIDs: ids)
+        var engine = makeEngine(provider: provider, scope: scope)
+
+        let outcome = engine.openAround(
+            primary: messages[2].primary,
+            archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: ids[2])),
+            before: 1,
+            after: 1
+        )
+
+        guard case .local(let snapshot) = outcome else {
+            return XCTFail("An exact opaque member target must materialize locally")
+        }
+        XCTAssertEqual(snapshot.items.map(\.mamArchiveId), Array(ids[1...3]))
+        XCTAssertEqual(provider.aroundCalls, 0)
+        XCTAssertEqual(provider.archiveCursorQuerySizes, [3])
+    }
+
+    func testConsumedLedgerPagesAdvanceInBoundedChunksWithoutInferringUIDMinOrMax() throws {
+        let ids = (0..<205).map { "opaque/\(10_000 - $0)" }
+        let messages = makeOpaqueMessages(ids)
+        let resident = messages.last!
+        let hiddenEdge = messages.first!
+        hiddenEdge.isLocallyHiddenByReport = true
+        let provider = VirtualTimelinePageProvider(messages: [hiddenEdge, resident])
+        let scope = try makeScope(orderedIDs: ids, reachesArchiveStart: false)
+        var engine = makeEngine(provider: provider, scope: scope)
+        _ = try XCTUnwrap(engine.installVerified(
+            items: [resident], expectedPrimaryIDs: [resident.primary], direction: nil, scope: scope
+        ))
+
+        guard case .needsArchiveExpansion(.older) = engine.page(.older) else {
+            return XCTFail("Consumed pages must reach the exact ledger edge without showing hidden rows")
+        }
+        XCTAssertEqual(engine.currentSnapshot().items.map(\.primary), [resident.primary])
+        XCTAssertEqual(provider.archiveCursorQuerySizes, [100, 100, 4])
+    }
+
     func testThreeHundredSixtyThreeLoadedRowsStayResidentWithoutEviction() throws {
         let messages = makeMessages(1...1_000)
         let provider = VirtualTimelinePageProvider(messages: messages)
@@ -319,7 +463,8 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
             reachesArchiveStart: true,
             reachesLiveEdge: true,
             fingerprint: "session:1",
-            isVerified: true
+            isVerified: true,
+            orderedArchiveIDs: (1...10).compactMap { ArchiveCursor(rawValue: String($0)) }
         ))
         XCTAssertNil(ChatTimelineVerifiedScope(
             conversationKey: conversationKey,
@@ -364,9 +509,24 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         generation: UInt64 = 1,
         connectionGeneration: UInt64 = 42
     ) throws -> ChatTimelineVerifiedScope {
+        try makeScope(
+            orderedIDs: (oldest...newest).map(String.init),
+            reachesArchiveStart: reachesArchiveStart,
+            reachesLiveEdge: reachesLiveEdge,
+            generation: generation,
+            connectionGeneration: connectionGeneration
+        )
+    }
+
+    private func makeScope(
+        orderedIDs: [String],
+        reachesArchiveStart: Bool = true,
+        reachesLiveEdge: Bool = true,
+        generation: UInt64 = 1,
+        connectionGeneration: UInt64 = 42
+    ) throws -> ChatTimelineVerifiedScope {
         let segment = try XCTUnwrap(ArchiveCoverageSegment(
-            oldest: try XCTUnwrap(ArchiveCursor(rawValue: String(oldest))),
-            newest: try XCTUnwrap(ArchiveCursor(rawValue: String(newest))),
+            orderedArchiveIDs: orderedIDs.compactMap { ArchiveCursor(rawValue: $0) },
             reachesArchiveStart: reachesArchiveStart,
             reachesLiveEdge: reachesLiveEdge,
             fingerprint: "session:\(connectionGeneration)",
@@ -381,6 +541,22 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
                 queryID: "query-\(generation)"
             )
         ))
+    }
+
+    private func makeOpaqueMessages(_ ids: [String]) -> [MessageStorageItem] {
+        ids.enumerated().map { index, id in
+            let item = MessageStorageItem()
+            item.primary = "opaque-primary-\(index)"
+            item.owner = owner
+            item.opponent = jid
+            item.archivedId = "protocol-\(index)"
+            item.mamArchiveId = id
+            item.messageId = "opaque-message-\(index)"
+            item.date = Date(timeIntervalSince1970: TimeInterval(100_000 - index))
+            item.sentDate = item.date
+            item.conversationType = .regular
+            return item
+        }
     }
 
     private func makeMessages(_ range: ClosedRange<Int>) -> [MessageStorageItem] {
@@ -422,9 +598,13 @@ private enum VirtualTimelineTestError: Error {
 
 private final class VirtualTimelinePageProvider: ChatTimelinePageProviding {
     private let messages: [MessageStorageItem]
+    private(set) var olderCalls = 0
+    private(set) var newerCalls = 0
+    private(set) var aroundCalls = 0
+    private(set) var archiveCursorQuerySizes: [Int] = []
 
-    init(messages: [MessageStorageItem]) {
-        self.messages = ChatTimelineOrdering.deduplicatedChronological(messages)
+    init<S: Sequence>(messages: S) where S.Element == MessageStorageItem {
+        self.messages = Array(messages)
     }
 
     func latest(limit: Int) -> [MessageStorageItem] {
@@ -432,6 +612,7 @@ private final class VirtualTimelinePageProvider: ChatTimelinePageProviding {
     }
 
     func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
+        olderCalls += 1
         guard let index = messages.firstIndex(where: { $0.primary == boundary.primary }) else {
             return []
         }
@@ -439,6 +620,7 @@ private final class VirtualTimelinePageProvider: ChatTimelinePageProviding {
     }
 
     func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
+        newerCalls += 1
         guard let index = messages.firstIndex(where: { $0.primary == boundary.primary }),
               index + 1 < messages.count else {
             return []
@@ -447,6 +629,7 @@ private final class VirtualTimelinePageProvider: ChatTimelinePageProviding {
     }
 
     func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem] {
+        aroundCalls += 1
         guard let index = messages.firstIndex(where: { $0.primary == anchor.primary }) else {
             return []
         }
@@ -471,5 +654,11 @@ private final class VirtualTimelinePageProvider: ChatTimelinePageProviding {
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
         let byPrimary = Dictionary(uniqueKeysWithValues: messages.map { ($0.primary, $0) })
         return primaryKeys.compactMap { byPrimary[$0] }
+    }
+
+    func items(archiveCursorIDs: [String]) -> [MessageStorageItem] {
+        archiveCursorQuerySizes.append(archiveCursorIDs.count)
+        let requested = Set(archiveCursorIDs)
+        return messages.filter { requested.contains($0.mamArchiveId) }
     }
 }

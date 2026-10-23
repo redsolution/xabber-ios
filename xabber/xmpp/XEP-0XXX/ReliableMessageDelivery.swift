@@ -54,8 +54,7 @@ enum ReliableMessageDeliveryReceiptProcessor {
                 liveAdmissionRows = messageSnapshot.compactMap { message in
                     guard !message.isDeleted,
                           !message.isLocallyHiddenByReport,
-                          ArchiveCursor(rawValue: message.archivedId)?
-                            .numericValue != receiptCursor.numericValue else {
+                          ArchiveCursor(rawValue: message.archivedId) != receiptCursor else {
                         return nil
                     }
                     return (

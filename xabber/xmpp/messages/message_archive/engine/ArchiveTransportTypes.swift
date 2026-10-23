@@ -11,6 +11,8 @@ struct ArchiveTransportRequest: Hashable, Sendable {
     let proofFingerprint: String
     let isUnfiltered: Bool
     let producesContinuousCoverage: Bool
+    /// Correlates ordering with the query actually sent; ordinary MAM is chronological.
+    var usesFlippedPage: Bool = false
 }
 
 /// A raw protocol reference is a lookup input, never an archive cursor.
@@ -140,14 +142,14 @@ enum ArchiveSearchTransportReceiptValidator {
         if exhausted {
             continuation = nil
         } else {
-            let normalized = receipt.first.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard normalized.isNotEmpty else {
+            let cursor = receipt.first
+            guard cursor.isNotEmpty else {
                 throw ArchiveTransportValidationError.malformedBoundary
             }
-            guard normalized != request.pageCursor else {
+            guard ArchiveCursor(rawValue: cursor) != request.pageCursor.flatMap(ArchiveCursor.init(rawValue:)) else {
                 throw ArchiveTransportValidationError.nonAdvancingCursor
             }
-            continuation = normalized
+            continuation = cursor
         }
         return ValidatedArchiveSearchPage(
             messages: receipt.messages,
@@ -241,7 +243,12 @@ enum ArchiveTransportReceiptValidator {
             throw error
         }
 
-        let chronological = cursors.sorted()
+        guard Set(cursors).count == cursors.count else {
+            throw ArchiveTransportValidationError.malformedArchiveID
+        }
+        // MAM UIDs are opaque. Only the request's transmission flag supplies
+        // direction; never sort them numerically or lexicographically.
+        let chronological = request.usesFlippedPage ? Array(cursors.reversed()) : cursors
         let normalizedArchiveIDs = chronological.map(\.rawValue)
         let isNewestUnfilteredRequest: Bool
         if case .latest = request.locator {
@@ -275,7 +282,7 @@ enum ArchiveTransportReceiptValidator {
 
         guard let first = ArchiveCursor(rawValue: receipt.first),
               let last = ArchiveCursor(rawValue: receipt.last),
-              Set([first, last]) == Set([oldest, newest]) || oldest == newest else {
+              Set([first, last]) == Set([oldest, newest]) else {
             throw ArchiveTransportValidationError.malformedBoundary
         }
 
@@ -288,23 +295,20 @@ enum ArchiveTransportReceiptValidator {
             reachesArchiveStart = receipt.complete
             adjacency = nil
         case .older(let boundary):
-            guard newest < boundary else {
-                throw newest == boundary
-                    ? ArchiveTransportValidationError.nonAdvancingCursor
-                    : ArchiveTransportValidationError.invalidDirection
+            guard !cursors.contains(boundary) else {
+                throw ArchiveTransportValidationError.nonAdvancingCursor
             }
             reachesArchiveStart = receipt.complete
             adjacency = .older(before: boundary)
         case .newer(let boundary), .firstUnread(.some(let boundary)):
-            guard oldest > boundary else {
-                throw oldest == boundary
-                    ? ArchiveTransportValidationError.nonAdvancingCursor
-                    : ArchiveTransportValidationError.invalidDirection
+            guard !cursors.contains(boundary) else {
+                throw ArchiveTransportValidationError.nonAdvancingCursor
             }
             reachesLiveEdge = receipt.complete
             adjacency = .newer(after: boundary)
         case .gap(let olderBoundary, let newerBoundary):
-            guard oldest > olderBoundary, newest < newerBoundary else {
+            guard olderBoundary != newerBoundary,
+                  !cursors.contains(olderBoundary), !cursors.contains(newerBoundary) else {
                 throw ArchiveTransportValidationError.invalidDirection
             }
             adjacency = receipt.complete
@@ -327,8 +331,7 @@ enum ArchiveTransportReceiptValidator {
             request.locator.isContinuousArchiveWindow
         let segment = canProduceCoverage
             ? ArchiveCoverageSegment(
-                oldest: oldest,
-                newest: newest,
+                orderedArchiveIDs: chronological,
                 reachesArchiveStart: reachesArchiveStart,
                 reachesLiveEdge: reachesLiveEdge,
                 fingerprint: request.proofFingerprint,
@@ -364,6 +367,8 @@ enum ArchiveRepositoryCommit: Hashable, Sendable {
     case verified(ArchiveWindowSnapshot)
     case authoritativeEmpty
     case materializedWithoutCoverage
+    /// Successful empty page without an authoritative end marker.
+    case noProgress
     case coverageAdvanced(nextGapBoundary: ArchiveCursor)
 }
 

@@ -10,24 +10,26 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
     static func make(
         summary: MessageManager.ArchivePersistenceSummary,
         deliveredArchiveIDs: [String],
-        explicitlyConsumedArchiveIDs: Set<String>,
+        explicitlyConsumedArchiveIDs: Set<ArchiveCursor>,
         materializedMessages: [ArchiveMaterializedMessageIdentity]
     ) -> ArchiveTransportPersistenceAccounting {
-        let deliveredIDs = Set(deliveredArchiveIDs.filter(\.isNotEmpty))
+        let deliveredIDs = Set(deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)))
         let materializedByArchiveID = Dictionary(
-            grouping: materializedMessages,
-            by: \.archiveID
+            grouping: materializedMessages.compactMap { identity in
+                ArchiveCursor(rawValue: identity.archiveID).map { ($0, identity.primaryID) }
+            },
+            by: { $0.0 }
         )
         let duplicateMaterializedIDs = Set(
             materializedByArchiveID.compactMap { archiveID, identities in
-                Set(identities.map(\.primaryID)).count > 1 ? archiveID : nil
+                Set(identities.map { Data($0.1.utf8) }).count > 1 ? archiveID : nil
             }
         ).intersection(deliveredIDs)
         let uniquePrimaryByArchiveID = materializedByArchiveID.reduce(
-            into: [String: String]()
+            into: [ArchiveCursor: String]()
         ) { result, entry in
-            guard Set(entry.value.map(\.primaryID)).count == 1,
-                  let primaryID = entry.value.first?.primaryID else {
+            guard Set(entry.value.map { Data($0.1.utf8) }).count == 1,
+                  let primaryID = entry.value.first?.1 else {
                 return
             }
             result[entry.key] = primaryID
@@ -41,7 +43,7 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
         let unaccountedIDs = unresolvedIDs
             .subtracting(explicitlyConsumedArchiveIDs)
             .union(duplicateMaterializedIDs)
-        let orderedPrimaryIDs = deliveredArchiveIDs.compactMap {
+        let orderedPrimaryIDs = deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)).compactMap {
             uniquePrimaryByArchiveID[$0]
         }
         return ArchiveTransportPersistenceAccounting(
@@ -62,7 +64,7 @@ enum ArchiveTransportShadowConsumptionPolicy {
     static func archiveIDs(
         summary: MessageManager.ArchivePersistenceSummary,
         conversation: ArchiveConversationKey
-    ) -> Set<String> {
+    ) -> Set<ArchiveCursor> {
         guard conversation.conversationType == .group else {
             return []
         }
@@ -81,13 +83,10 @@ enum ArchiveTransportShadowConsumptionPolicy {
 enum ArchiveSearchTransportRowPolicy {
     static func strictMAMArchiveID(for item: MessageStorageItem) -> String? {
         let archiveID = item.mamArchiveId
-        let normalized = archiveID.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        guard normalized.isNotEmpty else {
+        guard archiveID.isNotEmpty else {
             return nil
         }
-        return normalized
+        return archiveID
     }
 
     static func accepts(
@@ -136,7 +135,7 @@ enum ArchiveSearchTransportRowInsertResult: Equatable {
 /// The transaction owns synchronization; this value intentionally has no lock.
 struct ArchiveSearchTransportRowAccumulator {
     private(set) var messages: [ArchiveSearchMessage] = []
-    private var primaryIDByIdentityKey: [String: String] = [:]
+    private var primaryIDByIdentityKey: [Data: String] = [:]
     private(set) var hasConflictingArchiveIdentity = false
 
     mutating func insert(
@@ -147,14 +146,15 @@ struct ArchiveSearchTransportRowAccumulator {
         ) else {
             return .duplicate
         }
-        if let existingPrimaryID = primaryIDByIdentityKey[identityKey] {
-            guard existingPrimaryID == message.primaryID else {
+        let exactIdentityKey = Data(identityKey.utf8)
+        if let existingPrimaryID = primaryIDByIdentityKey[exactIdentityKey] {
+            guard existingPrimaryID.utf8.elementsEqual(message.primaryID.utf8) else {
                 hasConflictingArchiveIdentity = true
                 return .conflictingPrimary
             }
             return .duplicate
         }
-        primaryIDByIdentityKey[identityKey] = message.primaryID
+        primaryIDByIdentityKey[exactIdentityKey] = message.primaryID
         messages.append(message)
         return .inserted
     }
@@ -621,7 +621,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             purpose: purpose,
             queryId: request.queryID,
             ids: ids,
-            flipPage: true,
+            flipPage: request.usesFlippedPage,
             beforeId: beforeID,
             afterId: afterID,
             start: startDate,

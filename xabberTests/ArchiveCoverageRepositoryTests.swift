@@ -29,6 +29,170 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         super.tearDown()
     }
 
+
+    func testOpaquePagePersistsServerOrderAndMembershipWithoutDateOrIDSorting() async throws {
+        let repository = makeRepository()
+        var request = makeRequest(queryID: "opaque-order")
+        request.usesFlippedPage = false
+        for (primary, id) in [("p-z", "z"), ("p-2", "2"), ("p-a", "a")] {
+            try persistMessage(primary: primary, archivedID: id)
+        }
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: ["z", "2", "a"], primaryIDs: ["p-z", "p-2", "p-a"], complete: true), for: request)
+        let result = try await repository.commit(page, request: request,
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: request.queryID))
+        guard case .verified(let snapshot) = result else { return XCTFail("Expected opaque ordered proof") }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p-z", "p-2", "p-a"])
+        XCTAssertEqual(snapshot.verifiedSegment.orderedArchiveIDs.map(\.rawValue), ["z", "2", "a"])
+        XCTAssertFalse(snapshot.verifiedSegment.contains(ArchiveCursor(rawValue: "5")!))
+    }
+
+    func testMaterializationAndCoverageKeepCanonicallyEquivalentUIDsDistinct() async throws {
+        let ids = ["caf\u{00E9}", "cafe\u{0301}"]
+        let primaries = ["p-composed", "p-decomposed"]
+        for (primary, id) in zip(primaries, ids) {
+            try persistMessage(primary: primary, archivedID: id)
+        }
+        let repository = makeRepository()
+        let materialized = try await repository.materializedMessages(conversation: conversation, archiveIDs: ids)
+        XCTAssertEqual(materialized.map(\.primaryID), primaries)
+        XCTAssertEqual(materialized.map { Array($0.archiveID.utf8) }, ids.map { Array($0.utf8) })
+
+        var request = makeRequest(queryID: "unicode-materialization")
+        request.usesFlippedPage = false
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: ids, primaryIDs: primaries, complete: true), for: request)
+        let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: request.queryID)
+        let result = try await repository.commit(page, request: request, freshnessToken: token)
+        guard case .verified(let snapshot) = result else { return XCTFail("Expected exact UID coverage") }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, primaries)
+        XCTAssertEqual(snapshot.verifiedSegment.orderedArchiveIDs.map { Array($0.rawValue.utf8) },
+            ids.map { Array($0.utf8) })
+        let anchor = try await repository.materializedAnchor(conversation: conversation,
+            locator: .archiveID(ArchiveCursor(rawValue: ids[1])!), candidateArchiveIDs: ids)
+        XCTAssertEqual(anchor?.primaryID, primaries[1])
+    }
+
+    func testSuccessfulEmptyUnknownPageIsNoProgressWithoutCoverageOrFalseEmpty() async throws {
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "opaque-no-progress")
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: [], primaryIDs: [], complete: false), for: request)
+        let result = try await repository.commit(page, request: request,
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: request.queryID))
+        XCTAssertEqual(result, .noProgress)
+        let realm = try await Realm(configuration: configuration)
+        XCTAssertTrue(realm.objects(ConversationArchiveCoverageStorageItem.self).isEmpty)
+    }
+
+
+    func testConflictingOpaqueOrderDoesNotReplacePreviouslyCommittedProof() async throws {
+        let repository = makeRepository()
+        var request = makeRequest(queryID: "opaque-consistent")
+        request.usesFlippedPage = false
+        for (primary, id) in [("p-z", "z"), ("p-2", "2"), ("p-a", "a")] {
+            try persistMessage(primary: primary, archivedID: id)
+        }
+        let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: request.queryID)
+        let first = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: ["z", "2", "a"], primaryIDs: ["p-z", "p-2", "p-a"], complete: true), for: request)
+        _ = try await repository.commit(first, request: request, freshnessToken: token)
+        let conflicting = try ArchiveTransportReceiptValidator.validate(receipt(request: request,
+            archiveIDs: ["2", "z", "a"], primaryIDs: ["p-2", "p-z", "p-a"], complete: true), for: request)
+        do {
+            _ = try await repository.commit(conflicting, request: request, freshnessToken: token)
+            XCTFail("A contradictory page cannot replace server order")
+        } catch {
+            XCTAssertEqual(error as? ArchiveCoverageRepositoryError, .persistedMessageIdentityMismatch)
+        }
+        let realm = try await Realm(configuration: configuration)
+        let stored = try XCTUnwrap(realm.objects(ConversationArchiveCoverageStorageItem.self).first)
+        XCTAssertEqual(stored.coverageGeneration, 1)
+        XCTAssertEqual(stored.segments.first?.orderedArchiveIDs.map(\.rawValue), ["z", "2", "a"])
+    }
+
+    func testCorruptCoverageMetadataCannotBeAdmittedAsAnEmptyArchive() async throws {
+        let realm = try await Realm(configuration: configuration)
+        try realm.write {
+            let stored = ConversationArchiveCoverageStorageItem.ensure(key: conversation, in: realm)
+            stored.archiveFreshnessFingerprint = "session:1"
+            stored.coverageGeneration = 1
+            stored.segmentsJSON = "{broken"
+        }
+        let admission = try await makeRepository().verifiedAdmission(for: currentTailIntent(.latest),
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "read-corruption"))
+        XCTAssertNil(admission)
+    }
+
+
+    func testLatestLargeLedgerMaterializesOnlyItsBoundedEightyRowWindow() async throws {
+        let probe = ArchiveMaterializationProbe()
+        let configuration = self.configuration!
+        let repository = RealmArchiveCoverageRepository(realmProvider: { try Realm(configuration: configuration) },
+            materializationBatchObserver: { probe.record(ids: $0, rows: $1) })
+        let ids = (0..<100_000).map { ArchiveCursor(rawValue: "opaque/" + String($0))! }
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(orderedArchiveIDs: ids,
+            reachesArchiveStart: true, reachesLiveEdge: true, fingerprint: "session:1", isVerified: true))
+        let realm = try await Realm(configuration: configuration)
+        try realm.write {
+            let storage = ConversationArchiveCoverageStorageItem.ensure(key: conversation, in: realm)
+            storage.archiveFreshnessFingerprint = "session:1"
+            storage.coverageGeneration = 1
+            storage.segments = [segment]
+            for index in Array(99_920..<100_000) + [0, 1] {
+                let message = MessageStorageItem()
+                message.primary = "p/" + String(index)
+                message.owner = conversation.owner
+                message.opponent = conversation.jid
+                message.conversationType = conversation.conversationType
+                message.mamArchiveId = ids[index].rawValue
+                message.date = Date(timeIntervalSince1970: Double(100_000 - index))
+                realm.add(message)
+            }
+        }
+        let admission = try await repository.verifiedAdmission(for: currentTailIntent(.latest),
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "large-ledger"))
+        guard case .verified(let snapshot) = admission else { return XCTFail("Expected bounded persisted admission") }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, (99_920..<100_000).map { "p/" + String($0) })
+        XCTAssertEqual(probe.batches.map(\.ids), [80])
+        XCTAssertEqual(probe.batches.map(\.rows), [80])
+    }
+
+    func testSparseOpaqueLedgerScansBoundedBatchesWithoutDroppingVisibleRows() async throws {
+        let probe = ArchiveMaterializationProbe()
+        let configuration = self.configuration!
+        let repository = RealmArchiveCoverageRepository(realmProvider: { try Realm(configuration: configuration) },
+            materializationBatchObserver: { probe.record(ids: $0, rows: $1) })
+        let ids = (0..<240).map { ArchiveCursor(rawValue: "opaque/" + String($0))! }
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(orderedArchiveIDs: ids,
+            reachesArchiveStart: true, reachesLiveEdge: true, fingerprint: "session:1", isVerified: true))
+        let realm = try await Realm(configuration: configuration)
+        try realm.write {
+            let storage = ConversationArchiveCoverageStorageItem.ensure(key: conversation, in: realm)
+            storage.archiveFreshnessFingerprint = "session:1"
+            storage.coverageGeneration = 1
+            storage.segments = [segment]
+            for index in [1, 119, 160, 220] {
+                let message = MessageStorageItem()
+                message.primary = "p/" + String(index)
+                message.owner = conversation.owner
+                message.opponent = conversation.jid
+                message.conversationType = conversation.conversationType
+                message.mamArchiveId = ids[index].rawValue
+                message.isDeleted = index == 220
+                realm.add(message)
+            }
+        }
+        let intent = ArchiveWindowIntent(conversation: conversation, locator: .latest,
+            contextBefore: 2, contextAfter: 0, priority: .visibleIntegrity)
+        let admission = try await repository.verifiedAdmission(for: intent,
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "sparse-ledger"))
+        guard case .verified(let snapshot) = admission else { return XCTFail("Expected sparse visible admission") }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p/119", "p/160"])
+        XCTAssertTrue(probe.batches.allSatisfy { $0.ids <= 100 && $0.rows <= 100 })
+        XCTAssertLessThan(probe.batches.reduce(0) { $0 + $1.rows }, 10)
+    }
+
     func testMissingPersistedRowsEmitExactUnsampledCommitDiagnostic() async throws {
         var traceLines: [String] = []
         ChatArchiveDebugTrace.configureForTesting(
@@ -382,7 +546,8 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             contextAfter: 2,
             proofFingerprint: "session:1",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let olderPage = try ArchiveTransportReceiptValidator.validate(
             ArchiveTransportReceipt(
@@ -453,7 +618,8 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "session:1",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let emptyPage = try ArchiveTransportReceiptValidator.validate(
             receipt(
@@ -519,7 +685,8 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
                 reachesArchiveStart: true,
                 reachesLiveEdge: false,
                 fingerprint: "session:1",
-                isVerified: true
+                isVerified: true,
+                orderedArchiveIDs: [oldest, newest]
             ))]
         }
 
@@ -533,7 +700,8 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             contextAfter: 100,
             proofFingerprint: "session:1",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let emptyPage = try ArchiveTransportReceiptValidator.validate(
             receipt(
@@ -741,6 +909,18 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         // Models a MAM-backed row persisted while no chat presentation is
         // attached, so the previously proven live edge was not extended.
         try persistMessage(primary: "p30", archivedID: "30")
+        let tailRealm = try await Realm(configuration: configuration)
+        try tailRealm.write {
+            let chat = LastChatsStorageItem()
+            chat.owner = conversation.owner
+            chat.jid = conversation.jid
+            chat.conversationType = conversation.conversationType
+            chat.primary = LastChatsStorageItem.genPrimary(jid: conversation.jid,
+                owner: conversation.owner, conversationType: conversation.conversationType)
+            chat.lastMessage = tailRealm.object(ofType: MessageStorageItem.self, forPrimaryKey: "p30")
+            chat.lastMessageId = "m30"
+            tailRealm.add(chat, update: .modified)
+        }
 
         let admission = try await repository.verifiedAdmission(
             for: ArchiveWindowIntent(
@@ -1146,7 +1326,8 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "session:\(connectionGeneration)",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
     }
 
@@ -1189,7 +1370,8 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             contextAfter: 30,
             proofFingerprint: fingerprint,
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
     }
 
@@ -1234,5 +1416,18 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             message.date = Date(timeIntervalSince1970: TimeInterval(archivedID) ?? 0)
             realm.add(message, update: .modified)
         }
+    }
+}
+
+private final class ArchiveMaterializationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [(ids: Int, rows: Int)] = []
+    func record(ids: Int, rows: Int) {
+        lock.lock(); defer { lock.unlock() }
+        values.append((ids, rows))
+    }
+    var batches: [(ids: Int, rows: Int)] {
+        lock.lock(); defer { lock.unlock() }
+        return values
     }
 }

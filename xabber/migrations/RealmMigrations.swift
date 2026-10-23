@@ -33,7 +33,9 @@ enum XabberRealmSchema {
     /// protected owner aggregate can authorize sends; no history is migrated.
     /// Schema 26 labels the local XabberCryptoSwift public projection. Old
     /// projections remain unmarked; no identity, session or history is imported.
-    static let current: UInt64 = 26
+    /// Schema 27 removes UID-derived local order and rebuilds the local index.
+    /// Persisted message bodies, opaque identities and crypto state are kept.
+    static let current: UInt64 = 27
 }
 
 
@@ -446,6 +448,33 @@ func makeRealmMigrationConfiguration(
                 // receive. Keep history untouched and start with no evidence.
                 migration.enumerateObjects(ofType: MessageStanzaStorageItem.className()) { _, newObject in
                     newObject?["omemo2ReplayFingerprint"] = nil
+                }
+            }
+            if oldSchemaVersion < 27,
+               migration.newSchema.objectSchema.contains(where: { $0.className == MessageStorageItem.className() }) {
+                migration.enumerateObjects(ofType: MessageStorageItem.className()) { _, row in
+                    guard let row else { return }
+                    let components = MessageHistoryPositionComponents.make(
+                        primary: row["primary"] as? String ?? "",
+                        archivedId: nil,
+                        messageId: row["messageId"] as? String,
+                        date: row["date"] as? Date ?? Date(timeIntervalSince1970: 0)
+                    )
+                    row["historyPositionOrdinal"] = components.ordinal
+                    row["historyPositionKind"] = components.kind
+                    row["historyPositionHigh"] = components.high
+                    row["historyPositionLow"] = components.low
+                    row["historyPositionDiscriminator"] = components.discriminator
+                    row["rawProtocolStanzaIDNumericValue"] = Int64(0)
+                    row["historyLinkedIndexVersion"] = 0
+                    row["historyPreviousMessagePrimary"] = nil
+                    row["historyNextMessagePrimary"] = nil
+                }
+                if migration.newSchema.objectSchema.contains(where: { $0.className == ChatLocalHistoryIndexStorageItem.className() }) {
+                    // Remove derived metadata as well as row links. Otherwise
+                    // the next upsert could promote a stale state to current
+                    // without rebuilding the rest of the conversation.
+                    migration.deleteData(forType: ChatLocalHistoryIndexStorageItem.className())
                 }
             }
             if oldSchemaVersion < 26,

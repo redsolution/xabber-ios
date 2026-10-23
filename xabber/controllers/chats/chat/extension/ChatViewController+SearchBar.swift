@@ -190,23 +190,14 @@ enum ChatInitialPositionPolicy {
     }
 
     static func normalizedUnreadBoundaryId(_ value: String?) -> String? {
-        guard let normalized = normalizedId(value),
-              let numericValue = Double(normalized),
-              numericValue > 0 else {
-            return nil
-        }
-
-        return normalized
+        normalizedId(value)
     }
 
     static func normalizedId(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              value.isNotEmpty else {
-            return nil
-        }
-
+        guard let value, value.isNotEmpty else { return nil }
         return value
     }
+
 }
 
 enum ChatUnreadBoundaryTargetPolicy {
@@ -233,41 +224,21 @@ enum ChatUnreadBoundaryTargetPolicy {
 
     /// XEP-SYNC `unread@after` is a protocol stanza ID. It is intentionally
     /// compared only with `MessageStorageItem.archivedId`, never with an outer
-    /// MAM result cursor.
+    /// MAM result cursor. Candidates must follow their known chronological
+    /// ledger/local order; neither IDs nor timestamps establish that order.
     static func firstIncoming<T>(
         in candidates: [T],
         after boundaryArchivedId: String,
         archivedId: (T) -> String?,
         isOutgoing: (T) -> Bool
     ) -> T? {
-        guard let boundary = numericValue(boundaryArchivedId) else {
-            return nil
-        }
-
-        return candidates
-            .filter { candidate in
-                guard !isOutgoing(candidate),
-                      let value = numericValue(archivedId(candidate)) else {
-                    return false
-                }
-                return value > boundary
-            }
-            .min { lhs, rhs in
-                (numericValue(archivedId(lhs)) ?? .max)
-                    < (numericValue(archivedId(rhs)) ?? .max)
-            }
+        guard !boundaryArchivedId.isEmpty else { return nil }
+        guard let boundaryIndex = candidates.firstIndex(where: {
+            archivedId($0)?.utf8.elementsEqual(boundaryArchivedId.utf8) == true
+        }) else { return nil }
+        return candidates.dropFirst(boundaryIndex + 1).first { !isOutgoing($0) }
     }
 
-    static func numericValue(_ rawProtocolStanzaId: String?) -> UInt64? {
-        guard let rawProtocolStanzaId = rawProtocolStanzaId?.trimmingCharacters(
-                in: .whitespacesAndNewlines
-              ),
-              let value = UInt64(rawProtocolStanzaId),
-              value > 0 else {
-            return nil
-        }
-        return value
-    }
 }
 
 enum ChatVisiblePositionPolicy {

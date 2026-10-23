@@ -150,6 +150,64 @@ final class AccountArchiveEngineSearchTests: XCTestCase {
         XCTAssertEqual(retained.residentMessages.map(\.primaryID), ["search-primary-1"])
     }
 
+    func testCanonicalEquivalentSearchCursorsRemainDistinctUntilExactReplay() async throws {
+        let composed = "uid-\u{00e9}"
+        let decomposed = "uid-e\u{0301}"
+        XCTAssertEqual(composed, decomposed, "Swift text equality deliberately normalizes this fixture")
+        XCTAssertNotEqual(Array(composed.utf8), Array(decomposed.utf8))
+        let continuations = [composed, decomposed, "tail", composed]
+        let expectedRequests: [String?] = [nil, composed, decomposed, "tail"]
+        let transport = ArchiveSearchTransportSpy()
+        let engine = makeEngine(transport: transport)
+        let stream = await engine.searchStates(for: conversation)
+        var states = stream.makeAsyncIterator()
+        await engine.connectionDidBecomeReady(generation: 31)
+        _ = await engine.startSearch(intent(id: "exact-unicode-cursors"))
+
+        for page in continuations.indices {
+            guard case .loading = await states.next() else {
+                return XCTFail("Expected explicit page \(page + 1) loading")
+            }
+            guard await waitForRequests(page + 1, transport: transport) else {
+                return XCTFail("Expected page \(page + 1) request")
+            }
+            let recorded = await transport.request(at: page)
+            let request = try XCTUnwrap(recorded).request
+            XCTAssertEqual(request.pageCursor.map { Array($0.utf8) },
+                           expectedRequests[page].map { Array($0.utf8) })
+            await transport.resolve(at: page,
+                with: .page(cursor: continuations[page], complete: false, messageOrdinal: page))
+            if page < 3 {
+                guard case .results(let snapshot) = await states.next() else {
+                    return XCTFail("Byte-distinct cursor must advance page \(page + 1)")
+                }
+                XCTAssertEqual(snapshot.continuationCursor.map { Array($0.utf8) }, Array(continuations[page].utf8))
+                XCTAssertEqual(snapshot.residentPages.count, page + 1)
+                if page == 2 {
+                    XCTAssertEqual(snapshot.cursorStack.map { Array($0.utf8) },
+                                   [Array("".utf8), Array(composed.utf8), Array(decomposed.utf8)])
+                }
+                let accepted = await engine.requestNextSearchPage(conversation: conversation,
+                    clientQueryID: "exact-unicode-cursors")
+                XCTAssertTrue(accepted)
+            } else {
+                guard case .retryableFailure(let retained, let failure) = await states.next() else {
+                    return XCTFail("Exact replay of a prior cursor must terminate")
+                }
+                XCTAssertFalse(failure.canRetry)
+                XCTAssertEqual(retained.residentPages.count, 3)
+                XCTAssertEqual(retained.residentMessages.map(\.primaryID),
+                               ["search-primary-0", "search-primary-1", "search-primary-2"])
+                XCTAssertEqual(retained.continuationCursor.map { Array($0.utf8) }, Array("tail".utf8))
+                let accepted = await engine.requestNextSearchPage(conversation: conversation,
+                    clientQueryID: "exact-unicode-cursors")
+                XCTAssertFalse(accepted)
+            }
+        }
+        let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 4)
+    }
+
     func testTransientFailureRetainsPagesAndContinuationCursor() async throws {
         let transport = ArchiveSearchTransportSpy()
         let engine = makeEngine(transport: transport)

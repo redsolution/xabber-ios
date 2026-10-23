@@ -66,7 +66,7 @@ final class ChatSearchResultPresentationTests: XCTestCase {
         XCTAssertNil(ChatSearchResultMapper.map(wrongOwner, context: regularContext))
     }
 
-    func testOrderingIsNewestFirstWithStableArchiveAndPrimaryTieBreaks() throws {
+    func testOrderingIsNewestFirstAndPreservesSuppliedOrderForTiedDates() throws {
         let older = makeMessage(primary: "older", archivedId: "9", date: Date(timeIntervalSince1970: 10))
         let tieArchiveLow = makeMessage(primary: "z-primary", archivedId: "10", date: Date(timeIntervalSince1970: 20))
         let tieArchiveHigh = makeMessage(primary: "a-primary", archivedId: "20", date: Date(timeIntervalSince1970: 20))
@@ -83,8 +83,33 @@ final class ChatSearchResultPresentationTests: XCTestCase {
 
         XCTAssertEqual(
             ordered.map(\.id),
-            [.archived("20"), .archived("10"), .primary("primary-z"), .primary("primary-a"), .archived("9")]
+            [.archived("10"), .archived("20"), .primary("primary-a"), .primary("primary-z"), .archived("9")]
         )
+    }
+
+    func testSearchIdentityKeepsWhitespaceAndLeadingZerosInMAMToken() throws {
+        let item = makeMessage(primary: "local", archivedId: "raw")
+        item.mamArchiveId = " 001 "
+        let result = try XCTUnwrap(ChatSearchResultMapper.map(item, context: regularContext))
+        XCTAssertEqual(result.id, .archived(" 001 "))
+        XCTAssertEqual(result.anchor.archiveCursorID, " 001 ")
+        XCTAssertEqual(ChatSearchSelectionIdentity.make(mamArchiveId: " 001 ", primary: "local", archivedId: "raw"), "mam: 001 ")
+    }
+
+    func testSearchDoesNotNormalizeDistinctUnicodeMAMIDsIntoOneResult() throws {
+        let composed = "\u{e9}"
+        let decomposed = "e\u{301}"
+        let first = makeMessage(primary: "first", archivedId: "raw-first")
+        first.mamArchiveId = composed
+        let second = makeMessage(primary: "second", archivedId: "raw-second")
+        second.mamArchiveId = decomposed
+        let results = try [first, second].map {
+            try XCTUnwrap(ChatSearchResultMapper.map($0, context: regularContext))
+        }
+        XCTAssertEqual(ChatSearchResultCollection.orderedAndDeduplicated(results).count, 2)
+        XCTAssertFalse(ChatSearchSelectionIdentity.matches("mam:" + composed,
+            mamArchiveId: decomposed, primary: "second", archivedId: "raw-second"))
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological([first, second]).count, 2)
     }
 
     func testOutgoingSenderTitleUsesLocalizedYou() throws {

@@ -1191,8 +1191,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     private static func normalizedArchiveId(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              value.isNotEmpty else {
+        guard let value, value.isNotEmpty else {
             return nil
         }
         return value

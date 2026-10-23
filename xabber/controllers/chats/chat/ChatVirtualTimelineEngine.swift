@@ -13,6 +13,19 @@ struct ChatTimelineVerifiedScope: Equatable, Sendable {
     let coverageGeneration: UInt64
     let connectionGeneration: UInt64
     let freshnessFingerprint: String
+    private let segment: ArchiveCoverageSegment
+
+    var orderedArchiveIDs: [ArchiveCursor] { segment.orderedArchiveIDs }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // Segment identity uses its cached, length-framed ledger digest. Scope
+        // checks occur during scrolling and must not walk the archive history.
+        lhs.conversationKey == rhs.conversationKey &&
+            lhs.coverageGeneration == rhs.coverageGeneration &&
+            lhs.connectionGeneration == rhs.connectionGeneration &&
+            lhs.freshnessFingerprint == rhs.freshnessFingerprint &&
+            lhs.segment == rhs.segment
+    }
 
     init?(
         conversationKey: ChatTimelineConversationKey,
@@ -35,10 +48,19 @@ struct ChatTimelineVerifiedScope: Equatable, Sendable {
         self.coverageGeneration = coverageGeneration
         self.connectionGeneration = connectionGeneration
         self.freshnessFingerprint = freshnessToken.fingerprint
+        self.segment = segment
     }
 
     func contains(_ cursor: ArchiveCursor) -> Bool {
-        cursor >= oldest && cursor <= newest
+        segment.contains(cursor)
+    }
+
+    func index(of cursor: ArchiveCursor) -> Int? {
+        segment.index(of: cursor)
+    }
+
+    func isBefore(_ lhs: ArchiveCursor, _ rhs: ArchiveCursor) -> Bool {
+        segment.isBefore(lhs, rhs)
     }
 
     func contains(_ message: MessageStorageItem) -> Bool {
@@ -69,11 +91,31 @@ struct ChatTimelineVerifiedScope: Equatable, Sendable {
               coverageGeneration >= previous.coverageGeneration else {
             return false
         }
-        switch direction {
-        case .older:
-            return oldest <= previous.oldest && newest >= previous.newest
-        case .newer:
-            return oldest <= previous.oldest && newest >= previous.newest
+        return segment.containsSegment(previous.segment)
+    }
+
+    /// Only the server's recorded page order orders verified rows. Local dates,
+    /// stanza IDs and the spelling of an opaque archive UID are not ordinals.
+    func ordered(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
+        var indexed: [(index: Int, sourceIndex: Int, item: MessageStorageItem)] = []
+        indexed.reserveCapacity(items.count)
+        for (sourceIndex, item) in items.enumerated() {
+            guard contains(item),
+                  let cursor = archiveCursor(for: item),
+                  let index = index(of: cursor) else { continue }
+            indexed.append((index, sourceIndex, item))
+        }
+        indexed.sort {
+            $0.index == $1.index
+                ? $0.sourceIndex < $1.sourceIndex
+                : $0.index < $1.index
+        }
+        var seen = Set<String>()
+        return indexed.compactMap { entry in
+            let keys = ChatTimelineMessageIdentity.keys(for: entry.item)
+            guard !keys.contains(where: { seen.contains($0) }) else { return nil }
+            seen.formUnion(keys)
+            return entry.item
         }
     }
 }
@@ -174,49 +216,48 @@ struct ChatVirtualTimelineEngine {
                 ? state.oldest
                 : state.newest,
               let boundaryCursor = boundary.archiveCursor,
-              verifiedScope.contains(boundaryCursor) else {
+              let boundaryIndex = verifiedScope.index(of: boundaryCursor) else {
             return .invalidProof
         }
 
-        let candidates: [MessageStorageItem]
-        switch direction {
-        case .older:
-            candidates = provider.older(before: boundary, limit: pageSize)
-        case .newer:
-            candidates = provider.newer(after: boundary, limit: pageSize)
-        }
-        let admitted = ChatTimelineOrdering.deduplicatedChronological(
-            candidates.filter { verifiedScope.contains($0) }
-        )
-
-        guard admitted.isNotEmpty else {
-            let scannedCursors = candidates.compactMap {
-                verifiedScope.archiveCursor(for: $0)
-            }
-            let exhaustedVerifiedScope: Bool
+        // Archive membership includes consumed envelopes that intentionally
+        // have no visible Realm row. Advance the ledger slice, rather than a
+        // date/UID comparison, until a visible page or its exact edge is found.
+        var scanBoundary = boundaryIndex
+        while true {
+            let range: Range<Int>
             switch direction {
             case .older:
-                exhaustedVerifiedScope = candidates.isEmpty ||
-                    scannedCursors.min().map { $0 <= verifiedScope.oldest } == true
+                range = max(0, scanBoundary - pageSize)..<scanBoundary
             case .newer:
-                exhaustedVerifiedScope = candidates.isEmpty ||
-                    scannedCursors.max().map { $0 >= verifiedScope.newest } == true
+                range = (scanBoundary + 1)..<min(verifiedScope.orderedArchiveIDs.count, scanBoundary + 1 + pageSize)
             }
-            return boundaryOutcome(
-                direction: direction,
-                boundaryCursor: boundaryCursor,
-                exhaustedVerifiedScope: exhaustedVerifiedScope
-            )
+            guard !range.isEmpty else {
+                return boundaryOutcome(
+                    direction: direction,
+                    boundaryCursor: boundaryCursor,
+                    exhaustedVerifiedScope: true
+                )
+            }
+            let ids = verifiedScope.orderedArchiveIDs[range].map(\.rawValue)
+            let requested = Set(verifiedScope.orderedArchiveIDs[range])
+            let candidates = provider.items(archiveCursorIDs: ids)
+            guard candidates.allSatisfy({ item in
+                verifiedScope.archiveCursor(for: item).map {
+                    requested.contains($0)
+                } ?? false
+            }) else { return .invalidProof }
+            let admitted = verifiedScope.ordered(candidates)
+            if admitted.isNotEmpty {
+                let combined = direction == .older
+                    ? admitted + currentItems
+                    : currentItems + admitted
+                return .local(apply(items: combined, direction: direction))
+            }
+            scanBoundary = direction == .older
+                ? range.lowerBound
+                : range.upperBound - 1
         }
-
-        let combined: [MessageStorageItem]
-        switch direction {
-        case .older:
-            combined = admitted + currentItems
-        case .newer:
-            combined = currentItems + admitted
-        }
-        return .local(apply(items: combined, direction: direction))
     }
 
     mutating func openAround(
@@ -225,31 +266,24 @@ struct ChatVirtualTimelineEngine {
         before: Int,
         after: Int
     ) -> ChatVirtualTimelineTargetOutcome<ChatTimelineSnapshot> {
-        guard verifiedScope.contains(archiveCursor) else {
+        guard let anchorIndex = verifiedScope.index(of: archiveCursor) else {
             return .needsArchiveTarget(archiveCursor)
         }
         let normalizedPrimary = primary.flatMap { $0.isNotEmpty ? $0 : nil }
-        guard let anchor = provider.message(
-            primary: normalizedPrimary,
-            archivedId: archiveCursor.rawValue,
-            messageId: nil
-        ),
-        verifiedScope.contains(anchor),
-        verifiedScope.archiveCursor(for: anchor) == archiveCursor,
-        normalizedPrimary.map({ anchor.primary == $0 }) ?? true else {
-            return .invalidProof
-        }
-
         let boundedBefore = min(max(0, before), pageSize)
         let boundedAfter = min(max(0, after), pageSize)
-        let admitted = ChatTimelineOrdering.deduplicatedChronological(
-            provider.around(
-                anchor: anchor,
-                before: boundedBefore,
-                after: boundedAfter
-            ).filter { verifiedScope.contains($0) }
-        )
-        guard admitted.contains(where: { $0.primary == anchor.primary }) else {
+        let lower = max(0, anchorIndex - boundedBefore)
+        let upper = min(verifiedScope.orderedArchiveIDs.count, anchorIndex + boundedAfter + 1)
+        let ids = verifiedScope.orderedArchiveIDs[lower..<upper].map(\.rawValue)
+        let requested = Set(verifiedScope.orderedArchiveIDs[lower..<upper])
+        let candidates = provider.items(archiveCursorIDs: ids)
+        guard candidates.allSatisfy({ item in
+            verifiedScope.archiveCursor(for: item).map { requested.contains($0) } ?? false
+        }) else { return .invalidProof }
+        let admitted = verifiedScope.ordered(candidates)
+        guard let anchor = admitted.first(where: {
+            verifiedScope.archiveCursor(for: $0) == archiveCursor
+        }), normalizedPrimary.map({ anchor.primary == $0 }) ?? true else {
             return .invalidProof
         }
         let candidate = apply(items: admitted, direction: nil)
@@ -294,8 +328,7 @@ struct ChatVirtualTimelineEngine {
         items: [MessageStorageItem],
         direction: ChatHistoryPageDirection?
     ) -> ChatTimelineSnapshot {
-        let admitted = items.filter { verifiedScope.contains($0) }
-        let ordered = ChatTimelineOrdering.deduplicatedChronological(admitted)
+        let ordered = verifiedScope.ordered(items)
         let bounded = ChatBoundedTimelineWindowPolicy.trimmedItems(
             ordered,
             direction: direction,
@@ -317,8 +350,8 @@ struct ChatVirtualTimelineEngine {
             segments.append(.unknownOlder)
         }
         segments.append(.loadedRange(
-            oldestArchiveId: oldest?.archivedId ?? verifiedScope.oldest.rawValue,
-            newestArchiveId: newest?.archivedId ?? verifiedScope.newest.rawValue
+            oldestArchiveId: oldestCursor?.rawValue ?? verifiedScope.oldest.rawValue,
+            newestArchiveId: newestCursor?.rawValue ?? verifiedScope.newest.rawValue
         ))
         if isAtLiveTail {
             segments.append(.liveTail)
@@ -333,9 +366,7 @@ struct ChatVirtualTimelineEngine {
             newest: newest,
             residentPrimaryKeys: bounded.map(\.primary),
             residentArchivedIds: bounded.compactMap {
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    $0.mamArchiveId
-                )
+                ArchiveCursor(rawValue: $0.mamArchiveId)?.rawValue
             },
             isResidentAtLiveTail: isAtLiveTail
         )
@@ -355,7 +386,7 @@ struct ChatVirtualTimelineEngine {
               materialized.allSatisfy({ scope.contains($0) }) else {
             return nil
         }
-        return ChatTimelineOrdering.deduplicatedChronological(materialized)
+        return scope.ordered(materialized)
     }
 
     private func snapshot(

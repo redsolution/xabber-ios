@@ -376,7 +376,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: pageSize / 2,
             proofFingerprint: "timestamp-proof",
             isUnfiltered: true,
-            producesContinuousCoverage: false
+            producesContinuousCoverage: false,
+            usesFlippedPage: true
         )
         let terminal = expectation(description: "timestamp lookup reaches its final barrier")
         let resultBox = LockedArchiveTransportResult()
@@ -824,12 +825,12 @@ final class ArchiveTransportReceiptTests: XCTestCase {
 
         XCTAssertEqual(
             ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item),
-            "300"
+            "  300  "
         )
 
         item.mamArchiveId = " \n "
 
-        XCTAssertNil(ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item))
+        XCTAssertEqual(ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item), " \n ")
     }
 
     func testMAMReplayDoesNotTreatLegacyRawIDAsOuterResultCollision() throws {
@@ -1287,7 +1288,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "session-proof",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let terminal = expectation(description: "adapter reaches one terminal receipt")
         let resultBox = LockedArchiveTransportResult()
@@ -1408,7 +1410,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "session-proof",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let adapterFailed = expectation(
             description: "missing final terminates the adapter continuation"
@@ -1501,7 +1504,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "session-proof",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let adapterFailed = expectation(
             description: "malformed final terminates the adapter continuation"
@@ -1612,7 +1616,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
                 contextAfter: 0,
                 proofFingerprint: "session:\(generation)",
                 isUnfiltered: true,
-                producesContinuousCoverage: true
+                producesContinuousCoverage: true,
+            usesFlippedPage: true
             )
         }
         func malformedFinal(queryID: String) throws -> XMPPIQ {
@@ -1884,7 +1889,7 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         let accounting = ArchiveTransportPersistenceAccounting.make(
             summary: summary,
             deliveredArchiveIDs: ["10", "20", "30"],
-            explicitlyConsumedArchiveIDs: ["10", "20"],
+            explicitlyConsumedArchiveIDs: [ArchiveCursor(rawValue: "10")!, ArchiveCursor(rawValue: "20")!],
             materializedMessages: [
                 ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
                 ArchiveMaterializedMessageIdentity(archiveID: "30", primaryID: "p30"),
@@ -1950,7 +1955,7 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             materializedMessages: []
         )
 
-        XCTAssertEqual(consumed, ["10", "20"])
+        XCTAssertEqual(consumed, [ArchiveCursor(rawValue: "10")!, ArchiveCursor(rawValue: "20")!])
         XCTAssertEqual(accounting.persistedResultCount, 0)
         XCTAssertEqual(accounting.intentionallyConsumedResultCount, 2)
         XCTAssertEqual(accounting.failedPersistenceCount, 0)
@@ -1960,7 +1965,7 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         let accounting = ArchiveTransportPersistenceAccounting.make(
             summary: MessageManager.ArchivePersistenceSummary(),
             deliveredArchiveIDs: ["10", "20"],
-            explicitlyConsumedArchiveIDs: ["10"],
+            explicitlyConsumedArchiveIDs: [ArchiveCursor(rawValue: "10")!],
             materializedMessages: [
                 ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
             ]
@@ -2005,7 +2010,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "sync-1",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let receipt = ArchiveTransportReceipt(
             queryID: "q1",
@@ -2045,7 +2051,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "sync-2",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let receipt = ArchiveTransportReceipt(
             queryID: "q-empty",
@@ -2084,7 +2091,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "sync-3",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let receipt = ArchiveTransportReceipt(
             queryID: request.queryID,
@@ -2120,7 +2128,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "sync-4",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
 
         var receipt = ArchiveTransportReceipt(
@@ -2180,7 +2189,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 0,
             proofFingerprint: "sync-5",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         var receipt = ArchiveTransportReceipt(
             queryID: request.queryID,
@@ -2204,9 +2214,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         receipt.resultArchiveIDs = ["not-numeric"]
         receipt.first = "not-numeric"
         receipt.last = "not-numeric"
-        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(receipt, for: request)) {
-            XCTAssertEqual($0 as? ArchiveTransportValidationError, .malformedArchiveID)
-        }
+        let opaquePage = try ArchiveTransportReceiptValidator.validate(receipt, for: request)
+        XCTAssertEqual(opaquePage.chronologicalArchiveIDs, ["not-numeric"])
     }
 
     func testSearchAndExactAnchorRowsNeverProduceTimelineCoverage() throws {
@@ -2221,7 +2230,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: 30,
             proofFingerprint: "sync-6",
             isUnfiltered: false,
-            producesContinuousCoverage: false
+            producesContinuousCoverage: false,
+            usesFlippedPage: true
         )
         let receipt = ArchiveTransportReceipt(
             queryID: request.queryID,
@@ -2257,7 +2267,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             contextAfter: ArchivePageSizing.history,
             proofFingerprint: "sync-gap",
             isUnfiltered: true,
-            producesContinuousCoverage: true
+            producesContinuousCoverage: true,
+            usesFlippedPage: true
         )
         let receipt = ArchiveTransportReceipt(
             queryID: request.queryID,
@@ -2280,5 +2291,175 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertEqual(page.segment?.oldest, ArchiveCursor(rawValue: "201"))
         XCTAssertEqual(page.adjacency, .older(before: newer))
         XCTAssertFalse(page.requestComplete)
+    }
+}
+
+final class OpaqueArchiveTransportReceiptTests: XCTestCase {
+    func testLegacyPageContinuationUsesExactCursorIdentity() {
+        let composed = "\u{e9}"
+        let decomposed = "e\u{301}"
+        XCTAssertTrue(MessageArchiveManager.archivePageFinalDisposition(
+            deliveredResultCount: 1, serverResultCount: nil, complete: false,
+            requestedPageCursor: composed, responseLastCursor: decomposed).shouldContinue)
+        XCTAssertFalse(MessageArchiveManager.archivePageFinalDisposition(
+            deliveredResultCount: 1, serverResultCount: nil, complete: false,
+            requestedPageCursor: composed, responseLastCursor: composed).shouldContinue)
+    }
+    private let conversation = ArchiveConversationKey(owner: "owner@example.org", jid: "peer@example.org", conversationType: .regular)
+
+    func testPersistenceSummaryAndAccountingKeepCanonicallyEquivalentUIDsDistinct() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        var summary = MessageManager.ArchivePersistenceSummary()
+        var merged = MessageManager.ArchivePersistenceSummary()
+        for (id, recordInFirst) in [(composed, true), (decomposed, false)] {
+            if recordInFirst {
+                summary.recordSkippedArchiveId(id)
+                summary.recordPersistedArchiveId(id, owner: conversation.owner,
+                    jid: conversation.jid, conversationType: .regular)
+            } else {
+                merged.recordSkippedArchiveId(id)
+                merged.recordPersistedArchiveId(id, owner: conversation.owner,
+                    jid: conversation.jid, conversationType: .regular)
+            }
+        }
+        summary.merge(merged)
+        XCTAssertEqual(summary.skippedArchiveIds.count, 2)
+        XCTAssertEqual(summary.persistedArchiveIdCount(owner: conversation.owner,
+            jid: conversation.jid, conversationType: .regular), 2)
+
+        let bothMaterialized = ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: [composed, decomposed], explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(archiveID: composed, primaryID: "p-composed"),
+                ArchiveMaterializedMessageIdentity(archiveID: decomposed, primaryID: "p-decomposed"),
+            ])
+        XCTAssertEqual(bothMaterialized.messagePrimaryIDs, ["p-composed", "p-decomposed"])
+        XCTAssertEqual(bothMaterialized.persistedResultCount, 2)
+        XCTAssertEqual(bothMaterialized.failedPersistenceCount, 0)
+
+        let oneConsumed = ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: [composed, decomposed],
+            explicitlyConsumedArchiveIDs: [ArchiveCursor(rawValue: decomposed)!],
+            materializedMessages: [ArchiveMaterializedMessageIdentity(archiveID: composed, primaryID: "p-composed")])
+        XCTAssertEqual(oneConsumed.messagePrimaryIDs, ["p-composed"])
+        XCTAssertEqual(oneConsumed.persistedResultCount, 1)
+        XCTAssertEqual(oneConsumed.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(oneConsumed.failedPersistenceCount, 0)
+    }
+
+    func testSearchContinuationDistinguishesCanonicalUnicodeEquivalenceFromExactReplay() throws {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        let request = ArchiveSearchTransportRequest(queryID: "unicode-search", conversation: conversation,
+            query: "needle", connectionGeneration: 7, pageCursor: composed, pageSize: 50)
+        func receipt(first: String) -> ArchiveSearchTransportReceipt {
+            ArchiveSearchTransportReceipt(queryID: request.queryID, connectionGeneration: 7,
+                messages: [], first: first, last: first, complete: false, deliveredResultCount: 1,
+                persistedResultCount: 0, failedPersistenceCount: 0, finalReceived: true)
+        }
+        let page = try ArchiveSearchTransportReceiptValidator.validate(receipt(first: decomposed), for: request)
+        XCTAssertEqual(page.continuationCursor.map { Array($0.utf8) }, Array(decomposed.utf8))
+        XCTAssertThrowsError(try ArchiveSearchTransportReceiptValidator.validate(receipt(first: composed), for: request)) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .nonAdvancingCursor)
+        }
+    }
+
+    func testSearchAccumulatorKeepsExactUnicodeUIDsSeparateWhileDeduplicatingEach() {
+        let ids = ["caf\u{00E9}", "cafe\u{0301}"]
+        let messages = ids.enumerated().map { index, id in
+            ArchiveSearchMessage(primaryID: "p/\(index)", archiveID: id, messageID: "m/\(index)",
+                owner: conversation.owner, conversationJID: conversation.jid,
+                conversationTypeRaw: conversation.conversationTypeRaw, body: "needle",
+                date: Date(timeIntervalSince1970: 1), outgoing: false, deliveryStateRaw: 0,
+                groupAuthorID: nil, groupAuthorNickname: nil, groupAuthorAvatarURL: nil)
+        }
+        var accumulator = ArchiveSearchTransportRowAccumulator()
+        for message in messages { XCTAssertEqual(accumulator.insert(message), .inserted) }
+        for message in messages { XCTAssertEqual(accumulator.insert(message), .duplicate) }
+        XCTAssertFalse(accumulator.hasConflictingArchiveIdentity)
+        XCTAssertEqual(accumulator.messages.map { Array($0.archiveID.utf8) }, ids.map { Array($0.utf8) })
+    }
+
+    func testWireProofSeparatesUnicodeUIDsAndTheirConsumptionFromPersistenceRouting() {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        var proof = MessageArchiveManager.DeferredArchiveTransportProof()
+        for id in [composed, decomposed, composed, decomposed] {
+            proof.record(resultId: id)
+            proof.recordIntentionalConsumption(resultId: id)
+        }
+        XCTAssertEqual(proof.deliveredResultCount, 2)
+        XCTAssertEqual(proof.deliveredResultIDsInWireOrder.map { Array($0.utf8) },
+            [composed, decomposed].map { Array($0.utf8) })
+        XCTAssertEqual(proof.intentionallyConsumedResultCount, 2)
+        proof.recordPersistenceRouting(resultId: composed)
+        proof.recordIntentionalConsumption(resultId: composed)
+        XCTAssertEqual(proof.persistenceRoutedResultIds, [ArchiveCursor(rawValue: composed)!])
+        XCTAssertEqual(proof.intentionallyConsumedResultIds, [ArchiveCursor(rawValue: decomposed)!])
+        XCTAssertEqual(proof.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(proof.deliveredResultCount, 2)
+    }
+
+    func testDefaultChronologicalOpaquePageRetainsExactServerOrderAndCompleteness() throws {
+        let request = makeRequest(locator: .latest)
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request, ids: ["z", "9", "2", " A "]), for: request)
+        XCTAssertEqual(page.chronologicalArchiveIDs, ["z", "9", "2", " A "])
+        XCTAssertEqual(page.segment?.orderedArchiveIDs.map(\.rawValue), ["z", "9", "2", " A "])
+        XCTAssertTrue(page.segment?.reachesArchiveStart == true)
+        XCTAssertTrue(page.segment?.reachesLiveEdge == true)
+    }
+
+    func testExplicitFlippedTransmissionUsesRequestOrderRatherThanNumericOrLexicalIDs() throws {
+        var request = makeRequest(locator: .older(before: ArchiveCursor(rawValue: "boundary")!))
+        request.usesFlippedPage = true
+        let page = try ArchiveTransportReceiptValidator.validate(receipt(request, ids: ["a", "2", "9", "z"]), for: request)
+        XCTAssertEqual(page.chronologicalArchiveIDs, ["z", "9", "2", "a"])
+        XCTAssertEqual(page.segment?.oldest.rawValue, "z")
+        XCTAssertEqual(page.segment?.newest.rawValue, "a")
+    }
+
+    func testEmptySuccessfulUnknownPageDoesNotInventArchiveEndOrAuthoritativeEmpty() throws {
+        let request = makeRequest(locator: .latest)
+        var terminal = receipt(request, ids: [])
+        terminal.complete = false
+        terminal.cheapPageCount = 99
+        let page = try ArchiveTransportReceiptValidator.validate(terminal, for: request)
+        XCTAssertNil(page.segment)
+        XCTAssertFalse(page.isAuthoritativeEmpty)
+        XCTAssertFalse(page.requestComplete)
+    }
+
+    func testEndpointMismatchAndBoundaryReplayFailWithoutComparingOpaqueIDs() throws {
+        let boundary = ArchiveCursor(rawValue: "cursor/z")!
+        let request = makeRequest(locator: .older(before: boundary))
+        var terminal = receipt(request, ids: ["x", "a"])
+        terminal.last = "unrelated"
+        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(terminal, for: request))
+        terminal = receipt(request, ids: ["x", boundary.rawValue])
+        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(terminal, for: request)) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .nonAdvancingCursor)
+        }
+    }
+
+    func testWireIngressProofKeepsFirstDeliveryOrderWhileDeduplicatingRetransmission() {
+        var proof = MessageArchiveManager.DeferredArchiveTransportProof()
+        for id in ["z", "2", "a", "2", "z"] { proof.record(resultId: id) }
+        XCTAssertEqual(proof.deliveredResultCount, 3)
+        XCTAssertEqual(proof.deliveredResultIDsInWireOrder, ["z", "2", "a"])
+    }
+
+    private func makeRequest(locator: ArchiveWindowLocator) -> ArchiveTransportRequest {
+        ArchiveTransportRequest(queryID: "opaque-test", conversation: conversation, locator: locator,
+            connectionGeneration: 7, pageSize: 80, contextBefore: 80, contextAfter: 0,
+            proofFingerprint: "session:7", isUnfiltered: true, producesContinuousCoverage: true)
+    }
+
+    private func receipt(_ request: ArchiveTransportRequest, ids: [String]) -> ArchiveTransportReceipt {
+        ArchiveTransportReceipt(queryID: request.queryID, connectionGeneration: request.connectionGeneration,
+            resultArchiveIDs: ids, messagePrimaryIDs: ids.map { "primary/" + $0 },
+            first: ids.first ?? "", last: ids.last ?? "", complete: true, cheapPageCount: ids.count,
+            deliveredResultCount: ids.count, persistedResultCount: ids.count, intentionallyConsumedResultCount: 0,
+            failedPersistenceCount: 0, finalReceived: true)
     }
 }

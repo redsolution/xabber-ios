@@ -21,6 +21,104 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         super.tearDown()
     }
 
+    func testOpaqueVerifiedSessionUsesServerOrderAcrossPagingRefreshAndReadBoundary() throws {
+        let ids = (1...601).map { "server/\(20_000 - $0 * 7)" }
+        let messages = makeMessages(1...601)
+        for (index, item) in messages.enumerated() {
+            item.mamArchiveId = ids[index]
+            item.archivedId = "protocol-\(index)"
+            item.date = Date(timeIntervalSince1970: TimeInterval(100_000 - index))
+            item.sentDate = item.date
+        }
+        let realm = try Realm()
+        try realm.write { realm.add(messages) }
+        let session = makeSession(store: RealmChatTimelineSessionStore(
+            owner: owner, jid: jid, conversationType: .regular
+        ))
+        let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 42, queryID: "opaque-server-order")
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(
+            orderedArchiveIDs: ids.compactMap { ArchiveCursor(rawValue: $0) },
+            reachesArchiveStart: true, reachesLiveEdge: true,
+            fingerprint: token.fingerprint, isVerified: true
+        ))
+
+        let installed = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(ArchiveWindowSnapshot(
+            messagePrimaryIDs: messages.suffix(500).map(\.primary), target: .latest,
+            verifiedSegment: segment, coverageGeneration: 1, freshnessToken: token
+        )))
+        XCTAssertEqual(installed.items.map(\.mamArchiveId), Array(ids.suffix(500)))
+        _ = try localSessionSnapshot(session.loadVerifiedLocalBoundary(.older))
+        let older = try localSessionSnapshot(session.loadVerifiedLocalBoundary(.older))
+        XCTAssertEqual(older.items.map(\.mamArchiveId), Array(ids.prefix(600)))
+        let newer = try localSessionSnapshot(session.loadVerifiedLocalBoundary(.newer))
+        XCTAssertEqual(newer.items.map(\.mamArchiveId), Array(ids.suffix(600)))
+
+        try realm.write {
+            messages[599].body = "edited without reordering the archive"
+            messages[599].date = Date(timeIntervalSince1970: 1)
+        }
+        let refreshed = session.refreshResidentItems()
+        XCTAssertEqual(refreshed.items.map(\.mamArchiveId), Array(ids.suffix(600)))
+        XCTAssertEqual(refreshed.item(primary: messages[599].primary)?.body, "edited without reordering the archive")
+        XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[599].primary))
+        XCTAssertFalse(session.advanceReadBoundary(toPrimary: messages[598].primary))
+        XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[600].primary))
+    }
+
+    func testReadBoundaryRebasesOnDisjointProofWithOrWithoutDisconnect() throws {
+        let messages = makeMessages(1...4)
+        for (index, item) in messages.enumerated() {
+            item.mamArchiveId = ["older/z", "older/a", "newer/9", "newer/0001"][index]
+            item.date = Date(timeIntervalSince1970: TimeInterval(100_000 - index))
+        }
+        for disconnect in [false, true] {
+            let session = makeSession(store: BlockingVirtualTimelineSessionStore(messages: messages))
+            _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(try opaqueWindow(
+                messages: Array(messages.prefix(2)), generation: 1
+            )))
+            XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[1].primary))
+            let unreadMetadata = session.snapshot.unreadMetadata
+            if disconnect {
+                session.invalidateVerifiedScope()
+                XCTAssertNil(session.snapshot.readBoundary)
+                XCTAssertFalse(session.advanceReadBoundary(toPrimary: messages[2].primary),
+                               "invalidated proof must grant no read authority")
+            }
+
+            _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(try opaqueWindow(
+                messages: Array(messages.suffix(2)), generation: 2,
+                connectionGeneration: disconnect ? 43 : 42
+            )))
+
+            XCTAssertNil(session.snapshot.readBoundary)
+            XCTAssertEqual(session.snapshot.unreadMetadata, unreadMetadata)
+            XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[2].primary))
+            XCTAssertFalse(session.advanceReadBoundary(toPrimary: messages[2].primary))
+            XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[3].primary),
+                          "current server order must win over reversed local dates")
+        }
+    }
+
+    func testReadBoundarySurvivesReplacementProofContainingItsCursor() throws {
+        let messages = makeMessages(1...3)
+        messages.enumerated().forEach { $0.element.mamArchiveId = "opaque/\(100 - $0.offset)" }
+        let session = makeSession(store: BlockingVirtualTimelineSessionStore(messages: messages))
+        _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(try opaqueWindow(
+            messages: Array(messages.prefix(2)), generation: 1
+        )))
+        XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[1].primary))
+        let boundary = session.snapshot.readBoundary
+
+        _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(try opaqueWindow(
+            messages: messages, generation: 2
+        )))
+
+        XCTAssertEqual(session.snapshot.readBoundary, boundary)
+        XCTAssertFalse(session.advanceReadBoundary(toPrimary: messages[0].primary))
+        XCTAssertFalse(session.advanceReadBoundary(toPrimary: messages[1].primary))
+        XCTAssertTrue(session.advanceReadBoundary(toPrimary: messages[2].primary))
+    }
+
     func testOlderThenNewerRematerializesEvictedRowsFromRealm() throws {
         try insertMessages(1...1_000)
         let store = RealmChatTimelineSessionStore(
@@ -76,7 +174,8 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
             reachesArchiveStart: true,
             reachesLiveEdge: true,
             fingerprint: freshnessToken.fingerprint,
-            isVerified: true
+            isVerified: true,
+            orderedArchiveIDs: (1...601).compactMap { ArchiveCursor(rawValue: String($0)) }
         ))
         let conversation = ArchiveConversationKey(
             owner: owner,
@@ -494,7 +593,8 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
 
     func testPreparedBoundaryBecomesStaleWhenVerifiedProofChanges() throws {
         let store = BlockingVirtualTimelineSessionStore(
-            messages: makeMessages(1...1_000)
+            messages: makeMessages(1...1_000),
+            blocksArchiveCursorQueries: true
         )
         let session = makeSession(store: store)
         _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(
@@ -539,7 +639,8 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
 
     func testIdenticalPreparedBoundaryRequestsCoalesceIntoOneStoreQuery() throws {
         let store = BlockingVirtualTimelineSessionStore(
-            messages: makeMessages(1...1_000)
+            messages: makeMessages(1...1_000),
+            blocksArchiveCursorQueries: true
         )
         let session = makeSession(store: store)
         _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(
@@ -1334,7 +1435,8 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
 
     func testDisconnectInvalidatesScopeAndLateBoundaryPreparation() throws {
         let store = BlockingVirtualTimelineSessionStore(
-            messages: makeMessages(1...1_000)
+            messages: makeMessages(1...1_000),
+            blocksArchiveCursorQueries: true
         )
         let session = makeSession(store: store)
         _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(
@@ -1428,7 +1530,8 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
             reachesArchiveStart: true,
             reachesLiveEdge: true,
             fingerprint: "session:\(connectionGeneration)",
-            isVerified: true
+            isVerified: true,
+            orderedArchiveIDs: (1...1_000).compactMap { ArchiveCursor(rawValue: String($0)) }
         ))
         return ArchiveWindowSnapshot(
             messagePrimaryIDs: primaryIDs,
@@ -1440,6 +1543,23 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
                 queryID: "query-\(generation)"
             )
         )
+    }
+
+    private func opaqueWindow(
+        messages: [MessageStorageItem],
+        generation: UInt64,
+        connectionGeneration: UInt64 = 42
+    ) throws -> ArchiveWindowSnapshot {
+        let token = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: connectionGeneration, queryID: "opaque-read-\(generation)"
+        )
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(
+            orderedArchiveIDs: messages.compactMap { ArchiveCursor(rawValue: $0.mamArchiveId) },
+            reachesArchiveStart: false, reachesLiveEdge: true,
+            fingerprint: token.fingerprint, isVerified: true
+        ))
+        return ArchiveWindowSnapshot(messagePrimaryIDs: messages.map(\.primary), target: .latest,
+            verifiedSegment: segment, coverageGeneration: generation, freshnessToken: token)
     }
 
     private func makeLiveEdgeAdmission(
@@ -1460,7 +1580,8 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
             reachesArchiveStart: true,
             reachesLiveEdge: true,
             fingerprint: "session:\(connectionGeneration)",
-            isVerified: true
+            isVerified: true,
+            orderedArchiveIDs: (1...1_001).compactMap { ArchiveCursor(rawValue: String($0)) }
         ))
         return ArchiveLiveEdgeAdmission(
             conversation: ArchiveConversationKey(
@@ -1545,6 +1666,7 @@ private final class BlockingVirtualTimelineSessionStore: ChatTimelineSessionStor
     private var storedOlderCallCount = 0
     private var storedAroundCallCount = 0
     private var changeHandler: ((ChatTimelineStoreChange) -> Void)?
+    private let blocksArchiveCursorQueries: Bool
 
     var olderCallCount: Int {
         lock.withLock { storedOlderCallCount }
@@ -1554,8 +1676,9 @@ private final class BlockingVirtualTimelineSessionStore: ChatTimelineSessionStor
         lock.withLock { storedAroundCallCount }
     }
 
-    init(messages: [MessageStorageItem]) {
+    init(messages: [MessageStorageItem], blocksArchiveCursorQueries: Bool = false) {
         self.messages = ChatTimelineOrdering.deduplicatedChronological(messages)
+        self.blocksArchiveCursorQueries = blocksArchiveCursorQueries
     }
 
     func replaceMessage(_ replacement: MessageStorageItem) {
@@ -1615,6 +1738,18 @@ private final class BlockingVirtualTimelineSessionStore: ChatTimelineSessionStor
     func items(primaryKeys: [String]) -> [MessageStorageItem] {
         let byPrimary = Dictionary(uniqueKeysWithValues: messages.map { ($0.primary, $0) })
         return primaryKeys.compactMap { byPrimary[$0] }
+    }
+
+    func items(archiveCursorIDs: [String]) -> [MessageStorageItem] {
+        if blocksArchiveCursorQueries {
+            lock.withLock { storedOlderCallCount += 1 }
+            olderStarted.signal()
+            _ = releaseOlder.wait(timeout: .now() + 5)
+        } else {
+            lock.withLock { storedAroundCallCount += 1 }
+        }
+        let requested = Set(archiveCursorIDs)
+        return lock.withLock { messages.filter { requested.contains($0.mamArchiveId) } }
     }
 
     func unreadMetadata(limit: Int) -> ChatTimelineUnreadMetadata {

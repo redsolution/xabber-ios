@@ -16172,8 +16172,8 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
 
         XCTAssertEqual(snapshot.primaryIndex["first"], 0)
         XCTAssertEqual(snapshot.primaryIndex["second"], 1)
-        XCTAssertEqual(snapshot.mamArchiveIdIndex["m1"], 0)
-        XCTAssertEqual(snapshot.mamArchiveIdIndex["m2"], 1)
+        XCTAssertEqual(snapshot.mamArchiveIdIndex[ArchiveCursor(rawValue: "m1")!], 0)
+        XCTAssertEqual(snapshot.mamArchiveIdIndex[ArchiveCursor(rawValue: "m2")!], 1)
         XCTAssertEqual(snapshot.archivedIdIndex["a1"], 0)
         XCTAssertEqual(snapshot.archivedIdIndex["a2"], 1)
         XCTAssertEqual(
@@ -17763,7 +17763,6 @@ final class MessageArchivePagingRequestTests: XCTestCase {
 }
 
 final class RegularChatArchiveSyncStateTests: XCTestCase {
-
     private let owner = "juliet@example.com"
     private let jid = "romeo@example.com"
 
@@ -17771,134 +17770,106 @@ final class RegularChatArchiveSyncStateTests: XCTestCase {
         super.setUp()
         Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "RegularChatArchiveSyncStateTests-\(name)")
         let realm = try! WRealm.safe()
-        try! realm.write {
-            realm.deleteAll()
-        }
+        try! realm.write { realm.deleteAll() }
     }
 
-    func testMergingRegularArchivePageUpdatesBoundsAndContinuousRange() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "300", last: "200", updateKind: .bootstrapNewest)
-            state.mergeLoadedRange(first: "250", last: "100", updateKind: .disjointWindow)
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
-        XCTAssertEqual(state.oldestLoadedArchiveId, "100")
-        XCTAssertEqual(state.newestLoadedArchiveId, "300")
-        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "300")])
+    func testRegularArchivePagePreservesSuppliedChronologicalOpaqueEndpoints() throws {
+        let state = try mergePages([
+            ("z/old", "2/new", .bootstrapNewest),
+        ])
+        XCTAssertEqual(state.oldestLoadedArchiveId, "z/old")
+        XCTAssertEqual(state.newestLoadedArchiveId, "2/new")
+        XCTAssertEqual(state.loadedRanges, [range("z/old", "2/new")])
         XCTAssertTrue(state.knownGaps.isEmpty)
+        XCTAssertFalse(state.containsArchiveId("middle"), "Endpoints cannot prove interior membership")
     }
 
-    func testDisjointRegularArchiveRangesRecordKnownGap() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
-            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
-        XCTAssertEqual(
-            state.knownGaps,
-            [RegularChatArchiveGap(olderRangeNewestArchiveId: "200", newerRangeOldestArchiveId: "400")]
-        )
+    func testDisjointEndpointOnlyRangesDoNotInventOverlapOrKnownGap() throws {
+        let state = try mergePages([
+            ("z/old", "2/new", .bootstrapNewest),
+            ("a/other", "9/end", .disjointWindow),
+        ])
+        XCTAssertEqual(state.loadedRanges, [range("z/old", "2/new"), range("a/other", "9/end")])
+        XCTAssertTrue(state.knownGaps.isEmpty)
+        XCTAssertNil(state.oldestLoadedArchiveId, "Disconnected ranges do not establish global order")
+        XCTAssertNil(state.newestLoadedArchiveId)
     }
 
     func testOlderExclusiveRsmPageMergesByRequestAdjacency() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "500", last: "400", updateKind: .bootstrapNewest)
-            state.mergeLoadedRange(first: "399", last: "300", updateKind: .pageOlder(cursorArchiveId: "400"))
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
-        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "300", newestArchiveId: "500")])
+        let state = try mergePages([
+            ("2/current-old", "a/current-new", .bootstrapNewest),
+            ("z/older-old", "9/older-new", .pageOlder(cursorArchiveId: "2/current-old")),
+        ])
+        XCTAssertEqual(state.loadedRanges, [range("z/older-old", "a/current-new")])
+        XCTAssertEqual(state.oldestLoadedArchiveId, "z/older-old")
+        XCTAssertEqual(state.newestLoadedArchiveId, "a/current-new")
         XCTAssertTrue(state.knownGaps.isEmpty)
     }
 
     func testNewerExclusiveRsmPageMergesByRequestAdjacency() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
-            state.mergeLoadedRange(first: "300", last: "201", updateKind: .pageNewer(cursorArchiveId: "200"))
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
-        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "300")])
+        let state = try mergePages([
+            ("z/current-old", "9/current-new", .bootstrapNewest),
+            ("2/newer-old", "a/newer-new", .pageNewer(cursorArchiveId: "9/current-new")),
+        ])
+        XCTAssertEqual(state.loadedRanges, [range("z/current-old", "a/newer-new")])
         XCTAssertTrue(state.knownGaps.isEmpty)
     }
 
-    func testPartialGapRepairShrinksKnownGap() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
-            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
-            state.mergeLoadedRange(first: "399", last: "300", updateKind: .gapRepairOlder(cursorArchiveId: "400"))
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
-        XCTAssertEqual(
-            state.loadedRanges,
-            [
-                RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "200"),
-                RegularChatArchiveIDRange(oldestArchiveId: "300", newestArchiveId: "500")
-            ]
-        )
-        XCTAssertEqual(
-            state.knownGaps,
-            [RegularChatArchiveGap(olderRangeNewestArchiveId: "200", newerRangeOldestArchiveId: "300")]
-        )
+    func testPartialGapRepairExtendsOnlyTheExplicitlyAdjacentRange() throws {
+        let state = try mergePages([
+            ("z/first-old", "2/first-new", .bootstrapNewest),
+            ("a/second-old", "9/second-new", .disjointWindow),
+            ("y/repair-old", "3/repair-new", .gapRepairOlder(cursorArchiveId: "a/second-old")),
+        ])
+        XCTAssertEqual(state.loadedRanges, [range("z/first-old", "2/first-new"), range("y/repair-old", "9/second-new")])
+        XCTAssertTrue(state.knownGaps.isEmpty)
+        XCTAssertNil(state.oldestLoadedArchiveId)
+        XCTAssertNil(state.newestLoadedArchiveId)
     }
 
-    func testGapRepairPageThatReachesOlderRangeRemovesKnownGap() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
-            state.mergeLoadedRange(first: "500", last: "400", updateKind: .disjointWindow)
-            state.mergeLoadedRange(first: "399", last: "150", updateKind: .gapRepairOlder(cursorArchiveId: "400"))
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
-        XCTAssertEqual(state.loadedRanges, [RegularChatArchiveIDRange(oldestArchiveId: "100", newestArchiveId: "500")])
+    func testGapRepairWithOnlyUnrelatedEndpointsCannotProveOverlapWithAnotherRange() throws {
+        let state = try mergePages([
+            ("z/first-old", "2/first-new", .bootstrapNewest),
+            ("a/second-old", "9/second-new", .disjointWindow),
+            ("y/repair-old", "3/repair-new", .gapRepairNewer(cursorArchiveId: "2/first-new")),
+        ])
+        XCTAssertEqual(state.loadedRanges, [range("z/first-old", "3/repair-new"), range("a/second-old", "9/second-new")])
+        XCTAssertFalse(state.containsArchiveIdsInSameLoadedRange(["z/first-old", "9/second-new"]))
         XCTAssertTrue(state.knownGaps.isEmpty)
+    }
+
+    func testRequestAdjacencyMustMatchTheCorrectDirectionalEndpoint() throws {
+        let state = try mergePages([
+            ("z/current-old", "2/current-new", .bootstrapNewest),
+            ("a/older-old", "9/older-new", .pageOlder(cursorArchiveId: "2/current-new")),
+            ("b/newer-old", "8/newer-new", .pageNewer(cursorArchiveId: "z/current-old")),
+        ])
+        XCTAssertEqual(state.loadedRanges, [range("z/current-old", "2/current-new"),
+            range("a/older-old", "9/older-new"), range("b/newer-old", "8/newer-new")])
+    }
+
+    func testCanonicalUnicodeEquivalenceCannotDeduplicateRangesOrAuthorizeAdjacency() throws {
+        let composed = "caf\u{00E9}"
+        let decomposed = "cafe\u{0301}"
+        let state = try mergePages([
+            (composed, "tail", .bootstrapNewest),
+            (decomposed, "tail", .disjointWindow),
+            ("older", "older-tail", .pageOlder(cursorArchiveId: "CAF\u{00E9}")),
+        ])
+        XCTAssertEqual(state.loadedRanges.count, 3)
+        XCTAssertEqual(state.loadedRanges.map { Array($0.oldestArchiveId.utf8) },
+            [composed, decomposed, "older"].map { Array($0.utf8) })
+        let single = RegularChatArchiveSyncStateStorageItem()
+        single.mergeLoadedRange(first: composed, last: "tail", updateKind: .bootstrapNewest)
+        XCTAssertFalse(single.containsArchiveId(decomposed))
+        single.mergeLoadedRange(first: "older", last: "older-tail", updateKind: .pageOlder(cursorArchiveId: decomposed))
+        XCTAssertEqual(single.loadedRanges.count, 2, "A canonically equivalent cursor is not the requested endpoint")
     }
 
     func testSnapshotIdentityDoesNotCreateKnownGapWithoutLoadedNewerWindow() throws {
+        let state = try mergePages([("z/old", "2/new", .bootstrapNewest)])
         let realm = try WRealm.safe()
-        try realm.write {
-            let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
-            state.mergeLoadedRange(first: "200", last: "100", updateKind: .bootstrapNewest)
-            state.recordKnownNewerGap(to: "500")
-        }
-
-        let state = try XCTUnwrap(realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner)
-        ))
+        try realm.write { state.recordKnownNewerGap(to: "a/snapshot") }
         XCTAssertTrue(state.knownGaps.isEmpty)
     }
 
@@ -17908,20 +17879,30 @@ final class RegularChatArchiveSyncStateTests: XCTestCase {
             _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
             _ = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .group, in: realm)
         }
-
-        let regular = realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
-        )
-        let group = realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .group)
-        )
-
+        let regular = realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular))
+        let group = realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .group))
         XCTAssertNotNil(regular)
         XCTAssertNotNil(group)
         XCTAssertNotEqual(regular?.primary, group?.primary)
         XCTAssertEqual(group?.conversationType, .group)
+    }
+
+    private func range(_ oldest: String, _ newest: String) -> RegularChatArchiveIDRange {
+        RegularChatArchiveIDRange(oldestArchiveId: oldest, newestArchiveId: newest)
+    }
+
+    private func mergePages(_ pages: [(String, String, RegularArchiveCoverageUpdateKind)]) throws -> RegularChatArchiveSyncStateStorageItem {
+        let realm = try WRealm.safe()
+        var state: RegularChatArchiveSyncStateStorageItem!
+        try realm.write {
+            state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, in: realm)
+            for (first, last, kind) in pages {
+                state.mergeLoadedRange(first: first, last: last, updateKind: kind)
+            }
+        }
+        return state
     }
 }
 
@@ -18667,6 +18648,86 @@ final class LastChatUnreadCounterTests: XCTestCase {
         XCTAssertEqual(chat.runtimeUnreadCount, 1)
         XCTAssertEqual(chat.unread, 103)
         XCTAssertEqual(message.unreadCounterBucket, .runtime)
+    }
+
+    func testLiveIngressWithOpaqueDescendingIDsCountsWhenSnapshotBoundaryIsMissing() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let first = makeMessage(primary: "opaque-live-first", archivedId: "opaque/z", date: 1_711_283_203,
+                                countsAsRuntimeUnread: true)
+        let second = makeMessage(primary: "opaque-live-second", archivedId: "opaque/a", date: 1_711_283_204,
+                                 countsAsRuntimeUnread: true)
+
+        try realm.write {
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat, count: 7, afterId: "read/previous", snapshotLastArchiveId: "snapshot/missing", in: realm
+            )
+            _ = first.applyMessagePersistence(in: realm, silentNotifications: true)
+            _ = second.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 7)
+        XCTAssertEqual(chat.runtimeUnreadCount, 2)
+        XCTAssertEqual(chat.unread, 9)
+        XCTAssertEqual(first.unreadCounterBucket, .runtime)
+        XCTAssertEqual(second.unreadCounterBucket, .runtime)
+    }
+
+    func testNewUnknownBoundarySnapshotAbsorbsRuntimeWithoutRecountingDuplicateLiveIngress() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let absorbed = makeMessage(primary: "absorbed-live", archivedId: "opaque/z", date: 1_711_283_203,
+                                   countsAsRuntimeUnread: true)
+        let duplicate = makeMessage(primary: "absorbed-live", archivedId: "opaque/z", date: 1_711_283_203,
+                                    countsAsRuntimeUnread: true)
+        let newLive = makeMessage(primary: "new-live", archivedId: "opaque/a", date: 1_711_283_204,
+                                  countsAsRuntimeUnread: true)
+
+        try realm.write {
+            _ = absorbed.applyMessagePersistence(in: realm, silentNotifications: true)
+            XCTAssertEqual(chat.runtimeUnreadCount, 1)
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat, count: 8, afterId: "read/previous", snapshotLastArchiveId: "snapshot/unavailable", in: realm
+            )
+            XCTAssertEqual(chat.runtimeUnreadCount, 0)
+            XCTAssertEqual(absorbed.unreadCounterBucket, .none)
+            _ = duplicate.applyMessagePersistence(in: realm, silentNotifications: true)
+            XCTAssertEqual(chat.runtimeUnreadCount, 0)
+            _ = newLive.applyMessagePersistence(in: realm, silentNotifications: true)
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 8)
+        XCTAssertEqual(chat.runtimeUnreadCount, 1)
+        XCTAssertEqual(chat.unread, 9)
+        XCTAssertEqual(absorbed.unreadCounterBucket, .none)
+        XCTAssertEqual(newLive.unreadCounterBucket, .runtime)
+    }
+
+    func testKnownSnapshotBoundaryReconcilesRuntimeUsingLocalRowsRatherThanOpaqueIDValues() throws {
+        let chat = try insertChat()
+        let realm = try WRealm.safe()
+        let earlier = makeMessage(primary: "runtime-earlier", archivedId: "opaque/z", date: 1_711_283_201,
+                                  countsAsRuntimeUnread: true)
+        let boundary = makeMessage(primary: "snapshot-boundary", archivedId: "opaque/m", date: 1_711_283_202,
+                                   countsAsRuntimeUnread: true)
+        let later = makeMessage(primary: "runtime-later", archivedId: "opaque/a", date: 1_711_283_203,
+                                countsAsRuntimeUnread: true)
+
+        try realm.write {
+            _ = earlier.applyMessagePersistence(in: realm, silentNotifications: true)
+            _ = boundary.applyMessagePersistence(in: realm, silentNotifications: true)
+            _ = later.applyMessagePersistence(in: realm, silentNotifications: true)
+            LastChatUnreadCounter.applySynchronizationSnapshot(
+                to: chat, count: 5, afterId: "read/previous", snapshotLastArchiveId: boundary.archivedId, in: realm
+            )
+        }
+
+        XCTAssertEqual(chat.syncUnreadCount, 5)
+        XCTAssertEqual(chat.runtimeUnreadCount, 1)
+        XCTAssertEqual(chat.unread, 6)
+        XCTAssertEqual(earlier.unreadCounterBucket, .none)
+        XCTAssertEqual(boundary.unreadCounterBucket, .none)
+        XCTAssertEqual(later.unreadCounterBucket, .runtime)
     }
 
     func testArchiveReplayDoesNotIncrementRuntimeUnread() throws {
@@ -19991,30 +20052,30 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     func testUnreadBoundaryTargetPrefersFirstIncomingMessageAfterBoundary() {
         let boundary = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "boundary",
-            archivedId: "1711283295000000",
+            archivedId: "stanza/z-boundary",
             messageId: "boundary-id",
             sourceDate: Date(timeIntervalSince1970: 1_711_283_295),
             isOutgoing: false
         )
         let outgoingAfterBoundary = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "outgoing-after",
-            archivedId: "1711283295000001",
+            archivedId: "stanza/a-outgoing",
             messageId: "outgoing-id",
             sourceDate: Date(timeIntervalSince1970: 1_711_283_296),
             isOutgoing: true
         )
         let incomingAfterBoundary = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "incoming-after",
-            archivedId: "1711283295000002",
+            archivedId: "stanza/12-incoming",
             messageId: "incoming-id",
             sourceDate: Date(timeIntervalSince1970: 1_711_283_297),
             isOutgoing: false
         )
 
         let target = ChatUnreadBoundaryTargetPolicy.target(
-            boundaryArchivedId: "1711283295000000",
+            boundaryArchivedId: "stanza/z-boundary",
             fallback: boundary,
-            loadedMessages: [incomingAfterBoundary, outgoingAfterBoundary, boundary]
+            loadedMessages: [boundary, outgoingAfterBoundary, incomingAfterBoundary]
         )
 
         XCTAssertEqual(target, incomingAfterBoundary)
@@ -20023,33 +20084,34 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     func testUnreadBoundaryTargetChoosesEarliestIncomingArchiveAfterBoundary() {
         let boundary = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "boundary",
-            archivedId: "1711283295000000",
+            archivedId: "stanza/boundary",
             messageId: "boundary-id",
             sourceDate: Date(timeIntervalSince1970: 1_711_283_295),
             isOutgoing: false
         )
         let laterIncoming = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "later-incoming",
-            archivedId: "1711283295000009",
+            archivedId: "stanza/a-later",
             messageId: "later-id",
-            sourceDate: Date(timeIntervalSince1970: 1_711_283_299),
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_297),
             isOutgoing: false
         )
         let earlierIncoming = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "earlier-incoming",
-            archivedId: "1711283295000002",
+            archivedId: "stanza/z-earlier",
             messageId: "earlier-id",
-            sourceDate: Date(timeIntervalSince1970: 1_711_283_297),
+            sourceDate: Date(timeIntervalSince1970: 1_711_283_299),
             isOutgoing: false
         )
 
         let target = ChatUnreadBoundaryTargetPolicy.target(
-            boundaryArchivedId: "1711283295000000",
+            boundaryArchivedId: "stanza/boundary",
             fallback: boundary,
-            loadedMessages: [laterIncoming, earlierIncoming]
+            loadedMessages: [boundary, earlierIncoming, laterIncoming]
         )
 
-        XCTAssertEqual(target, earlierIncoming)
+        XCTAssertEqual(target, earlierIncoming,
+            "Supplied chronological ledger order takes precedence over unrelated ID or timestamp values")
     }
 
     func testUnreadBoundaryTargetUsesBoundaryWhenFirstIncomingUnreadIsNotLoaded() {
@@ -20070,7 +20132,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(target, boundary)
     }
 
-    func testUnreadBoundaryTargetUsesFallbackWhenBoundaryIdIsNotNumeric() {
+    func testUnreadBoundaryTargetUsesFallbackWhenExactBoundaryIsNotLoaded() {
         let fallback = ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: "fallback",
             archivedId: "not-a-number",
@@ -20093,6 +20155,23 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(target, fallback)
+    }
+
+    func testUnreadBoundaryTargetRequiresExactUTF8BoundaryIdentity() {
+        let composed = "stanza-\u{00e9}"
+        let decomposed = "stanza-e\u{0301}"
+        let boundaryAlias = ChatUnreadBoundaryTargetPolicy.Candidate(primary: "alias",
+            archivedId: decomposed, messageId: "alias-id", sourceDate: .distantPast, isOutgoing: false)
+        let incoming = ChatUnreadBoundaryTargetPolicy.Candidate(primary: "incoming",
+            archivedId: "opaque-next", messageId: "incoming-id", sourceDate: .distantFuture, isOutgoing: false)
+        let fallback = ChatUnreadBoundaryTargetPolicy.Candidate(primary: "fallback",
+            archivedId: composed, messageId: "fallback-id", sourceDate: .distantPast, isOutgoing: false)
+
+        let target = ChatUnreadBoundaryTargetPolicy.target(boundaryArchivedId: composed,
+            fallback: fallback, loadedMessages: [boundaryAlias, incoming])
+
+        XCTAssertEqual(target.primary, fallback.primary,
+            "A canonical Unicode alias does not establish the exact server boundary")
     }
 
     func testVisiblePositionSelectionIgnoresFakeSkeletonDateUnreadAndInitialRows() {
@@ -20440,31 +20519,36 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     func testLoadedUnreadBoundaryUsesProtocolStanzaIDBeforeMAMCursor() {
         let items = [
             makeDatasource(
+                primary: "boundary",
+                archivedId: "stanza/z-boundary",
+                mamArchiveId: "mam/unrelated-boundary"
+            ),
+            makeDatasource(
                 primary: "first-after-boundary",
-                archivedId: "151",
-                mamArchiveId: "300"
+                archivedId: "stanza/a-first",
+                mamArchiveId: "mam/z-first"
             ),
             makeDatasource(
                 primary: "later",
-                archivedId: "200",
-                mamArchiveId: "200"
+                archivedId: "stanza/100-later",
+                mamArchiveId: "stanza/z-boundary"
             )
         ]
         let request = ChatOpenMessageRequest(
             chatJid: "group@xabber.example",
             owner: "owner@example.com",
             conversationType: .group,
-            anchor: makeAnchor(archivedId: "150"),
+            anchor: makeAnchor(archivedId: "stanza/z-boundary"),
             highlight: false,
             markReadOnVisible: false,
             source: .initialUnreadBoundary,
-            targetResolution: .firstIncomingAfterBoundary("150")
+            targetResolution: .firstIncomingAfterBoundary("stanza/z-boundary")
         )
 
         XCTAssertEqual(
             ChatLoadedMessageNavigationPolicy.index(in: items, for: request),
-            0,
-            "Unread boundaries compare raw sync stanza IDs; outer MAM result IDs are unrelated cursor evidence"
+            1,
+            "Unread boundaries resolve their exact raw stanza row, then follow loaded order; MAM result IDs are unrelated"
         )
     }
 
@@ -23219,7 +23303,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
                 jid: "romeo@example.com",
                 conversationType: .regular
             ),
-            Set(["200"])
+            Set([ArchiveCursor(rawValue: "200")!])
         )
     }
 

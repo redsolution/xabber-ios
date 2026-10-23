@@ -266,13 +266,16 @@ final class ChatProofScopedLocalTargetPresentationTests: XCTestCase {
             connectionGeneration: 7,
             queryID: "query-7"
         )
+        let fixtureLowerBound = try XCTUnwrap(Int(oldest))
+        let fixtureUpperBound = try XCTUnwrap(Int(newest))
         let segment = try XCTUnwrap(ArchiveCoverageSegment(
             oldest: try XCTUnwrap(ArchiveCursor(rawValue: oldest)),
             newest: try XCTUnwrap(ArchiveCursor(rawValue: newest)),
             reachesArchiveStart: false,
             reachesLiveEdge: true,
             fingerprint: token.fingerprint,
-            isVerified: true
+            isVerified: true,
+            orderedArchiveIDs: (fixtureLowerBound...fixtureUpperBound).compactMap { ArchiveCursor(rawValue: String($0)) }
         ))
         return try XCTUnwrap(ChatTimelineVerifiedScope(
             conversationKey: conversation,
