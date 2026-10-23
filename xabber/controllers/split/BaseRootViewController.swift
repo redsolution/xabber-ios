@@ -353,7 +353,6 @@ final class ChatBackgroundBackdropView: UIView {
     private let gradientLayer = CAGradientLayer()
     private let patternImageView = UIImageView()
     private let blurView = UIVisualEffectView(effect: nil)
-    private var usesEncryptedPalette = false
     private var configuredDocument: AppearanceSettingsDocument?
 
     private(set) var representedWallpaper: AppearanceWallpaper?
@@ -386,47 +385,31 @@ final class ChatBackgroundBackdropView: UIView {
 
     @objc
     func reloadFromSettings() {
-        reload(encrypted: usesEncryptedPalette)
-    }
-
-    func reload(encrypted: Bool) {
         configuredDocument = nil
-        usesEncryptedPalette = encrypted
         let document = AppearanceSettingsStore()?.load()
             ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
-        render(document: document, encrypted: encrypted)
+        render(document: document)
     }
 
     /// Renders an explicit appearance document for settings previews while
     /// keeping the production chat background renderer as the single source
     /// of truth for gradients, tiled assets, cloud images, blur and motion.
-    func configure(document: AppearanceSettingsDocument, encrypted: Bool = false) {
+    func configure(document: AppearanceSettingsDocument) {
         configuredDocument = document
-        usesEncryptedPalette = encrypted
-        render(document: document, encrypted: encrypted)
+        render(document: document)
     }
 
-    private func render(document: AppearanceSettingsDocument, encrypted: Bool) {
-        representedWallpaper = encrypted ? nil : document.profile.wallpaper
+    private func render(document: AppearanceSettingsDocument) {
+        representedWallpaper = document.profile.wallpaper
         let snapshot = AppearanceResolver.resolve(
             document: document,
             traitStyle: traitCollection.userInterfaceStyle
         )
-        gradientLayer.colors = encrypted
-            ? [
-                UIColor(red: 253 / 255, green: 216 / 255, blue: 25 / 255, alpha: 1).cgColor,
-                UIColor(red: 232 / 255, green: 5 / 255, blue: 5 / 255, alpha: 1).cgColor
-            ]
-            : snapshot.palette.backgroundStops.map { $0.uiColor.cgColor }
+        gradientLayer.colors = snapshot.palette.backgroundStops.map { $0.uiColor.cgColor }
         gradientLayer.startPoint = CGPoint(x: 0.0, y: 1.0)
         gradientLayer.endPoint = CGPoint(x: 1.0, y: 0.0)
         patternImageView.transform = .identity
         blurView.effect = nil
-
-        guard !encrypted else {
-            patternImageView.image = nil
-            return
-        }
 
         switch document.profile.wallpaper {
         case .none:
@@ -466,7 +449,7 @@ final class ChatBackgroundBackdropView: UIView {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true {
             if let configuredDocument {
-                render(document: configuredDocument, encrypted: usesEncryptedPalette)
+                render(document: configuredDocument)
             } else {
                 reloadFromSettings()
             }

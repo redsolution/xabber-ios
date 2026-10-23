@@ -29,6 +29,7 @@
 		D3430E4AF2E644FAA6005EE9 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
 		5EB27ABAFF2946B8A9822250 /* PushExtensionDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */; };
 		DA2BEEBA3B894F7D87AB5780 /* LastChatsBackgroundAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5941656919486086B1CCE0 /* LastChatsBackgroundAppearanceTests.swift */; };
+		A32310230000000000000001 /* EncryptedChatBackgroundAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32310230000000000000002 /* EncryptedChatBackgroundAppearanceTests.swift */; };
 		45D2355C411C465BBC440103 /* OMEMO2BundleDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */; };
 		45D2355C411C465BBC440105 /* OMEMO2BundleDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440106 /* OMEMO2BundleDiagnostics.swift */; };
 		45D2355C411C465BBC440101 /* OMEMO2OwnDeviceBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */; };
@@ -1257,6 +1258,7 @@
 		4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnostics.swift; sourceTree = "<group>"; };
 		13520862DEE74684B6AB792E /* PushExtensionDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnosticsTests.swift; sourceTree = "<group>"; };
 		EF5941656919486086B1CCE0 /* LastChatsBackgroundAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsBackgroundAppearanceTests.swift; sourceTree = "<group>"; };
+		A32310230000000000000002 /* EncryptedChatBackgroundAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedChatBackgroundAppearanceTests.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleDiagnosticsTests.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440106 /* OMEMO2BundleDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleDiagnostics.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2OwnDeviceBindingTests.swift; sourceTree = "<group>"; };
@@ -4553,6 +4555,7 @@
 				4E6300012FA200000ABC001 /* ChatViewportReadBoundaryTests.swift */,
 				4E6400012FA300000ABC001 /* ChatObserverLifecycleTests.swift */,
 				EF5941656919486086B1CCE0 /* LastChatsBackgroundAppearanceTests.swift */,
+				A32310230000000000000002 /* EncryptedChatBackgroundAppearanceTests.swift */,
 				4E6500012FA400000ABC001 /* ChatBackgroundLastChatsKeyTests.swift */,
 				4E6600012FA500000ABC001 /* ChatDatasourceBoundsTests.swift */,
 				4E6700012FA600000ABC001 /* ChatSendButtonReadinessTests.swift */,
@@ -6945,6 +6948,7 @@
 				4E6300022FA200000ABC001 /* ChatViewportReadBoundaryTests.swift in Sources */,
 				4E6400022FA300000ABC001 /* ChatObserverLifecycleTests.swift in Sources */,
 				DA2BEEBA3B894F7D87AB5780 /* LastChatsBackgroundAppearanceTests.swift in Sources */,
+				A32310230000000000000001 /* EncryptedChatBackgroundAppearanceTests.swift in Sources */,
 				4E6500022FA400000ABC001 /* ChatBackgroundLastChatsKeyTests.swift in Sources */,
 				4E6600022FA500000ABC001 /* ChatDatasourceBoundsTests.swift in Sources */,
 				4E6700022FA600000ABC001 /* ChatSendButtonReadinessTests.swift in Sources */,

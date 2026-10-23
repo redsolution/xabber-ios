@@ -5583,7 +5583,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop {
             tableView.backgroundView = nil
         } else if tableView.backgroundView !== chatBackgroundBackdropView {
-            chatBackgroundBackdropView.reload(encrypted: false)
+            chatBackgroundBackdropView.reloadFromSettings()
             tableView.backgroundView = chatBackgroundBackdropView
         }
     }

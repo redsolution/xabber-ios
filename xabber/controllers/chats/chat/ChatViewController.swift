@@ -6144,7 +6144,7 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
-        if backgroundPresentationMode == .sharedSplitBackdrop && !conversationType.isEncrypted {
+        if backgroundPresentationMode == .sharedSplitBackdrop {
             backgroundView.removeFromSuperview()
             localChatBackdropView.removeFromSuperview()
             messagesCollectionView.backgroundColor = .clear
@@ -6153,12 +6153,11 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        if backgroundPresentationMode == .localChatBackdrop ||
-            (backgroundPresentationMode == .sharedSplitBackdrop && conversationType.isEncrypted) {
+        if backgroundPresentationMode == .localChatBackdrop {
             backgroundView.removeFromSuperview()
             localChatBackdropView.frame = view.bounds
             localChatBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            localChatBackdropView.reload(encrypted: conversationType.isEncrypted)
+            localChatBackdropView.reloadFromSettings()
             if localChatBackdropView.superview !== view {
                 view.addSubview(localChatBackdropView)
             }
@@ -8218,7 +8217,7 @@ class ChatViewController: MessagesViewController {
     }
     
     @objc func updateBackground() {
-        localChatBackdropView.reload(encrypted: conversationType.isEncrypted)
+        localChatBackdropView.reloadFromSettings()
         let document = AppearanceSettingsStore()?.load()
             ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let snapshot = AppearanceResolver.resolve(
@@ -8227,15 +8226,6 @@ class ChatViewController: MessagesViewController {
         )
         backgroundImage.transform = .identity
         backgroundBlurView.effect = nil
-
-        if conversationType.isEncrypted {
-            backgroundImage.image = nil
-            gradient.colors = [
-                UIColor(red: 253 / 255, green: 216 / 255, blue: 25 / 255, alpha: 1).cgColor,
-                UIColor(red: 232 / 255, green: 5 / 255, blue: 5 / 255, alpha: 1).cgColor
-            ]
-            return
-        }
 
         gradient.colors = snapshot.palette.backgroundStops.map { $0.uiColor.cgColor }
         switch document.profile.wallpaper {
