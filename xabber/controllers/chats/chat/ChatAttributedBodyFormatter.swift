@@ -132,7 +132,6 @@ enum ChatAttributedBodyFormatter {
         if fullRange.length > 0 {
             let paragraph = NSMutableParagraphStyle()
             paragraph.lineBreakMode = .byWordWrapping
-            paragraph.lineSpacing = 1.5
             paragraph.allowsDefaultTighteningForTruncation = true
             string.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
         }
