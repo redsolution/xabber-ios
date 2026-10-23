@@ -842,7 +842,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
     @objc
     private func legacyBackAction() {}
 
-    func testNarrowChatTitleUsesStableMaximumWidthConstraintWithoutMinimumWidthChurn() throws {
+    func testNarrowChatTitleUsesStableFixedWidthConstraintWithoutChurn() throws {
         let rootViewController = UIViewController()
         let chat = ChatViewController()
         let navigationController = UINavigationController(rootViewController: rootViewController)
@@ -858,8 +858,12 @@ final class ChatNavigationBarStateTests: XCTestCase {
                 $0.firstItem === chat.titleButton && $0.firstAttribute == .width
             })
         )
-        XCTAssertEqual(widthConstraint.relation, .lessThanOrEqual)
-        XCTAssertLessThanOrEqual(widthConstraint.constant, 64.5)
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let sideReserve: CGFloat = isPad ? 120 : 88
+        let availableWidth = max(0, navigationController.navigationBar.bounds.width - sideReserve * 2)
+        let expectedWidth = isPad ? min(availableWidth, 360) : availableWidth
+        XCTAssertEqual(widthConstraint.relation, .equal)
+        XCTAssertEqual(widthConstraint.constant, expectedWidth, accuracy: 0.5)
         let initialConstraintIdentity = ObjectIdentifier(widthConstraint)
         let initialConstant = widthConstraint.constant
 
@@ -875,7 +879,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
         XCTAssertEqual(finalWidthConstraint.constant, initialConstant, accuracy: 0.001)
     }
 
-    func testRegularWidthChatTitleUsesAvailableSpaceBetweenNavigationItems() throws {
+    func testRegularWidthChatTitleFillsSafeCenterWithFixedWidth() throws {
         let rootViewController = UIViewController()
         let chat = ChatViewController()
         let navigationController = UINavigationController(rootViewController: rootViewController)
@@ -892,9 +896,12 @@ final class ChatNavigationBarStateTests: XCTestCase {
                 $0.firstItem === chat.titleButton && $0.firstAttribute == .width
             })
         )
-        let expectedSafeCenterWidth = navigationController.navigationBar.bounds.width - 176
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let sideReserve: CGFloat = isPad ? 120 : 88
+        let availableWidth = max(0, navigationController.navigationBar.bounds.width - sideReserve * 2)
+        let expectedSafeCenterWidth = isPad ? min(availableWidth, 360) : availableWidth
 
-        XCTAssertEqual(widthConstraint.relation, .lessThanOrEqual)
+        XCTAssertEqual(widthConstraint.relation, .equal)
         XCTAssertEqual(widthConstraint.constant, expectedSafeCenterWidth, accuracy: 0.5)
         XCTAssertGreaterThan(
             widthConstraint.constant,
@@ -903,7 +910,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
         )
     }
 
-    func testChatTitleKeepsLastWidthCapWhenNavigationGeometryIsUnavailable() throws {
+    func testChatTitleKeepsLastFixedWidthWhenNavigationGeometryIsUnavailable() throws {
         let chat = ChatViewController()
         chat.loadViewIfNeeded()
         chat.configureNavbar()
@@ -914,6 +921,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
             })
         )
         let establishedWidth = widthConstraint.constant
+        XCTAssertEqual(widthConstraint.relation, .equal)
 
         chat.view.frame = .zero
         chat.viewDidLayoutSubviews()

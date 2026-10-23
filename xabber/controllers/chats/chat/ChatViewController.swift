@@ -4041,6 +4041,14 @@ class ChatViewController: MessagesViewController {
         
         return button
     }()
+
+    private let navigationTitleEffectView: UIVisualEffectView = {
+        let view = UIVisualEffectView(effect: nil)
+        NativeGlassBarStyle.applySurface(to: view, cornerStyle: .capsule)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
+        return view
+    }()
     
     var titleStack: UIStackView = {
         let stack = UIStackView()
@@ -6252,18 +6260,27 @@ class ChatViewController: MessagesViewController {
     }
 
     private func setupNavigationTitleView() {
+        if navigationTitleEffectView.superview !== titleButton {
+            titleButton.addSubview(navigationTitleEffectView)
+            NSLayoutConstraint.activate([
+                navigationTitleEffectView.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor),
+                navigationTitleEffectView.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor),
+                navigationTitleEffectView.topAnchor.constraint(equalTo: titleButton.topAnchor),
+                navigationTitleEffectView.bottomAnchor.constraint(equalTo: titleButton.bottomAnchor)
+            ])
+        }
         if titleStack.arrangedSubviews.isEmpty {
             titleStack.addArrangedSubview(titleLabel)
             titleStack.addArrangedSubview(statusLabel)
         }
-        if titleStack.superview !== titleButton {
-            titleButton.addSubview(titleStack)
+        if titleStack.superview !== navigationTitleEffectView.contentView {
+            navigationTitleEffectView.contentView.addSubview(titleStack)
             titleStack.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor),
-                titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor),
-                titleStack.topAnchor.constraint(greaterThanOrEqualTo: titleButton.topAnchor),
-                titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor),
+                titleStack.leadingAnchor.constraint(equalTo: titleButton.leadingAnchor, constant: 12),
+                titleStack.trailingAnchor.constraint(equalTo: titleButton.trailingAnchor, constant: -12),
+                titleStack.topAnchor.constraint(greaterThanOrEqualTo: titleButton.topAnchor, constant: 4),
+                titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor, constant: -4),
                 titleStack.centerYAnchor.constraint(equalTo: titleButton.centerYAnchor)
             ])
         }
@@ -6283,12 +6300,18 @@ class ChatViewController: MessagesViewController {
         }
         titleButton.isUserInteractionEnabled = titleOpensConversationInfo
         titleButton.isAccessibilityElement = titleOpensConversationInfo
+        if #available(iOS 26.0, *),
+           let glass = navigationTitleEffectView.effect as? UIGlassEffect,
+           glass.isInteractive != titleOpensConversationInfo {
+            glass.isInteractive = titleOpensConversationInfo
+            navigationTitleEffectView.effect = glass
+        }
 
         if navigationTitleWidthConstraint == nil {
             titleButton.translatesAutoresizingMaskIntoConstraints = false
-            let widthConstraint = titleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 140)
+            let widthConstraint = titleButton.widthAnchor.constraint(equalToConstant: 140)
             widthConstraint.priority = UILayoutPriority(999)
-            let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: 42)
+            let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize)
             NSLayoutConstraint.activate([widthConstraint, heightConstraint])
             navigationTitleWidthConstraint = widthConstraint
             navigationTitleHeightConstraint = heightConstraint
@@ -6390,14 +6413,17 @@ class ChatViewController: MessagesViewController {
         } else {
             // `configureNavbar()` intentionally runs before the push so the
             // first navigation frame already contains title and avatar.
-            // Keep the installed 140-point cap until UIKit supplies geometry;
+            // Keep the installed 140-point width until UIKit supplies geometry;
             // writing zero here collapses the title for the whole transition.
             return
         }
         let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let sideReserve = max(leftReserved, rightReserved)
-        let targetWidth = max(0, navBarWidth - sideReserve * 2)
+        let availableWidth = max(0, navBarWidth - sideReserve * 2)
+        let targetWidth = UIDevice.current.userInterfaceIdiom == .pad
+            ? min(availableWidth, 360)
+            : availableWidth
         if abs(navigationTitleWidthConstraint.constant - targetWidth) > 0.5 {
             navigationTitleWidthConstraint.constant = targetWidth
         }
