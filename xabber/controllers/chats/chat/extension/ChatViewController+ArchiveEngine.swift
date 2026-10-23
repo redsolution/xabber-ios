@@ -862,8 +862,10 @@ extension ChatViewController {
         guard let request = pendingOpenMessageRequest,
               request.owner == owner, request.chatJid == jid,
               request.conversationType == conversationType,
-              ChatAnchorArchiveLocatorPolicy.locator(for: resolvedArchiveAnchor(for: request)) == nil,
-              request.anchor.archivedId?.isNotEmpty == true else { return nil }
+              !isPrimaryOnlyCurrentAuthenticatedLiveTail(request) else { return nil }
+        let anchor = resolvedArchiveAnchor(for: request)
+        guard ChatAnchorArchiveLocatorPolicy.locator(for: anchor) == nil,
+              anchor.archivedId?.isNotEmpty == true else { return nil }
         return request
     }
 
@@ -879,7 +881,18 @@ extension ChatViewController {
         engine: AccountArchiveEngine
     ) async {
         guard ownsArchiveReferenceResolution(request: request, resolutionID: resolutionID,
-            expectedIntentID: expectedIntentID), let reference = request.anchor.archivedId else { return }
+            expectedIntentID: expectedIntentID) else { return }
+        let anchor = resolvedArchiveAnchor(for: request)
+        // Owned MAM persistence may win before this task starts. Reuse that
+        // cursor through the same request-owned completion, never a raw ID.
+        if let cursor = anchor.archiveCursor {
+            if let intent = completeArchiveReferenceResolution(cursor, request: request,
+                resolutionID: resolutionID, expectedIntentID: expectedIntentID) {
+                await engine.submit(intent)
+            }
+            return
+        }
+        guard let reference = anchor.archivedId else { return }
         do {
             let cursor = try await engine.resolveStanzaReference(reference,
                 conversation: archiveEngineConversationKey, priority: .target)
@@ -974,6 +987,18 @@ extension ChatViewController {
                 sourceDate: request.anchor.sourceDate
             )
         }
+        if case .anchor = request.targetResolution,
+           let reference = persistedPrimaryOnlyStanzaReference(for: request) {
+            return ChatMessageAnchorRef(
+                messagePrimary: request.anchor.messagePrimary,
+                archivedId: reference,
+                archiveCursor: nil,
+                messageId: request.anchor.messageId,
+                authorId: request.anchor.authorId,
+                bodyFingerprint: request.anchor.bodyFingerprint,
+                sourceDate: nil
+            )
+        }
         guard case .firstIncomingAfterBoundary(let boundary) = request.targetResolution else {
             return request.anchor
         }
@@ -1008,6 +1033,40 @@ extension ChatViewController {
               message.effectiveAutoDeleteExpiresAt <= 0 ||
                 message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970 else { return nil }
         return ArchiveCursor(rawValue: message.mamArchiveId)
+    }
+
+    /// An authenticated live row can precede the current chat tail and still
+    /// lack MAM materialization. Its opaque stanza reference permits only the
+    /// ordinary owned reference lookup; it is never an archive cursor or time.
+    private func persistedPrimaryOnlyStanzaReference(for request: ChatOpenMessageRequest) -> String? {
+        guard request.source == .directOpenAtMessage,
+              conversationType == .omemo,
+              request.anchor.archiveCursor == nil, request.anchor.archivedId == nil,
+              request.anchor.sourceDate == nil,
+              let primary = request.anchor.messagePrimary, primary.isNotEmpty,
+              let messageID = request.anchor.messageId, messageID.isNotEmpty,
+              let realm = try? WRealm.safe() else { return nil }
+        realm.refresh()
+        guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              !message.isInvalidated, message.owner == owner, message.opponent == jid,
+              message.conversationType == conversationType,
+              message.primary == primary, message.messageId == messageID,
+              primary == MessageStorageItem.genPrimary(messageId: messageID, owner: owner),
+              !message.isDeleted, !message.isLocallyHiddenByReport, message.deleteState == .visible,
+              message.state != .error, message.mamArchiveId.isEmpty,
+              message.effectiveAutoDeleteExpiresAt <= 0 ||
+                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970,
+              let auth = message.systemMetadata?["omemo_authenticated_sender_v1"] as? [String: Any],
+              auth["owner"] as? String == owner,
+              auth["jid"] as? String == (message.outgoing ? owner : jid),
+              let deviceID = auth["deviceID"] as? Int, deviceID > 0,
+              auth["trusted"] is Bool,
+              let fingerprint = auth["fingerprint"] as? String,
+              fingerprint.range(of: #"\A(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{8}(?: [0-9a-fA-F]{8}){7})\z"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        let reference = message.archivedId
+        return reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : reference
     }
 
     internal func retainArchiveHistoryVisibleMessages() {
@@ -1745,13 +1804,20 @@ extension ChatViewController {
                 Task { await account.archiveEngine.submit(intent) }
                 return true
             }
-            guard pendingOpenMessageRequest == request, request.anchor.archivedId?.isNotEmpty == true else {
+            guard pendingOpenMessageRequest == request,
+                  resolvedArchiveAnchor(for: request).archivedId?.isNotEmpty == true else {
                 return false
             }
             let intent = ArchiveWindowIntent(conversation: archiveEngineConversationKey, locator: .latest,
                 contextBefore: ArchivePageSizing.anchorBefore, contextAfter: ArchivePageSizing.anchorAfter,
                 priority: .target)
             guard prepareArchiveEngineTargetIntent(intent) else { return false }
+            if request.anchor.archivedId == nil,
+               initialTargetFirstFrameContext?.request != request {
+                let context = ChatInitialTargetFirstFrameContext(request: request, completion: {})
+                context.releasePreparationCompletion()
+                initialTargetFirstFrameContext = context
+            }
             let resolutionID = UUID()
             archiveReferenceResolutionID = resolutionID
             archiveReferenceResolutionTask = Task { @MainActor [weak self] in

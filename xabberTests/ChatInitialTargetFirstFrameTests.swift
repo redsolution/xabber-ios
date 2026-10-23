@@ -1172,11 +1172,13 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let chat = try XCTUnwrap(realm.object(ofType: LastChatsStorageItem.self,
             forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: accountOwner, conversationType: .omemo)))
         let authenticatedMetadata = b.systemMetadata
-        for invalid in ["non-current-tail", "hidden", "deleted", "tombstone", "expired",
-                        "foreign-owner", "foreign-peer", "foreign-type", "wrong-message-id", "missing-auth", "malformed-fingerprint", "malformed-grouping", "foreign-auth-sender", "missing-reference", "mismatched-tail-id"] {
+        for invalid in ["non-current-tail-without-reference", "hidden", "deleted", "tombstone", "expired",
+                        "foreign-owner", "foreign-peer", "foreign-type", "wrong-message-id", "missing-auth", "malformed-fingerprint", "malformed-grouping", "foreign-auth-sender", "missing-reference", "mismatched-tail-id-without-reference"] {
             try realm.write {
                 switch invalid {
-                case "non-current-tail": chat.lastMessage = a
+                case "non-current-tail-without-reference":
+                    chat.lastMessage = a
+                    b.archivedId = ""
                 case "hidden": b.isLocallyHiddenByReport = true
                 case "deleted": b.isDeleted = true
                 case "tombstone": b.deleteState = .autoDeleted
@@ -1198,7 +1200,9 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
                     var auth = authenticatedMetadata?["omemo_authenticated_sender_v1"] as? [String: Any] ?? [:]
                     auth["jid"] = jid
                     b.systemMetadata = ["omemo_authenticated_sender_v1": auth]
-                case "mismatched-tail-id": chat.lastMessageId = "newer-live-C"
+                case "mismatched-tail-id-without-reference":
+                    chat.lastMessageId = "newer-live-C"
+                    b.archivedId = ""
                 default: b.archivedId = ""
                 }
             }
@@ -1430,6 +1434,254 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let image = cell.imagesView.convert(cell.imagesView.bounds, to: collection)
         XCTAssertTrue(collection.bounds.contains(CGPoint(x: caption.midX, y: caption.midY)))
         XCTAssertTrue(collection.bounds.contains(CGPoint(x: image.midX, y: image.midY)))
+    }
+
+    @MainActor
+    func testPrimaryOnlyAuthenticatedLiveAnchorResolvesOnlyOpaqueReferenceWithoutGrantingAuthority() throws {
+        for reference in ["opaque-live-reference", "999", " opaque-live-reference "] {
+            try withPrimaryOnlyLiveAnchorFixture(mutate: { $0.archivedId = reference }) { controller, row, request in
+                let resolved = controller.resolvedArchiveAnchor(for: request)
+                XCTAssertEqual(resolved.archivedId, reference)
+                XCTAssertEqual(resolved.messagePrimary, request.anchor.messagePrimary)
+                XCTAssertEqual(resolved.messageId, request.anchor.messageId)
+                XCTAssertNil(resolved.archiveCursor, "Even a numeric raw reference is not an owned MAM cursor")
+                XCTAssertNil(resolved.sourceDate)
+                XCTAssertNil(request.anchor.archivedId, "The original pending request identity must remain unchanged")
+                XCTAssertEqual(row.mamArchiveId, "")
+                XCTAssertNil(controller.archiveWindowState)
+                XCTAssertNil(controller.timelineSession?.verifiedScope)
+                XCTAssertFalse(row.isRead)
+            }
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyLiveReferenceRejectsUnqualifiedOrUnauthenticatedCanonicalRows() throws {
+        for invalid in ["owner", "peer", "type", "primary", "messageID", "deleted", "hidden", "tombstone",
+                        "expired", "error", "empty-reference", "whitespace-reference", "missing-auth", "auth-owner", "auth-jid",
+                        "auth-device", "auth-trusted", "fingerprint", "fingerprint-grouping", "invalid-MAM"] {
+            try withPrimaryOnlyLiveAnchorFixture(mutate: { row in
+                var auth = row.systemMetadata?["omemo_authenticated_sender_v1"] as? [String: Any] ?? [:]
+                switch invalid {
+                case "owner": row.owner = "foreign@example.org"
+                case "peer": row.opponent = "foreign@example.org"
+                case "type": row.conversationType = .regular
+                case "primary": row.primary = "noncanonical-live-primary"
+                case "messageID": row.messageId = "other-live-message"
+                case "deleted": row.isDeleted = true
+                case "hidden": row.isLocallyHiddenByReport = true
+                case "tombstone": row.deleteState = .autoDeleted
+                case "expired": row.autoDeleteExpiresAt = 1
+                case "error": row.state = .error
+                case "empty-reference": row.archivedId = ""
+                case "whitespace-reference": row.archivedId = " \t\n "
+                case "missing-auth": row.systemMetadata = nil
+                case "auth-owner": auth["owner"] = "foreign@example.org"
+                case "auth-jid": auth["jid"] = "foreign@example.org"
+                case "auth-device": auth["deviceID"] = 0
+                case "auth-trusted": auth.removeValue(forKey: "trusted")
+                case "fingerprint": auth["fingerprint"] = String(repeating: "z", count: 64)
+                case "fingerprint-grouping": auth["fingerprint"] = String(repeating: "aa ", count: 32)
+                default: row.mamArchiveId = "not-a-MAM-cursor"
+                }
+                if invalid.hasPrefix("auth-") || invalid.hasPrefix("fingerprint") {
+                    row.systemMetadata = ["omemo_authenticated_sender_v1": auth]
+                }
+            }) { controller, _, request in
+                XCTAssertEqual(controller.resolvedArchiveAnchor(for: request), request.anchor, invalid)
+            }
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyLiveReferencePreservesExplicitLocatorAndSourcePrecedence() throws {
+        try withPrimaryOnlyLiveAnchorFixture { controller, _, original in
+            func request(cursor: ArchiveCursor? = nil, reference: String? = nil, date: Date? = nil,
+                         source: ChatOpenMessageRequestSource = .directOpenAtMessage,
+                         resolution: ChatOpenMessageTargetResolution = .anchor) -> ChatOpenMessageRequest {
+                .init(chatJid: original.chatJid, owner: original.owner, conversationType: original.conversationType,
+                    anchor: .init(messagePrimary: original.anchor.messagePrimary, archivedId: reference,
+                        archiveCursor: cursor, messageId: original.anchor.messageId, authorId: nil,
+                        bodyFingerprint: nil, sourceDate: date), highlight: false, markReadOnVisible: false,
+                    source: source, targetResolution: resolution)
+            }
+            for explicit in [request(cursor: ArchiveCursor(rawValue: "500")), request(reference: "explicit-reference"),
+                             request(date: Date(timeIntervalSince1970: 123)), request(source: .search),
+                             request(resolution: .firstIncomingAfterBoundary("900"))] {
+                XCTAssertEqual(controller.resolvedArchiveAnchor(for: explicit), explicit.anchor)
+            }
+        }
+    }
+
+    @MainActor
+    func testReusedStaleVerified80QueuesNonTailLiveReferenceUntilOwnedMAMPositionsExactTarget() async throws {
+        for olderThanWindow in [false, true] {
+            try await withStaleVerifiedLiveReferenceFixture(targetOlderThanWindow: olderThanWindow) {
+                controller, realm, history, b, c, request in
+                let oldIntent = try XCTUnwrap(controller.archiveWindowIntent)
+                controller.queueOpenMessageRequest(request)
+
+                XCTAssertEqual(controller.pendingOpenMessageRequest, request,
+                    "Exact B must survive normal queue even though C is the live tail")
+                let resolutionID = try XCTUnwrap(controller.archiveReferenceResolutionID,
+                    "A non-tail target outside cached80 must use normal opaque-reference resolution")
+                let resolvingIntent = try XCTUnwrap(controller.archiveWindowIntent)
+                XCTAssertNotEqual(resolvingIntent.id, oldIntent.id)
+                XCTAssertEqual(controller.archiveWindowTargetOpenRequest, request)
+                XCTAssertEqual(controller.initialTargetFirstFrameContext?.request, request,
+                    "Normal primary-only reference handoff must protect B before the first real frame")
+                XCTAssertNil(controller.timelineSession?.verifiedScope)
+                XCTAssertTrue(controller.showSkeletonObserver.value)
+                XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+                XCTAssertEqual(b.mamArchiveId, "")
+                XCTAssertFalse(b.isRead)
+
+                let cursor = try XCTUnwrap(ArchiveCursor(rawValue: olderThanWindow ? "150" : "300"))
+                let ownedIntent = try XCTUnwrap(controller.completeArchiveReferenceResolution(cursor, request: request,
+                    resolutionID: resolutionID, expectedIntentID: resolvingIntent.id))
+                XCTAssertEqual(ownedIntent.locator, .archiveID(cursor))
+                XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+                XCTAssertTrue(controller.showSkeletonObserver.value, "Resolution alone must not publish cached A or live C")
+                XCTAssertFalse(b.isRead)
+
+                try realm.write { b.mamArchiveId = cursor.rawValue; c.mamArchiveId = "400" }
+                let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "fresh-nontail-B")
+                let segment = try XCTUnwrap(ArchiveCoverageSegment(
+                    oldest: try XCTUnwrap(ArchiveCursor(rawValue: olderThanWindow ? "150" : "200")),
+                    newest: try XCTUnwrap(ArchiveCursor(rawValue: "400")), reachesArchiveStart: true,
+                    reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+                let primaries = olderThanWindow ? [b.primary] + history.map(\.primary) + [c.primary]
+                    : history.map(\.primary) + [b.primary, c.primary]
+                controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: primaries,
+                    target: .archiveID(cursor), verifiedSegment: segment, coverageGeneration: 2,
+                    freshnessToken: freshness)))
+                for _ in 0..<400 where controller.pendingOpenMessageRequest != nil {
+                    try await Task.sleep(nanoseconds: 5_000_000)
+                }
+                XCTAssertNil(controller.pendingOpenMessageRequest)
+                XCTAssertNil(controller.initialTargetFirstFrameContext)
+                XCTAssertFalse(controller.showSkeletonObserver.value)
+                XCTAssertEqual(controller.retainedMessageAnchor?.primary, b.primary)
+                XCTAssertEqual(controller.timelineSession?.verifiedScope?.coverageGeneration, 2)
+                XCTAssertEqual(controller.anchorTransactionGate.snapshot.lastTerminalOutcome, .positioned)
+                XCTAssertFalse(b.isRead, "This exact route did not request markReadOnVisible")
+            }
+        }
+    }
+
+    @MainActor
+    func testQueuedLiveReferenceConsumesOwnedMAMCursorCommittedBeforeResolutionTaskStarts() async throws {
+        try await withStaleVerifiedLiveReferenceFixture { controller, realm, _, b, _, request in
+            controller.queueOpenMessageRequest(request)
+            XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+            XCTAssertNotNil(controller.archiveReferenceResolutionID)
+
+            // No await between normal queue and this persistence commit: the
+            // MainActor resolution task has not started yet.
+            try realm.write { b.mamArchiveId = "300" }
+            for _ in 0..<200 where controller.archiveWindowIntent?.locator != .archiveID(ArchiveCursor(rawValue: "300")!) {
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+            XCTAssertEqual(controller.archiveWindowIntent?.locator, .archiveID(ArchiveCursor(rawValue: "300")!))
+            XCTAssertNil(controller.archiveReferenceResolutionID,
+                "An owned MAM cursor winning this race must not strand the opaque-reference operation")
+            XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+            XCTAssertTrue(controller.showSkeletonObserver.value, "Cursor identity still needs owned window materialization")
+            XCTAssertNil(controller.timelineSession?.verifiedScope)
+            XCTAssertFalse(b.isRead)
+        }
+    }
+
+    @MainActor
+    private func withPrimaryOnlyLiveAnchorFixture(
+        mutate: (MessageStorageItem) -> Void = { _ in },
+        body: (ChatViewController, MessageStorageItem, ChatOpenMessageRequest) throws -> Void
+    ) throws {
+        try withPrimaryOnlyMAMAnchorFixture(mutate: { row in
+            row.mamArchiveId = ""
+            row.systemMetadata = ["omemo_authenticated_sender_v1": ["owner": row.owner, "jid": row.opponent,
+                "deviceID": 42, "fingerprint": String(repeating: "a", count: 64), "trusted": true]]
+            mutate(row)
+        }, body: body)
+    }
+
+    @MainActor
+    private func withStaleVerifiedLiveReferenceFixture(
+        targetOlderThanWindow: Bool = false,
+        body: (ChatViewController, Realm, [MessageStorageItem], MessageStorageItem,
+               MessageStorageItem, ChatOpenMessageRequest) async throws -> Void
+    ) async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "NonTailLiveReference-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let accountOwner = "nontail-\(UUID().uuidString.lowercased())@example.org"
+        let previousUsers = AccountManager.shared.users
+        let account = Account(jid: accountOwner, queue: DispatchQueue(label: "NonTailLiveReference-account"))
+        AccountManager.shared.users = previousUsers + [account]
+        defer {
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+            AccountManager.shared.users = previousUsers
+        }
+        func row(_ id: String, mamID: String, date: TimeInterval) -> MessageStorageItem {
+            let item = MessageStorageItem()
+            item.messageId = id; item.primary = MessageStorageItem.genPrimary(messageId: id, owner: accountOwner)
+            item.owner = accountOwner; item.opponent = jid; item.conversationType = .omemo
+            item.archivedId = "opaque-reference-\(id)"; item.mamArchiveId = mamID
+            item.date = Date(timeIntervalSince1970: date); item.sentDate = item.date
+            item.body = "Authenticated \(id)"; item.legacyBody = item.body; item.state = .deliver
+            item.systemMetadata = ["omemo_authenticated_sender_v1": ["owner": accountOwner, "jid": jid,
+                "deviceID": 42, "fingerprint": String(repeating: "a", count: 64), "trusted": true]]
+            return item
+        }
+        let history = (0..<80).map { row("history-\($0)", mamID: "\(200 + $0)", date: 1_700_000_100 + Double($0)) }
+        let b = row("non-tail-B", mamID: "", date: targetOlderThanWindow ? 1_700_000_000 : 1_700_000_300)
+        let c = row("newer-tail-C", mamID: "", date: 1_700_000_400)
+        try realm.write {
+            realm.add(history); realm.add(b); realm.add(c)
+            let chat = LastChatsStorageItem()
+            chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: accountOwner, conversationType: .omemo)
+            chat.owner = accountOwner; chat.jid = jid; chat.conversationType = .omemo
+            chat.lastMessage = c; chat.lastMessageId = c.messageId
+            realm.add(chat)
+        }
+        let controller = ChatViewController()
+        controller.owner = accountOwner; controller.jid = jid; controller.conversationType = .omemo
+        controller.ownerSender = Sender(id: accountOwner, displayName: accountOwner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded(); controller.stopArchiveEnginePresentationSubscription()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844); controller.view.layoutIfNeeded()
+        controller.timelineSession = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(owner: accountOwner, jid: jid, conversationType: .omemo),
+            pageSize: ArchivePageSizing.history,
+            conversationKey: .init(owner: accountOwner, jid: jid, conversationType: .omemo), observesStoreImmediately: false)
+        let key = ArchiveConversationKey(owner: accountOwner, jid: jid, conversationType: .omemo)
+        controller.archiveWindowStateTask = Task {}
+        controller.archiveWindowIntent = .init(conversation: key, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "stale-verified80")
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
+            newest: try XCTUnwrap(ArchiveCursor(rawValue: "279")), reachesArchiveStart: false,
+            reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+        controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: history.map(\.primary), target: .latest,
+            verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
+        for _ in 0..<400 where controller.timelineSession?.verifiedScope == nil || controller.showSkeletonObserver.value {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(controller.timelineSession?.snapshot.items.count, 80)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        let demandID = UUID()
+        await account.archiveEngine.attachPresentationDemand(for: key, demandID: demandID)
+        controller.archiveEnginePresentationDemandID = demandID
+        controller.archiveEnginePresentationDemandConversation = key
+        controller.archiveEnginePresentationDemandEngine = account.archiveEngine
+        defer { controller.stopArchiveEnginePresentationSubscription() }
+        let request = ChatOpenMessageRequest(chatJid: jid, owner: accountOwner, conversationType: .omemo,
+            anchor: .init(messagePrimary: b.primary, archivedId: nil, archiveCursor: nil, messageId: b.messageId,
+                authorId: nil, bodyFingerprint: nil, sourceDate: nil), highlight: false,
+            markReadOnVisible: false, source: .directOpenAtMessage)
+        try await body(controller, realm, history, b, c, request)
     }
 
     @MainActor
