@@ -2177,6 +2177,22 @@ class MessageStorageItem: Object {
             if shouldReconcileMAMArchiveIdentity,
                mamArchiveId.isNotEmpty,
                instance.mamArchiveId != mamArchiveId {
+                if instance.mamArchiveId.isNotEmpty {
+                    var flags = 0
+                    if owner == instance.owner, opponent == instance.opponent,
+                       conversationType == instance.conversationType { flags |= 1 }
+                    if hasSameIncomingContent(as: instance) { flags |= 2 }
+                    if date == instance.date { flags |= 4 }
+                    if outgoing == instance.outgoing { flags |= 8 }
+                    if messageType == instance.messageType { flags |= 16 }
+                    if let incomingXML = originalStanza?.xmlString,
+                       let storedXML = realm.object(ofType: MessageStanzaStorageItem.self,
+                            forPrimaryKey: instance.primary + "_stanza")?.stanza,
+                       storedXML.isNotEmpty,
+                       Data(incomingXML.utf8) == Data(storedXML.utf8) { flags |= 32 }
+                    ArchiveEngineObservability.event(.persistenceIdentityRebind, value: flags)
+                    ChatArchiveDebugTrace.logDiagnostic("archivePersistenceIdentityRebind", [("flags", flags)])
+                }
                 instance.mamArchiveId = mamArchiveId
             }
             if self.trustedSource && !instance.trustedSource {
@@ -2966,8 +2982,16 @@ enum ChatLocalHistoryLinkedIndex {
         )
     }
 
-    static func upsert(_ message: MessageStorageItem, in realm: Realm) {
+    static func upsert(
+        _ message: MessageStorageItem,
+        in realm: Realm,
+        neighborMaterializationObserver: ((Int) -> Void)? = nil
+    ) {
         precondition(realm.isInWriteTransaction, "History index updates must share the message write transaction")
+        // Counts range-query candidates materialized by this upsert, excluding
+        // exact primary-key lookups and the explicit legacy rebuild path.
+        var materializedNeighborCount = 0
+        defer { neighborMaterializationObserver?(materializedNeighborCount) }
         guard message.primary.isNotEmpty,
               message.owner.isNotEmpty,
               message.opponent.isNotEmpty else {
@@ -3025,18 +3049,10 @@ enum ChatLocalHistoryLinkedIndex {
             return
         }
 
-        let orderedCandidates = scopedMessages(for: message, in: realm).sorted {
-            MessageHistoryOrderKey(message: $0) < MessageHistoryOrderKey(message: $1)
-        }
-        let insertionIndex = orderedCandidates.firstIndex {
-            !(MessageHistoryOrderKey(message: $0) < messageOrder)
-        } ?? orderedCandidates.endIndex
-        let previous = insertionIndex > orderedCandidates.startIndex
-            ? orderedCandidates[orderedCandidates.index(before: insertionIndex)]
-            : nil
-        let next = insertionIndex < orderedCandidates.endIndex
-            ? orderedCandidates[insertionIndex]
-            : nil
+        let candidates = scopedMessages(for: message, in: realm)
+        let previous = neighbor(of: message, before: true, candidates: candidates)
+        let next = neighbor(of: message, before: false, candidates: candidates)
+        materializedNeighborCount = (previous == nil ? 0 : 1) + (next == nil ? 0 : 1)
 
         message.historyPreviousMessagePrimary = previous?.primary
         message.historyNextMessagePrimary = next?.primary
@@ -3044,6 +3060,44 @@ enum ChatLocalHistoryLinkedIndex {
         previous?.historyNextMessagePrimary = message.primary
         next?.historyPreviousMessagePrimary = message.primary
         state.indexedVisibleCount += 1
+    }
+
+    private static func neighbor(
+        of message: MessageStorageItem,
+        before: Bool,
+        candidates: Results<MessageStorageItem>
+    ) -> MessageStorageItem? {
+        let position = MessageHistoryPositionComponents.make(
+            primary: message.primary,
+            archivedId: nil,
+            messageId: message.messageId,
+            date: message.date
+        )
+        let fields: [(String, NSNumber)] = [
+            ("historyPositionOrdinal", NSNumber(value: position.ordinal)),
+            ("historyPositionKind", NSNumber(value: position.kind)),
+            ("historyPositionHigh", NSNumber(value: position.high)),
+            ("historyPositionLow", NSNumber(value: position.low)),
+            ("historyPositionDiscriminator", NSNumber(value: position.discriminator))
+        ]
+        var equalPrefix: [NSPredicate] = []
+        var branches: [NSPredicate] = []
+        let comparison = before ? "<" : ">"
+        for (key, value) in fields {
+            branches.append(NSCompoundPredicate(andPredicateWithSubpredicates:
+                equalPrefix + [NSPredicate(format: "%K \(comparison) %@", key, value)]
+            ))
+            equalPrefix.append(NSPredicate(format: "%K == %@", key, value))
+        }
+        // Keep the complete local tuple used by the reader's keyset queries.
+        // Realm selects the nearest result without hydrating/sorting history
+        // in Swift; an opaque MAM cursor never supplies the ordering.
+        return candidates
+            .filter(NSCompoundPredicate(orPredicateWithSubpredicates: branches))
+            .sorted(by: fields.map {
+                RealmSwift.SortDescriptor(keyPath: $0.0, ascending: !before)
+            })
+            .first
     }
 
     static func rebuildConversation(

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		08C7AA12149646198E8BEEFB /* ArchiveLoadingLiveDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */; };
 		A32110210000000000000051 /* OMEMO2FinalRecipientTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */; };
 		A32110210000000000000041 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */; };
 		A32110210000000000000003 /* OMEMOThreeClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */; };
@@ -1240,6 +1241,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveLoadingLiveDeviceTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2FinalRecipientTransportTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientAttachmentOpenSafetyTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000004 /* OMEMOThreeClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientDiagnostics.swift; sourceTree = "<group>"; };
@@ -2836,6 +2838,7 @@
 		4EB000092FF900000ABC001 /* xabberUITests */ = {
 			isa = PBXGroup;
 			children = (
+				E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */,
 				4EB600012FFF00000ABC001 /* AvatarPickerScreenUITests.swift */,
 				A32010200000000000000031 /* OMEMOThreeClientLiveUIAuthorization.swift */,
 				A32010200000000000000034 /* OMEMOThreeClientLiveUITests.swift */,
@@ -7154,6 +7157,7 @@
 			files = (
 				4EB600022FFF00000ABC001 /* AvatarPickerScreenUITests.swift in Sources */,
 				A32010200000000000000032 /* OMEMOThreeClientLiveUIAuthorization.swift in Sources */,
+				08C7AA12149646198E8BEEFB /* ArchiveLoadingLiveDeviceTests.swift in Sources */,
 				A32010200000000000000035 /* OMEMOThreeClientLiveUITests.swift in Sources */,
 				4EB000072FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */,
 				4EB000082FF900000ABC001 /* ChatSearchLiveSmokeTests.swift in Sources */,

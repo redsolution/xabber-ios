@@ -61,7 +61,7 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
         let provider = try provider(diagnostics: diagnostics)
 
         let boundary = try XCTUnwrap(provider.message(
-            primary: "primary-00050000",
+            primary: sameTimestampFixturePrimary(50_000),
             archivedId: nil,
             messageId: nil
         ))
@@ -79,7 +79,7 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
         let diagnostics = ChatLocalHistoryPageProviderDiagnostics()
         let provider = try provider(diagnostics: diagnostics)
         let boundary = ChatTimelineBoundary(
-            primary: "primary-00000500",
+            primary: sameTimestampFixturePrimary(500),
             archivedId: "00000500",
             messageId: "message-00000500",
             date: sharedDate
@@ -302,7 +302,7 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
         XCTAssertEqual(provider.latest(limit: 10).map(\.primary), ["p0", "p2"])
     }
 
-    func testLinkedIndexPreservesLegacyNumericCaseInsensitiveOrderInsideEqualDateBucket() throws {
+    func testLinkedIndexUsesStablePrimaryOrderInsteadOfOpaqueArchiveTokenSpellings() throws {
         let realm = try WRealm.safe()
         try realm.write {
             try persistIndexed(makeMessage(
@@ -329,8 +329,212 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
             try provider(diagnostics: ChatLocalHistoryPageProviderDiagnostics())
                 .latest(limit: 10)
                 .map(\.primary),
-            ["zzzz", "0000", "uuid-c"]
+            ["0000", "uuid-c", "zzzz"]
         )
+    }
+
+    func testAscendingOlderPageUpsertMaterializesAtMostTwoNeighborsAtDifferentHistorySizes() throws {
+        let realm = try WRealm.safe()
+        let pageSize = 24
+
+        for historySize in [100, 2_000] {
+            var materializedCounts: [Int] = []
+            try realm.write {
+                realm.deleteAll()
+                for index in 0..<historySize {
+                    try persistIndexed(makeMessage(
+                        primary: "tail-\(formattedId(index))",
+                        archivedId: "tail-archive-\(index)",
+                        messageId: "tail-message-\(index)",
+                        date: sharedDate.addingTimeInterval(TimeInterval(index))
+                    ), in: realm)
+                }
+                for index in 0..<pageSize {
+                    try persistIndexed(makeMessage(
+                        primary: "older-\(formattedId(index))",
+                        archivedId: "older-archive-\(index)",
+                        messageId: "older-message-\(index)",
+                        date: sharedDate.addingTimeInterval(TimeInterval(index - pageSize))
+                    ), in: realm, neighborMaterializationObserver: {
+                        materializedCounts.append($0)
+                    })
+                }
+            }
+
+            XCTAssertEqual(materializedCounts.count, pageSize)
+            XCTAssertGreaterThan(materializedCounts.reduce(0, +), 0,
+                                 "The budget must observe actual interior insertions")
+            XCTAssertLessThanOrEqual(materializedCounts.max() ?? 0, 2)
+            XCTAssertLessThanOrEqual(materializedCounts.reduce(0, +), pageSize * 2)
+            try assertLinkedChain(
+                (0..<pageSize).map { "older-\(formattedId($0))" } +
+                    (0..<historySize).map { "tail-\(formattedId($0))" },
+                in: realm
+            )
+        }
+    }
+
+    func testInteriorReplayKeepsLinksAndCountWithBoundedNeighborMaterialization() throws {
+        let realm = try WRealm.safe()
+        let primaries = (0..<12).map { "replay-\(formattedId($0))" }
+        var materializedCounts: [Int] = []
+        try realm.write {
+            for (index, primary) in primaries.enumerated() {
+                try persistIndexed(makeMessage(
+                    primary: primary,
+                    archivedId: "protocol-\(index)",
+                    messageId: "replay-message-\(index)",
+                    date: sharedDate.addingTimeInterval(TimeInterval(index))
+                ), in: realm)
+            }
+            let replay = try XCTUnwrap(realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: primaries[5]
+            ))
+            let positionBeforeReplay = MessageHistoryOrderKey(message: replay)
+            replay.mamArchiveId = "opaque-reconciled-MAM-token"
+            replay.body = "replayed content"
+            replay.isRead = true
+            replay.queryIds = "replayed-query"
+            XCTAssertEqual(MessageHistoryOrderKey(message: replay), positionBeforeReplay)
+            ChatLocalHistoryLinkedIndex.upsert(
+                replay,
+                in: realm,
+                neighborMaterializationObserver: { materializedCounts.append($0) }
+            )
+        }
+
+        XCTAssertEqual(materializedCounts.count, 1)
+        XCTAssertLessThanOrEqual(materializedCounts[0], 2)
+        try assertLinkedChain(primaries, in: realm)
+    }
+
+    func testSameTimestampInteriorUpsertUsesTheCompletePositionTuple() throws {
+        let realm = try WRealm.safe()
+        let messages = ["alpha", "beta", "gamma", "delta", "epsilon"].map { suffix in
+            makeMessage(
+                primary: "same-prefix-14-\(suffix)",
+                archivedId: "opaque-\(suffix)",
+                messageId: "same-date-\(suffix)"
+            )
+        }.sorted { MessageHistoryOrderKey(message: $0) < MessageHistoryOrderKey(message: $1) }
+        XCTAssertEqual(Set(messages.map(\.historyPositionHigh)).count, 1)
+        XCTAssertEqual(Set(messages.map(\.historyPositionLow)).count, 1)
+        var materializedCounts: [Int] = []
+        try realm.write {
+            for index in [0, 2, 4] {
+                try persistIndexed(messages[index], in: realm)
+            }
+            for index in [1, 3] {
+                try persistIndexed(messages[index], in: realm, neighborMaterializationObserver: {
+                    materializedCounts.append($0)
+                })
+            }
+        }
+
+        XCTAssertEqual(materializedCounts.count, 2)
+        XCTAssertTrue(materializedCounts.allSatisfy { $0 <= 2 })
+        try assertLinkedChain(messages.map(\.primary), in: realm)
+    }
+
+    func testInteriorNeighborLookupRemainsScopedToOwnerJIDAndConversationType() throws {
+        let realm = try WRealm.safe()
+        let localPrimaries = ["scoped-010", "scoped-020", "scoped-030"]
+        var materializedCounts: [Int] = []
+        try realm.write {
+            for primary in [localPrimaries[0], localPrimaries[2]] {
+                try persistIndexed(makeMessage(primary: primary, archivedId: primary,
+                                              messageId: primary), in: realm)
+            }
+            let foreignOwner = makeMessage(primary: "scoped-018", archivedId: "foreign-owner",
+                                           messageId: "foreign-owner")
+            foreignOwner.owner = "another-owner@example.com"
+            let foreignJID = makeMessage(primary: "scoped-019", archivedId: "foreign-jid",
+                                         messageId: "foreign-jid", opponent: "another-chat@example.com")
+            let foreignType = makeMessage(primary: "scoped-021", archivedId: "foreign-type",
+                                          messageId: "foreign-type")
+            foreignType.conversationType = .omemo
+            for message in [foreignOwner, foreignJID, foreignType] {
+                try persistIndexed(message, in: realm)
+            }
+            try persistIndexed(makeMessage(primary: localPrimaries[1], archivedId: "local-middle",
+                                          messageId: "local-middle"), in: realm,
+                               neighborMaterializationObserver: { materializedCounts.append($0) })
+        }
+
+        XCTAssertEqual(materializedCounts.count, 1)
+        XCTAssertLessThanOrEqual(materializedCounts[0], 2)
+        try assertLinkedChain(localPrimaries, in: realm)
+        for primary in ["scoped-018", "scoped-019", "scoped-021"] {
+            let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+            XCTAssertNil(message.historyPreviousMessagePrimary)
+            XCTAssertNil(message.historyNextMessagePrimary)
+        }
+    }
+
+    func testOrderMutationAndDeletedRowReinsertionKeepTheLinkedChainCoherent() throws {
+        let realm = try WRealm.safe()
+        let primaries = (0..<7).map { "mutation-\(formattedId($0))" }
+        var materializedCounts: [Int] = []
+        try realm.write {
+            for (index, primary) in primaries.enumerated() {
+                try persistIndexed(makeMessage(primary: primary, archivedId: primary, messageId: primary,
+                                              date: sharedDate.addingTimeInterval(TimeInterval(index))), in: realm)
+            }
+            let moved = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primaries[3]))
+            moved.date = sharedDate.addingTimeInterval(10)
+            ChatLocalHistoryLinkedIndex.upsert(moved, in: realm)
+        }
+        try assertLinkedChain(primaries.filter { $0 != primaries[3] } + [primaries[3]], in: realm)
+
+        try realm.write {
+            let moved = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primaries[3]))
+            moved.date = sharedDate.addingTimeInterval(2.5)
+            ChatLocalHistoryLinkedIndex.upsert(moved, in: realm,
+                neighborMaterializationObserver: { materializedCounts.append($0) })
+        }
+        try assertLinkedChain(primaries, in: realm)
+
+        try realm.write {
+            let removed = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primaries[3]))
+            removed.isDeleted = true
+            ChatLocalHistoryLinkedIndex.upsert(removed, in: realm)
+        }
+        try assertLinkedChain(primaries.filter { $0 != primaries[3] }, in: realm)
+        try realm.write {
+            let restored = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primaries[3]))
+            restored.isDeleted = false
+            ChatLocalHistoryLinkedIndex.upsert(restored, in: realm,
+                neighborMaterializationObserver: { materializedCounts.append($0) })
+        }
+        try assertLinkedChain(primaries, in: realm)
+        XCTAssertEqual(materializedCounts.count, 2)
+        XCTAssertTrue(materializedCounts.allSatisfy { $0 <= 2 })
+    }
+
+    private func assertLinkedChain(
+        _ expectedPrimaries: [String],
+        in realm: Realm,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let state = try XCTUnwrap(ChatLocalHistoryLinkedIndex.state(
+            owner: owner, jid: jid, conversationType: .regular, in: realm
+        ), file: file, line: line)
+        XCTAssertEqual(state.indexedVisibleCount, expectedPrimaries.count, file: file, line: line)
+        XCTAssertEqual(state.oldestMessagePrimary, expectedPrimaries.first, file: file, line: line)
+        XCTAssertEqual(state.newestMessagePrimary, expectedPrimaries.last, file: file, line: line)
+        for (index, primary) in expectedPrimaries.enumerated() {
+            let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+                                       file: file, line: line)
+            XCTAssertEqual(message.historyPreviousMessagePrimary,
+                           index > 0 ? expectedPrimaries[index - 1] : nil, file: file, line: line)
+            XCTAssertEqual(message.historyNextMessagePrimary,
+                           index + 1 < expectedPrimaries.count ? expectedPrimaries[index + 1] : nil,
+                           file: file, line: line)
+            XCTAssertEqual(message.historyLinkedIndexVersion, ChatLocalHistoryIndexStorageItem.currentVersion,
+                           file: file, line: line)
+        }
     }
 
     private func provider(
@@ -352,7 +556,7 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
             for index in insertionOrder {
                 let id = formattedId(index)
                 let message = MessageStorageItem()
-                message.primary = "primary-\(id)"
+                message.primary = sameTimestampFixturePrimary(index)
                 message.owner = owner
                 message.opponent = jid
                 message.conversationType = .regular
@@ -386,12 +590,17 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
         return message
     }
 
-    private func persistIndexed(_ message: MessageStorageItem, in realm: Realm) throws {
+    private func persistIndexed(
+        _ message: MessageStorageItem,
+        in realm: Realm,
+        neighborMaterializationObserver: ((Int) -> Void)? = nil
+    ) throws {
         realm.add(message, update: .modified)
         let stored = try XCTUnwrap(
             realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary)
         )
-        ChatLocalHistoryLinkedIndex.upsert(stored, in: realm)
+        ChatLocalHistoryLinkedIndex.upsert(stored, in: realm,
+            neighborMaterializationObserver: neighborMaterializationObserver)
     }
 
     private func expectedIds(_ range: Range<Int>) -> [String] {
@@ -400,6 +609,12 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
 
     private func formattedId(_ index: Int) -> String {
         String(format: "%08d", index)
+    }
+
+    private func sameTimestampFixturePrimary(_ index: Int) -> String {
+        // Keep expected adjacency independent of opaque archive IDs and SHA
+        // ties: ordinal bytes differ within the stored primary-prefix tuple.
+        "\(formattedId(index))-primary"
     }
 }
 

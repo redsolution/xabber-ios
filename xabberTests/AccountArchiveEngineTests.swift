@@ -9,6 +9,102 @@ final class AccountArchiveEngineTests: XCTestCase {
         conversationType: .regular
     )
 
+    func testActorDiagnosticsIdentifyLocalAdmissionWithoutEnqueuingTransport() async throws {
+        let recorder = ArchiveActorDiagnosticRecorder()
+        let finished = expectation(description: "local admission emits its actual terminal diagnostic")
+        let repository = ArchiveEngineRepositorySpy()
+        await repository.setSnapshot(makeSnapshot(sessionGeneration: 920))
+        let transport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: repository, transport: transport,
+            admissionProvider: ArchiveEngineAdmissionSpy(), retryClock: .immediate,
+            diagnosticSink: { event in
+                recorder.record(event)
+                if event.branch == .finished { finished.fulfill() }
+            })
+        await engine.connectionDidBecomeReady(generation: 920)
+
+        await submit(engine, latestIntent(priority: .visibleIntegrity))
+        await fulfillment(of: [finished], timeout: 2)
+
+        let events = recorder.snapshot()
+        XCTAssertEqual(events.map(\.branch), [.submitted, .executionStarted,
+            .admissionProviderStarted, .admissionProviderSucceeded, .localVerified, .finished])
+        XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
+        XCTAssertNotEqual(events.first?.executionCode, 0)
+        XCTAssertTrue(events.allSatisfy { $0.locator == .latest })
+        XCTAssertEqual(events.last?.resultCode, 1)
+        let wireCount = await transport.requestCount
+        XCTAssertEqual(wireCount, 0)
+    }
+
+    func testActorDiagnosticsIdentifyTransportAndCommittedEmptyResult() async throws {
+        let recorder = ArchiveActorDiagnosticRecorder()
+        let transport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport,
+            admissionProvider: ArchiveEngineAdmissionSpy(), retryClock: .immediate,
+            diagnosticSink: recorder.record)
+        await engine.connectionDidBecomeReady(generation: 921)
+
+        await submit(engine, latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+
+        let events = recorder.snapshot()
+        XCTAssertEqual(events.map(\.branch), [.submitted, .executionStarted,
+            .admissionProviderStarted, .admissionProviderSucceeded, .localAdmissionMiss,
+            .transportEnqueued, .transportReceipt, .repositoryCommitted, .finished])
+        XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
+        XCTAssertNotEqual(events.first?.executionCode, 0)
+        XCTAssertEqual(events.first(where: { $0.branch == .repositoryCommitted })?.resultCode, 2)
+        XCTAssertEqual(events.last?.resultCode, 1)
+        let wireCount = await transport.requestCount
+        XCTAssertEqual(wireCount, 1)
+    }
+
+    func testActorDiagnosticsIdentifyRetainedTerminalBudgetWithoutAnotherWireRequest() async throws {
+        let recorder = ArchiveActorDiagnosticRecorder()
+        let transport = FailingArchiveEngineTransport(error: .protocolViolation)
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport,
+            admissionProvider: ArchiveEngineAdmissionSpy(), retryClock: .immediate,
+            diagnosticSink: recorder.record)
+        await engine.connectionDidBecomeReady(generation: 922)
+        await submit(engine, latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+        let previousCode = try XCTUnwrap(recorder.snapshot().last?.executionCode)
+        recorder.clear()
+
+        await engine.submit(latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+
+        let events = recorder.snapshot()
+        XCTAssertEqual(events.map(\.branch), [.submitted, .executionStarted,
+            .retainedTerminalBudget, .localAdmissionMiss, .finished])
+        XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
+        XCTAssertNotEqual(events.first?.executionCode, previousCode)
+        XCTAssertEqual(events.last?.resultCode, 3)
+        XCTAssertEqual(events.last?.failureDomainCode, 3)
+        XCTAssertEqual(events.last?.failureReasonCode, 6)
+        let wireCount = await transport.requestCount
+        XCTAssertEqual(wireCount, 1)
+    }
+
+    func testActorDiagnosticsIdentifyOfflineSubmitWithoutCreatingExecution() async {
+        let recorder = ArchiveActorDiagnosticRecorder()
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: ArchiveEngineTransportSpy(),
+            admissionProvider: ArchiveEngineAdmissionSpy(), retryClock: .immediate,
+            diagnosticSink: recorder.record)
+
+        await submit(engine, latestIntent(priority: .visibleIntegrity))
+
+        let events = recorder.snapshot()
+        XCTAssertEqual(events.map(\.branch), [.submitted, .offline])
+        XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
+        XCTAssertNotEqual(events.first?.executionCode, 0)
+    }
+
     func testExhaustedRetryBudgetSurvivesPresentationReopen() async throws {
         let transport = FailingArchiveEngineTransport(error: .timeout)
         let engine = AccountArchiveEngine(owner: conversation.owner,
@@ -2410,6 +2506,29 @@ private actor RetryOwnershipArchiveTransportSpy: ArchiveTransport {
                 returning: receipt.replacingIdentity(from: pending.request)
             )
         }
+    }
+}
+
+private final class ArchiveActorDiagnosticRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [ArchiveEngineDiagnosticEvent] = []
+
+    @Sendable func record(_ event: ArchiveEngineDiagnosticEvent) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [ArchiveEngineDiagnosticEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
+    }
+
+    func clear() {
+        lock.lock()
+        events.removeAll()
+        lock.unlock()
     }
 }
 

@@ -64,6 +64,23 @@ private struct EmptyArchiveMaterializationResolver:
     }
 }
 
+private final class LockedArchiveAccountingDiagnostics: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [ArchiveTransportAccountingDiagnostic] = []
+
+    @Sendable func append(_ value: ArchiveTransportAccountingDiagnostic) {
+        lock.lock()
+        stored.append(value)
+        lock.unlock()
+    }
+
+    var values: [ArchiveTransportAccountingDiagnostic] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+}
+
 private final class LockedArchiveTransportResult: @unchecked Sendable {
     private let lock = NSLock()
     private var storedResults: [Result<ArchiveTransportReceipt, Error>] = []
@@ -1268,11 +1285,13 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         stream.myJID = XMPPJID(string: owner, resource: "archive-test")
         account.xmppStream = stream
         account.sendReadiness.markStreamManagementEnabled()
+        let accountingDiagnostics = LockedArchiveAccountingDiagnostics()
         let adapter = MessageArchiveTransportAdapter(
             account: account,
             materializationResolver: EmptyArchiveMaterializationResolver(),
             requestTerminalTimeout: 2,
-            persistenceTerminalTimeout: 2
+            persistenceTerminalTimeout: 2,
+            accountingDiagnosticSink: accountingDiagnostics.append
         )
         let request = ArchiveTransportRequest(
             queryID: queryID,
@@ -1361,6 +1380,96 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertTrue(receipt.finalReceived)
         XCTAssertEqual(receipt.deliveredResultCount, 0)
         XCTAssertEqual(receipt.persistedResultCount, 0)
+        XCTAssertEqual(accountingDiagnostics.values.count, 1,
+            "The actual adapter terminal emits accounting once despite duplicate final delivery")
+        let diagnostic = try XCTUnwrap(accountingDiagnostics.values.first)
+        XCTAssertEqual(diagnostic.deliveredIDCount, 0)
+        XCTAssertEqual(diagnostic.summaryQueued, 0)
+        XCTAssertEqual(diagnostic.missingUnaccountedIDCount, 0)
+    }
+
+    func testActualRegularAdapterRejectsUnexpectedEncryptedResultsInOrdinaryReply() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        let configuration = Realm.Configuration(inMemoryIdentifier: "mixed-typed-archive-adapter")
+        Realm.Configuration.defaultConfiguration = configuration
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        defer {
+            Realm.Configuration.defaultConfiguration = previous
+            MessageArchiveEndPageDispatcher.resetForTests()
+            MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+            MessageArchiveRequestFailureDispatcher.resetForTests()
+        }
+        let realm = try Realm(configuration: configuration)
+        let queryID = "mixed-typed-archive-query"
+        let account = Account(jid: conversation.owner, queue: DispatchQueue(label: queryID))
+        let stream = MalformedFinalAuthenticatedXMPPStream()
+        stream.myJID = XMPPJID(string: conversation.owner, resource: "archive-test")
+        account.xmppStream = stream
+        account.sendReadiness.markStreamManagementEnabled()
+        let repository = RealmArchiveCoverageRepository { try Realm(configuration: configuration) }
+        let diagnostics = LockedArchiveAccountingDiagnostics()
+        let adapter = MessageArchiveTransportAdapter(account: account, materializationResolver: repository,
+            requestTerminalTimeout: 3, persistenceTerminalTimeout: 3,
+            accountingDiagnosticSink: diagnostics.append)
+        let request = ArchiveTransportRequest(queryID: queryID, conversation: conversation,
+            locator: .latest, connectionGeneration: 1, pageSize: 80, contextBefore: 80,
+            contextAfter: 0, proofFingerprint: "session:1", isUnfiltered: true,
+            producesContinuousCoverage: true, usesFlippedPage: true)
+        let terminal = expectation(description: "mixed typed archive reaches its persistence terminal")
+        let results = LockedArchiveTransportResult()
+        Task {
+            do { results.append(.success(try await adapter.request(request, priority: .visibleIntegrity))) }
+            catch { results.append(.failure(error)) }
+            terminal.fulfill()
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline, !account.mam.callbackQueueContains(where: { $0.elementId == queryID }) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(account.mam.callbackQueueContains { $0.elementId == queryID })
+        let payloads = [
+            ("encrypted-id", "encrypted-message", "<encrypted xmlns='urn:xmpp:omemo:2'><header sid='1'/></encrypted>"),
+            ("regular-id", "regular-message", "<body>fixture ordinary message</body>")
+        ]
+        for (archiveID, messageID, payload) in payloads {
+            let message = try XMPPMessage(from: XCTUnwrap(DDXMLDocument(xmlString: """
+            <message from='\(conversation.owner)' to='\(conversation.owner)/archive-test'>
+              <result xmlns='urn:xmpp:mam:2' queryid='\(queryID)' id='\(archiveID)'>
+                <forwarded xmlns='urn:xmpp:forward:0'>
+                  <message xmlns='jabber:client' from='\(conversation.jid)' to='\(conversation.owner)' type='chat' id='\(messageID)'>\(payload)</message>
+                  <delay xmlns='urn:xmpp:delay' stamp='2026-10-19T10:32:48.614Z'/>
+                </forwarded>
+              </result>
+            </message>
+            """, options: 0).rootElement()))
+            XCTAssertTrue(account.mam.recordDeferredArchiveResultDelivery(message))
+            account.messages.receiveArchived(message)
+        }
+        let final = try XMPPIQ(from: XCTUnwrap(DDXMLDocument(xmlString: """
+        <iq type='result' id='\(queryID)'><fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryID)'>
+          <set xmlns='http://jabber.org/protocol/rsm'><first>encrypted-id</first><last>regular-id</last><count>2</count></set>
+        </fin></iq>
+        """, options: 0).rootElement()))
+        XCTAssertTrue(account.mam.read(stream, withIQ: final))
+        wait(for: [terminal], timeout: 4)
+
+        let receipt = try XCTUnwrap(results.results.first).get()
+        XCTAssertEqual(receipt.deliveredResultCount, 2)
+        XCTAssertEqual(receipt.persistedResultCount, 1)
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(receipt.failedPersistenceCount, 1)
+        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(receipt, for: request)) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .persistenceFailure)
+        }
+        let visible = realm.objects(MessageStorageItem.self).filter("conversationType_ == %@", conversation.conversationTypeRaw)
+        XCTAssertEqual(visible.count, 1)
+        XCTAssertEqual(receipt.messagePrimaryIDs, visible.map(\.primary))
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).filter("conversationType_ == %@", ClientSynchronizationManager.ConversationType.omemo.rawValue).count, 1)
+        XCTAssertEqual(diagnostics.values.count, 1)
+        XCTAssertEqual(diagnostics.values.first?.summaryQueuedWithoutOutcome, 0)
+        XCTAssertEqual(diagnostics.values.first?.recognizedSamePeerOMEMOIDCount, 1)
     }
 
     func testMissingFinalTimesOutAndReleasesMamSchedulerSlot() {
@@ -1801,6 +1910,75 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertNil(weakProbe)
     }
 
+    func testPersistenceAccountingDiagnosticsSeparateQueueDropsFromSavedIdentityLoss() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 3
+        summary.queued = 3
+        summary.savedNew = 2
+        for archiveID in ["10", "20"] {
+            summary.recordPersistedArchiveId(archiveID, owner: conversation.owner,
+                jid: conversation.jid, conversationType: conversation.conversationType)
+        }
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary, deliveredArchiveIDs: ["10", "20", "30"],
+            explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10")],
+            conversation: conversation)
+
+        let diagnostic = accounting.diagnostic
+        XCTAssertEqual(diagnostic.deliveredIDCount, 3)
+        XCTAssertEqual(diagnostic.uniqueDeliveredIDCount, 3)
+        XCTAssertEqual(diagnostic.matchedMaterializedIDCount, 1)
+        XCTAssertEqual(diagnostic.missingUnaccountedIDCount, 2)
+        XCTAssertEqual(diagnostic.duplicateMaterializedIDCount, 0)
+        XCTAssertEqual(diagnostic.summaryQueuedWithoutOutcome, 1)
+        XCTAssertEqual(diagnostic.scopedPersistedIDCount, 2)
+        XCTAssertEqual(diagnostic.unaccountedWithScopedPersistedIDCount, 1)
+        XCTAssertEqual(accounting.failedPersistenceCount, 2,
+            "Diagnostics cannot weaken the strict accounting result")
+    }
+
+    func testAccountingDiagnosticsIdentifyOtherTypesOnlyForTheSameOwnerAndPeer() {
+        let owner = conversation.owner
+        let peer = conversation.jid
+        let rows: [(String, String, String, ClientSynchronizationManager.ConversationType)] = [
+            ("regular-id", owner, peer, .regular),
+            ("omemo-id", owner, peer, .omemo),
+            ("omemo1-id", owner, peer, .omemo1),
+            ("axolotl-id", owner, peer, .axolotl),
+            ("group-id", owner, peer, .group),
+            ("saved-id", owner, peer, .saved),
+            ("foreign-owner-id", "another-owner@example.org", peer, .omemo),
+            ("foreign-peer-id", owner, "another-peer@example.org", .omemo),
+        ]
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = rows.count
+        summary.queued = rows.count
+        summary.updatedExisting = rows.count
+        for (archiveID, rowOwner, rowPeer, type) in rows {
+            summary.recordPersistedArchiveId(archiveID, owner: rowOwner,
+                jid: rowPeer, conversationType: type)
+        }
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary, deliveredArchiveIDs: rows.map { $0.0 },
+            explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [ArchiveMaterializedMessageIdentity(
+                archiveID: "regular-id", primaryID: "regular-primary")],
+            conversation: conversation)
+
+        let diagnostic = accounting.diagnostic
+        XCTAssertEqual(diagnostic.recognizedSamePeerOMEMOIDCount, 1)
+        XCTAssertEqual(diagnostic.recognizedSamePeerLegacyEncryptedIDCount, 2)
+        XCTAssertEqual(diagnostic.recognizedSamePeerGroupIDCount, 1)
+        XCTAssertEqual(diagnostic.recognizedSamePeerSavedIDCount, 1)
+        XCTAssertEqual(accounting.persistedResultCount, 1)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(accounting.failedPersistenceCount, 7,
+            "Other-scope persistence remains diagnostic evidence, never automatic consumption")
+    }
+
     func testPersistenceAccountingAcceptsAlreadyMaterializedDuplicateRows() {
         var summary = MessageManager.ArchivePersistenceSummary()
         summary.received = 3
@@ -1880,6 +2058,8 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertEqual(accounting.persistedResultCount, 0)
         XCTAssertEqual(accounting.messagePrimaryIDs, [])
         XCTAssertEqual(accounting.failedPersistenceCount, 1)
+        XCTAssertEqual(accounting.diagnostic.duplicateMaterializedIDCount, 1)
+        XCTAssertEqual(accounting.diagnostic.missingUnaccountedIDCount, 0)
     }
 
     func testPersistenceAccountingCountsOnlyConsumedResultsWithoutDurableRows() {
@@ -1958,6 +2138,60 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertEqual(consumed, [ArchiveCursor(rawValue: "10")!, ArchiveCursor(rawValue: "20")!])
         XCTAssertEqual(accounting.persistedResultCount, 0)
         XCTAssertEqual(accounting.intentionallyConsumedResultCount, 2)
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testRegularArchiveDoesNotRetireForeignOrUnpersistedOrUnrelatedTypedResults() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        let excluded: [(String, String, String, ClientSynchronizationManager.ConversationType)] = [
+            ("foreign-owner", "foreign@example.org", conversation.jid, .omemo),
+            ("foreign-peer", conversation.owner, "foreign@example.org", .omemo),
+            ("group", conversation.owner, conversation.jid, .group),
+            ("saved", conversation.owner, conversation.jid, .saved),
+            ("notification", conversation.owner, conversation.jid, .notifications)
+        ]
+        for (id, owner, peer, type) in excluded {
+            summary.recordPersistedArchiveId(id, owner: owner, jid: peer, conversationType: type)
+        }
+        let consumed = ArchiveTransportShadowConsumptionPolicy.archiveIDs(
+            summary: summary, conversation: conversation)
+        let accounting = ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: excluded.map { $0.0 } + ["unpersisted-encrypted"],
+            explicitlyConsumedArchiveIDs: consumed, materializedMessages: [], conversation: conversation)
+
+        XCTAssertTrue(consumed.isEmpty)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(accounting.failedPersistenceCount, excluded.count + 1)
+    }
+
+    func testEncryptedArchiveCannotRetirePlaintextResults() {
+        let encrypted = ArchiveConversationKey(owner: conversation.owner,
+            jid: conversation.jid, conversationType: .omemo)
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.recordPersistedArchiveId("plain-id", owner: conversation.owner,
+            jid: conversation.jid, conversationType: .regular)
+        let consumed = ArchiveTransportShadowConsumptionPolicy.archiveIDs(
+            summary: summary, conversation: encrypted)
+        let accounting = ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: ["plain-id"], explicitlyConsumedArchiveIDs: consumed,
+            materializedMessages: [], conversation: encrypted)
+
+        XCTAssertTrue(consumed.isEmpty)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(accounting.failedPersistenceCount, 1)
+    }
+
+    func testScopeDiagnosticsKeepRecognizedIDsAfterExplicitConsumption() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.recordPersistedArchiveId("encrypted-id", owner: conversation.owner,
+            jid: conversation.jid, conversationType: .omemo)
+        let accounting = ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: ["encrypted-id"],
+            explicitlyConsumedArchiveIDs: [ArchiveCursor(rawValue: "encrypted-id")!],
+            materializedMessages: [], conversation: conversation)
+
+        XCTAssertEqual(accounting.diagnostic.recognizedSamePeerOMEMOIDCount, 1,
+            "The numeric scope classifier must remain visible after explicit domain consumption")
         XCTAssertEqual(accounting.failedPersistenceCount, 0)
     }
 

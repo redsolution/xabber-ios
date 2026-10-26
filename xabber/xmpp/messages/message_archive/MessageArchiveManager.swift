@@ -978,13 +978,14 @@ class MessageArchiveManager: AbstractXMPPManager {
             conversationType: ClientSynchronizationManager.ConversationType,
             purpose: RequestPurpose,
             isGroupchat: Bool,
-            isExtendedArchiveAvailable: Bool
+            isExtendedArchiveAvailable: Bool,
+            isConversationScoped: Bool = true
         ) -> Bool {
             guard !isGroupchat, isExtendedArchiveAvailable else {
                 return false
             }
 
-            return conversationType != .regular
+            return conversationType != .regular || isConversationScoped
         }
     }
 
@@ -3079,12 +3080,15 @@ class MessageArchiveManager: AbstractXMPPManager {
                 x.addChild(withElement)
             }
         }
-        if Self.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
+        let extendedArchiveAvailableForRequest = self.isExtendedArchiveAvailable
+        let includesConversationTypeField = Self.ConversationTypeFilterPolicy.shouldIncludeConversationTypeField(
             conversationType: conversationType,
             purpose: purpose,
             isGroupchat: isGroupchat,
-            isExtendedArchiveAvailable: self.isExtendedArchiveAvailable
-        ) {
+            isExtendedArchiveAvailable: extendedArchiveAvailableForRequest,
+            isConversationScoped: jid?.isNotEmpty == true
+        )
+        if includesConversationTypeField {
             let ctElement = DDXMLElement(name: "field")
             ctElement.addAttribute(withName: "var", stringValue: "conversation-type")
             ctElement.addChild(DDXMLElement(name: "value", stringValue: conversationType.rawValue))
@@ -3115,6 +3119,12 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
 
 
+        let typeFilterFlags = (extendedArchiveAvailableForRequest ? 1 : 0)
+            + (isGroupchat ? 2 : 0)
+            + (conversationType.isEncrypted ? 4 : 0)
+            + (conversationType == .regular ? 8 : 0)
+        ArchiveEngineObservability.event(.requestTypeFilter,
+            value: includesConversationTypeField ? 1 : 0, auxiliary: typeFilterFlags)
 //        if [.omemo, .omemo1, .axolotl].contains(conversationType)
         query.addChild(x)
         let setElement = DDXMLElement(name: "set", xmlns: "http://jabber.org/protocol/rsm")

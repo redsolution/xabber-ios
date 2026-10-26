@@ -330,19 +330,119 @@ final class OMEMO2NormativeReplayHistoryTests: XCTestCase {
         }
     }
 
+    func testQueuedInitialControlACKAdvancesOnlySendStateWithoutAnyArchiveIngress() throws {
+        let f = try fixture()
+        f.account.messages.unsubscribeReceiver()
+        let item = try verifiedItem(f)
+        f.account.messages.save([item], silentNotifications: true)
+        let storage = try XCTUnwrap(f.manager.omemo2Storage)
+
+        let queueEntered = DispatchSemaphore(value: 0)
+        let releaseQueue = DispatchSemaphore(value: 0)
+        f.account.queue.async {
+            queueEntered.signal()
+            releaseQueue.wait()
+        }
+        var released = false
+        defer { if !released { releaseQueue.signal() } }
+        guard queueEntered.wait(timeout: .now() + 2) == .success else {
+            return XCTFail("The fixture account queue must be held before the initial control receive")
+        }
+
+        let cipher = try f.sender.encrypt(Data(repeating: 0, count: 32), jid: f.manager.owner, deviceID: 42)
+        let control = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.sender.owner)/device' to='\(f.manager.owner)' type='chat' id='causal-ack-control'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='77'><keys jid='\(f.manager.owner)'><key rid='42' kex='\(cipher.isKeyExchange ? "true" : "false")'>\(cipher.data.base64EncodedString())</key></keys></header></encrypted></message>")
+        guard case .consumed(.control) = f.manager.prepareIncoming(control) else {
+            return XCTFail("The causal fixture must authenticate a real payloadless control")
+        }
+        XCTAssertFalse(f.account.isActionQueueQuiescentForTests)
+        let beforeBytes = try XCTUnwrap(f.memory.records[f.manager.owner])
+        let before = try XCTUnwrap(PropertyListSerialization.propertyList(from: beforeBytes, format: nil) as? [String: Any])
+        let beforeMetadata = try XCTUnwrap(storage.sessionMetadata(jid: f.sender.owner, deviceID: 77))
+        let beforePending = try storage.pendingControlAddresses().count
+        XCTAssertEqual(beforePending, 1)
+
+        // Deliberately no archivedReplayReceipt(), MAM request, stanza ingress,
+        // or send-readiness transition: only the old action sees a new stream.
+        let stream = ReplayArchiveAuthenticatedStream()
+        stream.myJID = XMPPJID(string: f.manager.owner, resource: "causal-ack-test")
+        f.account.xmppStream = stream
+        releaseQueue.signal()
+        released = true
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline && !f.account.isActionQueueQuiescentForTests {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        }
+        XCTAssertTrue(f.account.isActionQueueQuiescentForTests, "All transitive account actions must finish before the second snapshot")
+
+        let afterBytes = try XCTUnwrap(f.memory.records[f.manager.owner])
+        let after = try XCTUnwrap(PropertyListSerialization.propertyList(from: afterBytes, format: nil) as? [String: Any])
+        let afterMetadata = try XCTUnwrap(storage.sessionMetadata(jid: f.sender.owner, deviceID: 77))
+        let changedFields = Set(before.keys).union(after.keys).filter { key in
+            guard let lhs = before[key] as? NSObject, let rhs = after[key] else {
+                return (before[key] != nil) != (after[key] != nil)
+            }
+            return !lhs.isEqual(rhs)
+        }.sorted()
+        let controls = stream.sentControlShapes
+        XCTAssertFalse(stream.didSendQuery, "No MAM query participated in this state mutation")
+        XCTAssertEqual(controls.count, 1)
+        XCTAssertEqual(controls.first?.senderDeviceID, 42)
+        XCTAssertEqual(controls.first?.recipientDeviceID, 77)
+        XCTAssertEqual(controls.first?.recipientJID, f.sender.owner)
+        XCTAssertEqual(controls.first?.keyCount, 1)
+        XCTAssertEqual(controls.first?.hasPayload, false)
+        XCTAssertEqual(controls.first?.hasEncryptedKey, true)
+        XCTAssertEqual(afterMetadata.sendCounter, beforeMetadata.sendCounter + 1)
+        XCTAssertEqual(afterMetadata.receiveCounter, beforeMetadata.receiveCounter)
+        XCTAssertTrue(afterMetadata.remoteIdentityKey == beforeMetadata.remoteIdentityKey, "Peer identity must stay unchanged")
+        XCTAssertTrue(afterMetadata.ephemeralKey == beforeMetadata.ephemeralKey, "The same session exchange must remain current")
+        XCTAssertEqual(try storage.pendingControlAddresses().count, 0)
+        XCTAssertEqual(changedFields, ["controlsNeeded", "sessions"],
+            "Only queued outbound ACK send state may change; no private field values are reported")
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).filter("owner == %@", f.manager.owner).count, 1)
+
+        let summary: [String: Any] = ["schema": "e12-queued-ack-no-archive-causal-v1",
+            "archiveIngress": false, "mamQuerySent": stream.didSendQuery, "ackCount": controls.count,
+            "beforeBytes": beforeBytes.count, "afterBytes": afterBytes.count, "changedFields": changedFields,
+            "beforeSendCounter": beforeMetadata.sendCounter, "afterSendCounter": afterMetadata.sendCounter,
+            "beforeReceiveCounter": beforeMetadata.receiveCounter, "afterReceiveCounter": afterMetadata.receiveCounter,
+            "beforePendingControls": beforePending, "afterPendingControls": try storage.pendingControlAddresses().count,
+            "beforeReplayCount": (before["authenticatedReceiveFingerprints"] as? [Any])?.count ?? 0,
+            "afterReplayCount": (after["authenticatedReceiveFingerprints"] as? [Any])?.count ?? 0,
+            "beforePreKeyCount": (before["preKeys"] as? [Any])?.count ?? 0,
+            "afterPreKeyCount": (after["preKeys"] as? [Any])?.count ?? 0,
+            "unchangedAllOtherFields": changedFields == ["controlsNeeded", "sessions"]]
+        print("E12_ACK_CAUSAL_SUMMARY " + String(decoding: try JSONSerialization.data(withJSONObject: summary, options: .sortedKeys), as: UTF8.self))
+    }
+
     func testArchiveIngressKeepsPayloadlessAuthenticatedControlConsumed() throws {
         let f = try fixture()
         f.account.messages.unsubscribeReceiver()
         let item = try verifiedItem(f)
         f.account.messages.save([item], silentNotifications: true)
+        // Finish the real initial ACK synchronously before measuring replay.
+        // Account.action otherwise races the helper's authenticated stream swap.
+        let controls = ReplayArchiveAuthenticatedStream()
+        f.manager.omemo2ControlSender = { controls.send($0) }
+        defer { f.manager.omemo2ControlSender = nil }
         let cipher = try f.sender.encrypt(Data(repeating: 0, count: 32), jid: f.manager.owner, deviceID: 42)
+        XCTAssertTrue(cipher.isKeyExchange, "The fixture must exercise the KEX acknowledgement branch")
         let control = try XMPPMessage(xmlString: "<message xmlns='jabber:client' from='\(f.sender.owner)/device' to='\(f.manager.owner)' type='chat' id='ack-control'><encrypted xmlns='urn:xmpp:omemo:2'><header sid='77'><keys jid='\(f.manager.owner)'><key rid='42' kex='\(cipher.isKeyExchange ? "true" : "false")'>\(cipher.data.base64EncodedString())</key></keys></header></encrypted></message>")
         guard case .consumed(.control) = f.manager.prepareIncoming(control) else { return XCTFail("The real native payloadless ACK must authenticate as a control") }
+        XCTAssertEqual(controls.sentControlShapes.count, 1)
+        XCTAssertEqual(controls.sentControlShapes.first?.senderDeviceID, 42)
+        XCTAssertEqual(controls.sentControlShapes.first?.recipientDeviceID, 77)
+        XCTAssertEqual(controls.sentControlShapes.first?.recipientJID, f.sender.owner)
+        XCTAssertEqual(controls.sentControlShapes.first?.keyCount, 1)
+        XCTAssertEqual(controls.sentControlShapes.first?.hasPayload, false)
+        XCTAssertEqual(controls.sentControlShapes.first?.hasEncryptedKey, true)
+        XCTAssertTrue(try XCTUnwrap(f.manager.omemo2Storage).pendingControlAddresses().isEmpty)
         let before = f.memory.records[f.manager.owner]
         let receipt = try archivedReplayReceipt(f, leaf: control)
         XCTAssertTrue(receipt.messagePrimaryIDs.isEmpty)
         XCTAssertEqual(receipt.persistedResultCount, 0)
         XCTAssertEqual(receipt.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(controls.sentControlShapes.count, 1, "The archived duplicate must not prepare another ACK")
         XCTAssertEqual(f.memory.records[f.manager.owner], before)
         XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).filter("owner == %@", f.manager.owner).count, 1)
     }
@@ -539,15 +639,36 @@ final class OMEMO2NormativeReplayHistoryTests: XCTestCase {
 }
 
 private final class ReplayArchiveAuthenticatedStream: XMPPStream {
+    struct ControlShape {
+        let senderDeviceID: Int?
+        let recipientJID: String?
+        let recipientDeviceID: Int?
+        let keyCount: Int
+        let hasPayload: Bool
+        let hasEncryptedKey: Bool
+    }
     private let captureLock = NSLock()
     private var sentQuery = false
+    private var controls: [ControlShape] = []
     override var isAuthenticated: Bool { true }
     override func send(_ element: DDXMLElement) {
         if element.element(forName: "query", xmlns: "urn:xmpp:mam:2") != nil {
             captureLock.lock(); sentQuery = true; captureLock.unlock()
         }
+        if let encrypted = element.element(forName: "encrypted", xmlns: OmemoManager.xmlns),
+           let header = encrypted.element(forName: "header", xmlns: OmemoManager.xmlns) {
+            let group = header.element(forName: "keys", xmlns: OmemoManager.xmlns)
+            let keys = group?.elements(forName: "key") ?? []
+            let shape = ControlShape(senderDeviceID: header.attributeStringValue(forName: "sid").flatMap(Int.init),
+                recipientJID: group?.attributeStringValue(forName: "jid"),
+                recipientDeviceID: keys.first?.attributeStringValue(forName: "rid").flatMap(Int.init),
+                keyCount: keys.count, hasPayload: encrypted.element(forName: "payload", xmlns: OmemoManager.xmlns) != nil,
+                hasEncryptedKey: keys.first?.stringValue?.isEmpty == false)
+            captureLock.lock(); controls.append(shape); captureLock.unlock()
+        }
     }
     var didSendQuery: Bool { captureLock.lock(); defer { captureLock.unlock() }; return sentQuery }
+    var sentControlShapes: [ControlShape] { captureLock.lock(); defer { captureLock.unlock() }; return controls }
 }
 private final class ReplayArchiveReceiptBox: @unchecked Sendable {
     private let lock = NSLock()

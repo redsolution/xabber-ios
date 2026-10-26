@@ -119,6 +119,7 @@ actor AccountArchiveEngine {
 
     private struct ActiveExecution {
         let id: UUID
+        let diagnosticCode: UInt64
         var intent: ArchiveWindowIntent
         var requestIDs: Set<UUID>
     }
@@ -129,6 +130,8 @@ actor AccountArchiveEngine {
         let connectionGeneration: UInt64
         var failureCount: Int = 0
         var terminalFailure: ArchiveRetryableFailure?
+        var diagnosticFailureDomainCode = 0
+        var diagnosticFailureReasonCode = 0
     }
 
     private struct ReferenceResolutionKey: Hashable {
@@ -159,6 +162,7 @@ actor AccountArchiveEngine {
     private let transport: ArchiveTransport
     private let admissionProvider: ArchiveConversationAdmissionProviding
     private let retryClock: ArchiveRetryClock
+    private let diagnosticSink: ArchiveEngineDiagnosticSink
     private let retryDelays: [TimeInterval] = [0.5, 1, 2, 4, 8, 16, 30]
 
     private var connection: ConnectionState?
@@ -199,7 +203,8 @@ actor AccountArchiveEngine {
         transport: ArchiveTransport,
         admissionProvider: ArchiveConversationAdmissionProviding,
         preKeyCleanup: OMEMO2PreKeyCleanupCoordinator? = nil,
-        retryClock: ArchiveRetryClock = .production
+        retryClock: ArchiveRetryClock = .production,
+        diagnosticSink: @escaping ArchiveEngineDiagnosticSink = ArchiveEngineObservability.diagnostic
     ) {
         self.preKeyCleanup = preKeyCleanup
         self.owner = owner
@@ -207,6 +212,7 @@ actor AccountArchiveEngine {
         self.transport = transport
         self.admissionProvider = admissionProvider
         self.retryClock = retryClock
+        self.diagnosticSink = diagnosticSink
     }
 
     func states(for conversation: ArchiveConversationKey) -> AsyncStream<ArchiveWindowState> {
@@ -537,6 +543,9 @@ actor AccountArchiveEngine {
               hasPresentationDemand(for: intent.conversation) else {
             return
         }
+        let diagnosticCode = activeByDescriptor[intent.semanticDescriptor]?.diagnosticCode
+            ?? ArchiveEngineDiagnosticExecutionCodes.take()
+        diagnose(.submitted, intent: intent, executionCode: diagnosticCode)
         if case .firstUnread(.some(let boundary)) = intent.locator {
             if unreadScanProgress[intent.conversation]?.boundary != boundary {
                 unreadScanProgress.removeValue(forKey: intent.conversation)
@@ -579,13 +588,15 @@ actor AccountArchiveEngine {
         rememberReplacementIntent(for: acceptedIntent)
         latestIntentByConversation[acceptedIntent.conversation] = acceptedIntent
         guard connection != nil else {
+            diagnose(.offline, intent: acceptedIntent, executionCode: diagnosticCode)
             publish(
                 .skeleton(reason: .offline, target: acceptedIntent.locator),
                 for: acceptedIntent.conversation
             )
             return
         }
-        startOrJoin(acceptedIntent, skeletonReason: .unverifiedCoverage)
+        startOrJoin(acceptedIntent, skeletonReason: .unverifiedCoverage,
+            diagnosticCode: diagnosticCode)
     }
 
     func connectionDidBecomeReady(
@@ -768,7 +779,8 @@ actor AccountArchiveEngine {
 
     private func startOrJoin(
         _ intent: ArchiveWindowIntent,
-        skeletonReason: ArchiveSkeletonReason
+        skeletonReason: ArchiveSkeletonReason,
+        diagnosticCode: UInt64? = nil
     ) {
         let descriptor = intent.semanticDescriptor
         if var active = activeByDescriptor[descriptor] {
@@ -807,6 +819,7 @@ actor AccountArchiveEngine {
         }
         let execution = ActiveExecution(
             id: UUID(),
+            diagnosticCode: diagnosticCode ?? ArchiveEngineDiagnosticExecutionCodes.take(),
             intent: intent,
             requestIDs: [intent.id]
         )
@@ -831,9 +844,14 @@ actor AccountArchiveEngine {
             return
         }
         let intent = execution.intent
+        diagnose(.executionStarted, intent: intent, executionCode: execution.diagnosticCode)
         if let budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)],
            budget.connectionGeneration == connection.generation,
            let failure = budget.terminalFailure {
+            diagnose(.retainedTerminalBudget, intent: intent,
+                executionCode: execution.diagnosticCode,
+                failureDomainCode: budget.diagnosticFailureDomainCode,
+                failureReasonCode: budget.diagnosticFailureReasonCode)
             // A failed wire request cannot veto proof independently committed
             // on this stream. Recheck local admission without replenishing budget.
             let token = ArchiveFreshnessToken.sessionMAM(connectionGeneration: connection.generation,
@@ -841,12 +859,17 @@ actor AccountArchiveEngine {
             if let admission = try? await repository.verifiedAdmission(for: intent, freshnessToken: token),
                isCurrentPresentation(executionID, descriptor: descriptor, intent: intent, generation: connection.generation) {
                 switch admission {
-                case .verified(let snapshot): publish(.verified(snapshot), for: intent.conversation)
-                case .authoritativeEmpty: publish(.authoritativeEmpty(target: intent.locator, freshnessToken: token), for: intent.conversation)
+                case .verified(let snapshot):
+                    diagnose(.localVerified, intent: intent, executionCode: execution.diagnosticCode)
+                    publish(.verified(snapshot), for: intent.conversation)
+                case .authoritativeEmpty:
+                    diagnose(.localEmpty, intent: intent, executionCode: execution.diagnosticCode)
+                    publish(.authoritativeEmpty(target: intent.locator, freshnessToken: token), for: intent.conversation)
                 }
                 finish(executionID, descriptor: descriptor, result: .succeeded, preserveRetryBudget: true)
                 return
             }
+            diagnose(.localAdmissionMiss, intent: intent, executionCode: execution.diagnosticCode)
             if isCurrentPresentation(executionID, descriptor: descriptor, intent: intent, generation: connection.generation),
                !preservesVerifiedPresentation(for: intent) {
                 publish(.retryableFailure(failure, target: intent.locator), for: intent.conversation)
@@ -870,18 +893,25 @@ actor AccountArchiveEngine {
                 return
             }
             do {
+                diagnose(.admissionProviderStarted, intent: intent, executionCode: execution.diagnosticCode)
                 _ = try await admissionProvider.admit(
                     intent.conversation,
                     connectionGeneration: connection.generation
                 )
+                diagnose(.admissionProviderSucceeded, intent: intent, executionCode: execution.diagnosticCode)
                 break
             } catch {
+                diagnose(.admissionProviderFailed, intent: intent,
+                    executionCode: execution.diagnosticCode,
+                    failureDomainCode: diagnosticErrorDomainCode(error),
+                    failureReasonCode: diagnosticErrorReasonCode(error))
                 guard isCurrent(executionID, descriptor: descriptor, generation: connection.generation) else { return }
                 admissionFailureCount = recordFailure(descriptor, generation: connection.generation)
                 let retryable = isRetryable(error)
                 if !retryable || admissionFailureCount > retryDelays.count {
                     retainTerminalFailure(for: intent, descriptor: descriptor,
                         failedExecutionID: executionID, connectionGeneration: connection.generation,
+                        diagnosticError: error,
                         failure: ArchiveRetryableFailure(message: String(describing: error),
                             retryCount: admissionFailureCount, canRetry: false, recoveryAction: recoveryAction(for: error)))
                 }
@@ -909,6 +939,7 @@ actor AccountArchiveEngine {
                             descriptor: descriptor,
                             failedExecutionID: executionID,
                             connectionGeneration: connection.generation,
+                            diagnosticError: error,
                             failure: terminalFailure
                         )
                         if !preservesVerifiedPresentation(for: intent) {
@@ -958,8 +989,10 @@ actor AccountArchiveEngine {
             ) {
                 switch admission {
                 case .verified(let snapshot):
+                    diagnose(.localVerified, intent: intent, executionCode: execution.diagnosticCode)
                     publish(.verified(snapshot), for: intent.conversation)
                 case .authoritativeEmpty:
+                    diagnose(.localEmpty, intent: intent, executionCode: execution.diagnosticCode)
                     publish(
                         .authoritativeEmpty(
                             target: intent.locator,
@@ -975,7 +1008,12 @@ actor AccountArchiveEngine {
                 )
                 return
             }
+            diagnose(.localAdmissionMiss, intent: intent, executionCode: execution.diagnosticCode)
         } catch {
+            diagnose(.localAdmissionFailed, intent: intent,
+                executionCode: execution.diagnosticCode,
+                failureDomainCode: diagnosticErrorDomainCode(error),
+                failureReasonCode: diagnosticErrorReasonCode(error))
             // Without a current-session admission the transport request is
             // still the only proof that may make the window visible.
         }
@@ -1030,10 +1068,12 @@ actor AccountArchiveEngine {
                 proofFingerprint: proofFingerprint
             )
             do {
+                diagnose(.transportEnqueued, intent: intent, executionCode: execution.diagnosticCode)
                 let receipt = try await transport.request(
                     request,
                     priority: activeByDescriptor[descriptor]?.intent.priority ?? intent.priority
                 )
+                diagnose(.transportReceipt, intent: intent, executionCode: execution.diagnosticCode)
                 let page = try ArchiveTransportReceiptValidator.validate(receipt, for: request)
                 guard isCurrent(
                     executionID,
@@ -1045,6 +1085,16 @@ actor AccountArchiveEngine {
                     request: request,
                     freshnessToken: freshnessToken
                 )
+                let commitCode: Int
+                switch commit {
+                case .verified: commitCode = 1
+                case .authoritativeEmpty: commitCode = 2
+                case .noProgress: commitCode = 3
+                case .materializedWithoutCoverage: commitCode = 4
+                case .coverageAdvanced: commitCode = 5
+                }
+                diagnose(.repositoryCommitted, intent: intent,
+                    executionCode: execution.diagnosticCode, resultCode: commitCode)
                 ArchiveEngineObservability.event(
                     .proof,
                     value: page.messagePrimaryIDs.count
@@ -1174,6 +1224,7 @@ actor AccountArchiveEngine {
                 if !retryable || failureCount > retryDelays.count {
                     retainTerminalFailure(for: intent, descriptor: descriptor,
                         failedExecutionID: executionID, connectionGeneration: connection.generation,
+                        diagnosticError: error,
                         failure: ArchiveRetryableFailure(message: String(describing: error),
                             retryCount: failureCount, canRetry: false, recoveryAction: recoveryAction(for: error)))
                 }
@@ -1218,6 +1269,7 @@ actor AccountArchiveEngine {
                             descriptor: descriptor,
                             failedExecutionID: executionID,
                             connectionGeneration: connection.generation,
+                            diagnosticError: error,
                             failure: terminalFailure
                         )
                         if !preservesVerifiedPresentation(for: intent) {
@@ -1732,6 +1784,7 @@ actor AccountArchiveEngine {
     }
 
     private func diagnosticErrorDomainCode(_ error: Error) -> Int {
+        if error is NoProgress { return 5 }
         if error is ArchiveCoverageRepositoryError {
             return 1
         }
@@ -1748,6 +1801,7 @@ actor AccountArchiveEngine {
     }
 
     private func diagnosticErrorReasonCode(_ error: Error) -> Int {
+        if error is NoProgress { return 1 }
         if let error = error as? ArchiveCoverageRepositoryError {
             switch error {
             case .missingPersistedMessages: return 1
@@ -1899,7 +1953,8 @@ actor AccountArchiveEngine {
         let pending = ArchiveRetryableFailure(message: "Archive page made no progress",
             retryCount: retryBudgets[ArchiveRetryBudgetKey(descriptor)]?.failureCount ?? 0, canRetry: false, recoveryAction: .retry)
         retainTerminalFailure(for: intent, descriptor: descriptor,
-            failedExecutionID: executionID, connectionGeneration: generation, failure: pending)
+            failedExecutionID: executionID, connectionGeneration: generation,
+            diagnosticError: NoProgress(), failure: pending)
         if isCurrentPresentation(executionID, descriptor: descriptor, intent: intent, generation: generation),
            !preservesVerifiedPresentation(for: intent) {
             publish(.retryableFailure(pending, target: intent.locator), for: intent.conversation)
@@ -1912,12 +1967,17 @@ actor AccountArchiveEngine {
         descriptor: ArchiveIntentDescriptor,
         failedExecutionID: UUID,
         connectionGeneration: UInt64,
+        diagnosticError: Error? = nil,
         failure: ArchiveRetryableFailure
     ) {
         guard isCurrent(failedExecutionID, descriptor: descriptor, generation: connectionGeneration) else { return }
         var budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)] ?? RetryBudget(connectionGeneration: connectionGeneration)
         budget.failureCount = max(budget.failureCount, failure.retryCount)
         budget.terminalFailure = failure
+        if let diagnosticError {
+            budget.diagnosticFailureDomainCode = diagnosticErrorDomainCode(diagnosticError)
+            budget.diagnosticFailureReasonCode = diagnosticErrorReasonCode(diagnosticError)
+        }
         retryBudgets[ArchiveRetryBudgetKey(descriptor)] = budget
     }
 
@@ -1943,6 +2003,21 @@ actor AccountArchiveEngine {
                 .semanticDescriptor == descriptor
     }
 
+    private func diagnose(
+        _ branch: ArchiveEngineDiagnosticBranch,
+        intent: ArchiveWindowIntent,
+        executionCode: UInt64,
+        resultCode: Int = 0,
+        failureDomainCode: Int = 0,
+        failureReasonCode: Int = 0
+    ) {
+        diagnosticSink(ArchiveEngineDiagnosticEvent(
+            branch: branch, executionCode: executionCode,
+            locator: ArchiveEngineDiagnosticLocator(intent.locator),
+            resultCode: resultCode, failureDomainCode: failureDomainCode,
+            failureReasonCode: failureReasonCode))
+    }
+
     private func finish(
         _ executionID: UUID,
         descriptor: ArchiveIntentDescriptor,
@@ -1951,6 +2026,17 @@ actor AccountArchiveEngine {
     ) {
         guard let execution = activeByDescriptor[descriptor],
               execution.id == executionID else { return }
+        let resultCode: Int
+        let budget: RetryBudget?
+        switch result {
+        case .succeeded: resultCode = 1; budget = nil
+        case .cancelled: resultCode = 2; budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)]
+        case .failed: resultCode = 3; budget = retryBudgets[ArchiveRetryBudgetKey(descriptor)]
+        }
+        diagnose(.finished, intent: execution.intent, executionCode: execution.diagnosticCode,
+            resultCode: resultCode,
+            failureDomainCode: budget?.diagnosticFailureDomainCode ?? 0,
+            failureReasonCode: budget?.diagnosticFailureReasonCode ?? 0)
         publishBoundaryTerminal(
             result,
             descriptor: descriptor,
@@ -1966,6 +2052,8 @@ actor AccountArchiveEngine {
         let executions = activeByDescriptor
         activeByDescriptor.removeAll(keepingCapacity: true)
         for (descriptor, execution) in executions {
+            diagnose(.finished, intent: execution.intent,
+                executionCode: execution.diagnosticCode, resultCode: 2)
             preKeyCleanup?.finishCatchUp(id: execution.id)
             publishBoundaryTerminal(
                 .cancelled,

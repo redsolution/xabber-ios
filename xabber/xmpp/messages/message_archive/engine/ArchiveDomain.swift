@@ -2,6 +2,79 @@ import Foundation
 import CryptoKit
 import os.signpost
 
+/// Stable numeric codes for diagnosing the real actor path on a device.
+/// These records contain no account, query, cursor or message identities.
+enum ArchiveEngineDiagnosticBranch: Int, Sendable {
+    case submitted = 1
+    case offline = 2
+    case executionStarted = 3
+    case retainedTerminalBudget = 4
+    case admissionProviderStarted = 5
+    case admissionProviderSucceeded = 6
+    case admissionProviderFailed = 7
+    case localVerified = 8
+    case localEmpty = 9
+    case localAdmissionMiss = 10
+    case localAdmissionFailed = 11
+    case transportEnqueued = 12
+    case transportReceipt = 13
+    case repositoryCommitted = 14
+    case finished = 15
+}
+
+enum ArchiveEngineDiagnosticLocator: Int, Sendable {
+    case latest = 1
+    case firstUnreadWithoutBoundary = 2
+    case firstUnreadWithBoundary = 3
+    case older = 4
+    case newer = 5
+    case gap = 6
+    case archiveID = 7
+    case timestamp = 8
+
+    init(_ locator: ArchiveWindowLocator) {
+        switch locator {
+        case .latest: self = .latest
+        case .firstUnread(.none): self = .firstUnreadWithoutBoundary
+        case .firstUnread(.some): self = .firstUnreadWithBoundary
+        case .older: self = .older
+        case .newer: self = .newer
+        case .gap: self = .gap
+        case .archiveID: self = .archiveID
+        case .timestamp: self = .timestamp
+        }
+    }
+}
+
+struct ArchiveEngineDiagnosticEvent: Equatable, Sendable {
+    let branch: ArchiveEngineDiagnosticBranch
+    /// Monotonic process-local allocation, never derived from product data.
+    let executionCode: UInt64
+    let locator: ArchiveEngineDiagnosticLocator
+    /// Finish: success=1, cancellation=2, failure=3. Commit: verified=1,
+    /// empty=2, no-progress=3, materialized=4, coverage-advanced=5.
+    let resultCode: Int
+    /// Existing diagnostic domain/reason codes; no-progress is domain=5/reason=1.
+    let failureDomainCode: Int
+    let failureReasonCode: Int
+}
+
+typealias ArchiveEngineDiagnosticSink = @Sendable (ArchiveEngineDiagnosticEvent) -> Void
+
+enum ArchiveEngineDiagnosticExecutionCodes {
+    private static let lock = NSLock()
+    private static var nextCode: UInt64 = 1
+
+    static func take() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let code = nextCode
+        nextCode &+= 1
+        if nextCode == 0 { nextCode = 1 }
+        return code
+    }
+}
+
 enum ArchiveEngineSignpostPhase {
     case queued
     case transport
@@ -14,6 +87,8 @@ enum ArchiveEngineSignpostPhase {
     case prefetchResult
     case retry
     case searchPage
+    case requestTypeFilter
+    case persistenceIdentityRebind
 
     fileprivate var name: StaticString {
         switch self {
@@ -28,6 +103,8 @@ enum ArchiveEngineSignpostPhase {
         case .prefetchResult: return "archive.prefetch_result"
         case .retry: return "archive.retry"
         case .searchPage: return "archive.search_page"
+        case .requestTypeFilter: return "archive.request_type_filter"
+        case .persistenceIdentityRebind: return "archive.persistence_identity_rebind"
         }
     }
 }
@@ -40,6 +117,14 @@ enum ArchiveEngineObservability {
         subsystem: Bundle.main.bundleIdentifier ?? "org.xabber",
         category: "ArchiveEngine"
     )
+
+    static func diagnostic(_ event: ArchiveEngineDiagnosticEvent) {
+        os_signpost(.event, log: log, name: "archive.actor_branch",
+            "branch=%{public}lld execution=%{public}llu locator=%{public}lld result=%{public}lld failureDomain=%{public}lld failureReason=%{public}lld",
+            Int64(event.branch.rawValue), event.executionCode,
+            Int64(event.locator.rawValue), Int64(clamping: event.resultCode),
+            Int64(clamping: event.failureDomainCode), Int64(clamping: event.failureReasonCode))
+    }
 
     static func event(
         _ phase: ArchiveEngineSignpostPhase,

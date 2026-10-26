@@ -1,17 +1,84 @@
 import Foundation
 import XMPPFramework
+import os.signpost
+
+/// Counts only: distinguishes an ingress/outcome gap from a saved identity
+/// that can no longer be materialized, without exposing any archive identity.
+struct ArchiveTransportAccountingDiagnostic: Equatable, Sendable {
+    let deliveredIDCount: Int
+    let uniqueDeliveredIDCount: Int
+    let materializedRowCount: Int
+    let uniqueMaterializedPrimaryCount: Int
+    let matchedMaterializedIDCount: Int
+    let explicitConsumedIDCount: Int
+    let consumedWithoutRowCount: Int
+    let missingUnaccountedIDCount: Int
+    let duplicateMaterializedIDCount: Int
+    let summaryReceived: Int
+    let summaryQueued: Int
+    let summarySavedNew: Int
+    let summaryUpdatedExisting: Int
+    let summarySkipped: Int
+    let summaryFailed: Int
+    let summaryProcessed: Int
+    let summaryQueuedWithoutOutcome: Int
+    let scopedPersistedIDCount: Int
+    let scopedVisibleRowCount: Int
+    let visibleScopeCount: Int
+    let unaccountedWithScopedPersistedIDCount: Int
+    let recognizedSamePeerOMEMOIDCount: Int
+    let recognizedSamePeerLegacyEncryptedIDCount: Int
+    let recognizedSamePeerGroupIDCount: Int
+    let recognizedSamePeerSavedIDCount: Int
+}
+
+typealias ArchiveTransportAccountingDiagnosticSink =
+    @Sendable (ArchiveTransportAccountingDiagnostic) -> Void
+
+private enum ArchiveTransportAccountingObservability {
+    private static let log = OSLog(
+        subsystem: Bundle.main.bundleIdentifier ?? "org.xabber", category: "ArchiveEngine")
+
+    static func event(_ value: ArchiveTransportAccountingDiagnostic) {
+        let transaction = ArchiveEngineDiagnosticExecutionCodes.take()
+        os_signpost(.event, log: log, name: "archive.accounting_identity",
+            "transaction=%{public}llu delivered=%{public}lld uniqueDelivered=%{public}lld rows=%{public}lld uniquePrimaries=%{public}lld matched=%{public}lld explicitConsumed=%{public}lld consumedWithoutRow=%{public}lld missing=%{public}lld duplicates=%{public}lld",
+            transaction, Int64(clamping: value.deliveredIDCount), Int64(clamping: value.uniqueDeliveredIDCount),
+            Int64(clamping: value.materializedRowCount), Int64(clamping: value.uniqueMaterializedPrimaryCount),
+            Int64(clamping: value.matchedMaterializedIDCount), Int64(clamping: value.explicitConsumedIDCount),
+            Int64(clamping: value.consumedWithoutRowCount), Int64(clamping: value.missingUnaccountedIDCount),
+            Int64(clamping: value.duplicateMaterializedIDCount))
+        os_signpost(.event, log: log, name: "archive.accounting_summary",
+            "transaction=%{public}llu received=%{public}lld queued=%{public}lld saved=%{public}lld updated=%{public}lld skipped=%{public}lld failed=%{public}lld processed=%{public}lld",
+            transaction, Int64(clamping: value.summaryReceived), Int64(clamping: value.summaryQueued),
+            Int64(clamping: value.summarySavedNew), Int64(clamping: value.summaryUpdatedExisting),
+            Int64(clamping: value.summarySkipped), Int64(clamping: value.summaryFailed),
+            Int64(clamping: value.summaryProcessed))
+        os_signpost(.event, log: log, name: "archive.accounting_scope",
+            "transaction=%{public}llu queuedWithoutOutcome=%{public}lld persisted=%{public}lld visible=%{public}lld visibleScopes=%{public}lld unaccountedSaved=%{public}lld otherOMEMO=%{public}lld otherLegacyEncrypted=%{public}lld otherGroup=%{public}lld otherSaved=%{public}lld",
+            transaction, Int64(clamping: value.summaryQueuedWithoutOutcome), Int64(clamping: value.scopedPersistedIDCount),
+            Int64(clamping: value.scopedVisibleRowCount), Int64(clamping: value.visibleScopeCount),
+            Int64(clamping: value.unaccountedWithScopedPersistedIDCount),
+            Int64(clamping: value.recognizedSamePeerOMEMOIDCount),
+            Int64(clamping: value.recognizedSamePeerLegacyEncryptedIDCount),
+            Int64(clamping: value.recognizedSamePeerGroupIDCount),
+            Int64(clamping: value.recognizedSamePeerSavedIDCount))
+    }
+}
 
 struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
     let messagePrimaryIDs: [String]
     let persistedResultCount: Int
     let intentionallyConsumedResultCount: Int
     let failedPersistenceCount: Int
+    let diagnostic: ArchiveTransportAccountingDiagnostic
 
     static func make(
         summary: MessageManager.ArchivePersistenceSummary,
         deliveredArchiveIDs: [String],
         explicitlyConsumedArchiveIDs: Set<ArchiveCursor>,
-        materializedMessages: [ArchiveMaterializedMessageIdentity]
+        materializedMessages: [ArchiveMaterializedMessageIdentity],
+        conversation: ArchiveConversationKey? = nil
     ) -> ArchiveTransportPersistenceAccounting {
         let deliveredIDs = Set(deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)))
         let materializedByArchiveID = Dictionary(
@@ -46,6 +113,43 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
         let orderedPrimaryIDs = deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)).compactMap {
             uniquePrimaryByArchiveID[$0]
         }
+        let scopedPersistedIDs = conversation.map {
+            summary.persistedArchiveIds(owner: $0.owner, jid: $0.jid,
+                conversationType: $0.conversationType)
+        } ?? []
+        func samePeerPersistedIDs(
+            _ type: ClientSynchronizationManager.ConversationType
+        ) -> Set<ArchiveCursor> {
+            guard let conversation else { return [] }
+            return summary.persistedArchiveIds(owner: conversation.owner,
+                jid: conversation.jid, conversationType: type)
+        }
+        let diagnostic = ArchiveTransportAccountingDiagnostic(
+            deliveredIDCount: deliveredArchiveIDs.count, uniqueDeliveredIDCount: deliveredIDs.count,
+            materializedRowCount: materializedMessages.count,
+            uniqueMaterializedPrimaryCount: Set(materializedMessages.map { Data($0.primaryID.utf8) }).count,
+            matchedMaterializedIDCount: materializedIDs.count,
+            explicitConsumedIDCount: explicitlyConsumedArchiveIDs.intersection(deliveredIDs).count,
+            consumedWithoutRowCount: consumedWithoutRows.count,
+            missingUnaccountedIDCount: unresolvedIDs.subtracting(explicitlyConsumedArchiveIDs)
+                .subtracting(duplicateMaterializedIDs).count,
+            duplicateMaterializedIDCount: duplicateMaterializedIDs.count,
+            summaryReceived: summary.received, summaryQueued: summary.queued,
+            summarySavedNew: summary.savedNew, summaryUpdatedExisting: summary.updatedExisting,
+            summarySkipped: summary.skipped, summaryFailed: summary.failed,
+            summaryProcessed: summary.processedRows,
+            summaryQueuedWithoutOutcome: max(0, summary.queued - summary.processedRows),
+            scopedPersistedIDCount: scopedPersistedIDs.count,
+            scopedVisibleRowCount: conversation.map {
+                summary.visibleRows(owner: $0.owner, jid: $0.jid, conversationType: $0.conversationType)
+            } ?? 0,
+            visibleScopeCount: summary.visibleConversationCount,
+            unaccountedWithScopedPersistedIDCount: unaccountedIDs.intersection(scopedPersistedIDs).count,
+            recognizedSamePeerOMEMOIDCount: deliveredIDs.intersection(samePeerPersistedIDs(.omemo)).count,
+            recognizedSamePeerLegacyEncryptedIDCount: deliveredIDs.intersection(
+                samePeerPersistedIDs(.omemo1).union(samePeerPersistedIDs(.axolotl))).count,
+            recognizedSamePeerGroupIDCount: deliveredIDs.intersection(samePeerPersistedIDs(.group)).count,
+            recognizedSamePeerSavedIDCount: deliveredIDs.intersection(samePeerPersistedIDs(.saved)).count)
         return ArchiveTransportPersistenceAccounting(
             messagePrimaryIDs: orderedPrimaryIDs,
             persistedResultCount: materializedIDs.count,
@@ -55,7 +159,8 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
             // durable (notably repeated group/system archive rows). Coverage
             // admission depends on durable identity accounting, not on whether
             // this particular write call inserted or updated the row.
-            failedPersistenceCount: unaccountedIDs.count
+            failedPersistenceCount: unaccountedIDs.count,
+            diagnostic: diagnostic
         )
     }
 }
@@ -168,17 +273,20 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
     private let materializationResolver: ArchiveMessageMaterializationResolving
     private let requestTerminalTimeout: TimeInterval
     private let persistenceTerminalTimeout: TimeInterval
+    private let accountingDiagnosticSink: ArchiveTransportAccountingDiagnosticSink
 
     init(
         account: Account,
         materializationResolver: ArchiveMessageMaterializationResolving,
         requestTerminalTimeout: TimeInterval = 30,
-        persistenceTerminalTimeout: TimeInterval = 30
+        persistenceTerminalTimeout: TimeInterval = 30,
+        accountingDiagnosticSink: @escaping ArchiveTransportAccountingDiagnosticSink = ArchiveTransportAccountingObservability.event
     ) {
         self.account = account
         self.materializationResolver = materializationResolver
         self.requestTerminalTimeout = max(0, requestTerminalTimeout)
         self.persistenceTerminalTimeout = max(0, persistenceTerminalTimeout)
+        self.accountingDiagnosticSink = accountingDiagnosticSink
     }
 
     func request(
@@ -285,6 +393,7 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                     continuationBox: continuationBox,
                     requestTerminalTimeout: self.requestTerminalTimeout,
                     persistenceTerminalTimeout: self.persistenceTerminalTimeout,
+                    accountingDiagnosticSink: self.accountingDiagnosticSink,
                     finishSchedulerSlot: finishSchedulerSlot
                 )
                 // Every transport callback intentionally captures the transaction
@@ -525,6 +634,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
     private let lock = NSLock()
     private let requestTerminalGate: ArchivePersistenceTerminalGate
     private let persistenceGate: ArchivePersistenceTerminalGate
+    private let accountingDiagnosticSink: ArchiveTransportAccountingDiagnosticSink
     private var didStartTerminal = false
     private var didFinish = false
     private var failureToken: MessageArchiveRequestFailureDispatcher.Token?
@@ -540,6 +650,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         continuationBox: ArchiveTransportContinuationBox,
         requestTerminalTimeout: TimeInterval,
         persistenceTerminalTimeout: TimeInterval,
+        accountingDiagnosticSink: @escaping ArchiveTransportAccountingDiagnosticSink,
         finishSchedulerSlot: @escaping () -> Void
     ) {
         self.request = request
@@ -555,6 +666,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             timeout: persistenceTerminalTimeout
         )
         self.finishSchedulerSlot = finishSchedulerSlot
+        self.accountingDiagnosticSink = accountingDiagnosticSink
     }
 
     func start(on stream: XMPPStream) {
@@ -730,8 +842,10 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                                         conversation: self.request.conversation
                                     )
                             ),
-                            materializedMessages: materializedMessages
+                            materializedMessages: materializedMessages,
+                            conversation: self.request.conversation
                         )
+                    self.accountingDiagnosticSink(persistenceAccounting.diagnostic)
                     ChatArchiveDebugTrace.logDiagnostic(
                         "archiveTransportPersistenceAccounting",
                         context: ChatArchiveDebugTrace.DiagnosticContext(
