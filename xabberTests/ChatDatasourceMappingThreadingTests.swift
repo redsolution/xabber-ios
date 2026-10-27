@@ -26,6 +26,83 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         super.tearDown()
     }
 
+    func testArchiveCollisionSourceKeepsIndependentDatasourceIdentityAndAmbiguousRawLookup() throws {
+        let (original, fork) = try seedArchiveCollisionPair()
+        let controller = makeController()
+        let mapped = controller.mapDataset(
+            dataset: [original.freeze(), fork.freeze()],
+            context: controller.captureDatasourceMappingContext()
+        ).datasource
+        let messages = mapped.filter { !$0.isFakeMessage }
+        XCTAssertEqual(messages.map(\.primary), [original.primary, fork.primary])
+        XCTAssertEqual(Set(messages.map(\.diffId)).count, 2)
+        XCTAssertNotEqual(messages[0].diffId, messages[1].diffId)
+
+        let snapshot = ChatDatasourceSnapshot(items: messages)
+        XCTAssertFalse(snapshot.hasDuplicateKeys)
+        XCTAssertFalse(snapshot.hasDuplicateArchivedIds)
+        XCTAssertNil(snapshot.archivedIdIndex[original.archivedId],
+            "A shared protocol ID cannot select one of two different archived messages")
+        XCTAssertNotNil(snapshot.mamArchiveIdIndex[try XCTUnwrap(ArchiveCursor(rawValue: original.mamArchiveId))])
+        XCTAssertNotNil(snapshot.mamArchiveIdIndex[try XCTUnwrap(ArchiveCursor(rawValue: fork.mamArchiveId))])
+
+        let forkDate = try XCTUnwrap(mapped.first { $0.primary == fork.primary + " date changed" })
+        XCTAssertEqual(forkDate.diffId, "primary:\(forkDate.primary)")
+    }
+
+    func testArchiveCollisionDoesNotExcuseTwoUnprovedRawDuplicates() throws {
+        let (original, fork) = try seedArchiveCollisionPair()
+        let unproved = try seedMessage(primary: "unproved-third-message", body: "Unproved source")
+        let realm = try WRealm.safe()
+        try realm.write {
+            unproved.messageId = original.messageId
+            unproved.archivedId = original.archivedId
+            unproved.mamArchiveId = "unproved/third-UID"
+        }
+        let controller = makeController()
+        let messages = controller.mapDataset(
+            dataset: [original.freeze(), unproved.freeze(), fork.freeze()],
+            context: controller.captureDatasourceMappingContext()
+        ).datasource.filter { !$0.isFakeMessage }
+
+        let snapshot = ChatDatasourceSnapshot(items: messages)
+        XCTAssertTrue(snapshot.hasDuplicateArchivedIds)
+        XCTAssertTrue(snapshot.hasDuplicateKeys)
+        XCTAssertNil(snapshot.archivedIdIndex[original.archivedId])
+    }
+
+    func testArchiveCollisionDoesNotExcuseAnUnrelatedRawIdentityCohort() throws {
+        let (unrelated, fork) = try seedArchiveCollisionPair()
+        let realm = try WRealm.safe()
+        try realm.write { unrelated.messageId = "unrelated-protocol-origin" }
+        let controller = makeController()
+        let messages = controller.mapDataset(
+            dataset: [unrelated.freeze(), fork.freeze()],
+            context: controller.captureDatasourceMappingContext()
+        ).datasource.filter { !$0.isFakeMessage }
+
+        let snapshot = ChatDatasourceSnapshot(items: messages)
+        XCTAssertTrue(snapshot.hasDuplicateArchivedIds)
+        XCTAssertTrue(snapshot.hasDuplicateKeys)
+        XCTAssertNil(snapshot.archivedIdIndex[unrelated.archivedId])
+    }
+
+    func testArchiveCollisionKeepsStrongDatasourceMAMConflictInvalid() throws {
+        let (original, fork) = try seedArchiveCollisionPair()
+        let realm = try WRealm.safe()
+        try realm.write { original.mamArchiveId = fork.mamArchiveId }
+        let controller = makeController()
+        let messages = controller.mapDataset(
+            dataset: [original.freeze(), fork.freeze()],
+            context: controller.captureDatasourceMappingContext()
+        ).datasource.filter { !$0.isFakeMessage }
+
+        let snapshot = ChatDatasourceSnapshot(items: messages)
+        XCTAssertTrue(snapshot.hasDuplicateMAMArchiveIds)
+        XCTAssertTrue(snapshot.hasDuplicateKeys)
+        XCTAssertNil(snapshot.mamArchiveIdIndex[try XCTUnwrap(ArchiveCursor(rawValue: fork.mamArchiveId))])
+    }
+
     func testMappingCanExecuteOffMainWithFrozenRowsAndCapturedContext() throws {
         let controller = makeController()
         let context = controller.captureDatasourceMappingContext()
@@ -442,6 +519,33 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         let attachment = makeController().mapAttachment(forward)
 
         XCTAssertEqual(attachment.timeMarker.string, "")
+    }
+
+    private func seedArchiveCollisionPair() throws -> (MessageStorageItem, MessageStorageItem) {
+        let origin = "shared-protocol-origin"
+        let original = try seedMessage(
+            primary: MessageStorageItem.genPrimary(messageId: origin, owner: owner),
+            body: "Original source"
+        )
+        let fork = try seedMessage(
+            primary: MessageStorageItem.disambiguatedArchivePrimary(
+                messageId: origin, owner: owner, opponent: jid,
+                conversationType: .regular, mamArchiveId: "fork/outer-UID"
+            ),
+            body: "Different archived source"
+        )
+        let realm = try WRealm.safe()
+        try realm.write {
+            original.messageId = origin
+            original.archivedId = "shared-protocol-stanza"
+            original.mamArchiveId = "original/outer-UID"
+            fork.messageId = origin
+            fork.archivedId = original.archivedId
+            fork.mamArchiveId = "fork/outer-UID"
+            fork.date = original.date.addingTimeInterval(3 * 24 * 60 * 60)
+            fork.sentDate = fork.date
+        }
+        return (original, fork)
     }
 
     private func makeController() -> ChatViewController {

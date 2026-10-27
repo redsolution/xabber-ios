@@ -78,7 +78,12 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
         deliveredArchiveIDs: [String],
         explicitlyConsumedArchiveIDs: Set<ArchiveCursor>,
         materializedMessages: [ArchiveMaterializedMessageIdentity],
-        conversation: ArchiveConversationKey? = nil
+        conversation: ArchiveConversationKey? = nil,
+        queryID: String? = nil,
+        connectionGeneration: UInt64? = nil,
+        regularProjectionBinding: MessageArchiveManager.RegularProjectionRequestBinding? = nil,
+        regularProjectionExclusions: [MessageArchiveManager.RegularProjectionExclusionWitness] = [],
+        regularProjectionConflicts: [MessageArchiveManager.RegularProjectionSourceConflict] = []
     ) -> ArchiveTransportPersistenceAccounting {
         let deliveredIDs = Set(deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)))
         let materializedByArchiveID = Dictionary(
@@ -101,17 +106,72 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
             }
             result[entry.key] = primaryID
         }
-        let materializedIDs = Set(uniquePrimaryByArchiveID.keys)
+        let candidateMaterializedIDs = Set(uniquePrimaryByArchiveID.keys)
             .intersection(deliveredIDs)
+        let provenDuplicateIDs = Set(summary.provenLogicalDuplicates.compactMap { proof -> ArchiveCursor? in
+            guard let queryID, let conversation,
+                  proof.queryID.utf8.elementsEqual(queryID.utf8),
+                  proof.conversation.owner.utf8.elementsEqual(conversation.owner.utf8),
+                  proof.conversation.jid.utf8.elementsEqual(conversation.jid.utf8),
+                  proof.conversation.conversationTypeRaw.utf8.elementsEqual(conversation.conversationTypeRaw.utf8),
+                  proof.canonicalCursor != proof.duplicateCursor,
+                  deliveredIDs.contains(proof.canonicalCursor),
+                  deliveredIDs.contains(proof.duplicateCursor),
+                  proof.canonicalPrimaryID.isNotEmpty,
+                  let primary = uniquePrimaryByArchiveID[proof.canonicalCursor],
+                  primary.utf8.elementsEqual(proof.canonicalPrimaryID.utf8) else { return nil }
+            return proof.duplicateCursor
+        })
+        let projectionExclusionIDs: Set<ArchiveCursor>
+        let projectionConflictIDs: Set<ArchiveCursor>
+        if let queryID, let conversation, let connectionGeneration, let regularProjectionBinding,
+           conversation.conversationTypeRaw == ClientSynchronizationManager.ConversationType.regular.rawValue,
+           regularProjectionBinding.queryID.utf8.elementsEqual(queryID.utf8),
+           regularProjectionBinding.conversation.owner.utf8.elementsEqual(conversation.owner.utf8),
+           regularProjectionBinding.conversation.jid.utf8.elementsEqual(conversation.jid.utf8),
+           regularProjectionBinding.conversation.conversationTypeRaw.utf8.elementsEqual(conversation.conversationTypeRaw.utf8),
+           regularProjectionBinding.connectionGeneration == connectionGeneration {
+            projectionExclusionIDs = Set(regularProjectionExclusions.compactMap { witness in
+                guard witness.binding == regularProjectionBinding,
+                      deliveredIDs.contains(witness.cursor) else { return nil }
+                switch witness.namespace {
+                case .omemo1, .axolotl, .omemo2: return witness.cursor
+                }
+            })
+            projectionConflictIDs = Set(regularProjectionConflicts.compactMap { conflict in
+                guard conflict.binding == regularProjectionBinding,
+                      deliveredIDs.contains(conflict.cursor) else { return nil }
+                return conflict.cursor
+            })
+            let admittedProjectionCount = projectionExclusionIDs
+                .subtracting(projectionConflictIDs).subtracting(Set(materializedByArchiveID.keys)).count
+            ArchiveEngineObservability.event(.regularProjectionAccounting,
+                value: admittedProjectionCount, auxiliary: projectionConflictIDs.count)
+            ChatArchiveDebugTrace.logDiagnostic("archiveRegularProjectionAccounting",
+                [("excluded", admittedProjectionCount), ("conflicts", projectionConflictIDs.count)])
+        } else {
+            projectionExclusionIDs = []
+            projectionConflictIDs = []
+        }
+        // Coverage later materializes its UID ledger from Realm again. An old
+        // ordinary row under a proven foreign UID cannot be hidden by this
+        // query-local witness alone: reject the page without changing the row.
+        // Likewise a conflicting original source never gains authority merely
+        // because an ordinary row with that UID already exists.
+        let rejectedProjectionIDs = projectionConflictIDs.union(
+            projectionExclusionIDs.intersection(Set(materializedByArchiveID.keys)))
+        let materializedIDs = candidateMaterializedIDs.subtracting(rejectedProjectionIDs)
+        let consumedIDs = explicitlyConsumedArchiveIDs.union(provenDuplicateIDs)
+            .union(projectionExclusionIDs).subtracting(rejectedProjectionIDs)
         let unresolvedIDs = deliveredIDs.subtracting(materializedIDs)
         let consumedWithoutRows = unresolvedIDs.intersection(
-            explicitlyConsumedArchiveIDs
+            consumedIDs
         )
         let unaccountedIDs = unresolvedIDs
-            .subtracting(explicitlyConsumedArchiveIDs)
-            .union(duplicateMaterializedIDs)
+            .subtracting(consumedIDs)
+            .union(duplicateMaterializedIDs).union(rejectedProjectionIDs)
         let orderedPrimaryIDs = deliveredArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)).compactMap {
-            uniquePrimaryByArchiveID[$0]
+            rejectedProjectionIDs.contains($0) ? nil : uniquePrimaryByArchiveID[$0]
         }
         let scopedPersistedIDs = conversation.map {
             summary.persistedArchiveIds(owner: $0.owner, jid: $0.jid,
@@ -129,9 +189,9 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
             materializedRowCount: materializedMessages.count,
             uniqueMaterializedPrimaryCount: Set(materializedMessages.map { Data($0.primaryID.utf8) }).count,
             matchedMaterializedIDCount: materializedIDs.count,
-            explicitConsumedIDCount: explicitlyConsumedArchiveIDs.intersection(deliveredIDs).count,
+            explicitConsumedIDCount: consumedIDs.intersection(deliveredIDs).count,
             consumedWithoutRowCount: consumedWithoutRows.count,
-            missingUnaccountedIDCount: unresolvedIDs.subtracting(explicitlyConsumedArchiveIDs)
+            missingUnaccountedIDCount: unresolvedIDs.subtracting(consumedIDs)
                 .subtracting(duplicateMaterializedIDs).count,
             duplicateMaterializedIDCount: duplicateMaterializedIDs.count,
             summaryReceived: summary.received, summaryQueued: summary.queued,
@@ -627,6 +687,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
     private let request: ArchiveTransportRequest
     private let timestampDirection: ArchiveTimestampLookupDirection
     private let referenceResolution: ArchiveStanzaReferenceResolutionRequest?
+    private let regularProjectionBinding: MessageArchiveManager.RegularProjectionRequestBinding?
     private let account: Account
     private let materializationResolver: ArchiveMessageMaterializationResolving
     private let continuationBox: ArchiveTransportContinuationBox
@@ -656,6 +717,23 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         self.request = request
         self.timestampDirection = timestampDirection
         self.referenceResolution = referenceResolution
+        let supportsRegularProjection: Bool
+        switch request.locator {
+        case .timestamp:
+            // A typed date lookup still selects ordinary chat records. Its
+            // projection witness does not create continuous coverage.
+            supportsRegularProjection = true
+        default:
+            supportsRegularProjection = request.isUnfiltered && request.producesContinuousCoverage
+        }
+        if referenceResolution == nil, request.conversation.conversationType == .regular,
+           supportsRegularProjection {
+            self.regularProjectionBinding = MessageArchiveManager.RegularProjectionRequestBinding(
+                queryID: request.queryID, conversation: request.conversation,
+                connectionGeneration: request.connectionGeneration)
+        } else {
+            self.regularProjectionBinding = nil
+        }
         self.account = account
         self.materializationResolver = materializationResolver
         self.continuationBox = continuationBox
@@ -743,6 +821,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             max: request.pageSize,
             withCounter: false,
             retainSealedTransportProofUntilBarrier: true,
+            regularProjectionBinding: regularProjectionBinding,
             requestCallbacks: MessageArchiveManager.RequestCallbacks(
                 onEndPage: { [weak self] queryID, state, first, last, _ in
                     self?.handleFinal(
@@ -785,7 +864,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             )
             return
         }
-        guard let accounting = account.mam.archiveTransportAccountingSnapshot(
+        guard let initialAccounting = account.mam.archiveTransportAccountingSnapshot(
             queryId: request.queryID
         ) else {
             finish(.failure(ArchiveTransportError.protocolViolation))
@@ -793,7 +872,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         }
         ArchiveEngineObservability.event(
             .final,
-            value: accounting.deliveredResultCount,
+            value: initialAccounting.deliveredResultCount,
             auxiliary: state.rawComplete ? 1 : 0
         )
 
@@ -827,8 +906,15 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                     let materializedMessages = try await self.materializationResolver
                         .materializedMessages(
                             conversation: self.request.conversation,
-                            archiveIDs: accounting.resultArchiveIDs
+                            archiveIDs: initialAccounting.resultArchiveIDs
                         )
+                    guard let accounting = self.account.mam.archiveTransportAccountingSnapshot(
+                        queryId: self.request.queryID),
+                        accounting.deliveredResultCount == initialAccounting.deliveredResultCount,
+                        accounting.resultArchiveIDs.count == initialAccounting.resultArchiveIDs.count,
+                        zip(accounting.resultArchiveIDs, initialAccounting.resultArchiveIDs).allSatisfy({
+                            $0.0.utf8.elementsEqual($0.1.utf8)
+                        }) else { throw ArchiveTransportError.protocolViolation }
                     let persistenceAccounting =
                         ArchiveTransportPersistenceAccounting.make(
                             summary: summary,
@@ -843,7 +929,12 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                                     )
                             ),
                             materializedMessages: materializedMessages,
-                            conversation: self.request.conversation
+                            conversation: self.request.conversation,
+                            queryID: self.request.queryID,
+                            connectionGeneration: self.request.connectionGeneration,
+                            regularProjectionBinding: self.regularProjectionBinding,
+                            regularProjectionExclusions: accounting.regularProjectionExclusions,
+                            regularProjectionConflicts: accounting.regularProjectionConflicts
                         )
                     self.accountingDiagnosticSink(persistenceAccounting.diagnostic)
                     ChatArchiveDebugTrace.logDiagnostic(

@@ -409,6 +409,182 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
         try assertLinkedChain(primaries, in: realm)
     }
 
+    func testAscendingOlderBatchUsesConstantRangeQueryBudgetAtDifferentHistorySizes() throws {
+        let realm = try WRealm.safe()
+        for historySize in [100, 2_000] {
+            var rangeQueries = 0
+            try realm.write {
+                realm.deleteAll()
+                for index in 0..<historySize {
+                    try persistIndexed(makeMessage(primary: "batch-tail-\(formattedId(index))",
+                        archivedId: "tail-\(index)", messageId: "tail-\(index)",
+                        date: sharedDate.addingTimeInterval(TimeInterval(index))), in: realm)
+                }
+                let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+                for index in 0..<24 {
+                    try persistIndexed(makeMessage(primary: "batch-older-\(formattedId(index))",
+                        archivedId: "opaque-\(index)", messageId: "older-\(index)",
+                        date: sharedDate.addingTimeInterval(TimeInterval(index - 24))),
+                        in: realm, batchContext: context)
+                }
+            }
+            XCTAssertLessThanOrEqual(rangeQueries, 2,
+                "An adjacent older batch must not repeat Realm sorts for every row")
+            try assertLinkedChain((0..<24).map { "batch-older-\(formattedId($0))" } +
+                (0..<historySize).map { "batch-tail-\(formattedId($0))" }, in: realm)
+        }
+    }
+
+    func testBatchHintUsesCompleteTupleForSameDateAdjacentRows() throws {
+        let realm = try WRealm.safe()
+        let primaries = [0, 2, 3, 10].map { "\(formattedId($0))-batch-tie" }
+        var rangeQueries = 0
+        try realm.write {
+            for index in [0, 3] {
+                try persistIndexed(makeMessage(primary: primaries[index], archivedId: "opaque-\(index)",
+                    messageId: "tie-\(index)"), in: realm)
+            }
+            let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+            for index in [1, 2] {
+                try persistIndexed(makeMessage(primary: primaries[index], archivedId: "unrelated-\(index)",
+                    messageId: "tie-\(index)"), in: realm, batchContext: context)
+            }
+        }
+        XCTAssertEqual(rangeQueries, 2, "Only the first interior row needs a range lookup")
+        try assertLinkedChain(primaries, in: realm)
+    }
+
+    func testInvalidBatchHintVersionOrReciprocalLinkFallsBackToRangeQueries() throws {
+        let realm = try WRealm.safe()
+        for staleVersion in [true, false] {
+            var rangeQueries = 0
+            try realm.write {
+                realm.deleteAll()
+                for (primary, offset) in [("hint-head", 0), ("hint-tail", 10)] {
+                    try persistIndexed(makeMessage(primary: primary, archivedId: primary, messageId: primary,
+                        date: sharedDate.addingTimeInterval(TimeInterval(offset))), in: realm)
+                }
+                let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+                try persistIndexed(makeMessage(primary: "hint-previous", archivedId: "previous", messageId: "previous",
+                    date: sharedDate.addingTimeInterval(2)), in: realm, batchContext: context)
+                rangeQueries = 0
+                let previous = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "hint-previous"))
+                if staleVersion {
+                    previous.historyLinkedIndexVersion = 0
+                } else {
+                    realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "hint-tail")?.historyPreviousMessagePrimary = "hint-head"
+                }
+                try persistIndexed(makeMessage(primary: "hint-next", archivedId: "next", messageId: "next",
+                    date: sharedDate.addingTimeInterval(3)), in: realm, batchContext: context)
+            }
+            XCTAssertEqual(rangeQueries, 2, "An unproved hint must use the existing keyset fallback")
+            try assertLinkedChain(["hint-head", "hint-previous", "hint-next", "hint-tail"], in: realm,
+                versionOverrides: staleVersion ? ["hint-previous": 0] : [:])
+        }
+    }
+
+    func testDeletedHintFallsBackWithoutReintroducingItsRow() throws {
+        let realm = try WRealm.safe()
+        var rangeQueries = 0
+        try realm.write {
+            for (primary, offset) in [("deleted-head", 0), ("deleted-tail", 10)] {
+                try persistIndexed(makeMessage(primary: primary, archivedId: primary, messageId: primary,
+                    date: sharedDate.addingTimeInterval(TimeInterval(offset))), in: realm)
+            }
+            let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+            try persistIndexed(makeMessage(primary: "deleted-hint", archivedId: "hint", messageId: "hint",
+                date: sharedDate.addingTimeInterval(2)), in: realm, batchContext: context)
+            try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "deleted-hint")).markDeleted()
+            rangeQueries = 0
+            try persistIndexed(makeMessage(primary: "deleted-next", archivedId: "next", messageId: "next",
+                date: sharedDate.addingTimeInterval(3)), in: realm, batchContext: context)
+        }
+        XCTAssertEqual(rangeQueries, 2)
+        try assertLinkedChain(["deleted-head", "deleted-next", "deleted-tail"], in: realm)
+    }
+
+    func testForeignScopeAndNonAdjacentBatchHintUseRangeFallback() throws {
+        let realm = try WRealm.safe()
+        var rangeQueries = 0
+        try realm.write {
+            for (primary, offset) in [("gap-head", 0), ("gap-middle", 50), ("gap-tail", 100)] {
+                try persistIndexed(makeMessage(primary: primary, archivedId: primary, messageId: primary,
+                    date: sharedDate.addingTimeInterval(TimeInterval(offset))), in: realm)
+            }
+            let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+            let foreign = makeMessage(primary: "foreign-hint", archivedId: "foreign", messageId: "foreign",
+                opponent: "foreign@example.com", date: sharedDate.addingTimeInterval(1))
+            try persistIndexed(foreign, in: realm, batchContext: context)
+            try persistIndexed(makeMessage(primary: "gap-previous", archivedId: "previous", messageId: "previous",
+                date: sharedDate.addingTimeInterval(10)), in: realm, batchContext: context)
+            XCTAssertEqual(rangeQueries, 2, "A foreign conversation cannot supply a local hint")
+            rangeQueries = 0
+            try persistIndexed(makeMessage(primary: "gap-next", archivedId: "next", messageId: "next",
+                date: sharedDate.addingTimeInterval(70)), in: realm, batchContext: context)
+            XCTAssertEqual(rangeQueries, 2, "A nonadjacent hint cannot skip an existing middle row")
+            rangeQueries = 0
+            try persistIndexed(makeMessage(primary: "gap-adjacent", archivedId: "adjacent", messageId: "adjacent",
+                date: sharedDate.addingTimeInterval(71)), in: realm, batchContext: context)
+        }
+        XCTAssertEqual(rangeQueries, 0)
+        try assertLinkedChain(["gap-head", "gap-previous", "gap-middle", "gap-next", "gap-adjacent", "gap-tail"], in: realm)
+        let foreign = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "foreign-hint"))
+        XCTAssertNil(foreign.historyPreviousMessagePrimary)
+        XCTAssertNil(foreign.historyNextMessagePrimary)
+    }
+
+    func testUnlinkedDeletedCandidateDoesNotReplaceSuccessfulBatchHint() throws {
+        let realm = try WRealm.safe()
+        var rangeQueries = 0
+        try realm.write {
+            for (primary, offset) in [("success-head", 0), ("success-tail", 10)] {
+                try persistIndexed(makeMessage(primary: primary, archivedId: primary, messageId: primary,
+                    date: sharedDate.addingTimeInterval(TimeInterval(offset))), in: realm)
+            }
+            let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+            try persistIndexed(makeMessage(primary: "success-hint", archivedId: "hint", messageId: "hint",
+                date: sharedDate.addingTimeInterval(2)), in: realm, batchContext: context)
+            let deleted = makeMessage(primary: "success-deleted", archivedId: "deleted", messageId: "deleted",
+                date: sharedDate.addingTimeInterval(2.5))
+            deleted.isDeleted = true
+            try persistIndexed(deleted, in: realm, batchContext: context)
+            rangeQueries = 0
+            try persistIndexed(makeMessage(primary: "success-next", archivedId: "next", messageId: "next",
+                date: sharedDate.addingTimeInterval(3)), in: realm, batchContext: context)
+        }
+        XCTAssertEqual(rangeQueries, 0)
+        try assertLinkedChain(["success-head", "success-hint", "success-next", "success-tail"], in: realm)
+    }
+
+    func testExistingEndpointReplayCannotCertifyACorruptReciprocalGapAsBatchHint() throws {
+        let realm = try WRealm.safe()
+        var rangeQueries = 0
+        try realm.write {
+            for (primary, offset) in [("corrupt-oldest", 0), ("corrupt-omitted", 5), ("corrupt-newest", 10)] {
+                try persistIndexed(makeMessage(primary: primary, archivedId: primary, messageId: primary,
+                    date: sharedDate.addingTimeInterval(TimeInterval(offset))), in: realm)
+            }
+            let oldest = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "corrupt-oldest"))
+            let omitted = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "corrupt-omitted"))
+            let newest = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "corrupt-newest"))
+            oldest.historyNextMessagePrimary = newest.primary
+            newest.historyPreviousMessagePrimary = oldest.primary
+            XCTAssertEqual(omitted.historyLinkedIndexVersion, ChatLocalHistoryIndexStorageItem.currentVersion)
+
+            let context = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: { rangeQueries += $0 })
+            ChatLocalHistoryLinkedIndex.upsert(oldest, in: realm, batchContext: context)
+            rangeQueries = 0
+            try persistIndexed(makeMessage(primary: "corrupt-incoming", archivedId: "incoming", messageId: "incoming",
+                date: sharedDate.addingTimeInterval(3)), in: realm, batchContext: context)
+        }
+        XCTAssertEqual(rangeQueries, 2, "Replaying an existing endpoint does not prove its neighbor is globally adjacent")
+        let incoming = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "corrupt-incoming"))
+        XCTAssertEqual(incoming.historyPreviousMessagePrimary, "corrupt-oldest")
+        XCTAssertEqual(incoming.historyNextMessagePrimary, "corrupt-omitted")
+        XCTAssertEqual(realm.object(ofType: MessageStorageItem.self,
+            forPrimaryKey: "corrupt-omitted")?.historyPreviousMessagePrimary, incoming.primary)
+    }
+
     func testSameTimestampInteriorUpsertUsesTheCompletePositionTuple() throws {
         let realm = try WRealm.safe()
         let messages = ["alpha", "beta", "gamma", "delta", "epsilon"].map { suffix in
@@ -515,6 +691,7 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
     private func assertLinkedChain(
         _ expectedPrimaries: [String],
         in realm: Realm,
+        versionOverrides: [String: Int] = [:],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -532,7 +709,7 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
             XCTAssertEqual(message.historyNextMessagePrimary,
                            index + 1 < expectedPrimaries.count ? expectedPrimaries[index + 1] : nil,
                            file: file, line: line)
-            XCTAssertEqual(message.historyLinkedIndexVersion, ChatLocalHistoryIndexStorageItem.currentVersion,
+            XCTAssertEqual(message.historyLinkedIndexVersion, versionOverrides[primary] ?? ChatLocalHistoryIndexStorageItem.currentVersion,
                            file: file, line: line)
         }
     }
@@ -593,14 +770,16 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
     private func persistIndexed(
         _ message: MessageStorageItem,
         in realm: Realm,
-        neighborMaterializationObserver: ((Int) -> Void)? = nil
+        neighborMaterializationObserver: ((Int) -> Void)? = nil,
+        batchContext: ChatLocalHistoryLinkedIndex.BatchContext? = nil
     ) throws {
         realm.add(message, update: .modified)
         let stored = try XCTUnwrap(
             realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary)
         )
         ChatLocalHistoryLinkedIndex.upsert(stored, in: realm,
-            neighborMaterializationObserver: neighborMaterializationObserver)
+            neighborMaterializationObserver: neighborMaterializationObserver,
+            batchContext: batchContext)
     }
 
     private func expectedIds(_ range: Range<Int>) -> [String] {

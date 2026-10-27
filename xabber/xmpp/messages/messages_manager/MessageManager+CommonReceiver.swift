@@ -97,6 +97,7 @@ extension MessageManager {
         case savedNew
         case updatedExisting
         case skipped
+        case logicalDuplicate
         case failed
     }
 
@@ -109,6 +110,7 @@ extension MessageManager {
         let archiveCursorID: String
         let isDeleted: Bool
         let outcome: ArchivePersistenceOutcome
+        var logicalDuplicateProof: ArchiveLogicalDuplicateProof? = nil
     }
 
     private func updateArchivePersistenceSummary(
@@ -144,12 +146,19 @@ extension MessageManager {
                             summary.updatedExisting += 1
                         case .skipped:
                             summary.skipped += 1
+                        case .logicalDuplicate:
+                            if let proof = item.logicalDuplicateProof,
+                               Data(proof.queryID.utf8) == Data(queryId.utf8) {
+                                summary.skipped += 1
+                                summary.recordProvenLogicalDuplicate(proof)
+                            } else {
+                                summary.failed += 1
+                            }
                         case .failed:
                             summary.failed += 1
                         }
 
-                        if item.outcome != .skipped,
-                           item.outcome != .failed,
+                        if (item.outcome == .savedNew || item.outcome == .updatedExisting),
                            !item.isDeleted {
                             summary.recordVisibleRow(
                                 owner: item.owner,
@@ -1308,6 +1317,19 @@ extension MessageManager {
         }
     }
 
+    struct ArchiveLogicalDuplicateWitness {
+        let queryID: String
+        let owner: String
+        let peer: String
+        let logicalMessageID: String
+        let canonicalPrimary: String
+        let canonicalCursor: ArchiveCursor
+        let duplicateCursor: ArchiveCursor
+        let canonicalWireDate: Date
+        let duplicateWireDate: Date
+        let transparentSourceFingerprint: Data
+    }
+
     struct ProcessedQueueBatch {
         let messages: [MessageStorageItem]
         let readStateRequests: [ReadStateReconciliationRequest]
@@ -1315,6 +1337,7 @@ extension MessageManager {
         let requiredMediaAttachmentsByMessagePrimary: [
             String: [MessageMediaAttachmentStorageItem]
         ]
+        let logicalDuplicateWitnesses: [ArchiveLogicalDuplicateWitness]
 
         init(
             messages: [MessageStorageItem],
@@ -1322,11 +1345,13 @@ extension MessageManager {
             archiveQueryIdsByPrimary: [String: [String]] = [:],
             requiredMediaAttachmentsByMessagePrimary: [
                 String: [MessageMediaAttachmentStorageItem]
-            ]? = nil
+            ]? = nil,
+            logicalDuplicateWitnesses: [ArchiveLogicalDuplicateWitness] = []
         ) {
             self.messages = messages
             self.readStateRequests = readStateRequests
             self.archiveQueryIdsByPrimary = archiveQueryIdsByPrimary
+            self.logicalDuplicateWitnesses = logicalDuplicateWitnesses
             self.requiredMediaAttachmentsByMessagePrimary =
                 requiredMediaAttachmentsByMessagePrimary ??
                 messages.reduce(into: [:]) { attachmentsByMessage, message in
@@ -1345,6 +1370,7 @@ extension MessageManager {
                 return [self]
             }
 
+            let allPrimaries = Set(messages.map(\.primary))
             return stride(from: 0, to: messages.count, by: chunkSize).map { startIndex in
                 let endIndex = min(startIndex + chunkSize, messages.count)
                 let messageChunk = Array(messages[startIndex..<endIndex])
@@ -1369,7 +1395,11 @@ extension MessageManager {
                     readStateRequests: readStateChunk,
                     archiveQueryIdsByPrimary: chunkArchiveQueryIds,
                     requiredMediaAttachmentsByMessagePrimary:
-                        chunkMediaAttachments
+                        chunkMediaAttachments,
+                    logicalDuplicateWitnesses: logicalDuplicateWitnesses.filter {
+                        chunkPrimaries.contains($0.canonicalPrimary) ||
+                            (startIndex == 0 && !allPrimaries.contains($0.canonicalPrimary))
+                    }
                 )
             }
         }
@@ -1735,6 +1765,283 @@ extension MessageManager {
         clearQueue()
     }
     
+    /// One parsing batch only. Final primaries are selected before references,
+    /// forwarded messages and staged media acquire their parent identity.
+    private final class PlaintextArchivePrimarySelection {
+        struct Decision {
+            var primary: String? = nil
+            var rejectsConflictingSource = false
+            var duplicateWitness: ArchiveLogicalDuplicateWitness? = nil
+        }
+
+        private struct CursorKey: Hashable {
+            let peer: Data
+            let cursor: ArchiveCursor
+        }
+
+        private struct QueryLogicalKey: Hashable {
+            let query: Data
+            let peer: Data
+            let logicalID: Data
+        }
+        private struct QueryCursorKey: Hashable {
+            let query: Data
+            let peer: Data
+            let cursor: ArchiveCursor
+        }
+
+        private final class Candidate {
+            let primary: String
+            let messageID: String
+            let peer: String
+            let cursor: ArchiveCursor
+            let isFork: Bool
+            let message: XMPPMessage?
+            let archiveOwner: String
+            let expectedSourceCursor: String?
+            let expectedSourceDate: Date?
+            let wireQueryID: String?
+            let wireDate: Date?
+
+            init(primary: String, messageID: String, peer: String, cursor: ArchiveCursor,
+                 message: XMPPMessage?, owner: String, expectedSourceCursor: String?,
+                 expectedSourceDate: Date?, wireQueryID: String? = nil, wireDate: Date? = nil) {
+                self.primary = primary
+                self.messageID = messageID
+                self.peer = peer
+                self.cursor = cursor
+                self.message = message
+                self.archiveOwner = owner
+                self.expectedSourceCursor = expectedSourceCursor
+                self.expectedSourceDate = expectedSourceDate
+                self.wireQueryID = wireQueryID
+                self.wireDate = wireDate
+                self.isFork = primary.hasPrefix("mam-disambiguated:") &&
+                    Data(primary.utf8) == Data(MessageStorageItem.disambiguatedArchivePrimary(
+                    messageId: messageID, owner: owner, opponent: peer,
+                    conversationType: .regular, mamArchiveId: cursor.rawValue).utf8)
+            }
+
+            lazy var source: ArchivePlaintextMAMSource? = message.flatMap {
+                ArchivePlaintextMAMSource.make(message: $0, archiveOwner: archiveOwner,
+                    expectedArchiveID: expectedSourceCursor, expectedDate: expectedSourceDate)
+            }
+        }
+
+        private let owner: String
+        private let realm: Realm?
+        private var byPrimary: [Data: Candidate] = [:]
+        private var byCursor: [CursorKey: Candidate] = [:]
+        private var byQueryLogicalID: [QueryLogicalKey: [Candidate]] = [:]
+        private var seenQueryCursors: Set<QueryCursorKey> = []
+
+        init(owner: String, realm: Realm?) {
+            self.owner = owner
+            self.realm = realm
+        }
+
+        func select(message: XMPPMessage, peer: String, cursor: ArchiveCursor, date: Date,
+                    queryID: String?) -> Decision {
+            let messageID = getUniqueMessageId(message, owner: owner)
+            let basePrimary = MessageStorageItem.genPrimary(messageId: messageID, owner: owner)
+            let cursorKey = CursorKey(peer: Data(peer.utf8), cursor: cursor)
+            let exact = byCursor[cursorKey] ?? durableCandidate(peer: peer, cursor: cursor)
+            let base = byPrimary[Data(basePrimary.utf8)] ?? durableCandidate(primary: basePrimary, peer: peer)
+            guard exact != nil || base != nil else { return Decision() }
+            let incoming = ArchivePlaintextMAMSource.make(message: message, archiveOwner: owner,
+                expectedArchiveID: cursor.rawValue, expectedDate: date)
+            if let queryID, queryID.isNotEmpty, let incoming {
+                let wireKey = QueryCursorKey(query: Data(queryID.utf8), peer: Data(peer.utf8), cursor: cursor)
+                let isNewWireCursor = seenQueryCursors.insert(wireKey).inserted
+                let key = QueryLogicalKey(query: Data(queryID.utf8), peer: Data(peer.utf8),
+                    logicalID: Data(messageID.utf8))
+                for previousCandidate in byQueryLogicalID[key] ?? [] {
+                    guard let previous = previousCandidate.source else { continue }
+                    let probe = incoming.duplicateProbe(comparedTo: previous, sameQuery: true,
+                        canonicalFork: previousCandidate.isFork)
+                    let canSkip = isNewWireCursor && previousCandidate.cursor != cursor &&
+                        previousCandidate.wireQueryID.map { Data($0.utf8) == Data(queryID.utf8) } == true &&
+                        previousCandidate.wireDate.map { $0 < date } == true &&
+                        incoming.transportTransparentFingerprint != nil &&
+                        incoming.transportTransparentFingerprint == previous.transportTransparentFingerprint &&
+                        incoming.bareAuthor != nil && incoming.bareAuthor == previous.bareAuthor &&
+                        incoming.bareRecipient != nil && incoming.bareRecipient == previous.bareRecipient &&
+                        !Self.hasRewrite(message) &&
+                        previousCandidate.message.map { !Self.hasRewrite($0) } == true
+                    if !incoming.hasDistinctAuthoredContent(from: previous) {
+                        ArchiveEngineObservability.event(.logicalDuplicateProbe,
+                            value: probe, auxiliary: canSkip ? 1 : 0)
+                    }
+                    if canSkip, let fingerprint = incoming.transportTransparentFingerprint,
+                       let canonicalDate = previousCandidate.wireDate {
+                        return Decision(duplicateWitness: ArchiveLogicalDuplicateWitness(
+                            queryID: queryID, owner: owner, peer: peer, logicalMessageID: messageID,
+                            canonicalPrimary: previousCandidate.primary,
+                            canonicalCursor: previousCandidate.cursor, duplicateCursor: cursor,
+                            canonicalWireDate: canonicalDate, duplicateWireDate: date,
+                            transparentSourceFingerprint: fingerprint))
+                    }
+                }
+            }
+
+            if let exact, Data(exact.messageID.utf8) == Data(messageID.utf8) {
+                let previous = exact.source
+                if let incoming, let previous,
+                   incoming.fingerprint == previous.fingerprint {
+                    if exact.isFork || previous.archiveID != cursor {
+                        report(sourceCode: 1, selectedFork: exact.isFork)
+                    }
+                    return Decision(primary: exact.isFork ? exact.primary : nil)
+                }
+                if exact.isFork {
+                    // Reusing a proved fork requires positive source equality.
+                    // Missing evidence cannot fall through to the base row and
+                    // derive this same fork identity for an unverified payload.
+                    report(sourceCode: incoming != nil && previous != nil ? 2 : 0,
+                        selectedFork: false)
+                    return Decision(rejectsConflictingSource: true)
+                }
+                // A legacy scalar rebind may point the base row at this UID
+                // while its original stanza still belongs to another result.
+            }
+            guard let base, Data(base.messageID.utf8) == Data(messageID.utf8),
+                  let incoming, let previous = base.source else {
+                report(sourceCode: 0, selectedFork: false)
+                return Decision()
+            }
+            guard incoming.fingerprint != previous.fingerprint else {
+                report(sourceCode: 1, selectedFork: false)
+                return Decision()
+            }
+            let differentRecordSource = incoming.transportTransparentFingerprint != nil &&
+                previous.transportTransparentFingerprint != nil &&
+                incoming.transportTransparentFingerprint != previous.transportTransparentFingerprint
+            guard incoming.hasDistinctAuthoredContent(from: previous) || differentRecordSource,
+                  !Self.hasRewrite(message),
+                  base.message.map({ !Self.hasRewrite($0) }) == true else {
+                report(sourceCode: 2, selectedFork: false)
+                return Decision()
+            }
+            guard incoming.archiveID != previous.archiveID else {
+                report(sourceCode: 2, selectedFork: false)
+                return Decision(rejectsConflictingSource: true)
+            }
+            report(sourceCode: 2, selectedFork: true)
+            return Decision(primary: MessageStorageItem.disambiguatedArchivePrimary(
+                messageId: messageID, owner: owner, opponent: peer,
+                conversationType: .regular, mamArchiveId: cursor.rawValue))
+        }
+
+        func record(_ message: MessageStorageItem, cursor: ArchiveCursor, date: Date, queryID: String?) {
+            guard !message.archivePrimarySelectionConflict else { return }
+            let candidate = Candidate(primary: message.primary, messageID: message.messageId,
+                peer: message.opponent, cursor: cursor, message: message.originalStanza,
+                owner: owner, expectedSourceCursor: cursor.rawValue, expectedSourceDate: date,
+                wireQueryID: queryID, wireDate: date)
+            let primaryKey = Data(message.primary.utf8)
+            if byPrimary[primaryKey] == nil { byPrimary[primaryKey] = candidate }
+            let cursorKey = CursorKey(peer: Data(message.opponent.utf8), cursor: cursor)
+            if byCursor[cursorKey] == nil { byCursor[cursorKey] = candidate }
+            if let queryID, queryID.isNotEmpty {
+                let key = QueryLogicalKey(query: Data(queryID.utf8), peer: Data(message.opponent.utf8),
+                    logicalID: Data(message.messageId.utf8))
+                byQueryLogicalID[key, default: []].append(candidate)
+                seenQueryCursors.insert(QueryCursorKey(query: Data(queryID.utf8),
+                    peer: Data(message.opponent.utf8), cursor: cursor))
+            }
+        }
+
+        private func durableCandidate(peer: String, cursor: ArchiveCursor) -> Candidate? {
+            guard let realm else { return nil }
+            let matches = Array(realm.objects(MessageStorageItem.self).filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId == %@",
+                owner, peer, ClientSynchronizationManager.ConversationType.regular.rawValue,
+                cursor.rawValue).prefix(2))
+            guard matches.count == 1 else { return nil }
+            guard ArchiveCursor(rawValue: matches[0].mamArchiveId) == cursor else { return nil }
+            return candidate(for: matches[0], peer: peer)
+        }
+
+        private func durableCandidate(primary: String, peer: String) -> Candidate? {
+            guard let stored = realm?.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
+                return nil
+            }
+            return candidate(for: stored, peer: peer)
+        }
+
+        private func candidate(for stored: MessageStorageItem, peer: String) -> Candidate? {
+            guard stored.owner == owner, stored.opponent == peer,
+                  stored.conversationType == .regular,
+                  let cursor = ArchiveCursor(rawValue: stored.mamArchiveId) else { return nil }
+            let stanza = realm?.object(ofType: MessageStanzaStorageItem.self,
+                forPrimaryKey: stored.primary + "_stanza")
+            let sourceMessage: XMPPMessage?
+            if let stanza, stanza.owner == owner, stanza.messageId == stored.messageId,
+               let element = try? DDXMLElement(xmlString: stanza.stanza) {
+                sourceMessage = XMPPMessage(from: element)
+            } else {
+                sourceMessage = nil
+            }
+            return Candidate(primary: stored.primary, messageID: stored.messageId,
+                peer: peer, cursor: cursor, message: sourceMessage, owner: owner,
+                expectedSourceCursor: nil, expectedSourceDate: stanza?.timestamp)
+        }
+
+        private static func hasRewrite(_ message: XMPPMessage) -> Bool {
+            let namespaces: Set<String> = ["https://xabber.com/protocol/rewrite",
+                "urn:xmpp:message-correct:0", "urn:xmpp:message-retract:0", "urn:xmpp:message-retract:1"]
+            return (message.children ?? []).contains { node in
+                guard let element = node as? DDXMLElement else { return false }
+                return namespaces.contains(element.uri ?? "")
+            }
+        }
+
+        private func report(sourceCode: Int, selectedFork: Bool) {
+            ArchiveEngineObservability.event(.persistenceIdentitySelection,
+                value: sourceCode, auxiliary: selectedFork ? 1 : 0)
+            ChatArchiveDebugTrace.logDiagnostic("archivePersistenceIdentitySelection",
+                [("source", sourceCode), ("fork", selectedFork ? 1 : 0)])
+        }
+    }
+
+    /// Numeric observation of the exact parser input; never supplies routing authority.
+    private func observeIncomingWireClassification(_ message: XMPPMessage,
+        parsedType: ClientSynchronizationManager.ConversationType, isMAM: Bool) {
+        let namespace = message.element(forName: "encrypted")?.xmlns
+        let namespaceCode: Int
+        switch namespace {
+        case nil: namespaceCode = 0
+        case "urn:xmpp:omemo:2": namespaceCode = 1
+        case "urn:xmpp:omemo:1": namespaceCode = 2
+        case "eu.siacs.conversations.axolotl": namespaceCode = 3
+        default: namespaceCode = 4
+        }
+        let typeCode: Int
+        switch parsedType {
+        case .regular: typeCode = 0
+        case .omemo: typeCode = 1
+        case .omemo1: typeCode = 2
+        case .axolotl: typeCode = 3
+        case .group: typeCode = 4
+        case .channel: typeCode = 5
+        case .notifications: typeCode = 6
+        case .saved: typeCode = 7
+        }
+        let stanzaType = message.attributeStringValue(forName: "type") ?? ""
+        let overridesEncrypted = stanzaType == "groupchat" ||
+            (parsedType == .group && ["chat", "headline"].contains(stanzaType) &&
+                (try? GroupStanzaRouter.route(message)) != nil)
+        let usedLockedType = !overridesEncrypted && namespace != nil &&
+            namespace.flatMap(ClientSynchronizationManager.ConversationType.init(rawValue:)) == nil &&
+            ClientSynchronizationManager.ConversationType(
+                rawValue: CommonConfigManager.shared.config.locked_conversation_type) != nil
+        let code = typeCode | (namespaceCode << 4) | (usedLockedType ? 128 : 0)
+        ArchiveEngineObservability.event(.incomingWireClassification,
+            value: code, auxiliary: isMAM ? 1 : 0)
+        ChatArchiveDebugTrace.logDiagnostic("archiveIncomingWireClassification",
+            [("code", code), ("mam", isMAM ? 1 : 0)])
+    }
+
     func processQueue(_ items: Set<MessageQueueItem>, callback: ((ProcessedQueueBatch?) -> Void)) {
         if items.isEmpty {
             return callback(nil)
@@ -1752,6 +2059,8 @@ extension MessageManager {
         var out: Set<MessageStorageItem> = Set<MessageStorageItem>()
         var readStateRequests: [ReadStateReconciliationRequest] = []
         var archiveQueryIdsByPrimary: [String: [String]] = [:]
+        var logicalDuplicateWitnesses: [ArchiveLogicalDuplicateWitness] = []
+        let archivePrimaries = PlaintextArchivePrimarySelection(owner: owner, realm: try? WRealm.safe())
         let sortedItems = Array(items).sorted(by: {
             $0.date.timeIntervalSince1970 < $1.date.timeIntervalSince1970
         })
@@ -1838,6 +2147,8 @@ extension MessageManager {
 //            if item.originalOutgoing || item.state == .read {
 //                item.isRead = true
             let conversationType = conversationTypeByMessage(item.message)
+            observeIncomingWireClassification(item.message, parsedType: conversationType,
+                isMAM: item.isMAMArchiveResult)
             let readDate = item.isRead ? (item.readDate ?? prereadedMessages.first(where: { item.messageId == $0.messageId })?.date) : nil// ?? prereadedConversation.first(where: { $0.jid == opponent && $0.conversationType == conversationType })?.date) : nil
             if let readDate = readDate,
                item.date < readDate {
@@ -1855,6 +2166,23 @@ extension MessageManager {
                     afterburnInterval: afterburnInterval
                 )
             )
+            let plaintextArchiveCursor: ArchiveCursor?
+            if systemMetadata == nil, conversationType == .regular, item.encryption == .plaintext,
+               item.isMAMArchiveResult, item.message.from != nil,
+               getUniqueMessageId(item.message, owner: owner).isNotEmpty,
+               let rawCursor = item.mamResultID, let cursor = ArchiveCursor(rawValue: rawCursor) {
+                plaintextArchiveCursor = cursor
+                let decision = archivePrimaries.select(message: item.message, peer: opponent,
+                    cursor: cursor, date: item.date, queryID: item.queryId)
+                if let witness = decision.duplicateWitness {
+                    logicalDuplicateWitnesses.append(witness)
+                    return
+                }
+                if let primary = decision.primary { instance.primary = primary }
+                instance.archivePrimarySelectionConflict = decision.rejectsConflictingSource
+            } else {
+                plaintextArchiveCursor = nil
+            }
             if systemMetadata != nil {
                 instance.configureSystemMessage(item.message,
                                                 owner: owner,
@@ -1986,12 +2314,16 @@ extension MessageManager {
                 instance.markAutoDeleted()
             }
             
+            if let cursor = plaintextArchiveCursor {
+                archivePrimaries.record(instance, cursor: cursor, date: item.date, queryID: item.queryId)
+            }
             out.insert(instance)
         }
         let batch = ProcessedQueueBatch(
             messages: Array(out).sorted(by: { $0.date < $1.date}),
             readStateRequests: readStateRequests,
-            archiveQueryIdsByPrimary: archiveQueryIdsByPrimary
+            archiveQueryIdsByPrimary: archiveQueryIdsByPrimary,
+            logicalDuplicateWitnesses: logicalDuplicateWitnesses
         )
         ChatArchiveDebugTrace.log("messageProcessQueueFinish", [
             ("owner", self.owner),
@@ -2211,12 +2543,19 @@ extension MessageManager {
             case .skipped:
                 summary.skipped += 1
                 summary.recordSkippedArchiveId(item.archiveCursorID)
+            case .logicalDuplicate:
+                if let proof = item.logicalDuplicateProof,
+                   item.queryIds.contains(where: { Data($0.utf8) == Data(proof.queryID.utf8) }) {
+                    summary.skipped += 1
+                    summary.recordProvenLogicalDuplicate(proof)
+                } else {
+                    summary.failed += 1
+                }
             case .failed:
                 summary.failed += 1
             }
 
-            if item.outcome != .skipped,
-               item.outcome != .failed,
+            if (item.outcome == .savedNew || item.outcome == .updatedExisting),
                !item.isDeleted {
                 summary.recordVisibleRow(
                     owner: item.owner,
@@ -2263,7 +2602,8 @@ extension MessageManager {
         requiredMediaAttachments: [MessageMediaAttachmentStorageItem],
         in realm: Realm,
         silentNotifications: Bool,
-        runtimeQueryIds: [String]?
+        runtimeQueryIds: [String]?,
+        historyIndexContext: ChatLocalHistoryLinkedIndex.BatchContext? = nil
     ) -> (ArchivePersistenceOutcomeItem, MessageStorageItem.SaveSideEffects?) {
         message.updatePrimary()
         let queryIds = self.archiveQueryIds(for: message, runtimeQueryIds: runtimeQueryIds)
@@ -2277,6 +2617,9 @@ extension MessageManager {
             : nil
 
         if let expectedMAMArchiveID {
+            guard !message.archivePrimarySelectionConflict else {
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
             guard expectedMAMArchiveID.isNotEmpty else {
                 ChatArchiveDebugTrace.log("mamArchiveIdentityRejected", [
                     ("owner", message.owner),
@@ -2322,7 +2665,8 @@ extension MessageManager {
             }
         }
 
-        let sideEffects = message.applyMessagePersistence(in: realm, silentNotifications: silentNotifications)
+        let sideEffects = message.applyMessagePersistence(in: realm, silentNotifications: silentNotifications,
+            historyIndexContext: historyIndexContext)
 
         if sideEffects?.shouldStoreStanza == true ||
             message.incomingEncryption == .authenticatedSCE(profile: .omemo2) {
@@ -2386,6 +2730,67 @@ extension MessageManager {
             ),
             sideEffects
         )
+    }
+
+    private func duplicateOutcome(
+        _ witness: ArchiveLogicalDuplicateWitness,
+        batch: ProcessedQueueBatch,
+        canonicalOutcomes: [ArchivePersistenceOutcomeItem],
+        in realm: Realm
+    ) -> ArchivePersistenceOutcomeItem {
+        func failed(_ reason: Int) -> ArchivePersistenceOutcomeItem {
+            ArchiveEngineObservability.event(.logicalDuplicateResult, value: 0, auxiliary: reason)
+            return ArchivePersistenceOutcomeItem(queryIds: [witness.queryID],
+                primaryID: witness.canonicalPrimary, owner: witness.owner, opponent: witness.peer,
+                conversationType: .regular, archiveCursorID: witness.duplicateCursor.rawValue,
+                isDeleted: false, outcome: .failed)
+        }
+        guard Data(witness.owner.utf8) == Data(owner.utf8), witness.queryID.isNotEmpty,
+              witness.canonicalCursor != witness.duplicateCursor,
+              witness.canonicalWireDate < witness.duplicateWireDate,
+              batch.archiveQueryIdsByPrimary[witness.canonicalPrimary]?.contains(where: {
+                  Data($0.utf8) == Data(witness.queryID.utf8)
+              }) == true else { return failed(1) }
+        guard canonicalOutcomes.contains(where: { outcome in
+            (outcome.outcome == .savedNew || outcome.outcome == .updatedExisting) &&
+                Data(outcome.primaryID.utf8) == Data(witness.canonicalPrimary.utf8) &&
+                Data(outcome.owner.utf8) == Data(witness.owner.utf8) &&
+                Data(outcome.opponent.utf8) == Data(witness.peer.utf8) &&
+                outcome.conversationType == .regular &&
+                ArchiveCursor(rawValue: outcome.archiveCursorID) == witness.canonicalCursor &&
+                outcome.queryIds.contains { Data($0.utf8) == Data(witness.queryID.utf8) }
+        }) else { return failed(2) }
+        guard let stored = realm.object(ofType: MessageStorageItem.self,
+                    forPrimaryKey: witness.canonicalPrimary),
+              Data(stored.owner.utf8) == Data(witness.owner.utf8),
+              Data(stored.opponent.utf8) == Data(witness.peer.utf8),
+              stored.conversationType_ == ClientSynchronizationManager.ConversationType.regular.rawValue,
+              Data(stored.messageId.utf8) == Data(witness.logicalMessageID.utf8) else { return failed(3) }
+        guard ArchiveCursor(rawValue: stored.mamArchiveId) == witness.canonicalCursor else { return failed(4) }
+        guard !stored.isDeleted, !stored.isLocallyHiddenByReport else { return failed(5) }
+        guard let stanza = realm.object(ofType: MessageStanzaStorageItem.self,
+                    forPrimaryKey: stored.primary + "_stanza"),
+              Data(stanza.owner.utf8) == Data(witness.owner.utf8),
+              Data(stanza.messageId.utf8) == Data(witness.logicalMessageID.utf8),
+              let element = try? DDXMLElement(xmlString: stanza.stanza),
+              let source = ArchivePlaintextMAMSource.make(message: XMPPMessage(from: element),
+                    archiveOwner: witness.owner, expectedArchiveID: nil, expectedDate: stanza.timestamp),
+              source.transportTransparentFingerprint == witness.transparentSourceFingerprint else { return failed(6) }
+        guard realm.objects(MessageStorageItem.self).filter(
+            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId == %@",
+            witness.owner, witness.peer, ClientSynchronizationManager.ConversationType.regular.rawValue,
+            witness.duplicateCursor.rawValue).first == nil else { return failed(7) }
+        let proof = ArchiveLogicalDuplicateProof(queryID: witness.queryID,
+            conversation: ArchiveConversationKey(owner: witness.owner, jid: witness.peer,
+                conversationType: .regular), canonicalCursor: witness.canonicalCursor,
+            duplicateCursor: witness.duplicateCursor, canonicalPrimaryID: witness.canonicalPrimary)
+        var outcome = ArchivePersistenceOutcomeItem(queryIds: [witness.queryID],
+            primaryID: witness.canonicalPrimary, owner: witness.owner, opponent: witness.peer,
+            conversationType: .regular, archiveCursorID: witness.duplicateCursor.rawValue,
+            isDeleted: false, outcome: .logicalDuplicate)
+        outcome.logicalDuplicateProof = proof
+        ArchiveEngineObservability.event(.logicalDuplicateResult, value: 1)
+        return outcome
     }
 
     private func failedOutcome(for message: MessageStorageItem, runtimeQueryIds: [String]?) -> ArchivePersistenceOutcomeItem {
@@ -2455,7 +2860,8 @@ extension MessageManager {
 
     private func saveIndividuallyAfterBatchFailure(
         _ batch: ProcessedQueueBatch,
-        silentNotifications: Bool
+        silentNotifications: Bool,
+        rollbackFailures: [ArchivePersistenceOutcomeItem]
     ) -> ArchivePersistenceSummary {
         let startedAt = Date()
         let batchQueryIds = Set(batch.archiveQueryIdsByPrimary.values.flatMap { $0 })
@@ -2472,7 +2878,13 @@ extension MessageManager {
             MessageStorageItem.SaveNotificationPayload
         ] = []
 
-        batch.messages.forEach { message in
+        batch.messages.enumerated().forEach { index, message in
+            // Realm invalidates newly inserted objects when their write rolls back.
+            // Their value-only identities were captured before that write began.
+            guard !message.isInvalidated else {
+                outcomes.append(rollbackFailures[index])
+                return
+            }
             do {
                 let messageStartedAt = Date()
                 message.prepareIncomingReplayFingerprint()
@@ -2520,6 +2932,25 @@ extension MessageManager {
             }
         }
 
+        if !batch.logicalDuplicateWitnesses.isEmpty {
+            do {
+                let realm = try WRealm.safe()
+                var duplicateOutcomes: [ArchivePersistenceOutcomeItem] = []
+                try realm.write {
+                    for witness in batch.logicalDuplicateWitnesses {
+                        duplicateOutcomes.append(duplicateOutcome(witness, batch: batch,
+                            canonicalOutcomes: outcomes, in: realm))
+                    }
+                }
+                outcomes.append(contentsOf: duplicateOutcomes)
+            } catch {
+                outcomes.append(contentsOf: batch.logicalDuplicateWitnesses.map {
+                    ArchivePersistenceOutcomeItem(queryIds: [$0.queryID], primaryID: $0.canonicalPrimary,
+                        owner: $0.owner, opponent: $0.peer, conversationType: .regular,
+                        archiveCursorID: $0.duplicateCursor.rawValue, isDeleted: false, outcome: .failed)
+                })
+            }
+        }
         self.recordArchivePersistenceOutcomes(outcomes)
         let summary = self.archiveSummary(from: outcomes)
         self.stagePostPersistenceEffects(
@@ -2551,7 +2982,7 @@ extension MessageManager {
         if resetChunkMetrics {
             self.messagePersistenceChunkSizes.removeAll(keepingCapacity: true)
         }
-        guard !batch.messages.isEmpty else {
+        guard !batch.messages.isEmpty || !batch.logicalDuplicateWitnesses.isEmpty else {
             return ArchivePersistenceSummary()
         }
 
@@ -2580,6 +3011,9 @@ extension MessageManager {
             ("count", batch.messages.count),
             ("readStateRequests", batch.readStateRequests.count)
         ])
+        let rollbackFailures = batch.messages.map {
+            failedOutcome(for: $0, runtimeQueryIds: batch.archiveQueryIdsByPrimary[$0.primary])
+        }
         do {
             let realm = try  WRealm.safe()
             var notificationPayloads: [MessageStorageItem.SaveNotificationPayload] = []
@@ -2590,7 +3024,12 @@ extension MessageManager {
             batch.messages.forEach { $0.prepareIncomingReplayFingerprint() }
             try self.archiveBatchSaveFailureInjector?()
             let realmWriteStartedAt = Date()
+            var rangeQueries = 0, indexUpserts = 0
             try realm.write {
+                let historyIndexContext = ChatLocalHistoryLinkedIndex.BatchContext(onRangeQueries: {
+                    rangeQueries += $0
+                    indexUpserts += 1
+                })
                 batch.messages.forEach {
                     let result = self.persistMessage(
                         $0,
@@ -2600,14 +3039,22 @@ extension MessageManager {
                             ] ?? [],
                         in: realm,
                         silentNotifications: silentNotifications,
-                        runtimeQueryIds: batch.archiveQueryIdsByPrimary[$0.primary]
+                        runtimeQueryIds: batch.archiveQueryIdsByPrimary[$0.primary],
+                        historyIndexContext: historyIndexContext
                     )
                     outcomes.append(result.0)
                     if let notification = result.1?.notification {
                         notificationPayloads.append(notification)
                     }
                 }
+                try self.archiveBatchAfterCanonicalWritesFailureInjector?()
+                for witness in batch.logicalDuplicateWitnesses {
+                    outcomes.append(duplicateOutcome(witness, batch: batch,
+                        canonicalOutcomes: outcomes, in: realm))
+                }
             }
+            ArchiveEngineObservability.event(.persistenceIndexQueries,
+                value: rangeQueries, auxiliary: indexUpserts)
             let realmWriteMs = ChatArchiveDebugTrace.milliseconds(since: realmWriteStartedAt)
             self.recordArchivePersistenceOutcomes(outcomes)
             let summary = self.archiveSummary(from: outcomes)
@@ -2639,7 +3086,8 @@ extension MessageManager {
             return summary
         } catch {
             DDLogDebug("MessageManager.save batch failed count=\(batch.messages.count) error=\(error.localizedDescription)")
-            return self.saveIndividuallyAfterBatchFailure(batch, silentNotifications: silentNotifications)
+            return self.saveIndividuallyAfterBatchFailure(batch, silentNotifications: silentNotifications,
+                rollbackFailures: rollbackFailures)
         }
         }
     }

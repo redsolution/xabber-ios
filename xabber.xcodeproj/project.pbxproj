@@ -83,6 +83,7 @@
 		CA260002CA260002CA260002 /* ArchiveSessionFreshnessHardCutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA260001CA260001CA260001 /* ArchiveSessionFreshnessHardCutTests.swift */; };
 		CA270002CA270002CA270002 /* ChatProofScopedLocalTargetPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA270001CA270001CA270001 /* ChatProofScopedLocalTargetPresentationTests.swift */; };
 		CA280002CA280002CA280002 /* ArchiveGlobalSearchHardCutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA280001CA280001CA280001 /* ArchiveGlobalSearchHardCutTests.swift */; };
+		AF4CED4911564136B0FA492A /* ChatSearchArchiveCursorIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D2E19D4CE1478F9BD74E25 /* ChatSearchArchiveCursorIdentityTests.swift */; };
 		CA290002CA290002CA290002 /* AccountArchiveConsumedContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA290001CA290001CA290001 /* AccountArchiveConsumedContinuationTests.swift */; };
 		CA2A0002CA2A0002CA2A0002 /* ChatInitialTargetFirstFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2A0001CA2A0001CA2A0001 /* ChatInitialTargetFirstFrameTests.swift */; };
 		CA2B0002CA2B0002CA2B0002 /* SynchronizedArrayConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2B0001CA2B0001CA2B0001 /* SynchronizedArrayConcurrencyTests.swift */; };
@@ -1312,6 +1313,7 @@
 		CA260001CA260001CA260001 /* ArchiveSessionFreshnessHardCutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveSessionFreshnessHardCutTests.swift; sourceTree = "<group>"; };
 		CA270001CA270001CA270001 /* ChatProofScopedLocalTargetPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatProofScopedLocalTargetPresentationTests.swift; sourceTree = "<group>"; };
 		CA280001CA280001CA280001 /* ArchiveGlobalSearchHardCutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveGlobalSearchHardCutTests.swift; sourceTree = "<group>"; };
+		14D2E19D4CE1478F9BD74E25 /* ChatSearchArchiveCursorIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchArchiveCursorIdentityTests.swift; sourceTree = "<group>"; };
 		CA290001CA290001CA290001 /* AccountArchiveConsumedContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArchiveConsumedContinuationTests.swift; sourceTree = "<group>"; };
 		CA2A0001CA2A0001CA2A0001 /* ChatInitialTargetFirstFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInitialTargetFirstFrameTests.swift; sourceTree = "<group>"; };
 		CA2B0001CA2B0001CA2B0001 /* SynchronizedArrayConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynchronizedArrayConcurrencyTests.swift; sourceTree = "<group>"; };
@@ -4634,6 +4636,7 @@
 				CA260001CA260001CA260001 /* ArchiveSessionFreshnessHardCutTests.swift */,
 				CA270001CA270001CA270001 /* ChatProofScopedLocalTargetPresentationTests.swift */,
 				CA280001CA280001CA280001 /* ArchiveGlobalSearchHardCutTests.swift */,
+				14D2E19D4CE1478F9BD74E25 /* ChatSearchArchiveCursorIdentityTests.swift */,
 				CA290001CA290001CA290001 /* AccountArchiveConsumedContinuationTests.swift */,
 				CA2A0001CA2A0001CA2A0001 /* ChatInitialTargetFirstFrameTests.swift */,
 				CA2B0001CA2B0001CA2B0001 /* SynchronizedArrayConcurrencyTests.swift */,
@@ -7039,6 +7042,7 @@
 				CA260002CA260002CA260002 /* ArchiveSessionFreshnessHardCutTests.swift in Sources */,
 				CA270002CA270002CA270002 /* ChatProofScopedLocalTargetPresentationTests.swift in Sources */,
 				CA280002CA280002CA280002 /* ArchiveGlobalSearchHardCutTests.swift in Sources */,
+				AF4CED4911564136B0FA492A /* ChatSearchArchiveCursorIdentityTests.swift in Sources */,
 				CA290002CA290002CA290002 /* AccountArchiveConsumedContinuationTests.swift in Sources */,
 				CA2A0002CA2A0002CA2A0002 /* ChatInitialTargetFirstFrameTests.swift in Sources */,
 				CA2B0002CA2B0002CA2B0002 /* SynchronizedArrayConcurrencyTests.swift in Sources */,

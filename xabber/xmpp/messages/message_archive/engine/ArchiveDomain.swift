@@ -89,6 +89,13 @@ enum ArchiveEngineSignpostPhase {
     case searchPage
     case requestTypeFilter
     case persistenceIdentityRebind
+    case persistenceIdentitySelection
+    case logicalDuplicateProbe
+    case logicalDuplicateResult
+    case persistenceIndexQueries
+    case incomingWireClassification
+    case regularProjection
+    case regularProjectionAccounting
 
     fileprivate var name: StaticString {
         switch self {
@@ -105,6 +112,13 @@ enum ArchiveEngineSignpostPhase {
         case .searchPage: return "archive.search_page"
         case .requestTypeFilter: return "archive.request_type_filter"
         case .persistenceIdentityRebind: return "archive.persistence_identity_rebind"
+        case .persistenceIdentitySelection: return "archive.persistence_identity_selection"
+        case .logicalDuplicateProbe: return "archive.logical_duplicate_probe"
+        case .logicalDuplicateResult: return "archive.logical_duplicate_result"
+        case .persistenceIndexQueries: return "archive.persistence_index_queries"
+        case .incomingWireClassification: return "archive.incoming_wire_classification"
+        case .regularProjection: return "archive.regular_projection"
+        case .regularProjectionAccounting: return "archive.regular_projection_accounting"
         }
     }
 }

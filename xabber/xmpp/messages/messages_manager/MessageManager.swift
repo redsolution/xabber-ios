@@ -228,6 +228,33 @@ class MessageManager: AbstractXMPPManager {
         }
     }
 
+    /// Proof from one validated plaintext query; never a global skipped ID.
+    struct ArchiveLogicalDuplicateProof: Hashable {
+        let queryID: String
+        let conversation: ArchiveConversationKey
+        let canonicalCursor: ArchiveCursor
+        let duplicateCursor: ArchiveCursor
+        let canonicalPrimaryID: String
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.queryID.utf8.elementsEqual(rhs.queryID.utf8) &&
+                lhs.conversation.owner.utf8.elementsEqual(rhs.conversation.owner.utf8) &&
+                lhs.conversation.jid.utf8.elementsEqual(rhs.conversation.jid.utf8) &&
+                lhs.conversation.conversationTypeRaw.utf8.elementsEqual(rhs.conversation.conversationTypeRaw.utf8) &&
+                lhs.canonicalCursor == rhs.canonicalCursor && lhs.duplicateCursor == rhs.duplicateCursor &&
+                lhs.canonicalPrimaryID.utf8.elementsEqual(rhs.canonicalPrimaryID.utf8)
+        }
+
+        func hash(into hasher: inout Hasher) {
+            for value in [queryID, conversation.owner, conversation.jid,
+                conversation.conversationTypeRaw, canonicalPrimaryID] {
+                hasher.combine(Data(value.utf8))
+            }
+            hasher.combine(canonicalCursor)
+            hasher.combine(duplicateCursor)
+        }
+    }
+
     struct ArchivePersistenceSummary: Equatable {
         private static let separator = "\u{1F}"
 
@@ -238,6 +265,7 @@ class MessageManager: AbstractXMPPManager {
         var skipped: Int = 0
         var failed: Int = 0
         private(set) var skippedArchiveIds: Set<ArchiveCursor> = []
+        private(set) var provenLogicalDuplicates: Set<ArchiveLogicalDuplicateProof> = []
         private var visibleRowsByConversationKey: [String: Int] = [:]
         private var persistedArchiveIdsByConversationKey: [String: Set<ArchiveCursor>] = [:]
 
@@ -265,6 +293,7 @@ class MessageManager: AbstractXMPPManager {
             skipped == 0 &&
             failed == 0 &&
             skippedArchiveIds.isEmpty &&
+            provenLogicalDuplicates.isEmpty &&
             visibleRowsByConversationKey.isEmpty &&
             persistedArchiveIdsByConversationKey.isEmpty
         }
@@ -277,12 +306,17 @@ class MessageManager: AbstractXMPPManager {
             skipped += other.skipped
             failed += other.failed
             skippedArchiveIds.formUnion(other.skippedArchiveIds)
+            provenLogicalDuplicates.formUnion(other.provenLogicalDuplicates)
             other.visibleRowsByConversationKey.forEach { key, value in
                 visibleRowsByConversationKey[key, default: 0] += value
             }
             other.persistedArchiveIdsByConversationKey.forEach { key, archiveIds in
                 persistedArchiveIdsByConversationKey[key, default: []].formUnion(archiveIds)
             }
+        }
+
+        mutating func recordProvenLogicalDuplicate(_ proof: ArchiveLogicalDuplicateProof) {
+            provenLogicalDuplicates.insert(proof)
         }
 
         mutating func recordSkippedArchiveId(_ archiveId: String) {
@@ -442,6 +476,7 @@ class MessageManager: AbstractXMPPManager {
     internal let completedArchiveQueryBatchSummaryCapacity = 128
     internal var archiveQueryIdPersistenceResolver: ((String?) -> Bool)?
     internal var archiveBatchSaveFailureInjector: (() throws -> Void)?
+    internal var archiveBatchAfterCanonicalWritesFailureInjector: (() throws -> Void)?
     internal var messagePersistenceChunkSize: Int = 100
     internal var messagePersistenceChunkSizes: [Int] = []
     internal var messagePersistenceChunkObserver: ((Int, Int) -> Void)?

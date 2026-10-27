@@ -1819,19 +1819,13 @@ fileprivate func installVerifiedSearchTimelineFixture(
     coverageGeneration: UInt64 = 1
 ) throws -> ArchiveWindowSnapshot {
     let chronological = ChatTimelineOrdering.deduplicatedChronological(items)
-    let oldest = try XCTUnwrap(
-        chronological.first.flatMap { ArchiveCursor(rawValue: $0.archivedId) }
-    )
-    let newest = try XCTUnwrap(
-        chronological.last.flatMap { ArchiveCursor(rawValue: $0.archivedId) }
-    )
+    let cursors = try chronological.map { try XCTUnwrap(ArchiveCursor(rawValue: $0.mamArchiveId)) }
     let freshness = ArchiveFreshnessToken.sessionMAM(
         connectionGeneration: 1,
         queryID: "search-fixture-\(coverageGeneration)"
     )
     let segment = try XCTUnwrap(ArchiveCoverageSegment(
-        oldest: oldest,
-        newest: newest,
+        orderedArchiveIDs: cursors,
         reachesArchiveStart: true,
         reachesLiveEdge: true,
         fingerprint: freshness.fingerprint,
@@ -2711,7 +2705,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         XCTAssertEqual(controller.searchPresentationState.committedResultIndex, 2)
         XCTAssertEqual(
             controller.selectedSearchResultId,
-            controller.searchMessagesQueue[2].archivedId
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[2])
         )
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
         XCTAssertEqual(
@@ -2886,7 +2880,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
         XCTAssertEqual(
             controller.selectedSearchResultId,
-            controller.searchMessagesQueue[1].archivedId
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[1])
         )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
@@ -3044,7 +3038,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
     }
 
     private func makeDatasource(index: Int) -> ChatViewController.Datasource {
-        ChatViewController.Datasource(
+        var row = ChatViewController.Datasource(
             primary: "primary-\(index)",
             jid: "contact@example.com",
             owner: "owner@example.com",
@@ -3091,6 +3085,8 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
             avatarUrl: nil,
             attributedAuthor: nil
         )
+        row.mamArchiveId = archiveID(index: index)
+        return row
     }
 
     private func archiveID(index: Int) -> String {
@@ -21294,8 +21290,28 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
     private final class ArchiveIdentityRebindTraceRecorder {
         private let lock = NSLock()
         private var storedFlags: [Int] = []
+        private var storedSelectionCodes: [Int] = []
+        private var storedWireCodes: [Int] = []
 
         func record(_ line: String) {
+            if line.contains("event=archiveIncomingWireClassification"),
+               let field = line.split(separator: " ").first(where: { $0.hasPrefix("code=") }),
+               let code = Int(field.dropFirst("code=".count)) {
+                lock.lock()
+                storedWireCodes.append(code)
+                lock.unlock()
+            }
+            if line.contains("event=archivePersistenceIdentitySelection") {
+                let fields = line.split(separator: " ")
+                if let sourceField = fields.first(where: { $0.hasPrefix("source=") }),
+                   let source = Int(sourceField.dropFirst("source=".count)),
+                   let forkField = fields.first(where: { $0.hasPrefix("fork=") }),
+                   let fork = Int(forkField.dropFirst("fork=".count)) {
+                    lock.lock()
+                    storedSelectionCodes.append(source * 2 + fork)
+                    lock.unlock()
+                }
+            }
             guard line.contains("event=archivePersistenceIdentityRebind"),
                   let field = line.split(separator: " ").first(where: { $0.hasPrefix("flags=") }),
                   let flags = Int(field.dropFirst("flags=".count)) else {
@@ -21310,6 +21326,18 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
             lock.lock()
             defer { lock.unlock() }
             return storedFlags
+        }
+
+        var selectionCodes: [Int] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedSelectionCodes
+        }
+
+        var wireCodes: [Int] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedWireCodes
         }
     }
 
@@ -21438,11 +21466,16 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         stanzaID: String? = nil,
         body: String? = nil,
         date: Date? = nil,
-        coherentServerTriple: Bool = false
+        coherentServerTriple: Bool = false,
+        transportMessageID: String? = nil,
+        sourceFrom: String = "romeo@example.com",
+        sourceTo: String = "owner@example.com",
+        extraSourceXML: String = ""
     ) throws -> XMPPMessage {
         let resultID = resultID ?? "archive-\(index)"
         let stanzaID = coherentServerTriple ? resultID : (stanzaID ?? resultID)
         let stamp = date?.XMPPFormattedDate ?? "2026-06-04T10:00:00Z"
+        let transportMessageID = transportMessageID ?? "message-\(index)"
         let deliveryTime = coherentServerTriple
             ? "<time xmlns='https://xabber.com/protocol/delivery' by='owner@example.com' stamp='\(stamp)'/>"
             : ""
@@ -21450,11 +21483,13 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         <message to='owner@example.com' from='owner@example.com'>
           <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='\(resultID)'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message xmlns='jabber:client' from='romeo@example.com' to='owner@example.com' type='chat' id='message-\(index)'>
+              <message xmlns='jabber:client' from='\(sourceFrom)' to='\(sourceTo)' type='chat' id='\(transportMessageID)'>
                 <archived xmlns='urn:xmpp:mam:tmp' by='owner@example.com' id='\(stanzaID)'/>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.com' id='\(stanzaID)'/>
+                \(deliveryTime)
                 <origin-id xmlns='urn:xmpp:sid:0' id='message-\(index)'/>
-                \(deliveryTime)<body>\(body ?? String(index))</body>
+                <body>\(body ?? String(index))</body>
+                \(extraSourceXML)
               </message>
               <delay xmlns='urn:xmpp:delay' from='example.com' stamp='\(stamp)'/>
             </forwarded>
@@ -21463,15 +21498,27 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         """))
     }
 
-    private func makeArchivedVideoMessage(index: Int, queryId: String) throws -> XMPPMessage {
-        try XMPPMessage(from: makeElement(xml: """
+    private func makeArchivedVideoMessage(
+        index: Int,
+        queryId: String,
+        logicalID: String? = nil,
+        date: Date? = nil,
+        coherentServerTriple: Bool = false
+    ) throws -> XMPPMessage {
+        let logicalID = logicalID ?? "message-video-\(index)"
+        let stamp = date?.XMPPFormattedDate ?? "2026-06-04T10:00:00Z"
+        let deliveryTime = coherentServerTriple
+            ? "<time xmlns='https://xabber.com/protocol/delivery' by='owner@example.com' stamp='\(stamp)'/>"
+            : ""
+        return try XMPPMessage(from: makeElement(xml: """
         <message to='owner@example.com' from='owner@example.com'>
           <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='archive-video-\(index)'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message xmlns='jabber:client' from='romeo@example.com' to='owner@example.com' type='chat' id='message-video-\(index)'>
+              <message xmlns='jabber:client' from='romeo@example.com' to='owner@example.com' type='chat' id='\(logicalID)'>
                 <archived xmlns='urn:xmpp:mam:tmp' by='owner@example.com' id='archive-video-\(index)'/>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.com' id='archive-video-\(index)'/>
-                <origin-id xmlns='urn:xmpp:sid:0' id='message-video-\(index)'/>
+                \(deliveryTime)
+                <origin-id xmlns='urn:xmpp:sid:0' id='\(logicalID)'/>
                 <body></body>
                 <reference xmlns='https://xabber.com/protocol/references' begin='0' end='0' type='mutable'>
                   <file-sharing xmlns='https://xabber.com/protocol/files'>
@@ -21486,7 +21533,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
                   </file-sharing>
                 </reference>
               </message>
-              <delay xmlns='urn:xmpp:delay' from='example.com' stamp='2026-06-04T10:00:00Z'/>
+              <delay xmlns='urn:xmpp:delay' from='example.com' stamp='\(stamp)'/>
             </forwarded>
           </result>
         </message>
@@ -23437,6 +23484,9 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         let queryID = "distinct-source-page"
         let resultIDs = ["older-source-MAM", "newer-source-MAM"]
         let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let recorder = ArchiveIdentityRebindTraceRecorder()
+        ChatArchiveDebugTrace.configureForTesting(enabled: true, sampleEvery: 1, sink: recorder.record)
+        defer { ChatArchiveDebugTrace.resetTestingConfiguration() }
         let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
         manager.unsubscribeReceiver()
         manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
@@ -23452,12 +23502,29 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(summary.savedNew, 2)
         XCTAssertEqual(summary.updatedExisting, 0)
         XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(recorder.selectionCodes, [5], "Different original payload must select the fork in the actual receiver")
         let realm = try WRealm.safe()
         realm.refresh()
         let rows = realm.objects(MessageStorageItem.self)
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(Set(rows.map(\.body)), ["older source body", "newer source body"])
         XCTAssertEqual(Set(rows.map(\.messageId)), ["message-1"])
+        let visibleRows = Array(rows.map { $0.freeze() })
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological(visibleRows).count, 2)
+        XCTAssertEqual(Set(visibleRows.map {
+            ChatIncrementalMessageIdentity(message: $0).coalescingKey
+        }).count, 2)
+        let orderedCursors = try resultIDs.map { try XCTUnwrap(ArchiveCursor(rawValue: $0)) }
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(
+            oldest: orderedCursors[0], newest: orderedCursors[1],
+            reachesArchiveStart: true, reachesLiveEdge: true, fingerprint: "session:1",
+            isVerified: true, orderedArchiveIDs: orderedCursors))
+        let scope = try XCTUnwrap(ChatTimelineVerifiedScope(
+            conversationKey: ChatTimelineConversationKey(owner: "owner@example.com",
+                jid: "romeo@example.com", conversationType: .regular),
+            segment: segment, coverageGeneration: 1,
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: queryID)))
+        XCTAssertEqual(scope.ordered(visibleRows).map(\.mamArchiveId), resultIDs)
         let configuration = Realm.Configuration.defaultConfiguration
         let repository = RealmArchiveCoverageRepository { try Realm(configuration: configuration) }
         let conversation = ArchiveConversationKey(owner: "owner@example.com", jid: "romeo@example.com",
@@ -23517,6 +23584,39 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 2)
     }
 
+    func testArchiveCollisionMediaGraphsUseFinalPrimaryBeforeParsing() throws {
+        let queryID = "collision-media-page"
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        for index in 1...2 {
+            manager.receiveArchived(try makeArchivedVideoMessage(index: index, queryId: queryID,
+                logicalID: "reused-video-origin", date: firstDate.addingTimeInterval(Double(index * 60)),
+                coherentServerTriple: true))
+        }
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        XCTAssertEqual(summary.savedNew, 2)
+        XCTAssertEqual(summary.failed, 0)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let rows = realm.objects(MessageStorageItem.self)
+        let media = realm.objects(MessageMediaAttachmentStorageItem.self)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(media.count, 2)
+        XCTAssertEqual(Set(media.map(\.messagePrimary)), Set(rows.map(\.primary)))
+        for row in rows {
+            XCTAssertFalse(row.references.isEmpty)
+            XCTAssertTrue(row.references.allSatisfy { $0.messageId == row.primary })
+            XCTAssertEqual(media.filter("messagePrimary == %@", row.primary).count, 1)
+            XCTAssertNotNil(realm.object(ofType: MessageStanzaStorageItem.self,
+                forPrimaryKey: row.primary + "_stanza"))
+        }
+    }
+
     func testCopiedMAMUIDWithDifferentLogicalMessageIDCannotBorrowExistingRow() throws {
         let queryID = "copied-uid-page"
         let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
@@ -23541,6 +23641,98 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.messageId, "message-1")
         XCTAssertEqual(rows.first?.body, "original source")
+    }
+
+    func testLegacyWrongMAMPointerIsRepairedBeforeAnotherSourceGetsItsOwnPrimary() async throws {
+        let firstQuery = "legacy-pointer-seed"
+        let repairQuery = "legacy-pointer-repair"
+        let resultIDs = ["legacy-source-A", "legacy-source-B"]
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == firstQuery || $0 == repairQuery }
+        manager.beginArchiveQueryBatch(queryId: firstQuery, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: firstQuery,
+            resultID: resultIDs[0], body: "original stored source", date: firstDate,
+            coherentServerTriple: true))
+        _ = manager.finishArchiveQueryBatchSummary(queryId: firstQuery)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let stored = try XCTUnwrap(realm.objects(MessageStorageItem.self).first)
+        try realm.write { stored.mamArchiveId = resultIDs[1] }
+        manager.beginArchiveQueryBatch(queryId: repairQuery, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: repairQuery,
+            resultID: resultIDs[0], body: "original stored source", date: firstDate,
+            coherentServerTriple: true))
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: repairQuery,
+            resultID: resultIDs[1], body: "different original source", date: firstDate.addingTimeInterval(60),
+            coherentServerTriple: true))
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: repairQuery)
+
+        realm.refresh()
+        XCTAssertEqual(summary.savedNew, 1)
+        XCTAssertEqual(summary.updatedExisting, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 2)
+        XCTAssertEqual(stored.mamArchiveId, resultIDs[0])
+        XCTAssertEqual(stored.body, "original stored source")
+        let configuration = Realm.Configuration.defaultConfiguration
+        let repository = RealmArchiveCoverageRepository { try Realm(configuration: configuration) }
+        let resolved = try await repository.materializedMessages(
+            conversation: ArchiveConversationKey(owner: "owner@example.com", jid: "romeo@example.com",
+                conversationType: .regular), archiveIDs: resultIDs)
+        XCTAssertEqual(Set(resolved.map(\.archiveID)), Set(resultIDs))
+        XCTAssertEqual(Set(resolved.map(\.primaryID)).count, 2)
+    }
+
+    func testKnownForkMAMUIDRejectsDifferentOriginalSource() throws {
+        try assertKnownForkRejectsChangedSource(missingStoredSource: false)
+    }
+
+    func testKnownForkMAMUIDCannotBorrowAnUnverifiableStoredSource() throws {
+        try assertKnownForkRejectsChangedSource(missingStoredSource: true)
+    }
+
+    private func assertKnownForkRejectsChangedSource(missingStoredSource: Bool) throws {
+        let initialQuery = "known-fork-seed"
+        let conflictQuery = "known-fork-conflict"
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == initialQuery || $0 == conflictQuery }
+        manager.beginArchiveQueryBatch(queryId: initialQuery, priority: .interactive)
+        for index in 0..<2 {
+            manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: initialQuery,
+                resultID: "known-fork-\(index)", body: "original source \(index)",
+                date: firstDate.addingTimeInterval(Double(index * 60)), coherentServerTriple: true))
+        }
+        let initialSummary = manager.finishArchiveQueryBatchSummary(queryId: initialQuery)
+        XCTAssertEqual(initialSummary.savedNew, 2)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let fork = try XCTUnwrap(realm.objects(MessageStorageItem.self)
+            .filter("mamArchiveId == %@", "known-fork-1").first)
+        XCTAssertTrue(fork.usesDisambiguatedArchiveIdentity)
+        if missingStoredSource {
+            let stanza = try XCTUnwrap(realm.object(ofType: MessageStanzaStorageItem.self,
+                forPrimaryKey: fork.primary + "_stanza"))
+            try realm.write { realm.delete(stanza) }
+        }
+        manager.beginArchiveQueryBatch(queryId: conflictQuery, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: conflictQuery,
+            resultID: "known-fork-1", body: "unrelated changed original source",
+            date: firstDate.addingTimeInterval(120), coherentServerTriple: true))
+
+        let conflictSummary = manager.finishArchiveQueryBatchSummary(queryId: conflictQuery)
+
+        realm.refresh()
+        XCTAssertEqual(conflictSummary.savedNew, 0)
+        XCTAssertEqual(conflictSummary.updatedExisting, 0)
+        XCTAssertEqual(conflictSummary.failed, 1)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 2)
+        XCTAssertEqual(fork.body, "original source 1")
+        XCTAssertEqual(fork.mamArchiveId, "known-fork-1")
     }
 
     func testMatchingOriginalSourceWithCoherentServerTripleKeepsEditedCacheWithoutFork() throws {
@@ -23583,6 +23775,512 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         let current = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: originalPrimary))
         XCTAssertEqual(current.body, "edited cached body")
         XCTAssertEqual(current.legacyBody, "edited cached body")
+    }
+
+    func testArchiveCopyChangingOnlyTransportMessageIDKeepsOneLogicalMessage() throws {
+        try assertMetadataOnlyArchiveCopyDoesNotFork(
+            transportMessageID: "different-transport-id", sourceFrom: "romeo@example.com")
+    }
+
+    func testArchiveCopyChangingOnlySameBareAuthorResourceKeepsOneLogicalMessage() throws {
+        try assertMetadataOnlyArchiveCopyDoesNotFork(
+            transportMessageID: "message-1", sourceFrom: "romeo@example.com/new-client")
+    }
+
+    private func assertMetadataOnlyArchiveCopyDoesNotFork(
+        transportMessageID: String, sourceFrom: String
+    ) throws {
+        let firstQuery = "metadata-only-initial"
+        let secondQuery = "metadata-only-copy"
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let recorder = ArchiveIdentityRebindTraceRecorder()
+        ChatArchiveDebugTrace.configureForTesting(enabled: true, sampleEvery: 1, sink: recorder.record)
+        defer { ChatArchiveDebugTrace.resetTestingConfiguration() }
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == firstQuery || $0 == secondQuery }
+        manager.beginArchiveQueryBatch(queryId: firstQuery, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: firstQuery,
+            resultID: "metadata-original", body: "same authored source", date: firstDate,
+            coherentServerTriple: true))
+        _ = manager.finishArchiveQueryBatchSummary(queryId: firstQuery)
+        manager.beginArchiveQueryBatch(queryId: secondQuery, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: secondQuery,
+            resultID: "metadata-copy", body: "same authored source", date: firstDate.addingTimeInterval(60),
+            coherentServerTriple: true, transportMessageID: transportMessageID, sourceFrom: sourceFrom))
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: secondQuery)
+
+        XCTAssertEqual(summary.savedNew, 0)
+        XCTAssertEqual(summary.updatedExisting, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(recorder.selectionCodes, [4],
+            "A full-source difference without positive authored-content/author proof must decline the fork")
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).first?.body, "same authored source")
+    }
+
+    func testDifferentBareAuthorsWithSharedOriginAndTextKeepBothArchivedMessages() throws {
+        let queryID = "different-bare-author-page"
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+            resultID: "incoming-same-origin", body: "same authored text", date: firstDate,
+            coherentServerTriple: true))
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+            resultID: "outgoing-same-origin", body: "same authored text", date: firstDate.addingTimeInterval(60),
+            coherentServerTriple: true, sourceFrom: "owner@example.com/device", sourceTo: "romeo@example.com"))
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        XCTAssertEqual(summary.savedNew, 2)
+        XCTAssertEqual(summary.failed, 0)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let rows = Array(realm.objects(MessageStorageItem.self))
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(Set(rows.map(\.outgoing)), [false, true])
+        XCTAssertEqual(Set(rows.map(\.body)), ["same authored text"])
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological(rows).count, 2)
+    }
+
+    func testIncomingArchiveWireDiagnosticsDistinguishEncryptedNamespacesAndFallback() throws {
+        let previousLockedType = CommonConfigManager.shared.config.locked_conversation_type
+        CommonConfigManager.shared.config.locked_conversation_type =
+            ClientSynchronizationManager.ConversationType.omemo1.rawValue
+        defer { CommonConfigManager.shared.config.locked_conversation_type = previousLockedType }
+        let queryID = "incoming-wire-classification"
+        let recorder = ArchiveIdentityRebindTraceRecorder()
+        ChatArchiveDebugTrace.configureForTesting(enabled: true, sampleEvery: 1, sink: recorder.record)
+        defer { ChatArchiveDebugTrace.resetTestingConfiguration() }
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        let namespaces: [String?] = [nil, "urn:xmpp:omemo:1", "eu.siacs.conversations.axolotl",
+            "urn:xmpp:omemo:2", "urn:xabber:test:unknown-encrypted"]
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        for (index, namespace) in namespaces.enumerated() {
+            let extra = namespace.map { "<encrypted xmlns='\($0)'><header sid='1'/></encrypted>" } ?? ""
+            manager.receiveArchived(try makeArchivedMessage(index: index + 1, queryId: queryID,
+                date: firstDate.addingTimeInterval(Double(index)), coherentServerTriple: true,
+                extraSourceXML: extra))
+        }
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        let fallback = ClientSynchronizationManager.ConversationType(
+            rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
+        let typeCodes: [ClientSynchronizationManager.ConversationType: Int] = [
+            .regular: 0, .omemo: 1, .omemo1: 2, .axolotl: 3, .group: 4,
+            .channel: 5, .notifications: 6, .saved: 7]
+        let configuredFallback = ClientSynchronizationManager.ConversationType(
+            rawValue: CommonConfigManager.shared.config.locked_conversation_type) != nil
+        XCTAssertEqual(recorder.wireCodes, [0, 34, 51, 17,
+            64 + (configuredFallback ? 128 : 0) + (typeCodes[fallback] ?? 0)])
+        XCTAssertEqual(summary.processedRows, 5)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 5)
+        for (index, expectedType) in [ClientSynchronizationManager.ConversationType.regular,
+            .omemo1, .axolotl, .omemo, fallback].enumerated() {
+            let row = try XCTUnwrap(realm.objects(MessageStorageItem.self)
+                .filter("messageId == %@", "message-\(index + 1)").first)
+            XCTAssertEqual(row.conversationType, expectedType)
+        }
+    }
+
+    func testIncomingPlainWireDiagnosticsDoNotBorrowCachedLegacyScope() throws {
+        let queryID = "incoming-plain-existing-legacy"
+        let realm = try WRealm.safe()
+        let cached = MessageStorageItem()
+        cached.owner = "owner@example.com"
+        cached.opponent = "romeo@example.com"
+        cached.messageId = "message-1"
+        cached.conversationType = .omemo1
+        cached.body = "existing legacy content"
+        cached.mamArchiveId = "old-legacy-archive-uid"
+        cached.updatePrimary()
+        try realm.write { realm.add(cached) }
+        let recorder = ArchiveIdentityRebindTraceRecorder()
+        ChatArchiveDebugTrace.configureForTesting(enabled: true, sampleEvery: 1, sink: recorder.record)
+        defer { ChatArchiveDebugTrace.resetTestingConfiguration() }
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+            resultID: "ordinary-incoming-uid", body: "ordinary incoming content",
+            date: Date(timeIntervalSince1970: 1_700_000_000), coherentServerTriple: true))
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        XCTAssertEqual(recorder.wireCodes, [0])
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertEqual(summary.updatedExisting, 0)
+        realm.refresh()
+        XCTAssertEqual(cached.conversationType, .omemo1)
+        XCTAssertEqual(cached.mamArchiveId, "old-legacy-archive-uid")
+        XCTAssertEqual(cached.body, "existing legacy content")
+    }
+
+    func testDifferentUnknownOriginalRecordsPreserveBothUIDsAndGraphsThroughReplay() async throws {
+        try await assertDifferentUnknownOriginalRecordsPreserved(sameDate: false)
+    }
+
+    func testEqualDateUnknownOriginalRecordsPreserveBothUIDsAndGraphsThroughReplay() async throws {
+        try await assertDifferentUnknownOriginalRecordsPreserved(sameDate: true)
+    }
+
+    private func assertDifferentUnknownOriginalRecordsPreserved(sameDate: Bool) async throws {
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let resultIDs = ["opaque-record-A", "opaque-record-B"]
+        let queryIDs = ["opaque-record-initial", "opaque-record-replay"]
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0.map(queryIDs.contains) ?? false }
+        var initialPrimaries: Set<String> = []
+        for queryID in queryIDs {
+            manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+            var sources: [ArchivePlaintextMAMSource] = []
+            for index in 0..<2 {
+                let date = firstDate.addingTimeInterval(sameDate ? 0 : Double(index * 60))
+                let wire = try makeArchivedMessage(index: 1, queryId: queryID,
+                    resultID: resultIDs[index], body: "same authored source", date: date,
+                    coherentServerTriple: true, sourceFrom: "romeo@example.com/resource-\(index)",
+                    extraSourceXML: """
+                    <record-context xmlns='urn:xabber:test:opaque-record' version='\(index)'/>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='foreign.example.com' id='foreign-\(index)'/>
+                    <reference xmlns='https://xabber.com/protocol/references' begin='0' end='4' type='decoration'>
+                      <bold xmlns='https://xabber.com/protocol/markup'/>
+                    </reference>
+                    """)
+                let inner = try XCTUnwrap(getArchivedMessageContainer(wire))
+                sources.append(try XCTUnwrap(ArchivePlaintextMAMSource.make(message: inner,
+                    archiveOwner: "owner@example.com", expectedArchiveID: resultIDs[index], expectedDate: date)))
+                manager.receiveArchived(wire)
+            }
+            XCTAssertEqual(sources[1].duplicateProbe(comparedTo: sources[0], sameQuery: true,
+                canonicalFork: false), 106)
+            XCTAssertFalse(sources[1].hasDistinctAuthoredContent(from: sources[0]))
+
+            let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+            XCTAssertEqual(summary.savedNew, queryID == queryIDs[0] ? 2 : 0)
+            XCTAssertEqual(summary.updatedExisting, queryID == queryIDs[0] ? 0 : 2)
+            XCTAssertEqual(summary.failed, 0)
+            XCTAssertEqual(summary.skipped, 0)
+            XCTAssertTrue(summary.provenLogicalDuplicates.isEmpty)
+            XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+            let realm = try WRealm.safe()
+            realm.refresh()
+            let rows = Array(realm.objects(MessageStorageItem.self))
+            XCTAssertEqual(rows.count, 2)
+            XCTAssertEqual(Set(rows.map(\.mamArchiveId)), Set(resultIDs))
+            XCTAssertEqual(rows.filter(\.usesDisambiguatedArchiveIdentity).count, 1)
+            XCTAssertEqual(Set(rows.map(\.body)), ["same authored source"])
+            XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological(rows).count, 2)
+            XCTAssertEqual(Set(rows.map { ChatIncrementalMessageIdentity(message: $0).coalescingKey }).count, 2)
+            let primaries = Set(rows.map(\.primary))
+            if queryID == queryIDs[0] { initialPrimaries = primaries }
+            else { XCTAssertEqual(primaries, initialPrimaries) }
+            for row in rows {
+                XCTAssertEqual(row.references.count, 1)
+                XCTAssertTrue(row.references.allSatisfy { $0.messageId == row.primary })
+                let stored = try XCTUnwrap(realm.object(ofType: MessageStanzaStorageItem.self,
+                    forPrimaryKey: row.primary + "_stanza"))
+                let index = try XCTUnwrap(resultIDs.firstIndex(of: row.mamArchiveId))
+                XCTAssertTrue(stored.stanza.contains("version=\"\(index)\""))
+            }
+            try await assertProvenDuplicateReceipt(summary: summary, queryID: queryID,
+                deliveredIDs: resultIDs, expectedPrimaryCount: 2)
+        }
+    }
+
+    func testSameUIDWithDifferentUnknownOriginalSourceFailsClosed() throws {
+        let queryID = "opaque-record-same-uid"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        for index in 0..<2 {
+            manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+                resultID: "same-opaque-record-uid", body: "same authored source",
+                date: date.addingTimeInterval(Double(index * 60)), coherentServerTriple: true,
+                extraSourceXML: "<record-context xmlns='urn:xabber:test:opaque-record' version='\(index)'/>"))
+        }
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        XCTAssertEqual(summary.savedNew, 1)
+        XCTAssertEqual(summary.updatedExisting, 0)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertEqual(summary.skipped, 0)
+        XCTAssertTrue(summary.provenLogicalDuplicates.isEmpty)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+    }
+
+    func testTransparentCopiesInOneQueryKeepCanonicalUIDAndCountOneScopedSkip() async throws {
+        let queryID = "transparent-duplicates"
+        let firstDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+            resultID: "canonical-copy-A", body: "same authored source", date: firstDate,
+            coherentServerTriple: true))
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+            resultID: "duplicate-copy-B", body: "same authored source", date: firstDate.addingTimeInterval(60),
+            coherentServerTriple: true, transportMessageID: "different-transport-copy",
+            sourceFrom: "romeo@example.com/new-resource"))
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        XCTAssertEqual(summary.received, 2)
+        XCTAssertEqual(summary.queued, 2)
+        XCTAssertEqual(summary.savedNew, 1)
+        XCTAssertEqual(summary.updatedExisting, 0)
+        XCTAssertEqual(summary.skipped, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.processedRows, 2)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty, "Logical copies must not create untyped consumed IDs")
+        XCTAssertEqual(summary.provenLogicalDuplicates.count, 1)
+        let proof = try XCTUnwrap(summary.provenLogicalDuplicates.first)
+        XCTAssertEqual(proof.queryID, queryID)
+        XCTAssertEqual(proof.canonicalCursor, ArchiveCursor(rawValue: "canonical-copy-A"))
+        XCTAssertEqual(proof.duplicateCursor, ArchiveCursor(rawValue: "duplicate-copy-B"))
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let row = try XCTUnwrap(realm.objects(MessageStorageItem.self).first)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(row.mamArchiveId, "canonical-copy-A")
+        XCTAssertEqual(row.body, "same authored source")
+        try await assertProvenDuplicateReceipt(summary: summary, queryID: queryID,
+            deliveredIDs: ["canonical-copy-A", "duplicate-copy-B"], expectedPrimaryCount: 1)
+    }
+
+    func testTransparentCopyOfCurrentQueryForkDoesNotRebindItsHashedIdentity() async throws {
+        let queryID = "transparent-fork-copy"
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        for (offset, uid, body, transport) in [
+            (0, "base-source-A", "first authored source", "message-1"),
+            (60, "fork-source-B", "different authored source", "message-1"),
+            (120, "fork-copy-C", "different authored source", "other-transport-copy")
+        ] {
+            manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+                resultID: uid, body: body, date: date.addingTimeInterval(Double(offset)),
+                coherentServerTriple: true, transportMessageID: transport))
+        }
+
+        let summary = manager.finishArchiveQueryBatchSummary(queryId: queryID)
+
+        XCTAssertEqual(summary.savedNew, 2)
+        XCTAssertEqual(summary.updatedExisting, 0)
+        XCTAssertEqual(summary.skipped, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.processedRows, 3)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let rows = realm.objects(MessageStorageItem.self)
+        XCTAssertEqual(rows.count, 2)
+        let fork = try XCTUnwrap(rows.filter("mamArchiveId == %@", "fork-source-B").first)
+        XCTAssertTrue(fork.usesDisambiguatedArchiveIdentity)
+        XCTAssertEqual(fork.primary, MessageStorageItem.disambiguatedArchivePrimary(
+            messageId: "message-1", owner: "owner@example.com", opponent: "romeo@example.com",
+            conversationType: .regular, mamArchiveId: "fork-source-B"))
+        XCTAssertTrue(rows.filter("mamArchiveId == %@", "fork-copy-C").isEmpty)
+        let proof = try XCTUnwrap(summary.provenLogicalDuplicates.first)
+        XCTAssertEqual(proof.canonicalPrimaryID, fork.primary)
+        XCTAssertEqual(proof.canonicalCursor, ArchiveCursor(rawValue: "fork-source-B"))
+        XCTAssertEqual(proof.duplicateCursor, ArchiveCursor(rawValue: "fork-copy-C"))
+        try await assertProvenDuplicateReceipt(summary: summary, queryID: queryID,
+            deliveredIDs: ["base-source-A", "fork-source-B", "fork-copy-C"], expectedPrimaryCount: 2)
+    }
+
+    private func assertProvenDuplicateReceipt(
+        summary: MessageManager.ArchivePersistenceSummary,
+        queryID: String, deliveredIDs: [String], expectedPrimaryCount: Int
+    ) async throws {
+        let key = ArchiveConversationKey(owner: "owner@example.com", jid: "romeo@example.com",
+            conversationType: .regular)
+        let config = Realm.Configuration.defaultConfiguration
+        let repository = RealmArchiveCoverageRepository { try Realm(configuration: config) }
+        let rows = try await repository.materializedMessages(conversation: key, archiveIDs: deliveredIDs)
+        XCTAssertEqual(rows.count, expectedPrimaryCount)
+        let accounting = ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: deliveredIDs, explicitlyConsumedArchiveIDs: summary.skippedArchiveIds,
+            materializedMessages: rows, conversation: key, queryID: queryID)
+        XCTAssertEqual(accounting.persistedResultCount, expectedPrimaryCount)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, deliveredIDs.count - expectedPrimaryCount)
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+        let request = ArchiveTransportRequest(queryID: queryID, conversation: key,
+            locator: .latest, connectionGeneration: 1, pageSize: 80, contextBefore: 80,
+            contextAfter: 0, proofFingerprint: "session:1", isUnfiltered: true,
+            producesContinuousCoverage: true, usesFlippedPage: false)
+        let receipt = ArchiveTransportReceipt(queryID: queryID, connectionGeneration: 1,
+            resultArchiveIDs: deliveredIDs, messagePrimaryIDs: accounting.messagePrimaryIDs,
+            first: deliveredIDs.first ?? "", last: deliveredIDs.last ?? "", complete: true,
+            cheapPageCount: deliveredIDs.count, deliveredResultCount: deliveredIDs.count,
+            persistedResultCount: accounting.persistedResultCount,
+            intentionallyConsumedResultCount: accounting.intentionallyConsumedResultCount,
+            failedPersistenceCount: accounting.failedPersistenceCount, finalReceived: true)
+        XCTAssertNoThrow(try ArchiveTransportReceiptValidator.validate(receipt, for: request))
+    }
+
+    private func preparedTransparentCopyBatch(queryID: String) throws -> (MessageManager, MessageManager.ProcessedQueueBatch) {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+        manager.beginArchiveQueryBatch(queryId: queryID, priority: .interactive)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        for offset in 0..<2 {
+            manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryID,
+                resultID: "witness-UID-\(offset)", body: "same authored source",
+                date: date.addingTimeInterval(Double(offset * 60)), coherentServerTriple: true,
+                transportMessageID: "transport-\(offset)"))
+        }
+        let items = manager.performMessageQueueSync { manager.queuedMessages }
+        var parsed: MessageManager.ProcessedQueueBatch?
+        manager.processQueue(items) { parsed = $0 }
+        manager.clearQueue()
+        return (manager, try XCTUnwrap(parsed))
+    }
+
+    func testTransparentDuplicateCannotUseFailedOrDeletedCanonicalWrite() throws {
+        for deleted in [false, true] {
+            let queryID = "duplicate-canonical-state-\(deleted)"
+            let (manager, batch) = try preparedTransparentCopyBatch(queryID: queryID)
+            XCTAssertEqual(batch.logicalDuplicateWitnesses.count, 1)
+            XCTAssertEqual(batch.messages.count, 1)
+            let canonical = try XCTUnwrap(batch.messages.first)
+            if deleted { canonical.isDeleted = true } else { canonical.archivePrimarySelectionConflict = true }
+
+            let summary = manager.save(batch, silentNotifications: true)
+
+            XCTAssertEqual(summary.skipped, 0)
+            XCTAssertTrue(summary.provenLogicalDuplicates.isEmpty)
+            XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+            XCTAssertEqual(summary.failed, deleted ? 1 : 2)
+            XCTAssertEqual(summary.savedNew, deleted ? 1 : 0)
+            let realm = try WRealm.safe()
+            try realm.write { realm.deleteAll() }
+        }
+    }
+
+    func testDirectSaveReturnsOnlyScopedDuplicateProofAndOneVisibleRow() throws {
+        let (manager, batch) = try preparedTransparentCopyBatch(queryID: "duplicate-returned-summary")
+
+        let summary = manager.save(batch, silentNotifications: true)
+
+        XCTAssertEqual(summary.savedNew, 1)
+        XCTAssertEqual(summary.skipped, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.processedRows, 2)
+        XCTAssertEqual(summary.provenLogicalDuplicates.count, 1)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+        XCTAssertEqual(summary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com",
+            conversationType: .regular), 1)
+    }
+
+    func testTransparentDuplicateCannotUseMissingOrChangedCanonicalSource() throws {
+        for changed in [false, true] {
+            let (manager, batch) = try preparedTransparentCopyBatch(queryID: "duplicate-source-\(changed)")
+            XCTAssertEqual(batch.logicalDuplicateWitnesses.count, 1)
+            let canonical = try XCTUnwrap(batch.messages.first)
+            if changed {
+                let replacement = try makeArchivedMessage(index: 1, queryId: "duplicate-source-\(changed)",
+                    resultID: "witness-UID-0", body: "different original source",
+                    date: Date(timeIntervalSince1970: 1_700_000_000), coherentServerTriple: true)
+                canonical.originalStanza = getArchivedMessageContainer(replacement)
+            } else {
+                canonical.originalStanza = nil
+            }
+
+            let summary = manager.save(batch, silentNotifications: true)
+
+            XCTAssertEqual(summary.skipped, 0)
+            XCTAssertTrue(summary.provenLogicalDuplicates.isEmpty)
+            XCTAssertEqual(summary.failed, 1)
+            let realm = try WRealm.safe()
+            try realm.write { realm.deleteAll() }
+        }
+    }
+
+    func testTransparentDuplicateWithoutCanonicalBatchMessageDoesNotSkip() throws {
+        let (manager, batch) = try preparedTransparentCopyBatch(queryID: "duplicate-missing-canonical")
+        XCTAssertEqual(batch.logicalDuplicateWitnesses.count, 1)
+        let missingCanonical = MessageManager.ProcessedQueueBatch(messages: [], readStateRequests: [],
+            archiveQueryIdsByPrimary: batch.archiveQueryIdsByPrimary,
+            logicalDuplicateWitnesses: batch.logicalDuplicateWitnesses)
+
+        let summary = manager.save(missingCanonical, silentNotifications: true)
+
+        XCTAssertEqual(summary.skipped, 0)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertTrue(summary.provenLogicalDuplicates.isEmpty)
+    }
+
+    func testRolledBackNewCanonicalFailsClosedWithoutReusingInvalidatedRealmObjects() throws {
+        let (manager, batch) = try preparedTransparentCopyBatch(queryID: "duplicate-rollback")
+        var afterWriteCalls = 0
+        manager.archiveBatchAfterCanonicalWritesFailureInjector = {
+            afterWriteCalls += 1
+            throw NSError(domain: "FixtureRollback", code: 1)
+        }
+
+        let summary = manager.save(batch, silentNotifications: true)
+
+        XCTAssertEqual(afterWriteCalls, 1)
+        XCTAssertEqual(summary.savedNew, 0)
+        XCTAssertEqual(summary.updatedExisting, 0)
+        XCTAssertEqual(summary.skipped, 0)
+        XCTAssertEqual(summary.failed, 2)
+        XCTAssertEqual(summary.processedRows, 2)
+        XCTAssertTrue(summary.provenLogicalDuplicates.isEmpty)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertTrue(realm.objects(MessageStorageItem.self).isEmpty)
+    }
+
+    func testTransparentDuplicateIsRevalidatedAfterExistingCanonicalWriteRollsBack() throws {
+        let (seedManager, seedBatch) = try preparedTransparentCopyBatch(queryID: "duplicate-rollback-seed")
+        XCTAssertEqual(seedManager.save(seedBatch, silentNotifications: true).savedNew, 1)
+        let (manager, batch) = try preparedTransparentCopyBatch(queryID: "duplicate-rollback-existing")
+        var afterWriteCalls = 0
+        manager.archiveBatchAfterCanonicalWritesFailureInjector = {
+            afterWriteCalls += 1
+            throw NSError(domain: "FixtureRollback", code: 1)
+        }
+
+        let summary = manager.save(batch, silentNotifications: true)
+
+        XCTAssertEqual(afterWriteCalls, 1)
+        XCTAssertEqual(summary.savedNew, 0)
+        XCTAssertEqual(summary.updatedExisting, 1)
+        XCTAssertEqual(summary.skipped, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.processedRows, 2)
+        XCTAssertEqual(summary.provenLogicalDuplicates.count, 1)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).first?.mamArchiveId, "witness-UID-0")
     }
 
     func testArchiveIdentityRebindDiagnosticsRecognizeEquivalentPayloads() async throws {

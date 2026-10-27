@@ -2,6 +2,49 @@ import XCTest
 @testable import xabber
 
 final class ChatIncrementalMessageApplyTests: XCTestCase {
+    func testProvenArchiveCollisionKeepsIndependentIncrementalRevisions() {
+        let (original, fork) = archiveCollisionMessages()
+        let originalIdentity = ChatIncrementalMessageIdentity(message: original)
+        let forkIdentity = ChatIncrementalMessageIdentity(message: fork)
+        XCTAssertTrue(fork.usesDisambiguatedArchiveIdentity)
+        XCTAssertFalse(originalIdentity.matches(forkIdentity))
+        XCTAssertFalse(forkIdentity.matches(originalIdentity))
+        XCTAssertNotEqual(originalIdentity.coalescingKey, forkIdentity.coalescingKey)
+        XCTAssertTrue(Set(originalIdentity.revisionKeys).isDisjoint(with: forkIdentity.revisionKeys))
+
+        var accumulator = ChatIncrementalMessageMutationAccumulator<MessageStorageItem>()
+        accumulator.enqueue(.upsert(identity: originalIdentity, revision: 1, payload: original))
+        accumulator.enqueue(.upsert(identity: forkIdentity, revision: 2, payload: fork))
+        let batch = accumulator.drain()
+        XCTAssertEqual(batch.mutations.count, 2)
+
+        var reducer = ChatIncrementalResidentReducer()
+        let result = reducer.apply(
+            currentItems: [original, fork],
+            mutations: [.upsert(identity: forkIdentity, revision: 3, payload: fork)],
+            isResidentAtLiveTail: true,
+            hardLimit: 20
+        )
+        XCTAssertEqual(result.items.map(\.primary), [original.primary, fork.primary])
+        XCTAssertEqual(result.items.map(\.body), ["original source", "different archived source"])
+        XCTAssertEqual(result.changeSet.updatedStablePrimaries, [fork.primary])
+    }
+
+    func testUnprovedArchiveMarkerKeepsExistingIncrementalAliasMatching() {
+        let (original, forged) = archiveCollisionMessages()
+        forged.primary = "mam-disambiguated:unproved"
+        let originalIdentity = ChatIncrementalMessageIdentity(message: original)
+        let forgedIdentity = ChatIncrementalMessageIdentity(message: forged)
+        XCTAssertFalse(forged.usesDisambiguatedArchiveIdentity)
+        XCTAssertTrue(originalIdentity.matches(forgedIdentity))
+        XCTAssertEqual(originalIdentity.coalescingKey, forgedIdentity.coalescingKey)
+
+        var accumulator = ChatIncrementalMessageMutationAccumulator<MessageStorageItem>()
+        accumulator.enqueue(.upsert(identity: originalIdentity, revision: 1, payload: original))
+        accumulator.enqueue(.upsert(identity: forgedIdentity, revision: 2, payload: forged))
+        XCTAssertEqual(accumulator.drain().mutations.count, 1)
+    }
+
     func testHundredEventBurstCoalescesByStableIdentityAndNewestRevision() {
         var accumulator = ChatIncrementalMessageMutationAccumulator<String>()
 
@@ -572,6 +615,26 @@ final class ChatIncrementalMessageApplyTests: XCTestCase {
             ),
             .preserveViewport(showNewMessageBadge: true)
         )
+    }
+
+    private func archiveCollisionMessages() -> (MessageStorageItem, MessageStorageItem) {
+        let origin = "reused-protocol-origin"
+        let original = message(
+            primary: MessageStorageItem.genPrimary(messageId: origin, owner: "owner@example.com"),
+            messageId: origin, archivedId: "shared-protocol-stanza", date: 100
+        )
+        original.mamArchiveId = "original/outer-UID"
+        original.body = "original source"
+        let fork = message(
+            primary: MessageStorageItem.disambiguatedArchivePrimary(
+                messageId: origin, owner: "owner@example.com", opponent: "chat@example.com",
+                conversationType: .regular, mamArchiveId: "different/outer-UID"
+            ),
+            messageId: origin, archivedId: "shared-protocol-stanza", date: 200
+        )
+        fork.mamArchiveId = "different/outer-UID"
+        fork.body = "different archived source"
+        return (original, fork)
     }
 
     private func message(

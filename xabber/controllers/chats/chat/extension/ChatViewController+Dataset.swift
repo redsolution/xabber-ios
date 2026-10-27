@@ -65,9 +65,10 @@ struct ChatDatasourceSnapshot {
         self.items = items
         var primaryIndex: [String: Int] = [:]
         var mamArchiveIdIndex: [ArchiveCursor: Int] = [:]
-        var archivedIdIndex: [String: Int] = [:]
+        var rawIdentityGroups: [String: (
+            firstIndex: Int, isAmbiguous: Bool, hasUnprovedIdentity: Bool
+        )] = [:]
         var ambiguousMAMArchiveIds = Set<ArchiveCursor>()
-        var ambiguousArchivedIds = Set<String>()
         var duplicatePrimaryCount = 0
         var duplicateMAMArchiveIdCount = 0
         var duplicateArchivedIdCount = 0
@@ -90,19 +91,35 @@ struct ChatDatasourceSnapshot {
             if let archivedId = item.archivedId?.trimmingCharacters(
                 in: .whitespacesAndNewlines
             ), archivedId.isNotEmpty {
-                if archivedIdIndex[archivedId] != nil {
-                    duplicateArchivedIdCount += 1
-                    archivedIdIndex.removeValue(forKey: archivedId)
-                    ambiguousArchivedIds.insert(archivedId)
-                } else if !ambiguousArchivedIds.contains(archivedId) {
-                    archivedIdIndex[archivedId] = offset
+                if var group = rawIdentityGroups[archivedId] {
+                    let first = items[group.firstIndex]
+                    let sameCohort = first.owner == item.owner && first.jid == item.jid &&
+                        Data(first.messageId.utf8) == Data(item.messageId.utf8)
+                    if !sameCohort ||
+                        (!item.usesDisambiguatedArchiveIdentity && group.hasUnprovedIdentity) {
+                        duplicateArchivedIdCount += 1
+                    }
+                    group.isAmbiguous = true
+                    group.hasUnprovedIdentity = group.hasUnprovedIdentity ||
+                        !item.usesDisambiguatedArchiveIdentity
+                    rawIdentityGroups[archivedId] = group
+                } else {
+                    rawIdentityGroups[archivedId] = (
+                        offset, false, !item.usesDisambiguatedArchiveIdentity
+                    )
                 }
             }
         }
 
         self.primaryIndex = primaryIndex
         self.mamArchiveIdIndex = mamArchiveIdIndex
-        self.archivedIdIndex = archivedIdIndex
+        // Proven archive collisions may share a protocol alias. It remains
+        // ambiguous for positioning even when the canonical rows are valid.
+        self.archivedIdIndex = rawIdentityGroups.reduce(into: [String: Int]()) { result, entry in
+            if !entry.value.isAmbiguous {
+                result[entry.key] = entry.value.firstIndex
+            }
+        }
         self.hasDuplicatePrimaries = duplicatePrimaryCount > 0
         self.hasDuplicateMAMArchiveIds = duplicateMAMArchiveIdCount > 0
         self.hasDuplicateArchivedIds = duplicateArchivedIdCount > 0
@@ -2370,12 +2387,14 @@ enum ChatTimelineMessageIdentity {
         if mamArchiveId.isNotEmpty {
             keys.append("mam:\(Data(mamArchiveId.utf8).base64EncodedString())")
         }
-        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
+        let usesArchiveIdentity = item.usesDisambiguatedArchiveIdentity
+        if !usesArchiveIdentity,
+           let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
             item.archivedId
         ) {
             keys.append("raw:\(archivedId)")
         }
-        if item.messageId.isNotEmpty {
+        if !usesArchiveIdentity, item.messageId.isNotEmpty {
             keys.append("message:\(item.messageId)")
         }
         if item.primary.isNotEmpty {
@@ -8832,6 +8851,12 @@ extension ChatViewController {
         var out: [Datasource] = []
         var editedMessagePrimariesNeedingLayoutInvalidation: [String] = []
 
+        func usesDisambiguatedArchiveIdentity(for item: MessageStorageItem) -> Bool {
+            item.owner == context.owner && item.opponent == context.jid &&
+                item.conversationType == context.conversationType &&
+                item.usesDisambiguatedArchiveIdentity
+        }
+
         func appendDateSeparatorIfNeeded(before item: MessageStorageItem, at offset: Int) {
             guard offset == 0 || self.isDateChange(from: dataset[offset - 1].sentDate, to: item.sentDate) else {
                 return
@@ -8874,6 +8899,7 @@ extension ChatViewController {
                 burnDate: 0,
                 afterburnInterval: 0,
                 archivedId: "\(item.archivedId) date changed",
+                usesDisambiguatedArchiveIdentity: usesDisambiguatedArchiveIdentity(for: item),
                 queryIds: "\(item.queryIds ?? "") date changed",
                 isRead: ChatDateSeparatorPresentationPolicy.isRead,
                 selectedSearchResultId: nil,
@@ -9107,6 +9133,7 @@ extension ChatViewController {
                 afterburnInterval: snapshot.afterburnInterval,
                 archivedId: item.archivedId,
                 mamArchiveId: item.mamArchiveId,
+                usesDisambiguatedArchiveIdentity: usesDisambiguatedArchiveIdentity(for: item),
                 queryIds: item.queryIds,
                 isRead: item.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,

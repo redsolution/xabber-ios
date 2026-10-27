@@ -1023,6 +1023,7 @@ actor AccountArchiveEngine {
         var visitedGapBoundaries = Set<ArchiveCursor>()
         var consumedOnlyContinuationBoundary: ArchiveCursor?
         var consumedOnlyContinuationBoundaries = Set<ArchiveCursor>()
+        var transportedPageCount = 0
         while isCurrentPresentation(
             executionID,
             descriptor: descriptor,
@@ -1068,6 +1069,12 @@ actor AccountArchiveEngine {
                 proofFingerprint: proofFingerprint
             )
             do {
+                // Bound a valid advancing chain with no visible rows. Exhaustion
+                // leaves the boundary unknown; it cannot prove empty history.
+                guard consumedOnlyContinuationBoundary == nil || transportedPageCount < 8 else {
+                    throw NoProgress()
+                }
+                transportedPageCount += 1
                 diagnose(.transportEnqueued, intent: intent, executionCode: execution.diagnosticCode)
                 let receipt = try await transport.request(
                     request,
@@ -1112,8 +1119,17 @@ actor AccountArchiveEngine {
                 )
                 switch commit {
                 case .verified(let snapshot):
-                    let continuesConsumedOnlyLatest: Bool
-                    if case .latest = intent.locator,
+                    let supportsConsumedOnlyContinuation: Bool
+                    switch intent.locator {
+                    case .latest:
+                        supportsConsumedOnlyContinuation = snapshot.verifiedSegment.reachesLiveEdge
+                    case .older:
+                        supportsConsumedOnlyContinuation = true
+                    default:
+                        supportsConsumedOnlyContinuation = false
+                    }
+                    let continuesConsumedOnly: Bool
+                    if supportsConsumedOnlyContinuation,
                        intent.priority >= .target,
                        page.deliveredResultCount > 0,
                        page.intentionallyConsumedResultCount == page.deliveredResultCount,
@@ -1122,9 +1138,14 @@ actor AccountArchiveEngine {
                        !page.requestComplete,
                        snapshot.verifiedSegment.isVerified,
                        snapshot.verifiedSegment.fingerprint == proofFingerprint,
-                       snapshot.verifiedSegment.reachesLiveEdge,
                        !snapshot.verifiedSegment.reachesArchiveStart {
-                        let nextBoundary = snapshot.verifiedSegment.oldest
+                        guard let pageSegment = page.segment,
+                              pageSegment.isVerified, pageSegment.fingerprint == proofFingerprint,
+                              let nextBoundary = page.chronologicalArchiveIDs.first.flatMap(ArchiveCursor.init(rawValue:)),
+                              nextBoundary == pageSegment.oldest,
+                              page.chronologicalArchiveIDs.compactMap(ArchiveCursor.init(rawValue:)).contains(nextBoundary) else {
+                            throw ArchiveTransportValidationError.malformedBoundary
+                        }
                         if case .older(let previousBoundary) = request.locator,
                            nextBoundary == previousBoundary {
                             throw ArchiveTransportValidationError.nonAdvancingCursor
@@ -1133,11 +1154,11 @@ actor AccountArchiveEngine {
                             throw ArchiveTransportValidationError.nonAdvancingCursor
                         }
                         consumedOnlyContinuationBoundary = nextBoundary
-                        continuesConsumedOnlyLatest = true
+                        continuesConsumedOnly = true
                     } else {
-                        continuesConsumedOnlyLatest = false
+                        continuesConsumedOnly = false
                     }
-                    if continuesConsumedOnlyLatest {
+                    if continuesConsumedOnly {
                         guard ownsPresentation else {
                             finish(executionID, descriptor: descriptor)
                             return

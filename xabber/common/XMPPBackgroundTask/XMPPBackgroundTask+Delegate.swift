@@ -323,10 +323,13 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let archiveDisposition = self.mam.observeOriginalArchiveResult(message, from: sender)
+        if case .excludedRegularProjection = archiveDisposition { return }
+        let didObserveArchiveResult: Bool
+        if case .tracked = archiveDisposition { didObserveArchiveResult = true }
+        else { didObserveArchiveResult = false }
         let omemoCleanup = AccountManager.shared.find(for: sender.myJID?.bare ?? jid)?.omemo.omemo2PreKeyCleanup
         let omemoIngress = omemoCleanup?.beginIngress()
-        let didObserveArchiveResult =
-            self.mam.recordDeferredArchiveResultDelivery(message)
         var didRouteArchiveResultToPersistence = false
         var didIntentionallyConsumeArchiveResult = false
         defer {

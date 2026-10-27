@@ -940,6 +940,32 @@ class MessageStorageItem: Object {
         mamArchiveId.isNotEmpty ? mamArchiveId : archivedId
     }
 
+    var usesDisambiguatedArchiveIdentity: Bool {
+        guard primary.hasPrefix("mam-disambiguated:"),
+              conversationType == .regular, owner.isNotEmpty, opponent.isNotEmpty,
+              messageId.isNotEmpty, ArchiveCursor(rawValue: mamArchiveId) != nil else { return false }
+        return Data(primary.utf8) == Data(Self.disambiguatedArchivePrimary(
+            messageId: messageId, owner: owner, opponent: opponent,
+            conversationType: conversationType, mamArchiveId: mamArchiveId).utf8)
+    }
+
+    static func disambiguatedArchivePrimary(
+        messageId: String,
+        owner: String,
+        opponent: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        mamArchiveId: String
+    ) -> String {
+        var input = Data()
+        for value in [messageId, owner, opponent, conversationType.rawValue, mamArchiveId] {
+            var length = UInt64(value.utf8.count).bigEndian
+            withUnsafeBytes(of: &length) { input.append(contentsOf: $0) }
+            input.append(contentsOf: value.utf8)
+        }
+        let digest = CryptoKit.SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
+        return "mam-disambiguated:\(digest)"
+    }
+
     static func rawProtocolStanzaIDNumericValue(from rawValue: String?) -> Int64 {
         0
     }
@@ -962,6 +988,7 @@ class MessageStorageItem: Object {
             "isInvite",
             "shouldPersistArchiveQueryId",
             "shouldReconcileMAMArchiveIdentity",
+            "archivePrimarySelectionConflict",
             "countsAsRuntimeUnread",
             "groupMentionIntent",
             "groupMentionSenderRole"
@@ -970,6 +997,8 @@ class MessageStorageItem: Object {
     
     var originalStanza: XMPPMessage? = nil
     var incomingEncryption: MessageEncryptionProvenance = .plaintext
+    /// A query-local identity selection failure; never persisted as authority.
+    var archivePrimarySelectionConflict = false
     /// Prepared before opening a Realm write, preserving storage lock order.
     var incomingReplayFingerprint: Data? = nil
 
@@ -2161,7 +2190,8 @@ class MessageStorageItem: Object {
     }
 
     @discardableResult
-    internal func applyMessagePersistence(in realm: Realm, silentNotifications: Bool = false) -> SaveSideEffects? {
+    internal func applyMessagePersistence(in realm: Realm, silentNotifications: Bool = false,
+        historyIndexContext: ChatLocalHistoryLinkedIndex.BatchContext? = nil) -> SaveSideEffects? {
         if self.opponent.isEmpty {
             return nil
         }
@@ -2216,7 +2246,7 @@ class MessageStorageItem: Object {
                 from: instance,
                 in: realm
             )
-            ChatLocalHistoryLinkedIndex.upsert(instance, in: realm)
+            ChatLocalHistoryLinkedIndex.upsert(instance, in: realm, batchContext: historyIndexContext)
             return nil
         }
 
@@ -2227,7 +2257,7 @@ class MessageStorageItem: Object {
                 jid: opponent
            ) {
             realm.add(self, update: .modified)
-            ChatLocalHistoryLinkedIndex.upsert(self, in: realm)
+            ChatLocalHistoryLinkedIndex.upsert(self, in: realm, batchContext: historyIndexContext)
             return SaveSideEffects(
                 shouldStoreStanza: true,
                 notification: nil
@@ -2388,7 +2418,7 @@ class MessageStorageItem: Object {
             ofType: MessageStorageItem.self,
             forPrimaryKey: self.primary
         ) {
-            ChatLocalHistoryLinkedIndex.upsert(storedMessage, in: realm)
+            ChatLocalHistoryLinkedIndex.upsert(storedMessage, in: realm, batchContext: historyIndexContext)
         }
 
         let notification: SaveNotificationPayload?
@@ -2965,7 +2995,259 @@ class MessageStorageItem: Object {
     }
 }
 
+/// Original plaintext source with only the exact server-generated MAM prefix
+/// removed. Cached display content and the row's mutable MAM ID are not proof.
+struct ArchivePlaintextMAMSource {
+    let fingerprint: Data
+    let authoredPayloadFingerprint: Data
+    let transportTransparentFingerprint: Data?
+    let bareAuthor: Data?
+    let bareRecipient: Data?
+    let archiveID: ArchiveCursor
+    let date: Date
+    private let rootMessageIDDigest: Data?
+    private let fullFromDigest: Data?
+    private let fullToDigest: Data?
+    private let nontransportChildrenFingerprint: Data
+    private let transportChildrenFingerprint: Data
+    private let hasRewrite: Bool
+
+    /// Numeric diagnostics only. Child classification never removes those
+    /// children from the transparent proof used for duplicate admission.
+    func duplicateProbe(comparedTo other: ArchivePlaintextMAMSource,
+        sameQuery: Bool, canonicalFork: Bool) -> Int {
+        var flags = sameQuery ? 2 : 0
+        if let proof = transportTransparentFingerprint,
+           let otherProof = other.transportTransparentFingerprint, proof == otherProof { flags |= 1 }
+        if rootMessageIDDigest != other.rootMessageIDDigest { flags |= 4 }
+        if bareAuthor != nil, bareAuthor == other.bareAuthor, fullFromDigest != other.fullFromDigest { flags |= 8 }
+        if bareRecipient != nil, bareRecipient == other.bareRecipient, fullToDigest != other.fullToDigest { flags |= 16 }
+        if nontransportChildrenFingerprint != other.nontransportChildrenFingerprint { flags |= 32 }
+        if transportChildrenFingerprint != other.transportChildrenFingerprint { flags |= 64 }
+        if hasRewrite || other.hasRewrite { flags |= 128 }
+        if canonicalFork { flags |= 256 }
+        return flags
+    }
+
+    func hasDistinctAuthoredContent(from other: ArchivePlaintextMAMSource) -> Bool {
+        if authoredPayloadFingerprint != other.authoredPayloadFingerprint { return true }
+        guard let bareAuthor, let otherAuthor = other.bareAuthor else { return false }
+        return bareAuthor != otherAuthor
+    }
+
+    /// Full original wire source for duplicate-UID conflict detection. Unlike
+    /// archive identity comparison, this includes every child and attribute.
+    static func originalWireFingerprint(message: XMPPMessage) -> Data? {
+        guard message.xmlString.utf8.count <= 1_048_576,
+              SCEReceivePolicy.matches(message, name: "message", namespace: "jabber:client") else { return nil }
+        var data = Data(), remainingNodes = 4096
+        guard encode(message, into: &data, remainingNodes: &remainingNodes, depth: 1) else { return nil }
+        return Data(CryptoKit.SHA256.hash(data: data))
+    }
+
+    static func make(
+        message: XMPPMessage, archiveOwner: String,
+        expectedArchiveID: String?, expectedDate: Date?
+    ) -> ArchivePlaintextMAMSource? {
+        guard message.xmlString.utf8.count <= 1_048_576,
+              SCEReceivePolicy.matches(message, name: "message", namespace: "jabber:client"),
+              archiveOwner.isNotEmpty else { return nil }
+        let elements = message.children?.compactMap { $0 as? DDXMLElement } ?? []
+        guard elements.count >= 3 else { return nil }
+        let archived = elements[0], stanzaID = elements[1], time = elements[2]
+        guard SCEReceivePolicy.matches(archived, name: "archived", namespace: "urn:xmpp:mam:tmp"),
+              SCEReceivePolicy.matches(stanzaID, name: "stanza-id", namespace: "urn:xmpp:sid:0"),
+              SCEReceivePolicy.matches(time, name: "time", namespace: "https://xabber.com/protocol/delivery"),
+              exactAttributeNames(archived, are: ["by", "id"]),
+              exactAttributeNames(stanzaID, are: ["by", "id"]),
+              exactAttributeNames(time, are: ["by", "stamp"]),
+              isEmptyMetadata(archived), isEmptyMetadata(stanzaID), isEmptyMetadata(time),
+              exact(archived.attributeStringValue(forName: "by"), archiveOwner),
+              exact(stanzaID.attributeStringValue(forName: "by"), archiveOwner),
+              exact(time.attributeStringValue(forName: "by"), archiveOwner),
+              let rawID = archived.attributeStringValue(forName: "id"),
+              let archiveID = ArchiveCursor(rawValue: rawID),
+              exact(stanzaID.attributeStringValue(forName: "id"), rawID),
+              expectedArchiveID.map({ exact(rawID, $0) }) ?? true,
+              let date = time.attributeStringValue(forName: "stamp")?.xmppDate,
+              expectedDate.map({ abs(date.timeIntervalSince($0)) < 0.000001 }) ?? true else { return nil }
+        var data = Data(), remainingNodes = 4096
+        guard encode(message, into: &data, remainingNodes: &remainingNodes, depth: 0) else { return nil }
+        let from = message.attributeStringValue(forName: "from"), to = message.attributeStringValue(forName: "to")
+        let bareFrom = message.from?.bare, bareTo = message.to?.bare
+        var transparentFingerprint: Data?
+        if let from, let to, let bareFrom, let bareTo, bareFrom.isNotEmpty, bareTo.isNotEmpty,
+           exact(from.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init), bareFrom),
+           exact(to.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init), bareTo) {
+            var transparent = Data(), remainingTransparentNodes = 4096
+            guard encode(message, into: &transparent, remainingNodes: &remainingTransparentNodes,
+                depth: 0, transparentAddresses: (bareFrom, bareTo)) else { return nil }
+            transparentFingerprint = Data(CryptoKit.SHA256.hash(data: transparent))
+        }
+        var nontransportChildren = Data(), transportChildren = Data(), remainingProbeNodes = 4096
+        var omittedPrefix = 3
+        for node in message.children ?? [] {
+            if let child = node as? DDXMLElement {
+                if omittedPrefix > 0 { omittedPrefix -= 1; continue }
+                if isTransportChild(child) {
+                    guard encode(child, into: &transportChildren, remainingNodes: &remainingProbeNodes, depth: 1) else { return nil }
+                } else {
+                    guard encode(child, into: &nontransportChildren, remainingNodes: &remainingProbeNodes, depth: 1) else { return nil }
+                }
+            } else if node.kind == XMLTextKind,
+                      !(node.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard append("text", to: &nontransportChildren),
+                      append(node.stringValue ?? "", to: &nontransportChildren) else { return nil }
+            }
+        }
+        var authored = Data(), remainingAuthoredNodes = 4096
+        let admittedReferences = admittedMessageContentReferenceIndices(in: message)
+        var referenceIndex = 0
+        for element in elements.dropFirst(3) {
+            let isBody = SCEReceivePolicy.matches(element, name: "body", namespace: "jabber:client")
+            let isReference = SCEReceivePolicy.matches(element, name: "reference", namespace: "https://xabber.com/protocol/references")
+            let isKnownReference = isReference && admittedReferences.contains(referenceIndex) && isAuthoredReference(element)
+            if isReference { referenceIndex += 1 }
+            guard isBody || isKnownReference else { continue }
+            guard encode(element, into: &authored, remainingNodes: &remainingAuthoredNodes,
+                depth: 1) else { return nil }
+        }
+        return ArchivePlaintextMAMSource(
+            fingerprint: Data(CryptoKit.SHA256.hash(data: data)),
+            authoredPayloadFingerprint: Data(CryptoKit.SHA256.hash(data: authored)),
+            transportTransparentFingerprint: transparentFingerprint,
+            bareAuthor: bareFrom.map { Data($0.utf8) }, bareRecipient: bareTo.map { Data($0.utf8) },
+            archiveID: archiveID, date: date,
+            rootMessageIDDigest: message.attributeStringValue(forName: "id").map { Data(CryptoKit.SHA256.hash(data: Data($0.utf8))) },
+            fullFromDigest: from.map { Data(CryptoKit.SHA256.hash(data: Data($0.utf8))) },
+            fullToDigest: to.map { Data(CryptoKit.SHA256.hash(data: Data($0.utf8))) },
+            nontransportChildrenFingerprint: Data(CryptoKit.SHA256.hash(data: nontransportChildren)),
+            transportChildrenFingerprint: Data(CryptoKit.SHA256.hash(data: transportChildren)),
+            hasRewrite: elements.dropFirst(3).contains { ["https://xabber.com/protocol/rewrite",
+                "urn:xmpp:message-correct:0", "urn:xmpp:message-retract:0", "urn:xmpp:message-retract:1"].contains($0.uri ?? "") })
+    }
+
+    private static func isTransportChild(_ element: DDXMLElement) -> Bool {
+        SCEReceivePolicy.matches(element, name: "archived", namespace: "urn:xmpp:mam:tmp")
+            || SCEReceivePolicy.matches(element, name: "stanza-id", namespace: "urn:xmpp:sid:0")
+            || SCEReceivePolicy.matches(element, name: "origin-id", namespace: "urn:xmpp:sid:0")
+            || SCEReceivePolicy.matches(element, name: "time", namespace: "https://xabber.com/protocol/delivery")
+    }
+
+    private static func exact(_ lhs: String?, _ rhs: String) -> Bool {
+        lhs.map { Data($0.utf8) == Data(rhs.utf8) } ?? false
+    }
+
+    private static func isAuthoredReference(_ element: DDXMLElement) -> Bool {
+        guard SCEReceivePolicy.matches(element, name: "reference", namespace: "https://xabber.com/protocol/references"),
+              let kind = getReferenceType(element) else { return false }
+        let markup = "https://xabber.com/protocol/markup"
+        if kind == "markup" {
+            return ["bold", "underline", "strike", "italic", "link"].contains {
+                !SCEReceivePolicy.children(of: element, named: $0, xmlns: markup).isEmpty }
+        }
+        if kind == "mention" {
+            let uri = SCEReceivePolicy.children(of: element, named: "mention", xmlns: markup).first?.stringValue
+                ?? SCEReceivePolicy.children(of: element, named: "link", xmlns: markup).first?.stringValue
+            return uri?.hasPrefix("xmpp:") == true
+        }
+        return true
+    }
+
+    private static func exactAttributeNames(_ element: DDXMLElement, are expected: Set<String>) -> Bool {
+        let attributes = element.attributes ?? []
+        return attributes.count == expected.count && attributes.allSatisfy {
+            ($0.uri ?? "").isEmpty && expected.contains($0.localName ?? "")
+        }
+    }
+
+    private static func isEmptyMetadata(_ element: DDXMLElement) -> Bool {
+        (element.children ?? []).allSatisfy {
+            $0.kind == XMLTextKind && ($0.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// Attribute order/prefix spelling are serialization details; root
+    /// indentation is not message content. All other text/payload is retained.
+    private static func encode(_ element: DDXMLElement, into data: inout Data,
+        remainingNodes: inout Int, depth: Int, transparentAddresses: (String, String)? = nil) -> Bool {
+        guard depth <= 32, remainingNodes > 0 else { return false }
+        remainingNodes -= 1
+        guard append("element", to: &data), append(element.uri ?? "", to: &data),
+              append(element.localName ?? "", to: &data) else { return false }
+        let sourceAttributes = element.attributes ?? []
+        guard sourceAttributes.count <= 128, remainingNodes >= sourceAttributes.count else { return false }
+        remainingNodes -= sourceAttributes.count
+        let attributes = sourceAttributes.filter {
+            !(depth == 0 && transparentAddresses != nil && ($0.uri ?? "").isEmpty && $0.localName == "id")
+        }.sorted {
+            Data((($0.uri ?? "") + "\u{0}" + ($0.localName ?? "")).utf8)
+                .lexicographicallyPrecedes(Data((($1.uri ?? "") + "\u{0}" + ($1.localName ?? "")).utf8))
+        }
+        for attribute in attributes {
+            var value = attribute.stringValue ?? ""
+            if depth == 0, (attribute.uri ?? "").isEmpty, let addresses = transparentAddresses {
+                if attribute.localName == "from" { value = addresses.0 }
+                if attribute.localName == "to" { value = addresses.1 }
+            }
+            guard append("attribute", to: &data), append(attribute.uri ?? "", to: &data),
+                  append(attribute.localName ?? "", to: &data),
+                  append(value, to: &data) else { return false }
+        }
+        guard append("children", to: &data) else { return false }
+        var omittedPrefix = depth == 0 ? 3 : 0
+        for node in element.children ?? [] {
+            if let child = node as? DDXMLElement {
+                if omittedPrefix > 0 { omittedPrefix -= 1; continue }
+                guard encode(child, into: &data, remainingNodes: &remainingNodes, depth: depth + 1) else { return false }
+            } else if node.kind == XMLTextKind {
+                let text = node.stringValue ?? ""
+                if depth == 0, text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                guard remainingNodes > 0 else { return false }
+                remainingNodes -= 1
+                guard append("text", to: &data), append(text, to: &data) else { return false }
+            } else { return false }
+        }
+        return append("end", to: &data)
+    }
+
+    private static func append(_ value: String, to data: inout Data) -> Bool {
+        guard data.count <= 1_048_576 - 8,
+              value.utf8.count <= 1_048_576 - 8 - data.count else { return false }
+        var length = UInt64(value.utf8.count).bigEndian
+        withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
+        data.append(contentsOf: value.utf8)
+        return true
+    }
+}
+
 enum ChatLocalHistoryLinkedIndex {
+    /// One caller-owned Realm write attempt only; never reuse after rollback.
+    final class BatchContext {
+        fileprivate let onRangeQueries: ((Int) -> Void)?
+        private var lastPrimaryByScope: [Data: String] = [:]
+
+        init(onRangeQueries: ((Int) -> Void)? = nil) {
+            self.onRangeQueries = onRangeQueries
+        }
+
+        fileprivate func primary(for message: MessageStorageItem) -> String? {
+            lastPrimaryByScope[scopeKey(for: message)]
+        }
+
+        fileprivate func remember(_ message: MessageStorageItem) {
+            guard !message.isInvalidated, message.realm != nil, !message.isDeleted,
+                  message.primary.isNotEmpty, message.owner.isNotEmpty, message.opponent.isNotEmpty,
+                  message.historyLinkedIndexVersion == ChatLocalHistoryIndexStorageItem.currentVersion else { return }
+            lastPrimaryByScope[scopeKey(for: message)] = message.primary
+        }
+
+        private func scopeKey(for message: MessageStorageItem) -> Data {
+            Data(ChatLocalHistoryIndexStorageItem.genPrimary(owner: message.owner, jid: message.opponent,
+                conversationType: message.conversationType).utf8)
+        }
+    }
+
     static func state(
         owner: String,
         jid: String,
@@ -2985,13 +3267,21 @@ enum ChatLocalHistoryLinkedIndex {
     static func upsert(
         _ message: MessageStorageItem,
         in realm: Realm,
-        neighborMaterializationObserver: ((Int) -> Void)? = nil
+        neighborMaterializationObserver: ((Int) -> Void)? = nil,
+        batchContext: BatchContext? = nil
     ) {
         precondition(realm.isInWriteTransaction, "History index updates must share the message write transaction")
         // Counts range-query candidates materialized by this upsert, excluding
         // exact primary-key lookups and the explicit legacy rebuild path.
         var materializedNeighborCount = 0
-        defer { neighborMaterializationObserver?(materializedNeighborCount) }
+        var rangeQueryCount = 0
+        // Endpoint replays inherit old links; only a proved interior bracket can seed reuse.
+        var establishedNeighbors = false
+        defer {
+            batchContext?.onRangeQueries?(rangeQueryCount)
+            if establishedNeighbors { batchContext?.remember(message) }
+            neighborMaterializationObserver?(materializedNeighborCount)
+        }
         guard message.primary.isNotEmpty,
               message.owner.isNotEmpty,
               message.opponent.isNotEmpty else {
@@ -3049,10 +3339,19 @@ enum ChatLocalHistoryLinkedIndex {
             return
         }
 
-        let candidates = scopedMessages(for: message, in: realm)
-        let previous = neighbor(of: message, before: true, candidates: candidates)
-        let next = neighbor(of: message, before: false, candidates: candidates)
-        materializedNeighborCount = (previous == nil ? 0 : 1) + (next == nil ? 0 : 1)
+        let previous: MessageStorageItem?
+        let next: MessageStorageItem?
+        if let hint = batchContext?.primary(for: message),
+           let neighbors = adjacentNeighbors(of: message, order: messageOrder, around: hint, state: state, in: realm) {
+            previous = neighbors.0
+            next = neighbors.1
+        } else {
+            let candidates = scopedMessages(for: message, in: realm)
+            rangeQueryCount = 2
+            previous = neighbor(of: message, before: true, candidates: candidates)
+            next = neighbor(of: message, before: false, candidates: candidates)
+            materializedNeighborCount = (previous == nil ? 0 : 1) + (next == nil ? 0 : 1)
+        }
 
         message.historyPreviousMessagePrimary = previous?.primary
         message.historyNextMessagePrimary = next?.primary
@@ -3060,6 +3359,36 @@ enum ChatLocalHistoryLinkedIndex {
         previous?.historyNextMessagePrimary = message.primary
         next?.historyPreviousMessagePrimary = message.primary
         state.indexedVisibleCount += 1
+        establishedNeighbors = true
+    }
+
+    private static func adjacentNeighbors(
+        of message: MessageStorageItem, order: MessageHistoryOrderKey, around primary: String,
+        state: ChatLocalHistoryIndexStorageItem, in realm: Realm
+    ) -> (MessageStorageItem, MessageStorageItem)? {
+        func valid(_ candidate: MessageStorageItem) -> Bool {
+            candidate.primary != message.primary && !candidate.isDeleted &&
+                candidate.historyLinkedIndexVersion == ChatLocalHistoryIndexStorageItem.currentVersion &&
+                candidate.owner == message.owner && candidate.opponent == message.opponent &&
+                candidate.conversationType_ == message.conversationType_
+        }
+        guard state.version == ChatLocalHistoryIndexStorageItem.currentVersion,
+              state.owner == message.owner, state.jid == message.opponent,
+              state.conversationType_ == message.conversationType_,
+              let hint = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary), valid(hint) else { return nil }
+        let hintOrder = MessageHistoryOrderKey(message: hint)
+        if hintOrder < order {
+            guard let nextPrimary = hint.historyNextMessagePrimary,
+                  let next = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: nextPrimary), valid(next),
+                  next.historyPreviousMessagePrimary == hint.primary,
+                  order < MessageHistoryOrderKey(message: next) else { return nil }
+            return (hint, next)
+        }
+        guard order < hintOrder, let previousPrimary = hint.historyPreviousMessagePrimary,
+              let previous = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: previousPrimary), valid(previous),
+              previous.historyNextMessagePrimary == hint.primary,
+              MessageHistoryOrderKey(message: previous) < order else { return nil }
+        return (previous, hint)
     }
 
     private static func neighbor(

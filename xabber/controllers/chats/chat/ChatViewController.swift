@@ -2473,6 +2473,8 @@ class ChatViewController: MessagesViewController {
         /// Outer MAM result ID used only for archive-window navigation.
         /// `archivedId` remains the protocol identity for message actions.
         var mamArchiveId: String? = nil
+        /// Captured only from a source row whose complete archive identity matches.
+        var usesDisambiguatedArchiveIdentity: Bool = false
         var mamArchiveCursorID: String? {
             mamArchiveId?.isNotEmpty == true ? mamArchiveId : archivedId
         }

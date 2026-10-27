@@ -1188,6 +1188,114 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
+    struct RegularProjectionRequestBinding: Hashable, Sendable {
+        let queryID: String
+        let conversation: ArchiveConversationKey
+        let connectionGeneration: UInt64
+        let token: UUID
+
+        init(queryID: String, conversation: ArchiveConversationKey,
+            connectionGeneration: UInt64, token: UUID = UUID()) {
+            self.queryID = queryID
+            self.conversation = conversation
+            self.connectionGeneration = connectionGeneration
+            self.token = token
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.queryID.utf8.elementsEqual(rhs.queryID.utf8) &&
+                lhs.conversation.owner.utf8.elementsEqual(rhs.conversation.owner.utf8) &&
+                lhs.conversation.jid.utf8.elementsEqual(rhs.conversation.jid.utf8) &&
+                lhs.conversation.conversationTypeRaw.utf8.elementsEqual(rhs.conversation.conversationTypeRaw.utf8) &&
+                lhs.connectionGeneration == rhs.connectionGeneration && lhs.token == rhs.token
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(Data(queryID.utf8))
+            hasher.combine(Data(conversation.owner.utf8))
+            hasher.combine(Data(conversation.jid.utf8))
+            hasher.combine(Data(conversation.conversationTypeRaw.utf8))
+            hasher.combine(connectionGeneration)
+            hasher.combine(token)
+        }
+    }
+
+    enum RegularProjectionEncryptedNamespace: Int, Hashable, Sendable {
+        case omemo1 = 1
+        case axolotl = 2
+        case omemo2 = 3
+    }
+
+    struct RegularProjectionExclusionWitness: Hashable, Sendable {
+        let binding: RegularProjectionRequestBinding
+        let cursor: ArchiveCursor
+        let namespace: RegularProjectionEncryptedNamespace
+
+        fileprivate init(binding: RegularProjectionRequestBinding, cursor: ArchiveCursor,
+            namespace: RegularProjectionEncryptedNamespace) {
+            self.binding = binding
+            self.cursor = cursor
+            self.namespace = namespace
+        }
+    }
+
+    struct RegularProjectionSourceConflict: Hashable, Sendable {
+        let binding: RegularProjectionRequestBinding
+        let cursor: ArchiveCursor
+
+        fileprivate init(binding: RegularProjectionRequestBinding, cursor: ArchiveCursor) {
+            self.binding = binding
+            self.cursor = cursor
+        }
+    }
+
+    enum OriginalArchiveResultDisposition: Equatable {
+        case untracked
+        case tracked
+        case excludedRegularProjection
+    }
+
+    fileprivate struct RegularProjectionLease {
+        let binding: RegularProjectionRequestBinding
+        let streamIdentity: ObjectIdentifier
+        let resetEpoch: UInt64
+        let maximumRecords: Int
+        var seen = Set<ArchiveCursor>()
+        var fingerprints: [ArchiveCursor: Data] = [:]
+        var unprovable = Set<ArchiveCursor>()
+        var exclusions: [ArchiveCursor: RegularProjectionExclusionWitness] = [:]
+        var conflicts: [ArchiveCursor: RegularProjectionSourceConflict] = [:]
+        var overflowed = false
+
+        mutating func markConflict(_ cursor: ArchiveCursor) {
+            exclusions.removeValue(forKey: cursor)
+            conflicts[cursor] = RegularProjectionSourceConflict(binding: binding, cursor: cursor)
+        }
+
+        mutating func observe(_ cursor: ArchiveCursor, fingerprint: Data?,
+            namespace: RegularProjectionEncryptedNamespace?) -> Bool {
+            guard !overflowed else { return false }
+            if !seen.contains(cursor) {
+                guard seen.count < maximumRecords else {
+                    overflowed = true
+                    for old in Array(exclusions.keys) { markConflict(old) }
+                    exclusions.removeAll()
+                    return false
+                }
+                seen.insert(cursor)
+                if let fingerprint { fingerprints[cursor] = fingerprint }
+                else { unprovable.insert(cursor) }
+            } else if unprovable.contains(cursor) || fingerprint == nil || fingerprints[cursor] != fingerprint {
+                markConflict(cursor)
+            }
+            guard conflicts[cursor] == nil, let fingerprint, fingerprints[cursor] == fingerprint,
+                  !unprovable.contains(cursor), let namespace else { return false }
+            exclusions[cursor] = RegularProjectionExclusionWitness(binding: binding,
+                cursor: cursor, namespace: namespace)
+            return true
+        }
+    }
+
     struct DeferredArchiveTransportProof {
         var deliveredResultCount: Int = 0
         var deliveredResultIds: Set<ArchiveCursor> = []
@@ -1197,6 +1305,13 @@ class MessageArchiveManager: AbstractXMPPManager {
         var intentionallyConsumedResultsWithoutId: Int = 0
         var persistenceRoutedResultIds: Set<ArchiveCursor> = []
         var persistenceRoutedResultsWithoutId: Int = 0
+        fileprivate var regularProjectionLease: RegularProjectionLease?
+
+        var expectedPersistenceResultCount: Int {
+            let additionalExclusions = Set(regularProjectionLease?.exclusions.keys.map { $0 } ?? [])
+                .subtracting(intentionallyConsumedResultIds)
+            return max(0, deliveredResultCount - intentionallyConsumedResultCount - additionalExclusions.count)
+        }
 
         var intentionallyConsumedResultCount: Int {
             intentionallyConsumedResultIds.count +
@@ -2732,11 +2847,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard queryId.isNotEmpty else {
             return
         }
-        let expectedReceivedCount = max(
-            0,
-            transportProof.deliveredResultCount -
-                transportProof.intentionallyConsumedResultCount
-        )
+        let expectedReceivedCount = transportProof.expectedPersistenceResultCount
         deferredArchiveCommitLock.lock()
         if sealedArchiveTransportProofsByQueryId[queryId] == nil {
             sealedArchiveTransportProofOrder.append(queryId)
@@ -2760,6 +2871,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             sealedArchiveTransportProofsByQueryId.removeValue(forKey: expiredQueryId)
         }
         deferredArchiveCommitLock.unlock()
+        if let lease = transportProof.regularProjectionLease {
+            ArchiveEngineObservability.event(.regularProjection,
+                value: lease.exclusions.count, auxiliary: lease.conflicts.count)
+        }
     }
 
     /// Records the MAM result envelope before any consumer-specific routing.
@@ -2795,6 +2910,76 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
 
+    internal func observeOriginalArchiveResult(_ message: XMPPMessage,
+        from stream: XMPPStream) -> OriginalArchiveResultDisposition {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        let tracked = recordDeferredArchiveResultDelivery(message)
+        guard let result = getMAMResultElement(message),
+              let queryID = result.attributeStringValue(forName: "queryid"),
+              let cursor = result.attributeStringValue(forName: "id").flatMap(ArchiveCursor.init(rawValue:))
+        else { return tracked ? .tracked : .untracked }
+        deferredArchiveCommitLock.lock()
+        let wasSealed = sealedArchiveTransportProofsByQueryId[queryID] != nil
+        guard var proof = deferredArchiveTransportProofsByQueryId[queryID] ?? sealedArchiveTransportProofsByQueryId[queryID],
+              var lease = proof.regularProjectionLease,
+              lease.binding.queryID.utf8.elementsEqual(queryID.utf8),
+              lease.resetEpoch == omemo2CleanupResetEpoch,
+              tracked || (wasSealed && proof.deliveredResultIds.contains(cursor)) else {
+            deferredArchiveCommitLock.unlock()
+            return tracked ? .tracked : .untracked
+        }
+        let binding = lease.binding
+        let inner = getArchivedMessageContainer(message)
+        let scopeIsValid = stream.isAuthenticated && lease.streamIdentity == ObjectIdentifier(stream) &&
+            stream.myJID?.bare.utf8.elementsEqual(owner.utf8) == true &&
+            message.from?.bare.utf8.elementsEqual(owner.utf8) == true &&
+            message.from?.resource == nil && message.to?.bare.utf8.elementsEqual(owner.utf8) == true &&
+            inner.map { message in
+                let from = message.from?.bare, to = message.to?.bare
+                return (from?.utf8.elementsEqual(owner.utf8) == true &&
+                        to?.utf8.elementsEqual(binding.conversation.jid.utf8) == true) ||
+                    (from?.utf8.elementsEqual(binding.conversation.jid.utf8) == true &&
+                        to?.utf8.elementsEqual(owner.utf8) == true)
+            } == true
+        let fingerprint = scopeIsValid ? inner.flatMap(ArchivePlaintextMAMSource.originalWireFingerprint(message:)) : nil
+        let namespace = scopeIsValid ? inner.flatMap(Self.regularProjectionNamespace) : nil
+        let excluded = lease.observe(cursor, fingerprint: fingerprint, namespace: namespace)
+        proof.regularProjectionLease = lease
+        if wasSealed {
+            sealedArchiveTransportProofsByQueryId[queryID] = proof
+            persistenceIngressExpectationsByQueryId[queryID] = proof.expectedPersistenceResultCount
+        } else { deferredArchiveTransportProofsByQueryId[queryID] = proof }
+        let expected = proof.expectedPersistenceResultCount
+        deferredArchiveCommitLock.unlock()
+        if wasSealed {
+            let messages = omemo2CleanupMessages ?? AccountManager.shared.find(for: owner)?.messages
+            messages?.reconcileArchiveQueryBatchIngressExpectation(queryId: queryID, expectedReceivedCount: expected)
+        }
+        return excluded ? .excludedRegularProjection : .tracked
+    }
+
+    private static func regularProjectionNamespace(_ message: XMPPMessage) -> RegularProjectionEncryptedNamespace? {
+        let type = message.attributeStringValue(forName: "type") ?? "normal"
+        guard type == "chat" || type == "normal" else { return nil }
+        let encrypted = (message.children ?? []).compactMap { $0 as? DDXMLElement }
+            .filter { $0.localName == "encrypted" }
+        guard encrypted.count == 1 else { return nil }
+        let namespace: RegularProjectionEncryptedNamespace
+        let rawNamespace: String
+        if SCEReceivePolicy.matches(encrypted[0], name: "encrypted", namespace: "urn:xmpp:omemo:2") {
+            namespace = .omemo2; rawNamespace = "urn:xmpp:omemo:2"
+        } else if SCEReceivePolicy.matches(encrypted[0], name: "encrypted", namespace: "urn:xmpp:omemo:1") {
+            namespace = .omemo1; rawNamespace = "urn:xmpp:omemo:1"
+        } else if SCEReceivePolicy.matches(encrypted[0], name: "encrypted", namespace: "eu.siacs.conversations.axolotl") {
+            namespace = .axolotl; rawNamespace = "eu.siacs.conversations.axolotl"
+        } else { return nil }
+        let eme = SCEReceivePolicy.children(of: message, named: "encryption", xmlns: "urn:xmpp:eme:0")
+        guard eme.count <= 1,
+              eme.first.map({ $0.attributeStringValue(forName: "namespace")?.utf8.elementsEqual(rawNamespace.utf8) == true }) ?? true else { return nil }
+        return namespace
+    }
+
     /// Acknowledges a result that a domain-specific consumer intentionally
     /// handled without routing it through `MessageManager` persistence.
     /// Deferred commit rejects any remaining unaccounted wire result.
@@ -2818,7 +3003,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         proof.recordIntentionalConsumption(
             resultId: result.attributeStringValue(forName: "id")
         )
-        let expected = max(0, proof.deliveredResultCount - proof.intentionallyConsumedResultCount)
+        let expected = proof.expectedPersistenceResultCount
         if wasSealed {
             sealedArchiveTransportProofsByQueryId[queryId] = proof
             persistenceIngressExpectationsByQueryId[queryId] = expected
@@ -2851,7 +3036,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         proof.recordPersistenceRouting(
             resultId: result.attributeStringValue(forName: "id")
         )
-        let expected = max(0, proof.deliveredResultCount - proof.intentionallyConsumedResultCount)
+        let expected = proof.expectedPersistenceResultCount
         if wasSealed {
             sealedArchiveTransportProofsByQueryId[queryId] = proof
             persistenceIngressExpectationsByQueryId[queryId] = expected
@@ -2888,11 +3073,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         deferredArchiveCommitLock.lock()
         defer { deferredArchiveCommitLock.unlock() }
         if let proof = sealedArchiveTransportProofsByQueryId[queryId] {
-            return max(
-                0,
-                proof.deliveredResultCount -
-                    proof.intentionallyConsumedResultCount
-            )
+            return proof.expectedPersistenceResultCount
         }
         return persistenceIngressExpectationsByQueryId[queryId]
     }
@@ -2904,6 +3085,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         let deliveredResultCount: Int
         let intentionallyConsumedResultCount: Int
         let intentionallyConsumedArchiveIDs: Set<ArchiveCursor>
+        var regularProjectionExclusions: [RegularProjectionExclusionWitness] = []
+        var regularProjectionConflicts: [RegularProjectionSourceConflict] = []
     }
 
     internal func registerStanzaReferenceResolution(
@@ -2956,8 +3139,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             resultArchiveIDs: archiveIDs,
             deliveredResultCount: proof.deliveredResultCount,
             intentionallyConsumedResultCount: proof.intentionallyConsumedResultCount,
-            intentionallyConsumedArchiveIDs:
-                proof.intentionallyConsumedResultIds
+            intentionallyConsumedArchiveIDs: proof.intentionallyConsumedResultIds,
+            regularProjectionExclusions: proof.regularProjectionLease.map { Array($0.exclusions.values) } ?? [],
+            regularProjectionConflicts: proof.regularProjectionLease.map { Array($0.conflicts.values) } ?? []
         )
     }
 
@@ -2981,7 +3165,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         unregisterFallbackEndPageCallbacks(queryId: queryId)
     }
 
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, retainSealedTransportProofUntilBarrier: Bool = false, omemo2CatchUpChainID: UUID? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, retainSealedTransportProofUntilBarrier: Bool = false, omemo2CatchUpChainID: UUID? = nil, callback: (() -> Void)? = nil, regularProjectionBinding: RegularProjectionRequestBinding? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         // `rsm-counter=1` performs a full SQL COUNT on Xabber Server. Normal
         // archive orchestration only needs the cheap page count and must never
@@ -3174,6 +3358,27 @@ class MessageArchiveManager: AbstractXMPPManager {
                 requestCallbacks: requestCallbacks
             )
         )
+        // Bind only the exact ordinary peer filter in this submitted IQ.
+        if includesConversationTypeField, conversationType == .regular,
+           let jid, jid.isNotEmpty, searchText == nil, ids?.isEmpty != false,
+           tags.isEmpty, (purpose.isArchiveHistoryProducing || purpose == .timestampLookup),
+           retainSealedTransportProofUntilBarrier,
+           stream.isAuthenticated, stream.myJID?.bare.utf8.elementsEqual(owner.utf8) == true,
+           let binding = regularProjectionBinding,
+           binding.queryID.utf8.elementsEqual(elementId.utf8),
+           binding.conversation.owner.utf8.elementsEqual(owner.utf8),
+           binding.conversation.jid.utf8.elementsEqual(jid.utf8),
+           binding.conversation.conversationTypeRaw == ClientSynchronizationManager.ConversationType.regular.rawValue {
+            deferredArchiveCommitLock.lock()
+            var proof = deferredArchiveTransportProofsByQueryId[elementId] ?? DeferredArchiveTransportProof()
+            proof.regularProjectionLease = RegularProjectionLease(binding: binding,
+                streamIdentity: ObjectIdentifier(stream), resetEpoch: omemo2CleanupResetEpoch,
+                // Bound proof memory while covering the actual submitted size.
+                // Overflow disables/revokes this projection, never ordinary controls.
+                maximumRecords: Swift.min(Swift.max(1, max ?? pageSize), 1024))
+            deferredArchiveTransportProofsByQueryId[elementId] = proof
+            deferredArchiveCommitLock.unlock()
+        }
         if shouldTrackSearchResults {
             self.registerSearchResultQuery(elementId)
         }

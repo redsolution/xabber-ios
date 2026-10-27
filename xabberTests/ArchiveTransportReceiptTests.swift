@@ -3,6 +3,759 @@ import RealmSwift
 import XMPPFramework
 @testable import xabber
 
+final class ArchiveRegularWireProjectionTests: XCTestCase {
+    private final class NumericTraceRecorder {
+        private let lock = NSLock()
+        private var storage: [String] = []
+        func record(_ line: String) { lock.lock(); storage.append(line); lock.unlock() }
+        var lines: [String] { lock.lock(); defer { lock.unlock() }; return storage }
+    }
+    private let conversation = ArchiveConversationKey(owner: "owner@example.com",
+        jid: "peer@example.com", conversationType: .regular)
+    private var previous: Realm.Configuration!
+    private var anchor: Realm!
+
+    override func setUp() {
+        super.setUp()
+        previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "RegularWireProjection-\(name)")
+        anchor = try! Realm()
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+    }
+
+    override func tearDown() {
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        anchor = nil
+        Realm.Configuration.defaultConfiguration = previous
+        super.tearDown()
+    }
+
+    private func account(_ query: String) -> (Account, TimestampLookupAuthenticatedXMPPStream) {
+        let account = Account(jid: conversation.owner, queue: DispatchQueue(label: query))
+        let stream = TimestampLookupAuthenticatedXMPPStream()
+        stream.myJID = XMPPJID(string: conversation.owner, resource: "wire-test")
+        account.xmppStream = stream
+        account.mam.isExtendedArchiveAvailable = true
+        account.sendReadiness.markStreamManagementEnabled()
+        return (account, stream)
+    }
+
+    private func request(_ query: String, locator: ArchiveWindowLocator = .latest,
+        pageSize: Int = 100) -> ArchiveTransportRequest {
+        ArchiveTransportRequest(queryID: query, conversation: conversation, locator: locator,
+            connectionGeneration: 7, pageSize: pageSize, contextBefore: 0, contextAfter: 0,
+            proofFingerprint: "projection-test", isUnfiltered: true,
+            producesContinuousCoverage: true, usesFlippedPage: false)
+    }
+
+    private func envelope(_ query: String, uid: String, payload: String,
+        messageID: String? = nil, from: String? = nil, to: String? = nil,
+        outerFrom: String? = nil) throws -> XMPPMessage {
+        let xml = """
+        <message xmlns='jabber:client' from='\(outerFrom ?? conversation.owner)' to='\(conversation.owner)/wire-test'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(query)' id='\(uid)'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' from='\(from ?? conversation.jid)' to='\(to ?? conversation.owner)' type='chat' id='\(messageID ?? uid)'>
+                <archived xmlns='urn:xmpp:mam:tmp' by='\(conversation.owner)' id='\(uid)'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(conversation.owner)' id='\(uid)'/>
+                <time xmlns='https://xabber.com/protocol/delivery' by='\(conversation.owner)' stamp='2026-01-01T00:00:00Z'/>
+                <origin-id xmlns='urn:xmpp:sid:0' id='\(messageID ?? uid)'/>
+                \(payload)
+              </message>
+              <delay xmlns='urn:xmpp:delay' stamp='2026-01-01T00:00:00Z'/>
+            </forwarded>
+          </result>
+        </message>
+        """
+        return XMPPMessage(from: try XCTUnwrap(DDXMLDocument(xmlString: xml, options: 0).rootElement()))
+    }
+
+    private func legacy(_ namespace: String = "urn:xmpp:omemo:1") -> String {
+        "<encrypted xmlns='\(namespace)'><header sid='1'/><payload>AA==</payload></encrypted><body>legacy fallback</body>"
+    }
+
+    private func submit(_ account: Account, _ stream: XMPPStream, query: String,
+        binding: MessageArchiveManager.RegularProjectionRequestBinding?, jid: String? = "peer@example.com",
+        type: ClientSynchronizationManager.ConversationType = .regular,
+        purpose: MessageArchiveManager.RequestPurpose = .bootstrap, ids: [String]? = nil,
+        max: Int = 100) {
+        account.mam.requestArchive(stream, jid: jid, isContinues: false, conversationType: type,
+            purpose: purpose, queryId: query, ids: ids, max: max,
+            retainSealedTransportProofUntilBarrier: true, regularProjectionBinding: binding)
+    }
+
+    private func assertSubmittedFilter(_ stream: TimestampLookupAuthenticatedXMPPStream,
+        file: StaticString = #filePath, line: UInt = #line) throws {
+        let query = try XCTUnwrap(stream.queries.last?.element(forName: "query", xmlns: "urn:xmpp:mam:2"),
+            file: file, line: line)
+        let form = try XCTUnwrap(query.element(forName: "x", xmlns: "jabber:x:data"), file: file, line: line)
+        let fields = form.elements(forName: "field")
+        XCTAssertEqual(fields.first { $0.attributeStringValue(forName: "var") == "with" }?
+            .element(forName: "value")?.stringValue, conversation.jid, file: file, line: line)
+        XCTAssertEqual(fields.first { $0.attributeStringValue(forName: "var") == "conversation-type" }?
+            .element(forName: "value")?.stringValue, conversation.conversationTypeRaw, file: file, line: line)
+    }
+
+    private func start(_ account: Account, stream: TimestampLookupAuthenticatedXMPPStream,
+        request: ArchiveTransportRequest) throws -> (XCTestExpectation, LockedArchiveTransportResult) {
+        let configuration = Realm.Configuration.defaultConfiguration
+        let repository = RealmArchiveCoverageRepository { try Realm(configuration: configuration) }
+        let adapter = MessageArchiveTransportAdapter(account: account, materializationResolver: repository,
+            requestTerminalTimeout: 15, persistenceTerminalTimeout: 10)
+        let terminal = expectation(description: "projection terminal \(request.queryID)")
+        let result = LockedArchiveTransportResult()
+        Task {
+            do { result.append(.success(try await adapter.request(request, priority: .visibleIntegrity))) }
+            catch { result.append(.failure(error)) }
+            terminal.fulfill()
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline, !account.mam.callbackQueueContains(where: { $0.elementId == request.queryID }) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(account.mam.callbackQueueContains { $0.elementId == request.queryID })
+        try assertSubmittedFilter(stream)
+        return (terminal, result)
+    }
+
+    private func finish(_ account: Account, stream: XMPPStream, query: String,
+        ids: [String], complete: Bool) throws {
+        let xml = """
+        <iq type='result' id='\(query)'><fin xmlns='urn:xmpp:mam:2' queryid='\(query)' complete='\(complete)'>
+          <set xmlns='http://jabber.org/protocol/rsm'><first>\(ids.first ?? "")</first><last>\(ids.last ?? "")</last><count>\(ids.count)</count></set>
+        </fin></iq>
+        """
+        let fin = XMPPIQ(from: try XCTUnwrap(DDXMLDocument(xmlString: xml, options: 0).rootElement()))
+        XCTAssertTrue(account.mam.read(stream, withIQ: fin))
+    }
+
+    private func accounting(_ account: Account, query: String,
+        binding: MessageArchiveManager.RegularProjectionRequestBinding,
+        generation: UInt64 = 7, qid: String? = nil, scope: ArchiveConversationKey? = nil,
+        controls: Set<ArchiveCursor> = []) throws -> ArchiveTransportPersistenceAccounting {
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        return ArchiveTransportPersistenceAccounting.make(summary: .init(),
+            deliveredArchiveIDs: snapshot.resultArchiveIDs, explicitlyConsumedArchiveIDs: controls,
+            materializedMessages: [], conversation: scope ?? conversation, queryID: qid ?? query,
+            connectionGeneration: generation, regularProjectionBinding: binding,
+            regularProjectionExclusions: snapshot.regularProjectionExclusions,
+            regularProjectionConflicts: snapshot.regularProjectionConflicts)
+    }
+
+    private func assertStrictFailure(_ result: ArchiveTransportPersistenceAccounting,
+        account: Account, query: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query), file: file, line: line)
+        let receipt = ArchiveTransportReceipt(queryID: query, connectionGeneration: 7,
+            resultArchiveIDs: snapshot.resultArchiveIDs, messagePrimaryIDs: result.messagePrimaryIDs,
+            first: snapshot.resultArchiveIDs.first ?? "", last: snapshot.resultArchiveIDs.last ?? "",
+            complete: false, cheapPageCount: snapshot.deliveredResultCount,
+            deliveredResultCount: snapshot.deliveredResultCount, persistedResultCount: result.persistedResultCount,
+            intentionallyConsumedResultCount: result.intentionallyConsumedResultCount,
+            failedPersistenceCount: result.failedPersistenceCount, finalReceived: true)
+        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(receipt, for: request(query)), file: file, line: line) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .persistenceFailure, file: file, line: line)
+        }
+    }
+
+    func testActualSubmittedRegularWireMixedPageExcludesOnlyOriginalLegacyWithoutMutatingCachedRow() throws {
+        let query = "actual-regular-projection"
+        let (account, stream) = account(query)
+        let cached = MessageStorageItem()
+        cached.owner = conversation.owner; cached.opponent = conversation.jid
+        cached.messageId = "legacy-cached-origin"; cached.body = "cached legacy body"
+        cached.conversationType = .omemo1; cached.mamArchiveId = "old-cached-legacy-uid"
+        cached.updatePrimary()
+        try anchor.write { anchor.add(cached) }
+        let req = request(query)
+        let (terminal, result) = try start(account, stream: stream, request: req)
+        let first = try envelope(query, uid: "foreign-one", payload: legacy(), messageID: cached.messageId)
+        let second = try envelope(query, uid: "foreign-two", payload: legacy("eu.siacs.conversations.axolotl"),
+            from: conversation.owner, to: conversation.jid)
+        let plain = try envelope(query, uid: "ordinary-one", payload: "<body>ordinary visible</body>")
+        for wire in [first, first, second, plain] { account.xmppStream(stream, didReceive: wire) }
+        try finish(account, stream: stream, query: query,
+            ids: ["foreign-one", "foreign-two", "ordinary-one"], complete: false)
+        wait(for: [terminal], timeout: 4)
+        let receipt = try XCTUnwrap(result.results.first).get()
+        XCTAssertEqual(receipt.deliveredResultCount, 3)
+        XCTAssertEqual(receipt.persistedResultCount, 1)
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 2)
+        XCTAssertEqual(receipt.failedPersistenceCount, 0)
+        XCTAssertNoThrow(try ArchiveTransportReceiptValidator.validate(receipt, for: req))
+        anchor.refresh()
+        XCTAssertEqual(anchor.objects(MessageStorageItem.self).count, 2)
+        XCTAssertEqual(cached.mamArchiveId, "old-cached-legacy-uid")
+        XCTAssertEqual(cached.body, "cached legacy body")
+        XCTAssertEqual(cached.conversationType, .omemo1)
+        XCTAssertTrue(cached.references.isEmpty)
+        let summary = account.messages.finishArchiveQueryBatchSummary(queryId: query)
+        XCTAssertEqual(summary.received, 1)
+        XCTAssertEqual(summary.queued, 1)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+        XCTAssertEqual(anchor.objects(MessageMediaAttachmentStorageItem.self).count, 0)
+    }
+
+    func testOriginalForeignWireDoesNotBorrowAnOldRegularRowWithTheSameArchiveUID() throws {
+        let query = "projection-cached-regular-overlap"
+        let uid = "foreign-cached-uid"
+        let (account, stream) = account(query)
+        let cached = MessageStorageItem()
+        cached.owner = conversation.owner; cached.opponent = conversation.jid
+        cached.messageId = "old-ordinary-origin"; cached.body = "old ordinary body"
+        cached.conversationType = .regular; cached.mamArchiveId = uid
+        cached.updatePrimary()
+        try anchor.write { anchor.add(cached) }
+        let primary = cached.primary
+        let req = request(query)
+        let (terminal, result) = try start(account, stream: stream, request: req)
+
+        account.xmppStream(stream, didReceive: try envelope(query, uid: uid, payload: legacy()))
+        try finish(account, stream: stream, query: query, ids: [uid], complete: false)
+        wait(for: [terminal], timeout: 4)
+
+        let receipt = try XCTUnwrap(result.results.first).get()
+        XCTAssertEqual(receipt.persistedResultCount, 0,
+            "An old regular row is not evidence for the current foreign original wire")
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(receipt.failedPersistenceCount, 1,
+            "Conflicting cached ordinary data needs authoritative repair, not ephemeral exclusion")
+        XCTAssertTrue(receipt.messagePrimaryIDs.isEmpty,
+            "A foreign wire exclusion must never publish an ordinary row or visible anchor")
+        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(receipt, for: req)) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .persistenceFailure)
+        }
+        anchor.refresh()
+        XCTAssertEqual(anchor.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(cached.primary, primary)
+        XCTAssertEqual(cached.mamArchiveId, uid)
+        XCTAssertEqual(cached.body, "old ordinary body")
+        XCTAssertEqual(cached.conversationType, .regular)
+        XCTAssertTrue(cached.references.isEmpty)
+    }
+
+    func testConflictingOriginalWireCannotBorrowAnExistingMaterializedRegularRow() throws {
+        let query = "projection-conflicting-cached-regular"
+        let uid = "conflicting-cached-uid"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query,
+            conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding)
+        for payload in [legacy(), "<body>ordinary conflicting source</body>"] {
+            _ = account.mam.observeOriginalArchiveResult(try envelope(query, uid: uid, payload: payload), from: stream)
+        }
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        let result = ArchiveTransportPersistenceAccounting.make(summary: .init(),
+            deliveredArchiveIDs: snapshot.resultArchiveIDs, explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [ArchiveMaterializedMessageIdentity(archiveID: uid, primaryID: "old-ordinary-primary")],
+            conversation: conversation, queryID: query, connectionGeneration: 7,
+            regularProjectionBinding: binding,
+            regularProjectionExclusions: snapshot.regularProjectionExclusions,
+            regularProjectionConflicts: snapshot.regularProjectionConflicts)
+        XCTAssertEqual(result.failedPersistenceCount, 1)
+        XCTAssertEqual(result.persistedResultCount, 0)
+        XCTAssertTrue(result.messagePrimaryIDs.isEmpty)
+        try assertStrictFailure(result, account: account, query: query)
+    }
+
+    func testActualSubmittedRegularOMEMO2WireIsExcludedBeforeCryptoAndPersistenceIngress() throws {
+        let query = "actual-regular-omemo2-projection"
+        let (account, stream) = account(query)
+        let req = request(query)
+        let (terminal, result) = try start(account, stream: stream, request: req)
+        let plain = try envelope(query, uid: "ordinary-visible", payload: "<body>ordinary visible</body>")
+        let omemo2 = try envelope(query, uid: "foreign-omemo2", payload: legacy("urn:xmpp:omemo:2"))
+        let eme = try envelope(query, uid: "foreign-omemo2-eme", payload: legacy("urn:xmpp:omemo:2") +
+            "<encryption xmlns='urn:xmpp:eme:0' namespace='urn:xmpp:omemo:2'/>")
+
+        for wire in [omemo2, eme, plain] { account.xmppStream(stream, didReceive: wire) }
+        try finish(account, stream: stream, query: query,
+            ids: ["foreign-omemo2", "foreign-omemo2-eme", "ordinary-visible"], complete: false)
+        wait(for: [terminal], timeout: 4)
+
+        let receipt = try XCTUnwrap(result.results.first).get()
+        XCTAssertEqual(receipt.deliveredResultCount, 3)
+        XCTAssertEqual(receipt.persistedResultCount, 1)
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 2)
+        XCTAssertEqual(receipt.failedPersistenceCount, 0)
+        XCTAssertNoThrow(try ArchiveTransportReceiptValidator.validate(receipt, for: req))
+        anchor.refresh()
+        XCTAssertEqual(anchor.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(anchor.objects(MessageStorageItem.self).first?.mamArchiveId, "ordinary-visible")
+        let summary = account.messages.finishArchiveQueryBatchSummary(queryId: query)
+        XCTAssertEqual(summary.received, 1, "OMEMO2 must stop before crypto/persistence ingress in this ordinary projection")
+        XCTAssertEqual(summary.queued, 1)
+        XCTAssertTrue(summary.skippedArchiveIds.isEmpty)
+        XCTAssertEqual(anchor.objects(MessageMediaAttachmentStorageItem.self).count, 0)
+    }
+
+    func testActualTimestampLookupProjectsKnownForeignWireWithoutClaimingContinuousCoverage() throws {
+        let query = "actual-timestamp-regular-projection"
+        let (account, stream) = account(query)
+        let req = ArchiveTransportRequest(queryID: query, conversation: conversation,
+            locator: .timestamp(Date(timeIntervalSince1970: 1767225600)), connectionGeneration: 7,
+            pageSize: 60, contextBefore: 30, contextAfter: 30,
+            proofFingerprint: "timestamp-projection", isUnfiltered: false,
+            producesContinuousCoverage: false)
+        let (terminal, result) = try start(account, stream: stream, request: req)
+        let foreign = ["urn:xmpp:omemo:2", "urn:xmpp:omemo:1", "eu.siacs.conversations.axolotl"]
+        for (index, namespace) in foreign.enumerated() {
+            account.xmppStream(stream, didReceive: try envelope(query,
+                uid: "timestamp-foreign-\(index)", payload: legacy(namespace)))
+        }
+        account.xmppStream(stream, didReceive: try envelope(query,
+            uid: "timestamp-ordinary", payload: "<body>ordinary timestamp anchor</body>"))
+        try finish(account, stream: stream, query: query,
+            ids: ["timestamp-foreign-0", "timestamp-foreign-1", "timestamp-foreign-2", "timestamp-ordinary"],
+            complete: false)
+        wait(for: [terminal], timeout: 4)
+
+        let receipt = try XCTUnwrap(result.results.first).get()
+        XCTAssertEqual(receipt.persistedResultCount, 1)
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 3)
+        XCTAssertEqual(receipt.failedPersistenceCount, 0)
+        let page = try ArchiveTransportReceiptValidator.validate(receipt, for: req)
+        XCTAssertNil(page.segment, "Typed timestamp projection does not prove continuous coverage")
+        XCTAssertFalse(page.isAuthoritativeEmpty)
+        XCTAssertEqual(page.messagePrimaryIDs.count, 1)
+        anchor.refresh()
+        XCTAssertEqual(anchor.objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(anchor.objects(MessageStorageItem.self).first?.mamArchiveId, "timestamp-ordinary")
+        let summary = account.messages.finishArchiveQueryBatchSummary(queryId: query)
+        XCTAssertEqual(summary.received, 1)
+        XCTAssertEqual(summary.queued, 1)
+    }
+
+    func testOtherNonCoverageRequestCannotAcquireTimestampProjectionEligibility() throws {
+        let query = "noncoverage-latest-not-timestamp"
+        let (account, stream) = account(query)
+        let req = ArchiveTransportRequest(queryID: query, conversation: conversation,
+            locator: .latest, connectionGeneration: 7, pageSize: 1, contextBefore: 0, contextAfter: 0,
+            proofFingerprint: "noncoverage-utility", isUnfiltered: false,
+            producesContinuousCoverage: false)
+        let (terminal, result) = try start(account, stream: stream, request: req)
+        account.xmppStream(stream, didReceive: try envelope(query, uid: "foreign-unleased", payload: legacy()))
+        try finish(account, stream: stream, query: query, ids: ["foreign-unleased"], complete: true)
+        wait(for: [terminal], timeout: 4)
+
+        let receipt = try XCTUnwrap(result.results.first).get()
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(receipt.failedPersistenceCount, 1)
+        XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(receipt, for: req)) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .persistenceFailure)
+        }
+    }
+
+    func testAllForeignIncompletePageThenOneOlderOrdinaryPageAdvancesOnlyObservedCursor() throws {
+        let (account, stream) = account("all-foreign-projection")
+        let firstRequest = request("all-foreign-first")
+        let (firstTerminal, firstResult) = try start(account, stream: stream, request: firstRequest)
+        for uid in ["foreign-A", "foreign-B"] {
+            account.xmppStream(stream, didReceive: try envelope(firstRequest.queryID, uid: uid, payload: legacy()))
+        }
+        try finish(account, stream: stream, query: firstRequest.queryID, ids: ["foreign-A", "foreign-B"], complete: false)
+        wait(for: [firstTerminal], timeout: 4)
+        let first = try XCTUnwrap(firstResult.results.first).get()
+        XCTAssertEqual(first.deliveredResultCount, 2)
+        XCTAssertEqual(first.persistedResultCount, 0)
+        XCTAssertEqual(first.intentionallyConsumedResultCount, 2)
+        XCTAssertFalse(first.complete)
+        XCTAssertNoThrow(try ArchiveTransportReceiptValidator.validate(first, for: firstRequest))
+        let secondRequest = request("all-foreign-next", locator: .older(before: try XCTUnwrap(ArchiveCursor(rawValue: first.first))))
+        let (secondTerminal, secondResult) = try start(account, stream: stream, request: secondRequest)
+        account.xmppStream(stream, didReceive: try envelope(secondRequest.queryID, uid: "older-ordinary", payload: "<body>older visible</body>"))
+        try finish(account, stream: stream, query: secondRequest.queryID, ids: ["older-ordinary"], complete: true)
+        wait(for: [secondTerminal], timeout: 4)
+        let second = try XCTUnwrap(secondResult.results.first).get()
+        XCTAssertEqual(second.persistedResultCount, 1)
+        XCTAssertEqual(second.intentionallyConsumedResultCount, 0)
+        XCTAssertNoThrow(try ArchiveTransportReceiptValidator.validate(second, for: secondRequest))
+        XCTAssertEqual(stream.queries.count, 2, "No hidden request loop")
+        XCTAssertEqual(stream.queries.last?.element(forName: "query", xmlns: "urn:xmpp:mam:2")?
+            .element(forName: "set", xmlns: "http://jabber.org/protocol/rsm")?
+            .element(forName: "before")?.stringValue, first.first)
+    }
+
+    func testOriginalWireWitnessRequiresSubmittedRegularFilterAndMatchingLease() throws {
+        for variant in 0..<9 {
+            let query = "lease-negative-\(variant)"
+            let (account, stream) = account(query)
+            let normal = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query,
+                conversation: conversation, connectionGeneration: 7)
+            var binding: MessageArchiveManager.RegularProjectionRequestBinding? = normal
+            if variant == 0 { account.mam.isExtendedArchiveAvailable = false }
+            if variant == 1 { binding = nil }
+            if variant == 2 { binding = .init(queryID: "wrong-query", conversation: conversation, connectionGeneration: 7) }
+            if variant == 3 { binding = .init(queryID: query, conversation: .init(owner: "other@example.com", jid: conversation.jid, conversationType: .regular), connectionGeneration: 7) }
+            if variant == 4 { binding = .init(queryID: query, conversation: .init(owner: conversation.owner, jid: "other@example.com", conversationType: .regular), connectionGeneration: 7) }
+            submit(account, stream, query: query, binding: binding, jid: variant == 5 ? nil : conversation.jid,
+                type: variant == 6 ? .omemo1 : .regular, purpose: variant == 7 ? .engineSearchPage : .bootstrap,
+                ids: variant == 8 ? ["filtered-target"] : nil)
+            let wire = try envelope(query, uid: "foreign", payload: legacy())
+            XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(wire, from: stream), .excludedRegularProjection)
+            XCTAssertTrue(try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query)).regularProjectionExclusions.isEmpty)
+            account.mam.abortDeferredCommit(queryId: query)
+        }
+    }
+
+    func testUnknownNestedEMEAndConflictingScopeCannotMintOriginalWireWitness() throws {
+        let previousType = CommonConfigManager.shared.config.locked_conversation_type
+        CommonConfigManager.shared.config.locked_conversation_type = ClientSynchronizationManager.ConversationType.omemo1.rawValue
+        defer { CommonConfigManager.shared.config.locked_conversation_type = previousType }
+        let payloads = [
+            "<body>ordinary missing</body>",
+            legacy("urn:xabber:test:unknown"),
+            "<opaque xmlns='urn:xabber:test:wrapper'>\(legacy("urn:xmpp:omemo:2"))</opaque>",
+            "<opaque xmlns='urn:xabber:test:wrapper'>\(legacy())</opaque>",
+            "<encryption xmlns='urn:xmpp:eme:0' namespace='urn:xmpp:omemo:1'/>",
+            legacy() + "<encryption xmlns='urn:xmpp:eme:0' namespace='urn:xmpp:omemo:2'/>",
+            legacy() + legacy("eu.siacs.conversations.axolotl"),
+            legacy("urn:xmpp:omemo:2") + "<encryption xmlns='urn:xmpp:eme:0' namespace='urn:xmpp:omemo:1'/>",
+            legacy("urn:xmpp:omemo:2") + "<encryption xmlns='urn:xmpp:eme:0' namespace='urn:xmpp:omemo:2'/><encryption xmlns='urn:xmpp:eme:0' namespace='urn:xmpp:omemo:2'/>",
+            legacy("urn:xmpp:omemo:2") + legacy()
+        ]
+        for (index, payload) in payloads.enumerated() {
+            let query = "wire-negative-\(index)"
+            let (account, stream) = account(query)
+            let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query,
+                conversation: conversation, connectionGeneration: 7)
+            submit(account, stream, query: query, binding: binding)
+            XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: "missing", payload: payload), from: stream), .excludedRegularProjection)
+            let result = try accounting(account, query: query, binding: binding)
+            XCTAssertEqual(result.intentionallyConsumedResultCount, 0)
+            XCTAssertEqual(result.failedPersistenceCount, 1)
+            try assertStrictFailure(result, account: account, query: query)
+        }
+        for variant in 0..<4 {
+            let query = "wire-scope-negative-\(variant)"
+            let (account, stream) = account(query)
+            let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+            submit(account, stream, query: query, binding: binding)
+            let wire = try envelope(query, uid: "missing", payload: legacy(),
+                from: variant == 0 ? "other@example.com" : nil,
+                to: variant == 1 ? "other@example.com" : nil,
+                outerFrom: variant == 2 ? "other@example.com" : nil)
+            let sender: XMPPStream = variant == 3 ? TimestampLookupAuthenticatedXMPPStream() : stream
+            XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(wire, from: sender), .excludedRegularProjection)
+            XCTAssertTrue(try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query)).regularProjectionExclusions.isEmpty)
+        }
+    }
+
+    func testScopedOriginalWitnessCannotCrossGenerationQueryPeerOrRequestToken() throws {
+        let query = "scope-accounting-witness"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding)
+        XCTAssertEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: "foreign", payload: legacy()), from: stream), .excludedRegularProjection)
+        XCTAssertEqual(try accounting(account, query: query, binding: binding).intentionallyConsumedResultCount, 1)
+        let wrongToken = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+        for result in [try accounting(account, query: query, binding: binding, generation: 8),
+            try accounting(account, query: query, binding: binding, qid: "wrong-query"),
+            try accounting(account, query: query, binding: binding, scope: .init(owner: conversation.owner, jid: "other@example.com", conversationType: .regular)),
+            try accounting(account, query: query, binding: wrongToken),
+            try accounting(account, query: query, binding: binding, scope: .init(owner: conversation.owner, jid: conversation.jid, conversationType: .omemo1))] {
+            XCTAssertEqual(result.intentionallyConsumedResultCount, 0)
+            XCTAssertEqual(result.failedPersistenceCount, 1)
+            try assertStrictFailure(result, account: account, query: query)
+        }
+        account.mam.abortDeferredCommit(queryId: query)
+        XCTAssertNil(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        account.mam.didResetState()
+        XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: "foreign", payload: legacy()), from: stream), .excludedRegularProjection)
+    }
+
+    func testConflictingDuplicateUIDRevokesForeignWitnessInEitherOriginalWireOrder() throws {
+        for foreignFirst in [false, true] {
+            let query = "conflicting-wire-uid-\(foreignFirst)"
+            let (account, stream) = account(query)
+            let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+            submit(account, stream, query: query, binding: binding)
+            let foreign = try envelope(query, uid: "same-wire-uid", payload: legacy())
+            let missingOrdinary = try envelope(query, uid: "same-wire-uid", payload: "<body>ordinary failed persistence</body>")
+            for wire in foreignFirst ? [foreign, missingOrdinary] : [missingOrdinary, foreign] {
+                _ = account.mam.observeOriginalArchiveResult(wire, from: stream)
+            }
+            let result = try accounting(account, query: query, binding: binding,
+                controls: [try XCTUnwrap(ArchiveCursor(rawValue: "same-wire-uid"))])
+            XCTAssertEqual(result.intentionallyConsumedResultCount, 0)
+            XCTAssertEqual(result.failedPersistenceCount, 1)
+            let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+            XCTAssertEqual(snapshot.regularProjectionConflicts.count, 1)
+            try assertStrictFailure(result, account: account, query: query)
+        }
+    }
+
+    func testIdenticalForeignUIDCountsOnceAndUnknownMissingUIDStillFails() throws {
+        let query = "wire-duplicate-and-missing"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding)
+        let foreign = try envelope(query, uid: "foreign-once", payload: legacy())
+        for _ in 0..<2 { XCTAssertEqual(account.mam.observeOriginalArchiveResult(foreign, from: stream), .excludedRegularProjection) }
+        _ = account.mam.observeOriginalArchiveResult(try envelope(query, uid: "ordinary-missing", payload: "<body>not persisted</body>"), from: stream)
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        XCTAssertEqual(snapshot.deliveredResultCount, 2)
+        let result = try accounting(account, query: query, binding: binding)
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(result.failedPersistenceCount, 1)
+        try assertStrictFailure(result, account: account, query: query)
+    }
+
+    func testProjectionSourceAndRecordBudgetsFailClosedWithoutRetainingUnboundedWitnesses() throws {
+        let query = "projection-record-budget"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding, max: 2)
+        for uid in ["first", "second"] {
+            XCTAssertEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: uid, payload: legacy()), from: stream), .excludedRegularProjection)
+        }
+        XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: "overflow", payload: legacy()), from: stream), .excludedRegularProjection)
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        XCTAssertTrue(snapshot.regularProjectionExclusions.isEmpty)
+        XCTAssertEqual(snapshot.regularProjectionConflicts.count, 2)
+        try assertStrictFailure(accounting(account, query: query, binding: binding), account: account, query: query)
+
+        let largeQuery = "projection-source-budget"
+        let (largeAccount, largeStream) = self.account(largeQuery)
+        let largeBinding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: largeQuery, conversation: conversation, connectionGeneration: 7)
+        submit(largeAccount, largeStream, query: largeQuery, binding: largeBinding)
+        let payload = legacy() + "<opaque xmlns='urn:xabber:test:budget'>" + String(repeating: "x", count: 1_048_576) + "</opaque>"
+        XCTAssertNotEqual(largeAccount.mam.observeOriginalArchiveResult(try envelope(largeQuery, uid: "large", payload: payload), from: largeStream), .excludedRegularProjection)
+        XCTAssertTrue(try XCTUnwrap(largeAccount.mam.archiveTransportAccountingSnapshot(queryId: largeQuery)).regularProjectionExclusions.isEmpty)
+    }
+
+    func testSealedOriginalWireConflictRevokesExclusionBeforeAccounting() throws {
+        let query = "sealed-projection-conflict"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query, conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding)
+        XCTAssertEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: "same", payload: legacy()), from: stream), .excludedRegularProjection)
+        try finish(account, stream: stream, query: query, ids: ["same"], complete: false)
+        XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(try envelope(query, uid: "same", payload: "<body>ordinary missing after seal</body>"), from: stream), .excludedRegularProjection)
+        let result = try accounting(account, query: query, binding: binding,
+            controls: [try XCTUnwrap(ArchiveCursor(rawValue: "same"))])
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(result.failedPersistenceCount, 1)
+        try assertStrictFailure(result, account: account, query: query)
+    }
+
+    func testActualSubmitted101OrdinaryRecordsKeepTheirValidReceiptAndNoProjectionConflicts() throws {
+        let query = "ordinary-page-over-100"
+        let (account, stream) = account(query)
+        let req = request(query, pageSize: 101)
+        let (terminal, results) = try start(account, stream: stream, request: req)
+        let ids = (0..<101).map { "ordinary-\($0)" }
+        for uid in ids {
+            account.xmppStream(stream, didReceive: try envelope(query, uid: uid, payload: "<body>ordinary visible</body>"))
+        }
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        XCTAssertTrue(snapshot.regularProjectionConflicts.isEmpty,
+            "The lease must cover the actual submitted page size")
+        XCTAssertTrue(snapshot.regularProjectionExclusions.isEmpty)
+        XCTAssertEqual(stream.queries.last?.element(forName: "query", xmlns: "urn:xmpp:mam:2")?
+            .element(forName: "set", xmlns: "http://jabber.org/protocol/rsm")?
+            .element(forName: "max")?.stringValue, "101")
+        try finish(account, stream: stream, query: query, ids: ids, complete: false)
+        wait(for: [terminal], timeout: 5)
+        let receipt = try XCTUnwrap(results.results.first).get()
+        XCTAssertEqual(receipt.persistedResultCount, 101)
+        XCTAssertEqual(receipt.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(receipt.failedPersistenceCount, 0)
+        XCTAssertNoThrow(try ArchiveTransportReceiptValidator.validate(receipt, for: req))
+    }
+
+    func test101OrdinaryControlsNeverAcquireProjectionConflicts() throws {
+        let query = "ordinary-controls-over-100"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query,
+            conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding, max: 101)
+        let ids = (0..<101).map { "ordinary-control-\($0)" }
+        for uid in ids {
+            let wire = try envelope(query, uid: uid, payload: "<body>ordinary service control</body>")
+            XCTAssertNotEqual(account.mam.observeOriginalArchiveResult(wire, from: stream), .excludedRegularProjection)
+            XCTAssertTrue(account.mam.recordDeferredArchiveControlConsumption(wire))
+        }
+        let snapshot = try XCTUnwrap(account.mam.archiveTransportAccountingSnapshot(queryId: query))
+        XCTAssertTrue(snapshot.regularProjectionConflicts.isEmpty)
+        let result = try accounting(account, query: query, binding: binding,
+            controls: snapshot.intentionallyConsumedArchiveIDs)
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 101)
+        XCTAssertEqual(result.failedPersistenceCount, 0)
+    }
+
+    func testFinalProjectionAdmissionDiagnosticContainsOnlyValidatedNumericCounts() throws {
+        let query = "projection-numeric-private-query"
+        let (account, stream) = account(query)
+        let binding = MessageArchiveManager.RegularProjectionRequestBinding(queryID: query,
+            conversation: conversation, connectionGeneration: 7)
+        submit(account, stream, query: query, binding: binding)
+        XCTAssertEqual(account.mam.observeOriginalArchiveResult(try envelope(query,
+            uid: "numeric-private-uid", payload: legacy()), from: stream), .excludedRegularProjection)
+        let recorder = NumericTraceRecorder()
+        ChatArchiveDebugTrace.configureForTesting(enabled: true, sampleEvery: 1, sink: recorder.record)
+        defer { ChatArchiveDebugTrace.resetTestingConfiguration() }
+
+        let result = try accounting(account, query: query, binding: binding)
+
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 1)
+        let lines = recorder.lines.filter { $0.contains("event=archiveRegularProjectionAccounting") }
+        XCTAssertEqual(lines.count, 1)
+        let line = try XCTUnwrap(lines.first)
+        XCTAssertTrue(line.contains("excluded=1"))
+        XCTAssertTrue(line.contains("conflicts=0"))
+        for privateValue in [query, conversation.owner, conversation.jid, "numeric-private-uid",
+            "urn:xmpp:omemo:1", "legacy fallback"] {
+            XCTAssertFalse(line.contains(privateValue))
+        }
+    }
+}
+
+final class ArchiveLogicalDuplicateAccountingTests: XCTestCase {
+    private let conversation = ArchiveConversationKey(
+        owner: "owner@example.com", jid: "peer@example.com", conversationType: .regular)
+
+    private func proof(query: String = "owned-query", scope: ArchiveConversationKey? = nil,
+        canonical: String = "A", duplicate: String = "B", primary: String = "pA"
+    ) -> MessageManager.ArchiveLogicalDuplicateProof {
+        MessageManager.ArchiveLogicalDuplicateProof(queryID: query, conversation: scope ?? conversation,
+            canonicalCursor: ArchiveCursor(rawValue: canonical)!,
+            duplicateCursor: ArchiveCursor(rawValue: duplicate)!, canonicalPrimaryID: primary)
+    }
+
+    private func accounting(_ proofs: [MessageManager.ArchiveLogicalDuplicateProof],
+        delivered: [String] = ["A", "B"],
+        rows: [ArchiveMaterializedMessageIdentity] = [.init(archiveID: "A", primaryID: "pA")],
+        query: String? = "owned-query", hasScope: Bool = true
+    ) -> ArchiveTransportPersistenceAccounting {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        proofs.forEach { summary.recordProvenLogicalDuplicate($0) }
+        return ArchiveTransportPersistenceAccounting.make(summary: summary,
+            deliveredArchiveIDs: delivered, explicitlyConsumedArchiveIDs: [],
+            materializedMessages: rows, conversation: hasScope ? conversation : nil, queryID: query)
+    }
+
+    private func validate(_ accounting: ArchiveTransportPersistenceAccounting,
+        delivered: [String] = ["A", "B"]
+    ) throws -> ValidatedArchiveTransportPage {
+        let request = ArchiveTransportRequest(queryID: "owned-query", conversation: conversation,
+            locator: .latest, connectionGeneration: 1, pageSize: 100, contextBefore: 0,
+            contextAfter: 0, proofFingerprint: "test", isUnfiltered: true, producesContinuousCoverage: true)
+        return try ArchiveTransportReceiptValidator.validate(ArchiveTransportReceipt(
+            queryID: request.queryID, connectionGeneration: request.connectionGeneration,
+            resultArchiveIDs: delivered, messagePrimaryIDs: accounting.messagePrimaryIDs,
+            first: delivered.first ?? "", last: delivered.last ?? "", complete: true,
+            cheapPageCount: delivered.count, deliveredResultCount: delivered.count,
+            persistedResultCount: accounting.persistedResultCount,
+            intentionallyConsumedResultCount: accounting.intentionallyConsumedResultCount,
+            failedPersistenceCount: accounting.failedPersistenceCount, finalReceived: true), for: request)
+    }
+
+    private func assertRejected(_ result: ArchiveTransportPersistenceAccounting,
+        delivered: [String] = ["A", "B"], file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 0, file: file, line: line)
+        XCTAssertGreaterThan(result.failedPersistenceCount, 0, file: file, line: line)
+        XCTAssertThrowsError(try validate(result, delivered: delivered), file: file, line: line) {
+            XCTAssertEqual($0 as? ArchiveTransportValidationError, .persistenceFailure, file: file, line: line)
+        }
+    }
+
+    func testProofRegistryMergesWithoutGenericConsumptionOrOutcomeCounters() {
+        let witness = proof()
+        var first = MessageManager.ArchivePersistenceSummary()
+        XCTAssertTrue(first.isEmpty)
+        first.recordProvenLogicalDuplicate(witness)
+        first.recordProvenLogicalDuplicate(witness)
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertEqual(first.provenLogicalDuplicates, [witness])
+        XCTAssertTrue(first.skippedArchiveIds.isEmpty)
+        XCTAssertEqual(first.skipped, 0)
+        XCTAssertEqual(first.processedRows, 0)
+        var merged = MessageManager.ArchivePersistenceSummary()
+        merged.merge(first)
+        merged.merge(first)
+        XCTAssertEqual(merged.provenLogicalDuplicates, [witness])
+        XCTAssertTrue(merged.skippedArchiveIds.isEmpty)
+        XCTAssertEqual(merged.skipped, 0)
+    }
+
+    func testCurrentQueryProofWithUniqueMaterializedCanonicalAdmitsTwoWireResults() throws {
+        let result = accounting([proof()])
+        XCTAssertEqual(result.messagePrimaryIDs, ["pA"])
+        XCTAssertEqual(result.persistedResultCount, 1)
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(result.failedPersistenceCount, 0)
+        let page = try validate(result)
+        XCTAssertEqual(page.chronologicalArchiveIDs, ["A", "B"])
+        XCTAssertEqual(page.messagePrimaryIDs, ["pA"])
+        XCTAssertEqual(page.intentionallyConsumedResultCount, 1)
+    }
+
+    func testProofCannotCrossQueryOwnerPeerOrConversationType() {
+        let invalid = [
+            proof(query: "foreign-query"),
+            proof(scope: ArchiveConversationKey(owner: "foreign@example.com", jid: conversation.jid, conversationType: .regular)),
+            proof(scope: ArchiveConversationKey(owner: conversation.owner, jid: "foreign@example.com", conversationType: .regular)),
+            proof(scope: ArchiveConversationKey(owner: conversation.owner, jid: conversation.jid, conversationType: .omemo))
+        ]
+        invalid.forEach { assertRejected(accounting([$0])) }
+        assertRejected(accounting([proof()], query: nil))
+        assertRejected(accounting([proof()], hasScope: false))
+    }
+
+    func testProofRequiresBothDistinctCursorsInTheCurrentDeliveredPage() {
+        assertRejected(accounting([proof()], delivered: ["B"], rows: [.init(archiveID: "A", primaryID: "pA")]), delivered: ["B"])
+        assertRejected(accounting([proof()], delivered: ["A", "C"]), delivered: ["A", "C"])
+        assertRejected(accounting([proof(canonical: "A", duplicate: "A")]))
+    }
+
+    func testProofRequiresCanonicalRowAndExactUnambiguousPrimary() {
+        assertRejected(accounting([proof()], rows: []))
+        assertRejected(accounting([proof()], rows: [.init(archiveID: "A", primaryID: "wrong-primary")]))
+        assertRejected(accounting([proof()], rows: [
+            .init(archiveID: "A", primaryID: "pA"), .init(archiveID: "A", primaryID: "conflicting-primary")]))
+        assertRejected(accounting([proof(primary: "")], rows: [.init(archiveID: "A", primaryID: "")]))
+        let ambiguousDuplicate = accounting([proof()], rows: [
+            .init(archiveID: "A", primaryID: "pA"), .init(archiveID: "B", primaryID: "pB"),
+            .init(archiveID: "B", primaryID: "conflicting-B")])
+        XCTAssertGreaterThan(ambiguousDuplicate.failedPersistenceCount, 0)
+        XCTAssertThrowsError(try validate(ambiguousDuplicate))
+    }
+
+    func testMaterializedDuplicateIsNeverCountedAsAnAdditionalConsumedResult() throws {
+        let result = accounting([proof()], rows: [
+            .init(archiveID: "A", primaryID: "pA"), .init(archiveID: "B", primaryID: "pB")])
+        XCTAssertEqual(result.persistedResultCount, 2)
+        XCTAssertEqual(result.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(result.failedPersistenceCount, 0)
+        _ = try validate(result)
+    }
+
+    func testProofIdentityAndAccountingKeepExactUTF8TokensDistinct() {
+        let composed = "caf\u{00E9}", decomposed = "cafe\u{0301}"
+        let tokens = [
+            proof(query: composed), proof(query: decomposed),
+            proof(primary: composed), proof(primary: decomposed),
+            proof(scope: ArchiveConversationKey(owner: composed, jid: conversation.jid, conversationType: .regular)),
+            proof(scope: ArchiveConversationKey(owner: decomposed, jid: conversation.jid, conversationType: .regular)),
+            proof(scope: ArchiveConversationKey(owner: conversation.owner, jid: composed, conversationType: .regular)),
+            proof(scope: ArchiveConversationKey(owner: conversation.owner, jid: decomposed, conversationType: .regular))
+        ]
+        XCTAssertEqual(Set(tokens).count, tokens.count)
+        assertRejected(accounting([proof(query: composed)], query: decomposed))
+        assertRejected(accounting([proof(primary: composed)], rows: [.init(archiveID: "A", primaryID: decomposed)]))
+        let unicodeCursor = proof(canonical: composed, duplicate: decomposed)
+        let cursorResult = accounting([unicodeCursor], delivered: [composed, decomposed],
+            rows: [.init(archiveID: composed, primaryID: "pA")])
+        XCTAssertEqual(cursorResult.persistedResultCount, 1)
+        XCTAssertEqual(cursorResult.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(cursorResult.failedPersistenceCount, 0)
+    }
+}
+
 private final class MalformedFinalAuthenticatedXMPPStream: XMPPStream {
     override var isAuthenticated: Bool { true }
 
@@ -2695,5 +3448,277 @@ final class OpaqueArchiveTransportReceiptTests: XCTestCase {
             first: ids.first ?? "", last: ids.last ?? "", complete: true, cheapPageCount: ids.count,
             deliveredResultCount: ids.count, persistedResultCount: ids.count, intentionallyConsumedResultCount: 0,
             failedPersistenceCount: 0, finalReceived: true)
+    }
+}
+
+final class ArchivePlaintextMAMSourceTests: XCTestCase {
+    private let owner = "owner@example.com"
+    private let date = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func message(
+        id: String = "first-MAM", stamp: String? = nil, body: String = "original source",
+        suffix: String = "", metadata: String? = nil, reordered: Bool = false
+    ) throws -> XMPPMessage {
+        let stamp = stamp ?? date.XMPPFormattedDate
+        let triple = metadata ?? """
+        <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='\(id)'/>
+        <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(id)'/>
+        <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='\(stamp)'/>
+        """
+        let attributes = reordered
+            ? "id='logical-ID' type='chat' to='\(owner)' from='peer@example.com'"
+            : "from='peer@example.com' to='\(owner)' type='chat' id='logical-ID'"
+        return XMPPMessage(from: try DDXMLElement(xmlString: """
+        <message xmlns='jabber:client' \(attributes)>
+        \(triple)
+        <origin-id xmlns='urn:xmpp:sid:0' id='logical-ID'/><body>\(body)</body>\(suffix)
+        </message>
+        """))
+    }
+
+    private func source(_ message: XMPPMessage, id: String? = "first-MAM", date: Date? = nil) -> ArchivePlaintextMAMSource? {
+        ArchivePlaintextMAMSource.make(message: message, archiveOwner: owner,
+            expectedArchiveID: id, expectedDate: date ?? self.date)
+    }
+
+    func testOriginalSourceIgnoresOnlyCoherentServerDecorationAcrossDifferentArchiveCopies() throws {
+        let first = try XCTUnwrap(source(message()))
+        let laterDate = date.addingTimeInterval(60)
+        let second = try XCTUnwrap(source(message(id: "second-MAM", stamp: laterDate.XMPPFormattedDate),
+            id: "second-MAM", date: laterDate))
+        XCTAssertEqual(first.fingerprint, second.fingerprint)
+        XCTAssertEqual(first.fingerprint.count, 32, "Prepared batch proofs must have a fixed-size memory bound")
+        XCTAssertEqual(first.archiveID, ArchiveCursor(rawValue: "first-MAM"))
+        XCTAssertEqual(second.archiveID, ArchiveCursor(rawValue: "second-MAM"))
+        XCTAssertEqual(first.date, date)
+        XCTAssertEqual(second.date, laterDate)
+    }
+
+    func testDifferentOriginalBodyAndExtensionPayloadRemainDifferent() throws {
+        let first = try XCTUnwrap(source(message()))
+        let changedBody = try XCTUnwrap(source(message(body: "another source")))
+        let extensionPayload = try XCTUnwrap(source(message(suffix: "<payload xmlns='urn:example:opaque' value='one'/>")))
+        let changedExtension = try XCTUnwrap(source(message(suffix: "<payload xmlns='urn:example:opaque' value='two'/>")))
+        XCTAssertNotEqual(first.fingerprint, changedBody.fingerprint)
+        XCTAssertNotEqual(extensionPayload.fingerprint, changedExtension.fingerprint)
+    }
+
+    func testSourceDoesNotDependOnMutableCanonicalArchiveIDOfCachedRow() throws {
+        let raw = try message(id: "original-raw-MAM")
+        XCTAssertNotNil(source(raw, id: nil))
+        XCTAssertNil(source(raw, id: "later-canonical-MAM"))
+    }
+
+    func testMalformedForeignOrIncompleteGeneratedMetadataCannotAuthorizeSourceComparison() throws {
+        let stamp = date.XMPPFormattedDate
+        let archived = "<archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='first-MAM'/>"
+        let stanza = "<stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='first-MAM'/>"
+        let time = "<time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='\(stamp)'/>"
+        let invalid: [String] = [
+            "", archived + stanza,
+            archived.replacingOccurrences(of: owner, with: "foreign@example.com") + stanza + time,
+            archived + stanza.replacingOccurrences(of: "first-MAM", with: "different-MAM") + time,
+            archived + stanza + time.replacingOccurrences(of: owner, with: "foreign@example.com"),
+            archived + stanza + time.replacingOccurrences(of: stamp, with: "invalid"),
+            archived + stanza + time.replacingOccurrences(of: stamp, with: date.addingTimeInterval(1).XMPPFormattedDate),
+            archived.replacingOccurrences(of: "/>", with: " extra='must-preserve'/>") + stanza + time,
+            archived + stanza + "<origin-id xmlns='urn:xmpp:sid:0' id='logical-ID'/>" + time,
+            archived.replacingOccurrences(of: "/>", with: "><payload/></archived>") + stanza + time
+        ]
+        for metadata in invalid {
+            XCTAssertNil(source(try message(metadata: metadata)), "Unproven metadata must fail closed")
+        }
+    }
+
+    func testAttributeOrderingAndNamespacePrefixSpellingDoNotInventDifferentSource() throws {
+        let original = try XCTUnwrap(source(message()))
+        let reordered = try XCTUnwrap(source(message(reordered: true)))
+        let prefixXML = """
+        <c:message xmlns:c='jabber:client' id='logical-ID' type='chat' from='peer@example.com' to='\(owner)'>
+        <m:archived xmlns:m='urn:xmpp:mam:tmp' id='first-MAM' by='\(owner)'/>
+        <s:stanza-id xmlns:s='urn:xmpp:sid:0' id='first-MAM' by='\(owner)'/>
+        <d:time xmlns:d='https://xabber.com/protocol/delivery' stamp='\(date.XMPPFormattedDate)' by='\(owner)'/>
+        <s:origin-id xmlns:s='urn:xmpp:sid:0' id='logical-ID'/><c:body>original source</c:body>
+        </c:message>
+        """
+        let prefixed = try XCTUnwrap(source(XMPPMessage(from: try DDXMLElement(xmlString: prefixXML))))
+        XCTAssertEqual(original.fingerprint, reordered.fingerprint)
+        XCTAssertEqual(original.fingerprint, prefixed.fingerprint)
+    }
+
+    func testForeignAndAdditionalArchiveMetadataRemainPartOfOriginalPayload() throws {
+        let first = try XCTUnwrap(source(message(suffix: "<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='foreign-one'/><time xmlns='urn:example:time'>one</time>")))
+        let changed = try XCTUnwrap(source(message(suffix: "<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='foreign-two'/><time xmlns='urn:example:time'>one</time>")))
+        XCTAssertNotEqual(first.fingerprint, changed.fingerprint)
+    }
+
+    func testBodyWhitespaceAndInlineForwardPayloadArePreservedExactly() throws {
+        let body = try XCTUnwrap(source(message(body: "source ")))
+        let trimmed = try XCTUnwrap(source(message(body: "source")))
+        let forward = try XCTUnwrap(source(message(suffix: "<forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' id='inner'><body>one</body></message></forwarded>")))
+        let changedForward = try XCTUnwrap(source(message(suffix: "<forwarded xmlns='urn:xmpp:forward:0'><message xmlns='jabber:client' id='inner'><body>two</body></message></forwarded>")))
+        XCTAssertNotEqual(body.fingerprint, trimmed.fingerprint)
+        XCTAssertNotEqual(forward.fingerprint, changedForward.fingerprint)
+    }
+
+    func testArchiveUIDBytesRemainOpaqueWhileSourceFingerprintExcludesOwnedUID() throws {
+        let composed = "\u{00E9}"
+        let decomposed = "e\u{0301}"
+        let first = try XCTUnwrap(source(message(id: composed), id: composed))
+        let second = try XCTUnwrap(source(message(id: decomposed), id: decomposed))
+        XCTAssertEqual(first.fingerprint, second.fingerprint)
+        XCTAssertNotEqual(Data(first.archiveID.rawValue.utf8), Data(second.archiveID.rawValue.utf8))
+        XCTAssertNil(source(try message(id: composed), id: decomposed))
+    }
+
+    func testUnsupportedNodesAndBoundedPayloadCannotProducePartialProof() throws {
+        XCTAssertNil(source(try message(suffix: "<!--cannot-silently-ignore-->")))
+        XCTAssertNil(source(try message(body: String(repeating: "x", count: 1_048_576))))
+        XCTAssertNil(source(try message(suffix: String(repeating: "<nested>", count: 33)
+            + "payload" + String(repeating: "</nested>", count: 33))))
+    }
+
+    func testPositiveAuthoredContentProofIgnoresWeakTransportIDsResourcesAndUnknownRootMetadata() throws {
+        let original = try XCTUnwrap(source(message()))
+        let copy = try message(suffix: "<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='foreign-copy'/><opaque xmlns='urn:example:opaque'>metadata</opaque>")
+        copy.addAttribute(withName: "id", stringValue: "fresh-transmission-ID")
+        copy.addAttribute(withName: "from", stringValue: "peer@example.com/new-resource")
+        let changedMetadata = try XCTUnwrap(source(copy))
+        XCTAssertNotEqual(original.fingerprint, changedMetadata.fingerprint)
+        XCTAssertEqual(original.authoredPayloadFingerprint, changedMetadata.authoredPayloadFingerprint)
+        XCTAssertEqual(original.authoredPayloadFingerprint.count, 32)
+        XCTAssertFalse(original.hasDistinctAuthoredContent(from: changedMetadata))
+    }
+
+    func testPositiveAuthoredContentProofRequiresDifferentKnownPayloadOrDifferentKnownBareAuthor() throws {
+        let original = try XCTUnwrap(source(message()))
+        let changedBody = try XCTUnwrap(source(message(body: "different authored body")))
+        let oppositeDirection = try message()
+        oppositeDirection.addAttribute(withName: "from", stringValue: owner)
+        oppositeDirection.addAttribute(withName: "to", stringValue: "peer@example.com")
+        let differentAuthor = try XCTUnwrap(source(oppositeDirection))
+        XCTAssertTrue(original.hasDistinctAuthoredContent(from: changedBody))
+        XCTAssertEqual(original.authoredPayloadFingerprint, differentAuthor.authoredPayloadFingerprint)
+        XCTAssertTrue(original.hasDistinctAuthoredContent(from: differentAuthor))
+        let missingAuthor = try message()
+        missingAuthor.removeAttribute(forName: "from")
+        let unknownAuthor = try XCTUnwrap(source(missingAuthor))
+        XCTAssertNil(unknownAuthor.bareAuthor)
+        XCTAssertFalse(original.hasDistinctAuthoredContent(from: unknownAuthor))
+    }
+
+    func testRecognizedMediaAndInlineForwardPayloadChangesProducePositiveAuthoredProof() throws {
+        func media(_ name: String) -> String {
+            "<reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='0'><file-sharing xmlns='https://xabber.com/protocol/files'><file><name>\(name).mov</name><media-type>video/quicktime</media-type><size>42</size></file><sources><uri>https://files.example.com/\(name).mov</uri></sources></file-sharing></reference>"
+        }
+        func forward(_ body: String) -> String {
+            "<reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='0'><forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='2026-06-04T10:00:00Z'/><message xmlns='jabber:client' from='author@example.com' to='peer@example.com' type='chat' id='inner'><body>\(body)</body></message></forwarded></reference>"
+        }
+        for payloads in [(media("first"), media("second")), (forward("first"), forward("second"))] {
+            let lhsMessage = try message(body: "", suffix: payloads.0)
+            let rhsMessage = try message(body: "", suffix: payloads.1)
+            for item in [lhsMessage, rhsMessage] {
+                XCTAssertNotNil(getReferenceType(try XCTUnwrap(SCEReceivePolicy.children(of: item,
+                    named: "reference", xmlns: "https://xabber.com/protocol/references").first)))
+            }
+            let lhs = try XCTUnwrap(source(lhsMessage)), rhs = try XCTUnwrap(source(rhsMessage))
+            XCTAssertTrue(lhs.hasDistinctAuthoredContent(from: rhs))
+        }
+    }
+
+    func testUnrecognizedReferenceMetadataDoesNotCreatePositiveAuthoredProof() throws {
+        for type in ["opaque", "decoration"] {
+            let original = try XCTUnwrap(source(message(suffix: "<reference xmlns='https://xabber.com/protocol/references' type='\(type)'><unknown xmlns='urn:example:opaque'>one</unknown></reference>")))
+            let changed = try XCTUnwrap(source(message(suffix: "<reference xmlns='https://xabber.com/protocol/references' type='\(type)'><unknown xmlns='urn:example:opaque'>two</unknown></reference>")))
+            XCTAssertNotEqual(original.fingerprint, changed.fingerprint)
+            XCTAssertFalse(original.hasDistinctAuthoredContent(from: changed))
+        }
+        let invalidMention = try XCTUnwrap(source(message(suffix: "<reference xmlns='https://xabber.com/protocol/references' type='decoration'><mention xmlns='https://xabber.com/protocol/markup'>invalid-one</mention></reference>")))
+        let changedInvalidMention = try XCTUnwrap(source(message(suffix: "<reference xmlns='https://xabber.com/protocol/references' type='decoration'><mention xmlns='https://xabber.com/protocol/markup'>invalid-two</mention></reference>")))
+        XCTAssertNotEqual(invalidMention.fingerprint, changedInvalidMention.fingerprint)
+        XCTAssertFalse(invalidMention.hasDistinctAuthoredContent(from: changedInvalidMention))
+        func invalidMedia(_ name: String) -> String {
+            "<reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='900' end='901'><file-sharing xmlns='https://xabber.com/protocol/files'><file><name>\(name).mov</name><media-type>video/quicktime</media-type><size>42</size></file><sources><uri>https://files.example.com/\(name).mov</uri></sources></file-sharing></reference>"
+        }
+        let invalidRangeMessage = try message(suffix: invalidMedia("one"))
+        XCTAssertTrue(admittedMessageContentReferenceIndices(in: invalidRangeMessage).isEmpty)
+        let invalidRange = try XCTUnwrap(source(invalidRangeMessage))
+        let changedInvalidRange = try XCTUnwrap(source(message(suffix: invalidMedia("two"))))
+        XCTAssertNotEqual(invalidRange.fingerprint, changedInvalidRange.fingerprint)
+        XCTAssertFalse(invalidRange.hasDistinctAuthoredContent(from: changedInvalidRange))
+    }
+
+    func testTransportTransparentProofAllowsOnlyRootIDAndAddressResources() throws {
+        let first = try XCTUnwrap(source(message()))
+        let copy = try message(id: "copy-MAM", stamp: date.addingTimeInterval(60).XMPPFormattedDate)
+        copy.addAttribute(withName: "id", stringValue: "new-transmission-ID")
+        copy.addAttribute(withName: "from", stringValue: "peer@example.com/other-device")
+        copy.addAttribute(withName: "to", stringValue: owner + "/phone")
+        let second = try XCTUnwrap(source(copy, id: "copy-MAM", date: date.addingTimeInterval(60)))
+        XCTAssertNotEqual(first.fingerprint, second.fingerprint)
+        XCTAssertEqual(try XCTUnwrap(first.transportTransparentFingerprint).count, 32)
+        XCTAssertEqual(first.transportTransparentFingerprint, second.transportTransparentFingerprint)
+        XCTAssertEqual(first.duplicateProbe(comparedTo: second, sameQuery: true, canonicalFork: false), 1 | 2 | 4 | 8 | 16)
+        XCTAssertEqual(first.duplicateProbe(comparedTo: second, sameQuery: false, canonicalFork: true), 1 | 4 | 8 | 16 | 256)
+    }
+
+    func testTransportTransparentProofRetainsUnknownRootAttributesAndQualifiedID() throws {
+        let first = try XCTUnwrap(source(message()))
+        for attribute in ["extra='opaque'", "xmlns:t='urn:example:transport' t:id='qualified-ID'"] {
+            let xml = try message().xmlString.replacingOccurrences(of: "<message ", with: "<message \(attribute) ")
+            let second = try XCTUnwrap(source(XMPPMessage(from: try DDXMLElement(xmlString: xml))))
+            XCTAssertNotEqual(first.transportTransparentFingerprint, second.transportTransparentFingerprint)
+            XCTAssertEqual(first.duplicateProbe(comparedTo: second, sameQuery: true, canonicalFork: false), 2)
+        }
+    }
+
+    func testTransportTransparentProofRetainsEveryUnknownForeignIdentityAndRewriteChild() throws {
+        let cases: [(String, String, Int)] = [
+            ("<opaque xmlns='urn:example:opaque'>one</opaque>", "<opaque xmlns='urn:example:opaque'>two</opaque>", 32),
+            ("<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='one'/>", "<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='two'/>", 64),
+            ("<time xmlns='https://xabber.com/protocol/delivery' by='foreign@example.com' stamp='one'/>", "<time xmlns='https://xabber.com/protocol/delivery' by='foreign@example.com' stamp='two'/>", 64),
+            ("<reference xmlns='https://xabber.com/protocol/references' type='opaque'>one</reference>", "<reference xmlns='https://xabber.com/protocol/references' type='opaque'>two</reference>", 32),
+            ("<replaced xmlns='https://xabber.com/protocol/rewrite' stamp='one'/>", "<replaced xmlns='https://xabber.com/protocol/rewrite' stamp='two'/>", 32 | 128)
+        ]
+        for (left, right, flags) in cases {
+            let first = try XCTUnwrap(source(message(suffix: left)))
+            let second = try XCTUnwrap(source(message(suffix: right)))
+            XCTAssertNotEqual(first.transportTransparentFingerprint, second.transportTransparentFingerprint)
+            XCTAssertEqual(first.duplicateProbe(comparedTo: second, sameQuery: false, canonicalFork: false), flags)
+        }
+    }
+
+    func testTransportTransparentProofRequiresBothValidBareAddressesAndPreservesTheirDirection() throws {
+        let first = try XCTUnwrap(source(message()))
+        for name in ["from", "to"] {
+            let absent = try message()
+            absent.removeAttribute(forName: name)
+            XCTAssertNil(try XCTUnwrap(source(absent)).transportTransparentFingerprint)
+            let empty = try message()
+            empty.addAttribute(withName: name, stringValue: "")
+            XCTAssertNil(try XCTUnwrap(source(empty)).transportTransparentFingerprint)
+            let different = try message()
+            different.addAttribute(withName: name, stringValue: "other@example.com/device")
+            let changed = try XCTUnwrap(source(different))
+            XCTAssertNotEqual(first.transportTransparentFingerprint, changed.transportTransparentFingerprint)
+            XCTAssertEqual(first.duplicateProbe(comparedTo: changed, sameQuery: false, canonicalFork: false), 0)
+        }
+        let swapped = try message()
+        swapped.addAttribute(withName: "from", stringValue: owner)
+        swapped.addAttribute(withName: "to", stringValue: "peer@example.com")
+        XCTAssertNotEqual(first.transportTransparentFingerprint, try XCTUnwrap(source(swapped)).transportTransparentFingerprint)
+    }
+
+    func testTransportTransparentProofKeepsExactUTF8PayloadTokensAndBodyWhitespace() throws {
+        let first = try XCTUnwrap(source(message(body: "\u{00E9}")))
+        let second = try XCTUnwrap(source(message(body: "e\u{0301}")))
+        XCTAssertNotEqual(first.transportTransparentFingerprint, second.transportTransparentFingerprint)
+        XCTAssertEqual(first.duplicateProbe(comparedTo: second, sameQuery: true, canonicalFork: false), 2 | 32)
+        let trailingSpace = try XCTUnwrap(source(message(body: "\u{00E9} ")))
+        XCTAssertNotEqual(first.transportTransparentFingerprint, trailingSpace.transportTransparentFingerprint)
+        let leftSID = try XCTUnwrap(source(message(suffix: "<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='\u{00E9}'/>")))
+        let rightSID = try XCTUnwrap(source(message(suffix: "<stanza-id xmlns='urn:xmpp:sid:0' by='foreign@example.com' id='e\u{0301}'/>")))
+        XCTAssertNotEqual(leftSID.transportTransparentFingerprint, rightSID.transportTransparentFingerprint)
+        XCTAssertEqual(leftSID.duplicateProbe(comparedTo: rightSID, sameQuery: false, canonicalFork: false), 64)
     }
 }

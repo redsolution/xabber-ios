@@ -64,21 +64,31 @@ final class AccountArchiveEngineTests: XCTestCase {
 
     func testActorDiagnosticsIdentifyRetainedTerminalBudgetWithoutAnotherWireRequest() async throws {
         let recorder = ArchiveActorDiagnosticRecorder()
+        let firstFinished = expectation(description: "first failed attempt is actually finished")
+        let secondFinished = expectation(description: "retained terminal attempt is actually finished")
         let transport = FailingArchiveEngineTransport(error: .protocolViolation)
         let engine = AccountArchiveEngine(owner: conversation.owner,
             repository: ArchiveEngineRepositorySpy(), transport: transport,
             admissionProvider: ArchiveEngineAdmissionSpy(), retryClock: .immediate,
-            diagnosticSink: recorder.record)
+            diagnosticSink: { event in
+                recorder.record(event)
+                if event.branch == .finished {
+                    if recorder.snapshot().filter({ $0.branch == .finished }).count == 1 {
+                        firstFinished.fulfill()
+                    } else {
+                        secondFinished.fulfill()
+                    }
+                }
+            })
         await engine.connectionDidBecomeReady(generation: 922)
         await submit(engine, latestIntent(priority: .visibleIntegrity))
-        await engine.waitUntilIdleForTesting()
+        await fulfillment(of: [firstFinished], timeout: 2)
         let previousCode = try XCTUnwrap(recorder.snapshot().last?.executionCode)
-        recorder.clear()
 
         await engine.submit(latestIntent(priority: .visibleIntegrity))
-        await engine.waitUntilIdleForTesting()
+        await fulfillment(of: [secondFinished], timeout: 2)
 
-        let events = recorder.snapshot()
+        let events = recorder.snapshot().filter { $0.executionCode != previousCode }
         XCTAssertEqual(events.map(\.branch), [.submitted, .executionStarted,
             .retainedTerminalBudget, .localAdmissionMiss, .finished])
         XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
@@ -1793,13 +1803,18 @@ final class AccountArchiveEngineTests: XCTestCase {
     }
 
     func testGapLargerThanOnePageAdvancesCursorUntilContinuousProofCompletes() async throws {
+        let finished = expectation(description: "gap execution reaches its terminal before state assertions")
         let repository = PagingGapArchiveRepositorySpy()
         let transport = PagingGapArchiveTransportSpy()
         let engine = AccountArchiveEngine(
             owner: conversation.owner,
             repository: repository,
             transport: transport,
-            retryClock: .immediate
+            admissionProvider: ArchiveEngineAdmissionSpy(),
+            retryClock: .immediate,
+            diagnosticSink: { event in
+                if event.branch == .finished { finished.fulfill() }
+            }
         )
         let older = ArchiveCursor(rawValue: "100")!
         let newer = ArchiveCursor(rawValue: "300")!
@@ -1813,7 +1828,7 @@ final class AccountArchiveEngineTests: XCTestCase {
 
         await engine.connectionDidBecomeReady(generation: 13)
         await submit(engine, intent)
-        await engine.waitUntilIdleForTesting()
+        await fulfillment(of: [finished], timeout: 2)
 
         let locators = await transport.requestLocators
         XCTAssertEqual(

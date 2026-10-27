@@ -546,12 +546,14 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let archiveManager = self.mam
+        let archiveDisposition = archiveManager?.observeOriginalArchiveResult(message, from: sender) ?? .untracked
+        if case .excludedRegularProjection = archiveDisposition { return }
+        let didObserveArchiveResult: Bool
+        if case .tracked = archiveDisposition { didObserveArchiveResult = true }
+        else { didObserveArchiveResult = false }
         let omemoCleanup = AccountManager.shared.find(for: sender.myJID?.bare ?? currentJid ?? "")?.omemo.omemo2PreKeyCleanup
         let omemoIngress = omemoCleanup?.beginIngress()
-        let archiveManager = self.mam
-        let didObserveArchiveResult =
-            archiveManager?.recordDeferredArchiveResultDelivery(message) ??
-            false
         var didRouteArchiveResultToPersistence = false
         var didIntentionallyConsumeArchiveResult = false
         defer {

@@ -21,10 +21,11 @@ struct ChatIncrementalMessageIdentity: Hashable {
     }
 
     init(message: MessageStorageItem) {
+        let usesArchiveIdentity = message.usesDisambiguatedArchiveIdentity
         self.init(
             primary: message.primary,
-            messageId: message.messageId,
-            archivedId: message.archivedId
+            messageId: usesArchiveIdentity ? nil : message.messageId,
+            archivedId: usesArchiveIdentity ? nil : message.archivedId
         )
     }
 
@@ -461,6 +462,9 @@ enum ChatIncrementalViewportPolicy {
 
 enum ChatDatasourceStableIdentity {
     static func diffKey(for item: ChatViewController.Datasource) -> String {
+        if item.usesDisambiguatedArchiveIdentity {
+            return "primary:\(item.primary)"
+        }
         if item.messageId.isNotEmpty {
             return "message:\(item.owner):\(item.messageId)"
         }

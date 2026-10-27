@@ -131,6 +131,120 @@ final class AccountArchiveConsumedContinuationTests: XCTestCase {
         )
     }
 
+    func testIncompleteConsumedOnlyOlderContinuesFromObservedOpaqueCursorWithoutPublishingEmpty() async throws {
+        let initialBoundary = try XCTUnwrap(ArchiveCursor(rawValue: "visible-anchor-z"))
+        let observedOldest = try XCTUnwrap(ArchiveCursor(rawValue: "wire-oldest-ß"))
+        let repository = ConsumedContinuationArchiveRepository(initialOlderBoundary: initialBoundary)
+        let transport = ConsumedContinuationArchiveTransport()
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: repository, transport: transport,
+            admissionProvider: ConsumedContinuationAdmissionStub(), retryClock: .immediate)
+        let intent = ArchiveWindowIntent(conversation: conversation,
+            locator: .older(before: initialBoundary), contextBefore: ArchivePageSizing.history,
+            contextAfter: 0, priority: .visibleIntegrity)
+        let recorder = ConsumedContinuationStateRecorder()
+        let states = await engine.states(for: conversation)
+        let recording = Task {
+            for await state in states { await recorder.append(state) }
+        }
+        defer { recording.cancel() }
+        await engine.connectionDidBecomeReady(generation: 42)
+        await engine.attachPresentationDemand(for: conversation, demandID: UUID())
+        await engine.submit(intent)
+        let firstStarted = await waitForRequests(1, transport: transport)
+        XCTAssertTrue(firstStarted)
+        let firstValue = await transport.record(at: 0)
+        let first = try XCTUnwrap(firstValue)
+        XCTAssertEqual(first.request.locator, intent.locator)
+        let firstResolved = await transport.resolve(at: 0, with: .consumedOnly(
+            archiveIDs: [observedOldest.rawValue, "wire-newest-A"], complete: false))
+        XCTAssertTrue(firstResolved)
+
+        let secondStarted = await waitForRequests(2, transport: transport)
+        XCTAssertTrue(secondStarted,
+            "An explicit older intent must cross a fully consumed page without waiting for another UI pull")
+        guard secondStarted else { return }
+        guard case .skeleton(_, let pendingTarget) = await engine.currentState(for: conversation) else {
+            return XCTFail("A consumed page must not publish an empty verified timeline or archive end")
+        }
+        XCTAssertEqual(pendingTarget, intent.locator)
+        let secondValue = await transport.record(at: 1)
+        let second = try XCTUnwrap(secondValue)
+        XCTAssertEqual(second.request.locator, .older(before: observedOldest))
+        XCTAssertEqual(second.request.connectionGeneration, first.request.connectionGeneration)
+        XCTAssertNotEqual(second.request.queryID, first.request.queryID)
+        XCTAssertEqual(second.priority, .visibleIntegrity)
+        let outstanding = await transport.maximumOutstandingRequestCount
+        XCTAssertEqual(outstanding, 1)
+        let visibleIDs = ["visible-opaque-z", "visible-opaque-a"]
+        let secondResolved = await transport.resolve(at: 1, with: .visible(
+            archiveIDs: ["older-wire-z", "older-wire-a"], primaryIDs: visibleIDs, complete: false))
+        XCTAssertTrue(secondResolved)
+        await engine.waitUntilIdleForTesting()
+
+        guard case .verified(let snapshot) = await engine.currentState(for: conversation) else {
+            return XCTFail("The following ordinary page must finish the original older intent")
+        }
+        XCTAssertEqual(snapshot.target, intent.locator)
+        XCTAssertEqual(snapshot.messagePrimaryIDs, visibleIDs)
+        XCTAssertEqual(snapshot.verifiedSegment.oldest.rawValue, "older-wire-z")
+        XCTAssertEqual(snapshot.verifiedSegment.newest.rawValue, "wire-newest-A")
+        XCTAssertFalse(snapshot.verifiedSegment.reachesArchiveStart)
+        XCTAssertFalse(snapshot.verifiedSegment.reachesLiveEdge)
+        let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 2, "One older intent must use exactly two sequential pages")
+        let recorded = await waitForVisibleState(in: recorder, primaryIDs: visibleIDs)
+        XCTAssertTrue(recorded)
+        let published = await recorder.values
+        XCTAssertFalse(published.contains { $0.isPublishedEmpty })
+    }
+
+    func testConsumedOnlyOlderStopsAfterEightTotalPagesWithoutPublishingEmptyOrEnd() async throws {
+        let initialBoundary = try XCTUnwrap(ArchiveCursor(rawValue: "visible-anchor-z"))
+        let repository = ConsumedContinuationArchiveRepository(initialOlderBoundary: initialBoundary)
+        let transport = ConsumedContinuationArchiveTransport()
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: repository, transport: transport,
+            admissionProvider: ConsumedContinuationAdmissionStub(), retryClock: .immediate)
+        let intent = ArchiveWindowIntent(conversation: conversation,
+            locator: .older(before: initialBoundary), contextBefore: ArchivePageSizing.history,
+            contextAfter: 0, priority: .visibleIntegrity)
+        await engine.connectionDidBecomeReady(generation: 43)
+        await engine.attachPresentationDemand(for: conversation, demandID: UUID())
+        await engine.submit(intent)
+        let labels = ["oak", "é", "snow-雪", "a", "Z", "pine", "Ω", "m"]
+        var expectedBoundary = initialBoundary
+        for (index, label) in labels.enumerated() {
+            let started = await waitForRequests(index + 1, transport: transport)
+            XCTAssertTrue(started)
+            guard started else { return }
+            let recordValue = await transport.record(at: index)
+            let record = try XCTUnwrap(recordValue)
+            XCTAssertEqual(record.request.locator, .older(before: expectedBoundary))
+            let next = try XCTUnwrap(ArchiveCursor(rawValue: "oldest-\(label)"))
+            let resolved = await transport.resolve(at: index, with: .consumedOnly(
+                archiveIDs: [next.rawValue, "newest-\(label)"], complete: false))
+            XCTAssertTrue(resolved)
+            expectedBoundary = next
+        }
+        let ninthStarted = await waitForRequests(9, transport: transport)
+        XCTAssertFalse(ninthStarted, "One older intent may admit at most eight wire pages in total")
+        if ninthStarted {
+            // Drain a regressed implementation's pending request so the test
+            // fails with bounded work rather than leaking a continuation.
+            _ = await transport.resolve(at: 8, with: .visible(
+                archiveIDs: ["cleanup-wire"], primaryIDs: ["cleanup-primary"], complete: false))
+        }
+        await engine.waitUntilIdleForTesting()
+        let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 8)
+        guard case .retryableFailure(let failure, let target) = await engine.currentState(for: conversation) else {
+            return XCTFail("Budget exhaustion must remain unknown, without an empty verified window or archive end")
+        }
+        XCTAssertEqual(target, intent.locator)
+        XCTAssertFalse(failure.canRetry)
+    }
+
     private func waitForRequests(
         _ expectedCount: Int,
         transport: ConsumedContinuationArchiveTransport
@@ -212,6 +326,11 @@ private actor ConsumedContinuationAdmissionStub:
 private actor ConsumedContinuationArchiveRepository: ArchiveCoverageRepository {
     private var latestSegment: ArchiveCoverageSegment?
     private var coverageGeneration: UInt64 = 0
+    private let initialOlderBoundary: ArchiveCursor?
+
+    init(initialOlderBoundary: ArchiveCursor? = nil) {
+        self.initialOlderBoundary = initialOlderBoundary
+    }
 
     func verifiedAdmission(
         for intent: ArchiveWindowIntent,
@@ -249,10 +368,23 @@ private actor ConsumedContinuationArchiveRepository: ArchiveCoverageRepository {
             )
 
         case .older(let boundary):
+            if latestSegment == nil, boundary == initialOlderBoundary,
+               page.deliveredResultCount > 0,
+               page.intentionallyConsumedResultCount == page.deliveredResultCount,
+               page.messagePrimaryIDs.isEmpty, !page.requestComplete,
+               let segment = page.segment, !segment.reachesLiveEdge,
+               !segment.reachesArchiveStart {
+                latestSegment = segment
+                return .verified(ArchiveWindowSnapshot(messagePrimaryIDs: [],
+                    target: request.locator, verifiedSegment: segment,
+                    coverageGeneration: coverageGeneration, freshnessToken: freshnessToken))
+            }
             guard let latestSegment,
                   boundary == latestSegment.oldest,
                   let pageSegment = page.segment,
-                  page.messagePrimaryIDs.isNotEmpty,
+                  (page.messagePrimaryIDs.isNotEmpty ||
+                   (page.deliveredResultCount > 0 &&
+                    page.intentionallyConsumedResultCount == page.deliveredResultCount)),
                   pageSegment.fingerprint == latestSegment.fingerprint,
                   let mergedSegment = ArchiveCoverageSegment(
                       oldest: pageSegment.oldest,
@@ -260,10 +392,12 @@ private actor ConsumedContinuationArchiveRepository: ArchiveCoverageRepository {
                       reachesArchiveStart: pageSegment.reachesArchiveStart,
                       reachesLiveEdge: latestSegment.reachesLiveEdge,
                       fingerprint: latestSegment.fingerprint,
-                      isVerified: true
+                      isVerified: true,
+                      orderedArchiveIDs: pageSegment.orderedArchiveIDs + latestSegment.orderedArchiveIDs
                   ) else {
                 throw ArchiveTransportError.protocolViolation
             }
+            self.latestSegment = mergedSegment
             return .verified(
                 ArchiveWindowSnapshot(
                     messagePrimaryIDs: page.messagePrimaryIDs,

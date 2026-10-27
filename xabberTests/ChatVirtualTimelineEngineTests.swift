@@ -316,6 +316,84 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         XCTAssertEqual(Set(deduplicated.map(\.primary)), ["typed-mam", "raw-stanza"])
     }
 
+    func testProvenArchiveCollisionRowsSurviveLocalAndVerifiedTimelineOrdering() throws {
+        let (original, fork) = makeArchiveCollisionPair()
+        XCTAssertTrue(fork.usesDisambiguatedArchiveIdentity)
+        let local = ChatTimelineOrdering.deduplicatedChronological([fork, original])
+        XCTAssertEqual(local.map(\.primary), [original.primary, fork.primary])
+        XCTAssertEqual(local.map(\.body), ["original payload", "different archived payload"])
+
+        let scope = try makeScope(orderedIDs: [fork.mamArchiveId, original.mamArchiveId])
+        XCTAssertEqual(scope.ordered([original, fork]).map(\.primary), [fork.primary, original.primary])
+        var engine = makeEngine(
+            provider: VirtualTimelinePageProvider(messages: [original, fork]),
+            scope: scope
+        )
+        let snapshot = try XCTUnwrap(engine.installVerified(
+            items: [original, fork],
+            expectedPrimaryIDs: [original.primary, fork.primary],
+            direction: nil,
+            scope: scope
+        ))
+        XCTAssertEqual(snapshot.items.map(\.primary), [fork.primary, original.primary])
+        XCTAssertEqual(snapshot.items.map(\.body), ["different archived payload", "original payload"])
+        XCTAssertEqual(engine.currentSnapshot().items.count, 2)
+    }
+
+    func testArchiveCollisionWeakAliasExemptionRequiresTheExactCompleteIdentityTuple() throws {
+        let invalidIdentities: [(String, (MessageStorageItem) -> Void)] = [
+            ("owner", { $0.owner = "different-owner@example.com" }),
+            ("peer", { $0.opponent = "different-peer@example.com" }),
+            ("type", { $0.conversationType = .omemo }),
+            ("message", { $0.messageId = "different-protocol-message" }),
+            ("MAM result", { $0.mamArchiveId = "different-outer-UID" }),
+            ("MAM UTF8 spelling", { $0.mamArchiveId = "fork/cafe\u{0301}" }),
+            ("missing MAM result", { $0.mamArchiveId = "" }),
+            ("fabricated marker", { $0.primary = "mam-disambiguated:forged" }),
+            ("suffix", { $0.primary += "-unproved-suffix" })
+        ]
+        for (label, invalidate) in invalidIdentities {
+            let (_, item) = makeArchiveCollisionPair()
+            invalidate(item)
+            XCTAssertFalse(item.usesDisambiguatedArchiveIdentity, label)
+            let keys = ChatTimelineMessageIdentity.keys(for: item)
+            XCTAssertTrue(keys.contains("message:\(item.messageId)"), label)
+            XCTAssertTrue(keys.contains("raw:\(item.archivedId)"), label)
+        }
+
+        let (original, forged) = makeArchiveCollisionPair()
+        forged.primary = "mam-disambiguated:forged"
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological([original, forged]).count, 1,
+            "An arbitrary marker must not bypass existing alias deduplication")
+        let scope = try makeScope(orderedIDs: [original.mamArchiveId, forged.mamArchiveId])
+        XCTAssertEqual(scope.ordered([original, forged]).count, 1)
+    }
+
+    func testArchiveCollisionRowsStillDeduplicateStrongMAMAndPrimaryIdentities() throws {
+        let (sameMAMOriginal, sameMAMFork) = makeArchiveCollisionPair()
+        sameMAMOriginal.mamArchiveId = sameMAMFork.mamArchiveId
+        XCTAssertTrue(sameMAMFork.usesDisambiguatedArchiveIdentity)
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological([sameMAMOriginal, sameMAMFork]).count, 1)
+        let sameMAMScope = try makeScope(orderedIDs: [sameMAMFork.mamArchiveId])
+        XCTAssertEqual(sameMAMScope.ordered([sameMAMOriginal, sameMAMFork]).count, 1)
+
+        let (samePrimaryOriginal, samePrimaryFork) = makeArchiveCollisionPair()
+        samePrimaryOriginal.primary = samePrimaryFork.primary
+        XCTAssertTrue(samePrimaryFork.usesDisambiguatedArchiveIdentity)
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological([samePrimaryOriginal, samePrimaryFork]).count, 1)
+        let samePrimaryScope = try makeScope(orderedIDs: [samePrimaryOriginal.mamArchiveId, samePrimaryFork.mamArchiveId])
+        XCTAssertEqual(samePrimaryScope.ordered([samePrimaryOriginal, samePrimaryFork]).count, 1)
+    }
+
+    func testOrdinaryArchiveRowsKeepExistingWeakAliasDeduplication() throws {
+        let (original, ordinary) = makeArchiveCollisionPair()
+        ordinary.primary = "ordinary-unproved-primary"
+        XCTAssertFalse(ordinary.usesDisambiguatedArchiveIdentity)
+        XCTAssertEqual(ChatTimelineOrdering.deduplicatedChronological([ordinary, original]).count, 1)
+        let scope = try makeScope(orderedIDs: [original.mamArchiveId, ordinary.mamArchiveId])
+        XCTAssertEqual(scope.ordered([original, ordinary]).count, 1)
+    }
+
     func testPagingRejectsRawBoundaryWithoutTypedMAMCursor() throws {
         let item = makeMessages(200...200)[0]
         let scope = try makeScope(oldest: 200, newest: 200)
@@ -475,6 +553,28 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
                 queryID: "different-session-query"
             )
         ))
+    }
+
+    private func makeArchiveCollisionPair() -> (MessageStorageItem, MessageStorageItem) {
+        let messages = makeOpaqueMessages(["original-outer-UID", "fork/caf\u{00E9}"])
+        let original = messages[0]
+        let fork = messages[1]
+        for item in messages {
+            item.messageId = "shared-protocol-origin"
+            item.archivedId = "shared-protocol-stanza"
+        }
+        original.primary = MessageStorageItem.genPrimary(messageId: original.messageId, owner: owner)
+        original.body = "original payload"
+        original.date = Date(timeIntervalSince1970: 100)
+        original.sentDate = original.date
+        fork.primary = MessageStorageItem.disambiguatedArchivePrimary(
+            messageId: fork.messageId, owner: owner, opponent: jid,
+            conversationType: .regular, mamArchiveId: fork.mamArchiveId
+        )
+        fork.body = "different archived payload"
+        fork.date = Date(timeIntervalSince1970: 200)
+        fork.sentDate = fork.date
+        return (original, fork)
     }
 
     private var conversationKey: ChatTimelineConversationKey {

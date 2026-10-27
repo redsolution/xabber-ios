@@ -560,6 +560,16 @@ enum ChatLoadedMessageNavigationPolicy {
             return target
         }
 
+        if request.source == .search, let cursor = request.anchor.archiveCursor {
+            // Search responses may synthesize a logical primary shared by
+            // distinct archive records. An explicit MAM cursor cannot fall
+            // back to that primary, a protocol alias or a nearby date.
+            let matches = items.enumerated().filter { _, item in
+                isAnchorable(item) && item.mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) == cursor
+            }
+            return matches.count == 1 ? matches.first?.offset : nil
+        }
+
         if request.source == .search,
            let target = searchIndex(in: items, for: request.anchor) {
             return target
@@ -1234,6 +1244,21 @@ extension ChatViewController {
         openSearchResult(at: targetIndex, direction: direction)
     }
 
+    private func durableSearchAnchorPrimary(_ primary: String?, archiveCursor: ArchiveCursor?) -> String? {
+        guard let primary, primary.isNotEmpty else { return nil }
+        guard let archiveCursor else { return primary }
+        // Detached archive-search rows construct a base logical primary; only
+        // an existing durable row with the exact scoped MAM identity may add
+        // a primary constraint to that cursor. This lookup grants no coverage.
+        guard let realm = try? WRealm.safe(),
+              let stored = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              stored.owner.utf8.elementsEqual(owner.utf8),
+              stored.opponent.utf8.elementsEqual(jid.utf8),
+              stored.conversationType_.utf8.elementsEqual(conversationType.rawValue.utf8),
+              ArchiveCursor(rawValue: stored.mamArchiveId) == archiveCursor else { return nil }
+        return primary
+    }
+
     internal func makeSearchResultOpenMessageRequest(at index: Int) -> ChatOpenMessageRequest? {
         guard searchMessagesQueue.indices.contains(index) else {
             return nil
@@ -1255,10 +1280,8 @@ extension ChatViewController {
             let archiveCursor = result.anchor.archiveCursorID.flatMap {
                 ArchiveCursor(rawValue: $0)
             }
-            let primary = result.anchor.primary.isNotEmpty
-                ? result.anchor.primary
-                : nil
-            guard archivedId != nil || primary != nil else {
+            let primary = durableSearchAnchorPrimary(result.anchor.primary, archiveCursor: archiveCursor)
+            guard archivedId != nil || primary != nil || archiveCursor != nil else {
                 return nil
             }
 
@@ -1289,10 +1312,8 @@ extension ChatViewController {
             ? legacyItem.archivedId
             : nil
         let archiveCursor = ArchiveCursor(rawValue: legacyItem.mamArchiveId)
-        let primary = legacyItem.primary.isNotEmpty
-            ? legacyItem.primary
-            : nil
-        guard archivedId != nil || primary != nil else { return nil }
+        let primary = durableSearchAnchorPrimary(legacyItem.primary, archiveCursor: archiveCursor)
+        guard archivedId != nil || primary != nil || archiveCursor != nil else { return nil }
         return ChatOpenMessageRequest(
             chatJid: jid,
             owner: owner,
@@ -5308,7 +5329,7 @@ extension ChatViewController {
                 owner: self.owner,
                 conversationType: self.conversationType,
                 anchor: ChatMessageAnchorRef(
-                    messagePrimary: item.primary.isNotEmpty ? item.primary : nil,
+                    messagePrimary: durableSearchAnchorPrimary(item.primary, archiveCursor: archiveCursor),
                     archivedId: archivedId,
                     archiveCursor: archiveCursor,
                     messageId: item.messageId.isNotEmpty ? item.messageId : nil,

@@ -123,7 +123,7 @@ final class ChatSearchListSelectionTests: XCTestCase {
         XCTAssertFalse(request.markReadOnVisible)
         XCTAssertTrue(request.highlight)
         XCTAssertEqual(request.anchor.archivedId, "archive-42")
-        XCTAssertEqual(request.anchor.messagePrimary, result.anchor.primary)
+        XCTAssertNil(request.anchor.messagePrimary, "Detached search primary is not durable MAM identity")
         XCTAssertEqual(request.anchor.messageId, result.anchor.messageId)
         XCTAssertEqual(request.anchor.authorId, result.anchor.authorId)
         XCTAssertEqual(request.anchor.sourceDate, result.anchor.date)
@@ -171,7 +171,7 @@ final class ChatSearchListSelectionTests: XCTestCase {
             request.anchor.archiveCursor,
             ArchiveCursor(rawValue: "1700000000000001")
         )
-        XCTAssertEqual(request.anchor.messagePrimary, "message-primary")
+        XCTAssertNil(request.anchor.messagePrimary, "Unpersisted search primary cannot constrain the typed cursor")
         XCTAssertEqual(request.anchor.messageId, "message-id")
     }
 
@@ -196,7 +196,7 @@ final class ChatSearchListSelectionTests: XCTestCase {
             request.anchor.archiveCursor,
             ArchiveCursor(rawValue: "1700000000000001")
         )
-        XCTAssertEqual(request.anchor.messagePrimary, "message-primary")
+        XCTAssertNil(request.anchor.messagePrimary, "Unpersisted search primary cannot constrain the typed cursor")
     }
 
     func testSelectionKeepsCommittedCounterUntilPositioningSuccessAndFailureIsRecoverable() {
