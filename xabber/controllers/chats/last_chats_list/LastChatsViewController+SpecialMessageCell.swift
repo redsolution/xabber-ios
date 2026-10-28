@@ -124,24 +124,12 @@ class SpecialMessageTableViewCell: UITableViewCell {
         return stack
     }()
 
-    let leadingIconImageView: UIImageView = {
-        let view = UIImageView(frame: CGRect(x: 16, y: 6, width: 32, height: 32))
-        view.contentMode = .scaleAspectFit
-        view.tintColor = .systemPurple
-        view.isHidden = true
-        view.isAccessibilityElement = false
-
-        return view
-    }()
-    
     override func prepareForReuse() {
         super.prepareForReuse()
         self.titleLabel.text = nil
         self.subtitleLabel.text = nil
         self.avatarStack.subviews.forEach { $0.removeFromSuperview() }
         self.avatarStack.isHidden = true
-        self.leadingIconImageView.image = nil
-        self.leadingIconImageView.isHidden = true
         self.accessibilityIdentifier = nil
         self.accessibilityLabel = nil
         self.cancelButton.accessibilityLabel = nil
@@ -160,8 +148,6 @@ class SpecialMessageTableViewCell: UITableViewCell {
         self.key = key
         self.titleLabel.text = title
         self.subtitleLabel.text  = subtitle
-        self.leadingIconImageView.image = nil
-        self.leadingIconImageView.isHidden = true
         self.accessibilityIdentifier = nil
         self.cancelButton.accessibilityLabel = "Close".localizeString(
             id: "close",
@@ -238,35 +224,11 @@ class SpecialMessageTableViewCell: UITableViewCell {
         self.accessibilityTraits = .button
     }
 
-    func configurePremiumPromotion() {
-        self.key = LastChatsPremiumPromotionContent.key
-        self.titleLabel.text = LastChatsPremiumPromotionContent.title
-        self.subtitleLabel.text = LastChatsPremiumPromotionContent.subtitle
-        self.avatarStack.subviews.forEach { $0.removeFromSuperview() }
-        self.avatarStack.isHidden = true
-        self.leadingIconImageView.image = UIImage(
-            systemName: LastChatsPremiumPromotionContent.iconName
-        )
-        self.leadingIconImageView.tintColor = .systemPurple
-        self.leadingIconImageView.isHidden = false
-        self.accessibilityIdentifier = "last_chats_premium_promotion"
-        self.accessibilityLabel = [
-            LastChatsPremiumPromotionContent.title,
-            LastChatsPremiumPromotionContent.subtitle
-        ].joined(separator: ". ")
-        self.accessibilityTraits = .button
-        self.cancelButton.accessibilityLabel = "Hide premium offer".localizeString(
-            id: "last_chats_premium_promotion_hide",
-            arguments: []
-        )
-    }
-    
     func setupSubviews() {
         self.contentView.addSubview(self.contentStack)
         self.avatarStackContainer.frame = CGRect(origin: CGPoint(x: 16, y: 2), size: CGSize(width: 64, height: 44))
         self.contentView.addSubview(avatarStackContainer)
         self.avatarStackContainer.addSubview(avatarStack)
-        self.avatarStackContainer.addSubview(leadingIconImageView)
 //        self.contentView.addSubview(self.avatarStack)
         self.selectionStyle = .none
         self.contentStack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 96, right: 4)

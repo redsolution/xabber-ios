@@ -837,7 +837,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         let retainedChat = try XCTUnwrap(snapshot.objects(LastChatsStorageItem.self).first)
 
         // Account cleanup commits after rows have been materialized. The
-        // entitlement lookup used by mapDataset refreshes the live Realm.
+        // shared entitlement-cache lookup refreshes the live Realm.
         try realm.write {
             realm.delete(fixture.chat)
             realm.delete(fixture.message)
