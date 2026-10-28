@@ -279,6 +279,12 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     func requestItems(_ xmppStream: XMPPStream) {
+        if let account = AccountManager.shared.find(for: owner),
+           account.xmppStream === xmppStream,
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            key: "disco.items",
+            work: { user, currentStream in user.disco.requestItems(currentStream) }
+           ) { return }
         resetGroupServiceDiscovery()
         let elementId = xmppStream.generateUUID
         xmppStream.send(XMPPIQ(iqType: .get,
@@ -386,10 +392,16 @@ class ServerDiscoManager: AbstractXMPPManager {
                 nspace: "urn:xabber:http:url",
                 allowsGalleryMutation: isServerFeatureResponse
             )
-            if isServerFeatureResponse {
-                AccountManager.shared.find(for: owner)?.cloudStorage.resolveAuthoritativeDiscovery(
-                    endpoint: discoveredGalleryEndpoint
-                )
+            if isServerFeatureResponse, let account = AccountManager.shared.find(for: owner) {
+                let resolveGallery: (Account, XMPPStream) -> Void = { user, _ in
+                    user.cloudStorage.resolveAuthoritativeDiscovery(endpoint: discoveredGalleryEndpoint)
+                }
+                if !account.deferWorkUntilStartupSynchronizationCompletes(
+                    key: "gallery.discovery",
+                    work: resolveGallery
+                ) {
+                    resolveGallery(account, account.xmppStream)
+                }
             }
             if !isServerFeatureResponse && !isAccountOwnerFeatureResponse {
                 if parseClientIdentity(iq: iq) {
@@ -583,7 +595,15 @@ class ServerDiscoManager: AbstractXMPPManager {
                     discoveredGalleryEndpoint = normalizedEndpoint
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
                         if didStoreBasicGalleryURL, let basicGalleryURL = galleryConfiguration.basicGalleryURL {
-                            user.cloudStorage.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
+                            let authorize: (Account, XMPPStream) -> Void = { account, _ in
+                                account.cloudStorage.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
+                            }
+                            if !user.deferWorkUntilStartupSynchronizationCompletes(
+                                key: "gallery.authorization.basic",
+                                work: authorize
+                            ) {
+                                authorize(user, user.xmppStream)
+                            }
                         }
                         let currentURL = galleryConfiguration.currentGalleryURL?.absoluteString ?? galleryURL
                         user.cloudStorage.node = currentURL

@@ -553,6 +553,16 @@ extension OmemoManager {
     /// Every request is tied to an owner, exact peer/device and reset generation.
     /// A normal cached bundle or PEP headline is never sufficient to lift a reset.
     private func requestFreshOMEMO2Bundle(jid: String, deviceID: Int, generation: UUID?, isRecovery: Bool) {
+        if let account = AccountManager.shared.find(for: owner),
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            key: "omemo.fresh-bundle.\(jid).\(deviceID).\(generation?.uuidString ?? "recovery").\(isRecovery)",
+            work: { user, _ in
+                Self.sessionQueue.sync {
+                    user.omemo.requestFreshOMEMO2Bundle(jid: jid, deviceID: deviceID,
+                                                       generation: generation, isRecovery: isRecovery)
+                }
+            }
+           ) { return }
         let address = OMEMO2PeerAddress(jid: jid, deviceID: deviceID)
         let time = omemo2MaintenanceNow()
         if let existing = omemo2FreshBundleRequests[address],

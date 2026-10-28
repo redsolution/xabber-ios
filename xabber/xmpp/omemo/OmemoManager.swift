@@ -242,6 +242,11 @@ open class OmemoManager: AbstractXMPPManager {
     }
     
     internal func checkInfo() {
+        if let account = AccountManager.shared.find(for: owner),
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            key: "omemo.check-info",
+            work: { user, _ in user.omemo.checkInfo() }
+           ) { return }
         // XMPP session registration and OMEMO SID creation may complete in
         // either order, and a server list may omit the current omemo-id.
         reconcileLocalOMEMO2Metadata()
@@ -442,6 +447,15 @@ extension OmemoManager {
     
     public func getContactBundle(_ xmppStream: XMPPStream, jid: String, deviceId: Int, force: Bool = false, requestID: String? = nil) {
         guard let targetJID = XMPPJID(string: jid)?.bare else { return }
+        if let account = AccountManager.shared.find(for: owner),
+           account.xmppStream === xmppStream,
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            key: "omemo.bundle.\(targetJID).\(deviceId).\(force).\(requestID ?? "ordinary")",
+            work: { user, currentStream in
+                user.omemo.getContactBundle(currentStream, jid: targetJID, deviceId: deviceId,
+                                            force: force, requestID: requestID)
+            }
+           ) { return }
         let elementId = requestID ?? xmppStream.generateUUID
         if !force {
             do {

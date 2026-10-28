@@ -102,10 +102,7 @@ extension Account {
                 return
             }
         }
-        self.queue.asyncAfter(deadline: .now() + 1) {
-            _ = self.syncManager.sync(self.xmppStream)
-            self.devices.requestList(self.xmppStream)
-        }
+        self.startStartupSynchronizationIfReady()
     }
     
     func didReceivePing(withIq iq: XMPPIQ) -> Bool {
@@ -293,10 +290,9 @@ extension Account {
     }
     
     public final func didReceiveRoster() {
-        self.syncManager.sendInitialPresenceIfNeeded()
-        self.queue.asyncAfter(deadline: .now() + 1) {
-            self.updateExtensions()
-        }
+        self.roster.isInitialRosterReceived = true
+        self.sendStartupPresenceIfReady()
+        self.updateExtensions()
 //        if self.sm.canResumeStream() {
 //            return
 //        }

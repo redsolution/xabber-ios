@@ -431,14 +431,18 @@ final class AccountXMPPTaskScheduler {
     }
 
     private func nextRunnableTaskIndexLocked() -> Int? {
+        let startupSynchronizationIsPending = initialListSynchronizationInProgress()
         let onlyInteractiveWorkMayStart = interactiveChatOpenGate() ||
-            initialListSynchronizationInProgress()
+            startupSynchronizationIsPending
         return pendingTasks
             .enumerated()
             .filter { _, task in
                 !delayedResources.contains(task.resource)
                     && runningCountByResource[task.resource, default: 0] < configuration.maxConcurrent(for: task.resource)
                     && (!onlyInteractiveWorkMayStart || task.priority == .interactive)
+                    // MAM transactions arm their timeout when admitted. Keep
+                    // restored visible intents here, before request creation.
+                    && (!startupSynchronizationIsPending || task.resource != .mamArchive)
                     && (
                         !task.requiresAuthenticatedStream ||
                         account == nil ||
@@ -3340,9 +3344,22 @@ final class Account: NSObject {
             self?.interactiveChatOpenGate.isActive ?? false
         },
         initialListSynchronizationInProgress: { [weak self] in
-            self?.syncManager.isInitialListSynchronizationTrafficGateActive() ?? false
+            self?.isStartupBackgroundTrafficBlocked ?? false
         }
     )
+    private let startupWorkLock = NSRecursiveLock()
+    private let startupStanzaQueue = AccountPrimaryStreamBootstrapSendGate()
+    private var startupWorkGeneration: UInt64 = 0
+    private var startupBackgroundTrafficPending = false
+    private var startupPresenceSubmissionInProgress = false
+    private var startupPresenceTransmitted = false
+    private var startupBackgroundReleased = false
+    private var startupRosterWasReady = false
+    private var startupSyncRetryAttempt = 0
+    private var startupSyncRetryScheduled = false
+    private var startupWorkOrder: [String] = []
+    private var startupWork: [String: (Account, XMPPStream) -> Void] = [:]
+    private var startupWorkCancellation: [String: () -> Void] = [:]
     let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
     let connectionGate = AccountStreamLifecycleGate()
     let sendReadiness = AccountSendReadinessCoordinator()
@@ -3649,6 +3666,13 @@ final class Account: NSObject {
                 ]
             )
             if snapshot.canFlushApplicationStanzas {
+                let stream = self.xmppStream
+                self.queue.async { [weak self, weak stream] in
+                    guard let self, let stream, self.xmppStream === stream else { return }
+                    self.startStartupSynchronizationIfReady()
+                    self.releaseStartupBackgroundIfReady()
+                    self.sendStartupPresenceIfReady()
+                }
                 self.flushPendingPresenceSends()
                 self.sendCoordinator.accountDidBecomeSendReady()
             }
@@ -3705,6 +3729,257 @@ final class Account: NSObject {
         }
     }
 
+    var isStartupBackgroundTrafficBlocked: Bool {
+        startupWorkLock.lock()
+        defer { startupWorkLock.unlock() }
+        return syncManager.isAvailable &&
+            (startupBackgroundTrafficPending || syncManager.isStartupSynchronizationPending())
+    }
+
+    func prepareStartupTrafficOrdering(didResume: Bool) {
+        startupWorkLock.lock()
+        var cancelled: [() -> Void] = []
+        if !didResume {
+            startupWorkGeneration &+= 1
+            startupStanzaQueue.removeAll()
+            startupWorkOrder.removeAll()
+            startupWork.removeAll()
+            cancelled = Array(startupWorkCancellation.values)
+            startupWorkCancellation.removeAll()
+            startupBackgroundTrafficPending = syncManager.isAvailable
+            startupPresenceSubmissionInProgress = false
+            startupPresenceTransmitted = false
+            startupBackgroundReleased = false
+            startupRosterWasReady = false
+            startupSyncRetryAttempt = 0
+            startupSyncRetryScheduled = false
+        } else if syncManager.isAvailable && !startupBackgroundReleased {
+            startupBackgroundTrafficPending = true
+            if !startupPresenceTransmitted { syncManager.rearmUntransmittedStartupPresence() }
+        }
+        startupWorkLock.unlock()
+        cancelled.forEach { $0() }
+        xmppTaskScheduler.initialListSynchronizationDidChange()
+    }
+
+    func cancelStartupTrafficOrdering() {
+        startupWorkLock.lock()
+        startupWorkGeneration &+= 1
+        startupBackgroundTrafficPending = false
+        startupPresenceSubmissionInProgress = false
+        startupSyncRetryScheduled = false
+        startupWorkOrder.removeAll()
+        startupWork.removeAll()
+        let cancelled = Array(startupWorkCancellation.values)
+        startupWorkCancellation.removeAll()
+        startupStanzaQueue.removeAll()
+        startupWorkLock.unlock()
+        cancelled.forEach { $0() }
+    }
+
+    /// Keep request creation and its timeout together, after the list baseline.
+    /// Callers continue normally when false; retained work runs on account.queue.
+    @discardableResult
+    func deferWorkUntilStartupSynchronizationCompletes(
+        key: String,
+        onCancel: (() -> Void)? = nil,
+        work: @escaping (Account, XMPPStream) -> Void
+    ) -> Bool {
+        startupWorkLock.lock()
+        defer { startupWorkLock.unlock() }
+        guard isStartupBackgroundTrafficBlocked else { return false }
+        if startupWork[key] == nil { startupWorkOrder.append(key) }
+        startupWork[key] = work
+        startupWorkCancellation[key] = onCancel
+        logConnectionDiagnostics(event: "startup_work_deferred", details: ["key": key])
+        return true
+    }
+
+    func startStartupSynchronizationIfReady() {
+        guard syncManager.isStartupSynchronizationPending(),
+              sendReadiness.snapshot.canFlushApplicationStanzas,
+              xmppStream.isAuthenticated else { return }
+        _ = syncManager.sync(xmppStream)
+    }
+
+    func scheduleStartupSynchronizationRetry() {
+        startupWorkLock.lock()
+        guard syncManager.isStartupSynchronizationPending(), !startupSyncRetryScheduled else {
+            startupWorkLock.unlock()
+            return
+        }
+        startupSyncRetryScheduled = true
+        let generation = startupWorkGeneration
+        let stream = xmppStream
+        let delay = min(30.0, pow(2.0, Double(min(startupSyncRetryAttempt, 5))))
+        startupSyncRetryAttempt += 1
+        startupWorkLock.unlock()
+        logConnectionDiagnostics(event: "startup_sync_retry_scheduled", details: ["delaySeconds": delay])
+        queue.asyncAfter(deadline: .now() + delay) { [weak self, weak stream] in
+            guard let self, let stream else { return }
+            self.startupWorkLock.lock()
+            guard self.startupWorkGeneration == generation, self.xmppStream === stream else {
+                self.startupWorkLock.unlock()
+                return
+            }
+            self.startupSyncRetryScheduled = false
+            self.startupWorkLock.unlock()
+            self.startStartupSynchronizationIfReady()
+        }
+    }
+
+    func startupSynchronizationDidComplete(generation: UInt64) {
+        let stream = xmppStream
+        queue.async { [weak self, weak stream] in
+            guard let self, let stream, self.xmppStream === stream,
+                  self.syncManager.isCurrentStartupSynchronizationGeneration(generation),
+                  !self.syncManager.isStartupSynchronizationPending() else { return }
+            self.sendStartupPresenceIfReady()
+        }
+    }
+
+    func sendStartupPresenceIfReady() {
+        startupWorkLock.lock()
+        if roster.isInitialRosterReceived { startupRosterWasReady = true }
+        guard startupRosterWasReady, !startupPresenceSubmissionInProgress,
+              !syncManager.isStartupSynchronizationPending(),
+              sendReadiness.snapshot.canFlushApplicationStanzas,
+              xmppStream.isAuthenticated else {
+            startupWorkLock.unlock()
+            return
+        }
+        startupPresenceSubmissionInProgress = true
+        startupWorkLock.unlock()
+        shouldSendBroadcastPresenceWhenReady = false
+        _ = syncManager.sendInitialPresenceIfNeeded()
+    }
+
+    private var canSubmitPresenceDuringStartup: Bool {
+        startupWorkLock.lock()
+        defer { startupWorkLock.unlock() }
+        return !isStartupBackgroundTrafficBlocked || startupPresenceSubmissionInProgress
+    }
+
+    /// The did-send boundary establishes presence-before-background on the wire.
+    func startupPresenceDidSend(_ presence: XMPPPresence) {
+        guard presence.to == nil,
+              [nil, "", "available"].contains(presence.type),
+              !syncManager.isStartupSynchronizationPending() else { return }
+        startupWorkLock.lock()
+        guard startupBackgroundTrafficPending, startupPresenceSubmissionInProgress else {
+            startupWorkLock.unlock()
+            return
+        }
+        startupPresenceTransmitted = true
+        startupPresenceSubmissionInProgress = false
+        let generation = startupWorkGeneration
+        let stream = xmppStream
+        startupWorkLock.unlock()
+        queue.async { [weak self, weak stream] in
+            guard let self, let stream, self.xmppStream === stream else { return }
+            self.startupWorkLock.lock()
+            let isCurrent = self.startupWorkGeneration == generation
+            self.startupWorkLock.unlock()
+            if isCurrent { self.releaseStartupBackgroundIfReady() }
+        }
+    }
+
+    func startupPresenceDidFail(_ presence: XMPPPresence) {
+        guard presence.to == nil, [nil, "", "available"].contains(presence.type) else { return }
+        startupWorkLock.lock()
+        guard startupBackgroundTrafficPending, !startupPresenceTransmitted else {
+            startupWorkLock.unlock()
+            return
+        }
+        startupPresenceSubmissionInProgress = false
+        let generation = startupWorkGeneration
+        let stream = xmppStream
+        startupWorkLock.unlock()
+        syncManager.rearmUntransmittedStartupPresence()
+        queue.asyncAfter(deadline: .now() + 1) { [weak self, weak stream] in
+            guard let self, let stream, self.xmppStream === stream else { return }
+            self.startupWorkLock.lock()
+            let isCurrent = self.startupWorkGeneration == generation
+            self.startupWorkLock.unlock()
+            if isCurrent { self.sendStartupPresenceIfReady() }
+        }
+    }
+
+    private func releaseStartupBackgroundIfReady() {
+        guard xmppStream.isAuthenticated,
+              sendReadiness.snapshot.canFlushApplicationStanzas,
+              !syncManager.isStartupSynchronizationPending() else { return }
+        startupWorkLock.lock()
+        guard startupBackgroundTrafficPending, startupPresenceTransmitted else {
+            startupWorkLock.unlock()
+            return
+        }
+        startupBackgroundTrafficPending = false
+        let stream = xmppStream
+        let generation = startupWorkGeneration
+        let work = startupWorkOrder
+            .filter { $0 != "configureExtensions" && $0 != "updateExtensions" }
+            .compactMap { startupWork[$0] }
+        startupWorkOrder.removeAll()
+        startupWork.removeAll()
+        startupWorkCancellation.removeAll()
+        let queued = startupStanzaQueue.drainQueuedStanzas()
+        startupWorkLock.unlock()
+        logConnectionDiagnostics(event: "startup_background_released", details: ["queuedStanzas": queued.count, "operations": work.count])
+        configureExtensions()
+        startupWorkLock.lock()
+        let canPrepareModules = startupWorkGeneration == generation && xmppStream === stream
+        startupWorkLock.unlock()
+        guard canPrepareModules else { return }
+        updateExtensions()
+        for operation in work {
+            startupWorkLock.lock()
+            let isCurrent = startupWorkGeneration == generation && xmppStream === stream
+            startupWorkLock.unlock()
+            guard isCurrent else { return }
+            operation(self, stream)
+        }
+        for record in queued {
+            startupWorkLock.lock()
+            let isCurrent = startupWorkGeneration == generation && xmppStream === stream
+            startupWorkLock.unlock()
+            guard isCurrent else { return }
+            guard let stanza = record.makeElement() else { continue }
+            // One current initial broadcast replaces any older retained status.
+            if stanza.name == "presence", stanza.attributeStringValue(forName: "to") == nil,
+               stanza.attributeStringValue(forName: "type") != "unavailable" { continue }
+            _ = sendPrimaryStanza(stanza, replayPolicy: record.replayPolicy)
+        }
+        xmppTaskScheduler.initialListSynchronizationDidChange()
+        flushPendingPresenceSends()
+        startupWorkLock.lock()
+        if startupWorkGeneration == generation { startupBackgroundReleased = true }
+        startupWorkLock.unlock()
+    }
+
+    private func deferStartupStanzaIfNeeded(
+        _ stanza: XMPPElement,
+        replayPolicy: PrimaryStreamReplayPolicy
+    ) -> AccountPrimaryStreamBootstrapSendGate.Decision {
+        startupWorkLock.lock()
+        defer { startupWorkLock.unlock() }
+        // Only the initial broadcast may open the background lane after sync.
+        if startupPresenceSubmissionInProgress,
+           !syncManager.isStartupSynchronizationPending(),
+           stanza.name == "presence", stanza.attributeStringValue(forName: "to") == nil {
+            return .allowed
+        }
+        let decision = startupStanzaQueue.prepareForSend(
+            stanza, replayPolicy: replayPolicy,
+            isBootstrapActive: isStartupBackgroundTrafficBlocked,
+            ownerBareJID: jid
+        )
+        if case .queued(let id) = decision {
+            logConnectionDiagnostics(event: "startup_stanza_deferred", details: ["id": id, "kind": stanza.name])
+        }
+        return decision
+    }
+
     @discardableResult
     func sendPrimaryStanza(
         _ stanza: XMPPElement,
@@ -3720,6 +3995,9 @@ final class Account: NSObject {
         }
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
+        if case .queued(let id) = deferStartupStanzaIfNeeded(stanza, replayPolicy: effectiveReplayPolicy) {
+            return .queued(stanzaId: id)
+        }
         if shouldTrackPrimaryStreamStanza {
             let result = primaryStreamStanzaTracker.track(
                 stanzaId: stanzaId,
@@ -3761,7 +4039,11 @@ final class Account: NSObject {
             outgoingStanzaWasBlocked(stanza, reason: .recipientChanged, queuedAttempt: finalDelegate)
             return false
         }
-        let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
+        let effectiveReplayPolicy = primaryStreamStanzaTracker.trackedStanza(stanzaId: stanza.elementID)?.replayPolicy
+            ?? primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
+        if case .queued = deferStartupStanzaIfNeeded(stanza, replayPolicy: effectiveReplayPolicy) {
+            return false
+        }
         guard shouldTrackPrimaryStreamStanza else { return true }
 
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
@@ -3963,6 +4245,7 @@ final class Account: NSObject {
     }
     
     func resetStream() {
+        self.cancelStartupTrafficOrdering()
         self.cancelPendingGracefulDisconnect()
         self.logConnectionDiagnostics(event: "reset_stream_requested")
         self.disconnectCanonicalGroupTransport()
@@ -4023,6 +4306,7 @@ final class Account: NSObject {
     }
     
     public final func registerRegularPushForAccount() {
+        if deferWorkUntilStartupSynchronizationCompletes(key: "registerRegularPush", work: { user, _ in user.registerRegularPushForAccount() }) { return }
         if !self.isRegularPushRequestSended {
             self.isRegularPushRequestSended = true
             DispatchQueue.global(qos: .background).async {
@@ -4037,6 +4321,7 @@ final class Account: NSObject {
     }
     
     public final func registerVoIPPushForAccount() {
+        if deferWorkUntilStartupSynchronizationCompletes(key: "registerVoIPPush", work: { user, _ in user.registerVoIPPushForAccount() }) { return }
         if !self.isVoIPPushRequestSended {
             self.isVoIPPushRequestSended = true
             DispatchQueue.global(qos: .background).async {
@@ -4098,6 +4383,7 @@ final class Account: NSObject {
  *    enables XMPP features: message carbons, push notifications
  **/
     func configureExtensions() {
+        if deferWorkUntilStartupSynchronizationCompletes(key: "configureExtensions", work: { user, _ in user.configureExtensions() }) { return }
         self.carbons.set(xmppStream, to: .enabled)
         self.requestPushRegistration(refreshHTTPGrant: false)
         
@@ -4134,6 +4420,7 @@ final class Account: NSObject {
     }
 
     private func requestPushRegistration(refreshHTTPGrant: Bool) {
+        if deferWorkUntilStartupSynchronizationCompletes(key: "pushRegistration", work: { user, _ in user.requestPushRegistration(refreshHTTPGrant: refreshHTTPGrant) }) { return }
         let completion: (Bool) -> Void = { [weak self] _ in
             guard let self else { return }
             // A failed refresh leaves an acknowledged registration enabled.
@@ -4147,6 +4434,7 @@ final class Account: NSObject {
     }
     
     func updateExtensions() {
+        if deferWorkUntilStartupSynchronizationCompletes(key: "updateExtensions", work: { user, _ in user.updateExtensions() }) { return }
         if self.xmppStream.isDisconnected {
             
         }
@@ -4973,7 +5261,9 @@ final class Account: NSObject {
     }
 
     func presence(_ opponentJid: XMPPJID? = nil) {
-        guard self.sendReadiness.snapshot.canFlushApplicationStanzas else {
+        guard self.sendReadiness.snapshot.canFlushApplicationStanzas,
+              !self.syncManager.isStartupSynchronizationPending(),
+              canSubmitPresenceDuringStartup else {
             deferPresenceUntilReady(opponentJid)
             return
         }
@@ -5030,7 +5320,8 @@ final class Account: NSObject {
             if newStatus == .offline {
                 return
             } else {
-                if self.sendReadiness.snapshot.canFlushApplicationStanzas {
+                if self.sendReadiness.snapshot.canFlushApplicationStanzas,
+                   !self.syncManager.isStartupSynchronizationPending(), canSubmitPresenceDuringStartup {
                     if newMessage == nil {
                         self.statusMessage.accept(RosterUtils.shared.convertStatus(newStatus))
                     } else {
@@ -5103,6 +5394,7 @@ final class Account: NSObject {
  *    calls after any kind of disconnect
  **/
     func resetModules() {
+        self.cancelStartupTrafficOrdering()
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.notifications.invalidateNotificationSyncSession()

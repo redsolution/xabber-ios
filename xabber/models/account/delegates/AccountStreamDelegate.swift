@@ -472,6 +472,7 @@ extension Account: XMPPStreamDelegate {
         }
         self.cancelPendingGracefulDisconnect()
         DDLogDebug("primary stream didDisconnect jid=\(self.jid) error=\(self.disconnectErrorDescription(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
+        self.cancelStartupTrafficOrdering()
         self.logConnectionDiagnostics(
             event: "tcp_disconnected",
             details: ["disconnectError": self.disconnectErrorDescription(error)],
@@ -682,6 +683,7 @@ extension Account: XMPPStreamDelegate {
             DDLogInfo("S. presence: to \(presence.to?.bare ?? "none"), from \(presence.from?.bare ?? "none")")
         }
         self.gracefulDisconnectPresenceCompleted(presence, stream: sender, sent: true)
+        self.startupPresenceDidSend(presence)
     }
     
     func xmppStream(_ sender: XMPPStream, willReceive message: XMPPMessage) -> XMPPMessage? {
@@ -1041,6 +1043,7 @@ extension Account: XMPPStreamDelegate {
             error: error
         )
         self.gracefulDisconnectPresenceCompleted(presence, stream: sender, sent: false)
+        self.startupPresenceDidFail(presence)
     }
 
     func xmppStreamWasTold(toAbortConnect sender: XMPPStream) {

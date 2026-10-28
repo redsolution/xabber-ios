@@ -10,6 +10,14 @@ struct OMEMO2DeviceListRequest {
 
 extension OmemoManager {
     public func getContactDevices(_ stream: XMPPStream, jid: String, force: Bool = false) {
+        if let account = AccountManager.shared.find(for: owner),
+           account.xmppStream === stream,
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            key: "omemo.devices.\(jid).\(force)",
+            work: { user, currentStream in
+                user.omemo.getContactDevices(currentStream, jid: jid, force: force)
+            }
+           ) { return }
         do {
             let realm = try WRealm.safe()
             let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid) ?? OMEMO2DeviceListStorageItem()

@@ -228,6 +228,9 @@ final class AccountPrimaryStreamBootstrapSendGate {
         if case .durableRegularMessage = replayPolicy {
             return true
         }
+        if case .livenessProbeIQ = replayPolicy {
+            return true
+        }
 
         if loginCriticalDiscoReason(stanza, ownerBareJID: ownerBareJID) != nil {
             return true
@@ -249,11 +252,7 @@ final class AccountPrimaryStreamBootstrapSendGate {
             if type == "unavailable" {
                 return true
             }
-            let isAvailable = type == nil || type?.isEmpty == true || type == "available"
-            let hasRecipient = stanza.attributeStringValue(forName: "to")?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty == false
-            return isAvailable && !hasRecipient && replayPolicy.latestPresenceScope == "available:broadcast"
+            return false
         }
 
         return false

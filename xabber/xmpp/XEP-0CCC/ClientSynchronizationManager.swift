@@ -418,6 +418,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private let syncLifecycleLock = NSLock()
     private var syncRequestInfoById: [String: TrackedSyncRequest] = [:]
     private var syncSessionGeneration: UInt64 = 0
+    // Per authenticated session, including a stamped catch-up over cached rows.
+    // Retry/reset of a failed request is not successful startup completion.
+    private var startupSynchronizationPending = false
+    internal var startupResponseTimeoutInterval: TimeInterval = 60
+    private var startupResponseTimeouts: [String: DispatchWorkItem] = [:]
     private var phase: SyncPhase = .idle
     private var activeSnapshotStamp: String? = nil
     private var activeSnapshotRequestedStampMode: SnapshotRequestStampMode? = nil
@@ -753,18 +758,38 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     private func registerSyncQuery(_ elementId: String, request: SyncRequestDiagnostics) {
         queryIds.insert(elementId)
-        stateQueue.sync {
+        let timeout = stateQueue.sync { () -> DispatchWorkItem? in
             syncRequestInfoById[elementId] = TrackedSyncRequest(
                 diagnostics: request,
                 generation: syncSessionGeneration
             )
+            guard startupSynchronizationPending else { return nil }
+            let generation = syncSessionGeneration
+            let item = DispatchWorkItem { [weak self] in
+                self?.startupResponseDidTimeOut(elementId, generation: generation)
+            }
+            startupResponseTimeouts[elementId] = item
+            return item
         }
+        if let timeout {
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + max(0.01, startupResponseTimeoutInterval), execute: timeout
+            )
+        }
+    }
+
+    private func startupResponseDidTimeOut(_ elementId: String, generation: UInt64) {
+        guard isCurrentSyncSessionGeneration(generation), isStartupSynchronizationPending(),
+              let request = consumeTrackedSyncRequest(elementId), request.generation == generation else { return }
+        logSyncTrace("startupResponseTimedOut", [("id", elementId), ("persistedSnapshotStamp", "withheld")])
+        _ = resetSyncStateAfterFailure(expectedGeneration: generation)
     }
 
     private func consumeTrackedSyncRequest(_ elementId: String) -> TrackedSyncRequest? {
         syncLifecycleLock.lock()
         let trackedRequest = stateQueue.sync {
-            syncRequestInfoById.removeValue(forKey: elementId)
+            startupResponseTimeouts.removeValue(forKey: elementId)?.cancel()
+            return syncRequestInfoById.removeValue(forKey: elementId)
         }
         if trackedRequest != nil {
             queryIds.remove(elementId)
@@ -808,6 +833,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         if didReset {
             temporaryVer = nil
             notifyInitialListSynchronizationTrafficGateDidChange()
+            AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
         }
         return didReset
     }
@@ -1081,6 +1107,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         stateQueue.sync {
             isInitialChatListSynchronizationInProgressLocked()
         }
+    }
+
+    final func isStartupSynchronizationPending() -> Bool {
+        stateQueue.sync { isAvailable && startupSynchronizationPending }
+    }
+
+    final func isCurrentStartupSynchronizationGeneration(_ generation: UInt64) -> Bool {
+        isCurrentSyncSessionGeneration(generation)
     }
 
     /// Scheduler-facing gate for the active initial snapshot only. Unlike the
@@ -1745,6 +1779,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     
     internal func claimInitialPresenceSend() -> Bool {
         stateQueue.sync {
+            guard !isAvailable || !startupSynchronizationPending else { return false }
             guard case .ready = initialPresenceSessionState else { return false }
             initialPresenceSessionState = .sent
             return true
@@ -1758,6 +1793,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     internal func noteBroadcastPresenceWillSend() {
         _ = claimInitialPresenceSend()
+    }
+
+    internal func rearmUntransmittedStartupPresence() {
+        stateQueue.sync { initialPresenceSessionState = .ready }
     }
 
     internal func prepareInitialPresenceForAuthenticatedStream(didResume: Bool) {
@@ -1809,6 +1848,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     internal func restoreAfterStreamManagementResume() {
         guard let account = AccountManager.shared.find(for: owner) else { return }
+        if account.isStartupBackgroundTrafficBlocked {
+            account.sendStartupPresenceIfReady()
+            return
+        }
         account.action { [weak self] (user, stream) in
             guard stream.isAuthenticated else { return }
             user.msgDeleteManager.enable(stream)
@@ -1883,6 +1926,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 ("childNames", query.children?.compactMap { ($0 as? DDXMLElement)?.name }.joined(separator: ",")),
                 ("persistedSnapshotStamp", "withheld")
             ])
+            AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
             return true
         }
         guard beginApplyingPage(
@@ -1978,6 +2022,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         self.firstSync = false
                         self.acountSynced = true
                         self.temporaryVer = nil
+                        if !actions.needsCatchUpSync {
+                            self.startupSynchronizationPending = false
+                        }
                         return true
                     }
                     guard didPersistCompletion,
@@ -1997,6 +2044,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         ("needsCatchUpSync", actions.needsCatchUpSync),
                         ("completionTailMs", Int(Date().timeIntervalSince(completionStartedAt) * 1000))
                     ])
+                    if !actions.needsCatchUpSync {
+                        AccountManager.shared.find(for: self.owner)?
+                            .startupSynchronizationDidComplete(generation: expectedGeneration)
+                    }
                     if actions.needsCatchUpSync {
                         AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
                             _ = self.performSync(
@@ -2152,6 +2203,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     phase = .snapshotInProgress
                 }
             }
+            AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
             return true
         }
         return consumeGenericQueryId(elementId)
@@ -2171,6 +2223,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             beforeResettingSyncResult?()
             if resetSyncSession(expectedGeneration: trackedRequest.generation) {
                 temporaryVer = nil
+                AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
             }
             return true
         }
@@ -2201,6 +2254,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             self.isApplyingPage = false
             self.needsCatchUpAfterSnapshot = false
             self.syncRequestInfoById.removeAll()
+            self.startupResponseTimeouts.values.forEach { $0.cancel() }
+            self.startupResponseTimeouts.removeAll()
             return true
         }
         if didReset {
@@ -2224,6 +2279,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         if !didResume {
             reset()
         }
+        stateQueue.sync {
+            if !didResume {
+                startupSynchronizationPending = isAvailable
+            }
+        }
+        AccountManager.shared.find(for: owner)?
+            .prepareStartupTrafficOrdering(didResume: didResume)
         prepareInitialPresenceForAuthenticatedStream(didResume: didResume)
     }
     

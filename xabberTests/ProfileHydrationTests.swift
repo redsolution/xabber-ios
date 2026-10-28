@@ -9,12 +9,34 @@ final class ProfileHydrationTests: XCTestCase {
         private let lock = NSLock()
         private var sent: [DDXMLElement] = []
         var onSend: ((DDXMLElement) -> Void)?
+        weak var startupAccount: Account?
         override var isAuthenticated: Bool { true }
         override func send(_ element: DDXMLElement) {
+            let admitted: DDXMLElement?
+            if let account = startupAccount, let iq = element as? XMPPIQ {
+                admitted = account.xmppStream(self, willSend: iq)
+            } else if let account = startupAccount, let presence = element as? XMPPPresence {
+                admitted = account.xmppStream(self, willSend: presence)
+            } else {
+                admitted = element
+            }
+            guard let admitted else { return }
             lock.lock()
-            sent.append(element.copy() as! DDXMLElement)
+            sent.append(admitted.copy() as! DDXMLElement)
             lock.unlock()
-            onSend?(element)
+            onSend?(admitted)
+            if let account = startupAccount {
+                // Match XMPPFramework's delegate queue rather than invoking
+                // didSend while the caller may still own Realm fixture work.
+                account.queue.async { [weak account, weak self] in
+                    guard let account, let self else { return }
+                    if let presence = admitted as? XMPPPresence {
+                        account.xmppStream(self, didSend: presence)
+                    } else if let iq = admitted as? XMPPIQ {
+                        account.xmppStream(self, didSend: iq)
+                    }
+                }
+            }
         }
         var elements: [DDXMLElement] {
             lock.lock()
@@ -108,17 +130,15 @@ final class ProfileHydrationTests: XCTestCase {
     func testOwnBinaryAvatarDataRunsBeforeQueuedRosterMetadataAfterBootstrap() throws {
         try addRoster(jid: "peer-a@example.com")
         try addRoster(jid: "peer-b@example.com")
-        account.syncManager.isAvailable = true
-        XCTAssertTrue(account.syncManager.sync(stream))
-        XCTAssertTrue(account.syncManager.isInitialListSynchronizationTrafficGateActive())
-        let blocked = expectation(description: "avatars wait for initial synchronization")
-        blocked.isInverted = true
+        stream.startupAccount = account
+        defer { stream.startupAccount = nil }
         let sent = expectation(description: "own metadata, own data and two peer metadata sent")
         sent.expectedFulfillmentCount = 4
-        var bootstrapActive = true
         stream.onSend = { [unowned self] element in
-            guard let items = element.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?.element(forName: "items") else { return }
-            if bootstrapActive { blocked.fulfill() }
+            guard let items = element.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?.element(forName: "items"),
+                  ["urn:xmpp:avatar:metadata", "urn:xmpp:avatar:data"]
+                    .contains(items.attributeStringValue(forName: "node") ?? "") else { return }
+            XCTAssertFalse(account.isStartupBackgroundTrafficBlocked)
             sent.fulfill()
             if items.attributeStringValue(forName: "node") == "urn:xmpp:avatar:metadata",
                element.attributeStringValue(forName: "to") == owner {
@@ -135,18 +155,43 @@ final class ProfileHydrationTests: XCTestCase {
                 } catch { XCTFail("Own metadata response could not be delivered: \(error)") }
             }
         }
-        account.avatarManager.onStreamPrepared(stream)
+        account.syncManager.isAvailable = true
+        account.syncManager.prepareForAuthenticatedStream(didResume: false)
+        account.didReceiveRoster()
         account.sendReadiness.markStreamManagementEnabled()
-        wait(for: [blocked], timeout: 0.05)
+        account.queue.sync {}
+        XCTAssertTrue(account.isStartupBackgroundTrafficBlocked)
+        XCTAssertFalse(stream.elements.contains { $0.element(forName: "pubsub") != nil })
+        let syncRequest = try XCTUnwrap(stream.elements.first {
+            $0.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace) != nil
+        })
+        let syncID = try XCTUnwrap(syncRequest.attributeStringValue(forName: "id"))
 
-        bootstrapActive = false
-        account.syncManager.reset()
+        XCTAssertTrue(account.syncManager.read(withIQ: try iq("""
+            <iq type='result' id='\(syncID)'>
+              <query xmlns='https://xabber.com/protocol/synchronization' stamp='1793185595284531'>
+                <set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>
+              </query>
+            </iq>
+            """)))
+        account.syncManager.waitForPendingSnapshotApplies()
         wait(for: [sent], timeout: 2)
 
-        let requests = stream.elements.filter { $0.element(forName: "pubsub") != nil }
+        let requests = stream.elements.filter {
+            guard let node = $0.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node") else { return false }
+            return ["urn:xmpp:avatar:metadata", "urn:xmpp:avatar:data"].contains(node)
+        }
+        XCTAssertEqual(requests.count, 4)
         XCTAssertEqual(requests.prefix(2).compactMap { $0.attributeStringValue(forName: "to") }, [owner!, owner!])
         XCTAssertEqual(requests.prefix(2).compactMap { $0.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node") }, ["urn:xmpp:avatar:metadata", "urn:xmpp:avatar:data"])
         XCTAssertEqual(requests.last?.attributeStringValue(forName: "to"), "peer-b@example.com")
+        let presenceIndex = try XCTUnwrap(stream.elements.firstIndex { element in
+            element.name == "presence" && element.attributeStringValue(forName: "to") == nil
+        })
+        let avatarIndex = try XCTUnwrap(stream.elements.firstIndex {
+            $0.attributeStringValue(forName: "id") == requests.first?.attributeStringValue(forName: "id")
+        })
+        XCTAssertLessThan(presenceIndex, avatarIndex)
     }
 
     func testCorrelatedOwnPEPMetadataResultMayOmitFrom() throws {

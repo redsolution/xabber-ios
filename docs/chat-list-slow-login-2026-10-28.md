@@ -66,3 +66,7 @@ Incoming application stanzas total 109: 62 presence (6 subscribe, 21 available, 
 Separate SM activity: ack sends at 37.168 and 52.301, ack request at 37.254, no logged stream_management_ack_received in the interval. A liveness ping was suppressed because an SM ack was already outstanding; timeout diagnostics are not wire stanzas. Two HTTP cloud-stats requests completed during the interval.
 
 Traffic is not uniformly distributed: after incoming subscriptions end at 37.234, no incoming callback occurs until 52.250; then replies, presence/PubSub and new OMEMO queries run before sync reaches the callback at 56.172. Concurrent background traffic is established; its causal contribution to the delay is not quantified.
+
+## Follow-up implementation
+
+The user subsequently explicitly requested restoring sync → own presence → background ordering. See [sync-first startup](sync-first-startup-2026-10-28.md). That authorized implementation supersedes this investigation's earlier recommendation against speculative restoration; the server-time attribution above remains unproved.

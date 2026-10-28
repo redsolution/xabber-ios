@@ -8789,7 +8789,7 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         XCTAssertEqual(AccountInteractiveChatOpenGate.maximumAllowedDuration, 30)
     }
 
-    func testInitialListSynchronizationGateQueuesAuxiliaryWorkButAllowsInteractiveArchive() {
+    func testInitialListSynchronizationGateQueuesAllArchiveWorkButAllowsOtherInteractiveWork() {
         let lock = NSLock()
         var initialSyncInProgress = true
         let scheduler = AccountXMPPTaskScheduler(
@@ -8802,15 +8802,18 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
             }
         )
         let interactiveStarted = expectation(
-            description: "interactive archive starts during initial list sync"
+            description: "interactive non-archive work starts during initial list sync"
+        )
+        let interactiveArchiveStarted = expectation(
+            description: "interactive archive starts after initial list sync"
         )
         let backgroundStarted = expectation(
-            description: "background work starts after initial list sync"
+            description: "background archive starts after initial list sync"
         )
-        let backgroundStartedEarly = expectation(
-            description: "background work stays queued during initial list sync"
+        let archiveStartedEarly = expectation(
+            description: "all archive work stays queued during initial list sync"
         )
-        backgroundStartedEarly.isInverted = true
+        archiveStartedEarly.isInverted = true
         var checkingEarlyStart = true
 
         scheduler.enqueue(
@@ -8821,9 +8824,7 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
             lock.lock()
             let startedEarly = checkingEarlyStart
             lock.unlock()
-            if startedEarly {
-                backgroundStartedEarly.fulfill()
-            }
+            if startedEarly { archiveStartedEarly.fulfill() }
             backgroundStarted.fulfill()
             finish()
         }
@@ -8832,19 +8833,31 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
             resource: .mamArchive,
             deduplicationKey: "visible-chat"
         ) { finish in
+            lock.lock()
+            let startedEarly = checkingEarlyStart
+            lock.unlock()
+            if startedEarly { archiveStartedEarly.fulfill() }
+            interactiveArchiveStarted.fulfill()
+            finish()
+        }
+        scheduler.enqueue(
+            priority: .interactive,
+            resource: .other("user-action"),
+            deduplicationKey: "interactive-non-archive"
+        ) { finish in
             interactiveStarted.fulfill()
             finish()
         }
         scheduler.resume()
 
         wait(for: [interactiveStarted], timeout: 1)
-        wait(for: [backgroundStartedEarly], timeout: 0.1)
+        wait(for: [archiveStartedEarly], timeout: 0.1)
         lock.lock()
         checkingEarlyStart = false
         initialSyncInProgress = false
         lock.unlock()
         scheduler.initialListSynchronizationDidChange()
-        wait(for: [backgroundStarted], timeout: 1)
+        wait(for: [interactiveArchiveStarted, backgroundStarted], timeout: 1)
     }
 
     func testRunsQueuedTasksByPriority() {
@@ -25075,7 +25088,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XMPPIQ(from: try makeElement(xml: xml))
     }
 
-    func testInitialPresenceClaimIsIndependentOfSyncVersionAndIdempotent() {
+    func testUnsupportedSyncInitialPresenceClaimIsIdempotentRegardlessOfVersion() {
         let manager = ClientSynchronizationManager(withOwner: owner)
         manager.version = ""
         manager.prepareInitialPresenceForAuthenticatedStream(didResume: false)
@@ -25356,20 +25369,17 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertFalse(manager.sync(newStream))
     }
 
-    func testSnapshotCompletionDoesNotOwnInitialPresence() throws {
+    func testSnapshotCompletionMakesInitialPresenceClaimAvailable() throws {
         let manager = ClientSynchronizationManager(withOwner: owner)
         manager.isAvailable = true
         manager.prepareForAuthenticatedStream(didResume: false)
         let stream = XMPPStream()
         XCTAssertTrue(manager.sync(stream))
         let queryId = try XCTUnwrap(manager.queryIds.last)
-        let attemptsLock = NSLock()
-        var initialPresenceAttempts = 0
-        manager.initialPresenceSendAttemptObserver = {
-            attemptsLock.lock()
-            initialPresenceAttempts += 1
-            attemptsLock.unlock()
-        }
+        XCTAssertFalse(
+            manager.claimInitialPresenceSend(),
+            "An authenticated stream with XEP-SYNC support must wait for its committed final sync page before claiming initial presence"
+        )
         let result = try makeIQ(xml: """
         <iq type='result' id='\(queryId)'>
           <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000012'>
@@ -25381,11 +25391,8 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertTrue(manager.read(withIQ: result))
         manager.waitForPendingSnapshotApplies()
 
-        attemptsLock.lock()
-        let attempts = initialPresenceAttempts
-        attemptsLock.unlock()
-        XCTAssertEqual(attempts, 0)
         XCTAssertTrue(manager.claimInitialPresenceSend())
+        XCTAssertFalse(manager.claimInitialPresenceSend())
     }
 
     private func insertLastChat(

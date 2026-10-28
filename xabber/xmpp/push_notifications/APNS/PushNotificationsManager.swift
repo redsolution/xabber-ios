@@ -329,6 +329,16 @@ class PushNotificationsManager: AbstractXMPPManager {
     }
 
     private func beginRegistration(xmppStream: XMPPStream, refresh: Bool, callback: @escaping (Bool) -> Void) {
+        if let account = AccountManager.shared.find(for: owner),
+           account.xmppStream === xmppStream,
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            // Every caller retains its callback; registration coalesces after release.
+            key: "push.registration.\(UUID().uuidString)",
+            onCancel: { callback(false) },
+            work: { user, currentStream in
+                user.push.beginRegistration(xmppStream: currentStream, refresh: refresh, callback: callback)
+            }
+           ) { return }
         stateLock.lock()
         guard let jid = xmppStream.myJID, jid.bare == owner,
               jid.user?.isEmpty == false else {

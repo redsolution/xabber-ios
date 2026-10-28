@@ -1225,7 +1225,7 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(resultIQ, replayPolicy: .notReplayable))
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(userMessage, replayPolicy: .durableRegularMessage(originId: "message-1")))
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(rosterIQ, replayPolicy: .notReplayable))
-        XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(initialPresence, replayPolicy: .latestPresence(scope: "available:broadcast")))
+        XCTAssertFalse(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(initialPresence, replayPolicy: .latestPresence(scope: "available:broadcast")))
         XCTAssertTrue(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(unavailable, replayPolicy: .latestPresence(scope: "account-unavailable")))
         XCTAssertFalse(AccountPrimaryStreamBootstrapSendGate.allowsDuringBootstrap(vCardIQ, replayPolicy: .notReplayable))
     }

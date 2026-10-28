@@ -131,6 +131,12 @@ class XMPPDeviceManager: AbstractXMPPManager {
     
     open func requestList(_ xmppStream: XMPPStream) {
         if !isAvailable { return }
+        if let account = AccountManager.shared.find(for: owner),
+           account.xmppStream === xmppStream,
+           account.deferWorkUntilStartupSynchronizationCompletes(
+            key: "devices.list",
+            work: { user, currentStream in user.devices.requestList(currentStream) }
+           ) { return }
         let elementID = xmppStream.generateUUID
         xmppStream.send(
             XMPPIQ(

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A32810280000000000000002 /* InitialSyncTrafficOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */; };
 		08C7AA12149646198E8BEEFB /* ArchiveLoadingLiveDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */; };
 		A32110210000000000000051 /* OMEMO2FinalRecipientTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */; };
 		A32110210000000000000041 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */; };
@@ -1242,6 +1243,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InitialSyncTrafficOrderingTests.swift; sourceTree = "<group>"; };
 		E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveLoadingLiveDeviceTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000052 /* OMEMO2FinalRecipientTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2FinalRecipientTransportTests.swift; sourceTree = "<group>"; };
 		A32110210000000000000042 /* OMEMOThreeClientAttachmentOpenSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOThreeClientAttachmentOpenSafetyTests.swift; sourceTree = "<group>"; };
@@ -4434,6 +4436,7 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */,
 				3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */,
 				B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */,
 				4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */,
@@ -6955,6 +6958,7 @@
 				4E3200022F6A000000ABC001 /* ContactsListAppearanceTests.swift in Sources */,
 				4E3300022F6A100000ABC001 /* NotificationsListAppearanceTests.swift in Sources */,
 				4E5200042F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift in Sources */,
+				A32810280000000000000002 /* InitialSyncTrafficOrderingTests.swift in Sources */,
 				4E6100022FA000000ABC001 /* MessageBareJIDSendTests.swift in Sources */,
 				4E6200022FA100000ABC001 /* ChatDisappearanceReadStateTests.swift in Sources */,
 				4E6300022FA200000ABC001 /* ChatViewportReadBoundaryTests.swift in Sources */,

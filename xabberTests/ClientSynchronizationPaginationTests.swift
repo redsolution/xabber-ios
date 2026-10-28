@@ -3294,42 +3294,31 @@ final class ClientSynchronizationArchiveIsolationContractTests: XCTestCase {
         )
     }
 
-    func testInitialXEPSYNCHasNoCrossFileArchiveReleaseHooks() throws {
-        let syncSource = try productionSource(
+    func testSyncPageApplicationDoesNotLaunchAuxiliaryArchiveWork() throws {
+        let source = try productionSource(
             "xmpp/XEP-0CCC/ClientSynchronizationManager.swift"
         )
-        let accountSource = try productionSource("models/account/Account.swift")
-        let connectionSource = try productionSource(
-            "models/account/extensions/AccountConnectBehaviorExtension.swift"
+        let applier = try sourceSection(
+            source,
+            from: "struct ClientSyncPageApplier {",
+            to: "class ClientSynchronizationManager:"
         )
-
-        let syncReleaseHooks = [
-            "pendingPostBootstrapWork",
-            "deferPostBootstrapWorkIfNeeded(",
-            "flushBootstrapQueuedPrimaryStanzas(",
-            "bootstrapGateDidChange("
+        let applyPath = try sourceSection(
+            source,
+            from: "private func applySyncPayload(",
+            to: "private func beginApplyingPage("
+        )
+        // Account startup may release background work once the complete
+        // snapshot commits. Applying an individual sync page remains list-only.
+        let archiveLaunches = [
+            "scheduleInviteRecovery(",
+            "requestArchive(",
+            ".notifications.update(",
+            ".favorites.update("
         ]
-        XCTAssertEqual(
-            syncReleaseHooks.filter(syncSource.contains),
-            [],
-            "Completing initial XEP-SYNC must not release deferred account traffic or queued MAM consumers"
-        )
 
-        XCTAssertFalse(
-            accountSource.contains("self?.syncManager.isBootstrapCriticalSyncInProgress() ?? false"),
-            "The account scheduler must not use chat-list synchronization as an admission gate"
-        )
-
-        let deferredArchiveConsumers = [
-            "self.notifications.update(self.xmppStream)",
-            "self.favorites.update(self.xmppStream)",
-            "updatePostBootstrapArchives"
-        ]
-        XCTAssertEqual(
-            deferredArchiveConsumers.filter(connectionSource.contains),
-            [],
-            "Notifications and Saved archive refreshes must not be deferred work launched by initial XEP-SYNC completion"
-        )
+        XCTAssertEqual(archiveLaunches.filter(applier.contains), [])
+        XCTAssertEqual(archiveLaunches.filter(applyPath.contains), [])
     }
 
     func testAuxiliaryArchiveRefreshesUseBackgroundMAMPriority() throws {
