@@ -312,41 +312,8 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
     }
     
     internal func onDeleteAccount() {
-        let presenter = QuitAccountPresenter(jid: jid)
-        presenter.present(in: self, animated: true) {
+        QuitAccountPresenter(jid: jid).presentAndQuit(in: self) {
             self.unsubscribe()
-            AccountManager.shared.deleteAccount(by: self.jid)
-            if AccountManager.shared.emptyAccountsList() {
-                DispatchQueue.main.async {
-                    if self.isModal {
-                        self.dismiss(animated: true) {
-                            let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                            AppDelegate.setupRootViewController(
-                                instance: appDelegate,
-                                window: appDelegate?.window,
-                                userInfo: nil
-                            )
-                        }
-                    } else {
-                        let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                        AppDelegate.setupRootViewController(
-                            instance: appDelegate,
-                            window: appDelegate?.window,
-                            userInfo: nil
-                        )
-                    }
-                }
-            } else {
-                DispatchQueue.main.async {
-                    if self.isModal {
-                        self.dismiss(animated: true, completion: nil)
-                    } else {
-                        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-                        self.navigationController?.navigationBar.shadowImage = nil
-                        self.navigationController?.popToRootViewController(animated: true)
-                    }
-                }
-            }
         }
     }
     

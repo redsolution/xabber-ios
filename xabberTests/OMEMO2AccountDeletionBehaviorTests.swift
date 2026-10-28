@@ -5,6 +5,43 @@ import XCTest
 @testable import xabber
 
 final class OMEMO2AccountDeletionBehaviorTests: XCTestCase {
+    func testAccountCryptoRemovalPropagatesProtectedStateFailureAndRollsBackCallerTransaction() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "omemo-removal-failure-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let owner = "removed-\(UUID().uuidString.lowercased())@example.test"
+        let otherOwner = "retained-\(UUID().uuidString.lowercased())@example.test"
+        let removedRows = rows(owner: owner)
+        let retainedRows = rows(owner: otherOwner)
+        try realm.write { realm.add(removedRows + retainedRows) }
+        let optOut = try XCTUnwrap(removedRows.last as? OMEMO2OptOutStorageItem)
+        let originalReason = optOut.reason
+        var protectedRemovalOwners: [String] = []
+
+        XCTAssertThrowsError(try realm.write {
+            optOut.reason = "must roll back"
+            try OmemoManager.removeAccountData(
+                for: owner,
+                commitTransaction: false,
+                removeProtectedState: { suppliedOwner in
+                    protectedRemovalOwners.append(suppliedOwner)
+                    throw ProtectedStateDeletionFailure.rejected
+                }
+            )
+        }) { error in
+            XCTAssertEqual(error as? ProtectedStateDeletionFailure, .rejected)
+        }
+
+        XCTAssertEqual(protectedRemovalOwners, [owner])
+        XCTAssertFalse(realm.isInWriteTransaction)
+        XCTAssertEqual(optOut.reason, originalReason)
+        for row in removedRows + retainedRows {
+            XCTAssertFalse(row.isInvalidated, "A failed credential deletion must preserve \(type(of: row))")
+        }
+        XCTAssertEqual(realm.objects(OMEMO2OptOutStorageItem.self).filter("owner == %@", otherOwner).count, 1)
+    }
+
     func testCommittedAccountCryptoRemovalDeletesOnlyItsOwnProjectionsAndBothProtectedGenerations() throws {
         try checkRemoval(commitTransaction: true)
     }
@@ -152,4 +189,8 @@ final class OMEMO2AccountDeletionBehaviorTests: XCTestCase {
          kSecAttrAccount as String: [owner, XabberOMEMO2Storage.profile, "state-v1"].prp(),
          kSecAttrSynchronizable as String: false]
     }
+}
+
+private enum ProtectedStateDeletionFailure: Error, Equatable {
+    case rejected
 }

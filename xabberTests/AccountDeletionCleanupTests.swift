@@ -1,7 +1,151 @@
 import XCTest
+import RealmSwift
 @testable import xabber
 
 final class AccountDeletionCleanupTests: XCTestCase {
+    func testFinalCleanupRemovesRemainingOwnerRowsAndPreservesOtherAccountAndDeviceSettings() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "AccountDeletionRemaining-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let owner = "removed-\(UUID().uuidString.lowercased())@example.test"
+        let otherOwner = "retained-\(UUID().uuidString.lowercased())@example.test"
+        let removedRows = remainingRows(owner: owner)
+        let retainedRows = remainingRows(owner: otherOwner)
+        let deviceSettings = NotifyManagerStorage()
+        deviceSettings.showMessageNotify = false
+        try realm.write {
+            realm.add(removedRows + retainedRows)
+            realm.add(deviceSettings)
+        }
+        let finalStep = try XCTUnwrap(AccountDeletionStorageCleanupStep.defaultSteps.last)
+
+        try realm.write { try finalStep.perform(owner) }
+
+        for row in removedRows {
+            XCTAssertTrue(row.isInvalidated, "Final account cleanup must remove \(type(of: row))")
+        }
+        for row in retainedRows {
+            XCTAssertFalse(row.isInvalidated, "Another account's \(type(of: row)) must remain")
+            XCTAssertEqual(row.value(forKey: "owner") as? String, otherOwner)
+        }
+        XCTAssertFalse(deviceSettings.isInvalidated)
+        XCTAssertFalse(deviceSettings.showMessageNotify)
+    }
+
+    func testMessageCleanupRemovesPrivateAttachmentsTemporaryStanzasAndHistoryForDeletedOwnerOnly() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "AccountDeletionMessages-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let owner = "removed-\(UUID().uuidString.lowercased())@example.test"
+        let otherOwner = "retained-\(UUID().uuidString.lowercased())@example.test"
+        let removedRows = messageRows(owner: owner)
+        let retainedRows = messageRows(owner: otherOwner)
+        try realm.write { realm.add(removedRows + retainedRows) }
+
+        try realm.write {
+            for step in AccountDeletionStorageCleanupStep.defaultSteps
+            where step.kind == .messages || step.kind == .recentChats {
+                try step.perform(owner)
+            }
+        }
+
+        for row in removedRows {
+            XCTAssertTrue(row.isInvalidated, "\(type(of: row)) must be removed with the account")
+        }
+        for row in retainedRows {
+            XCTAssertFalse(row.isInvalidated, "Another account's \(type(of: row)) must remain")
+            XCTAssertEqual(row.value(forKey: "owner") as? String, otherOwner)
+        }
+    }
+
+    func testAccountCleanupRemovesOwnVCardAvatarsAndQuotaWhilePreservingOtherAccount() throws {
+        try XCTSkipUnless(HostedXCTestIsolationPolicy.isEnabled(environment: ProcessInfo.processInfo.environment),
+            "Account credential cleanup must use the isolated hosted-test service")
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "AccountDeletionProfile-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let owner = "removed-\(UUID().uuidString.lowercased())@example.test"
+        let otherOwner = "retained-\(UUID().uuidString.lowercased())@example.test"
+        let removedRows = profileRows(owner: owner)
+        let retainedRows = profileRows(owner: otherOwner)
+        try realm.write { realm.add(removedRows + retainedRows) }
+
+        try realm.write {
+            for step in AccountDeletionStorageCleanupStep.defaultSteps
+            where step.kind == .account || step.kind == .vCards {
+                try step.perform(owner)
+            }
+        }
+
+        for row in removedRows {
+            XCTAssertTrue(row.isInvalidated, "\(type(of: row)) must be removed with the account")
+        }
+        for row in retainedRows {
+            XCTAssertFalse(row.isInvalidated, "Another account's \(type(of: row)) must remain")
+        }
+        XCTAssertEqual(realm.objects(AccountStorageItem.self).map(\.jid), [otherOwner])
+    }
+
+    private func messageRows(owner: String) -> [Object] {
+        let rows: [Object] = [
+            MessageStorageItem(),
+            MessageMediaAttachmentStorageItem(),
+            TemporaryMessageStanzaStorageItem(),
+            ChatLocalHistoryIndexStorageItem(),
+            ConversationArchiveCoverageStorageItem(),
+            RegularChatArchiveSyncStateStorageItem()
+        ]
+        for (index, row) in rows.enumerated() {
+            row.setValue("\(owner):\(index)", forKey: "primary")
+            row.setValue(owner, forKey: "owner")
+        }
+        return rows
+    }
+
+    private func remainingRows(owner: String) -> [Object] {
+        let rows: [Object] = [
+            PreaprovedSubscribtionStorageItem(),
+            RosterGroupStorageItem(),
+            RosterDisplayNameStorageItem(),
+            ClientDiscoStorageItem(),
+            ShowedNotificationRequests(),
+            XMPPMessageScheduleStorageItem(),
+            XMPPAbuseConfigStorageItem(),
+            XMPPAbuseReportStorageItem(),
+            UINotificationStorageItem(),
+            NotifyPersonalStorageItem()
+        ]
+        for (index, row) in rows.enumerated() {
+            if row.objectSchema.properties.contains(where: { $0.name == "primary" }) {
+                row.setValue("\(owner):\(index)", forKey: "primary")
+            }
+            row.setValue(owner, forKey: "owner")
+        }
+        return rows
+    }
+
+    private func profileRows(owner: String) -> [Object] {
+        let account = AccountStorageItem()
+        account.jid = owner
+        let profile = vCardStorageItem()
+        profile.jid = owner
+        profile.owner = owner
+        profile.fn = "Private display name"
+        let avatar = AvatarStorageItem()
+        avatar.primary = AvatarStorageItem.genPrimary(jid: owner, owner: owner)
+        avatar.jid = owner
+        avatar.owner = owner
+        avatar.imageOriginal = "file:///private-avatar.png"
+        let quota = AccountQuotaStorageItem()
+        quota.primary = AccountQuotaStorageItem.genPrimary(jid: owner)
+        quota.jid = owner
+        quota.totalBytes = 1234
+        return [account, profile, avatar, quota]
+    }
+
     func testDiagnosticsRecordsStartAndFinishForAccountDeletion() {
         var clock = FakeAccountDeletionClock(times: [10, 11, 13, 16])
         var events: [AccountDeletionDiagnosticsEvent] = []

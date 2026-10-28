@@ -3744,7 +3744,18 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         accounts.compactMap { XMPPJID(string: $0)?.domain }
     }
     
-    private final func mapDataset(
+    internal static func makeDatasetReadSnapshot(from realm: Realm) -> Realm {
+        // The entitlement lookup refreshes the thread's cached live Realm.
+        // Account cleanup can commit between materialization and that lookup,
+        // so every row and linked object must share one immutable read version.
+        if !realm.isFrozen && !realm.isInWriteTransaction {
+            realm.refresh()
+        }
+        return realm.freeze()
+    }
+
+    internal final func mapDataset(
+        in readRealm: Realm? = nil,
         showsSpecialMessageBanners: Bool,
         dismissedInvitePrimaries: Set<String>
     ) -> [Datasource] {
@@ -3785,7 +3796,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             }
         }
         do {
-            let realm = try  WRealm.safe()
+            let realm = Self.makeDatasetReadSnapshot(from: try readRealm ?? WRealm.safe())
             let predicate: NSPredicate
             var pinnedChatsSorting: Bool = false
             let ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
@@ -4168,7 +4179,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 
-                let primaryResource = item.rosterItem?.getPrimaryResource()
+                let primaryResource = item.rosterItem.flatMap { roster in
+                    realm.objects(ResourceStorageItem.self)
+                        .filter("owner == %@ AND jid == %@", roster.owner, roster.jid)
+                        .sorted(by: [
+                            SortDescriptor(keyPath: "timestamp", ascending: false),
+                            SortDescriptor(keyPath: "priority", ascending: false)
+                        ]).first
+                }
                 
                 let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
                 

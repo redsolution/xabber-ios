@@ -434,45 +434,7 @@ class DevicesListViewController: BaseViewController {
             return
         }
 
-        let overlay = UIView()
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-        overlay.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.88)
-        overlay.isAccessibilityElement = true
-        overlay.accessibilityLabel = "Deleting account data from this device".localizeString(id: "account_quit_cleanup_progress_accessibility", arguments: [])
-        overlay.accessibilityTraits = .updatesFrequently
-
-        let indicator = UIActivityIndicatorView(style: .medium)
-        indicator.translatesAutoresizingMaskIntoConstraints = false
-        indicator.startAnimating()
-
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = "Deleting account data...".localizeString(id: "account_quit_cleanup_progress", arguments: [])
-        label.font = UIFont.preferredFont(forTextStyle: .body)
-        label.textColor = .secondaryLabel
-        label.numberOfLines = 0
-        label.textAlignment = .center
-        label.adjustsFontForContentSizeCategory = true
-
-        let stackView = UIStackView(arrangedSubviews: [indicator, label])
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.axis = .vertical
-        stackView.alignment = .center
-        stackView.spacing = 12
-
-        overlay.addSubview(stackView)
-        view.addSubview(overlay)
-        NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: view.topAnchor),
-            overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            overlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            stackView.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
-            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.layoutMarginsGuide.leadingAnchor),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: overlay.layoutMarginsGuide.trailingAnchor)
-        ])
-        accountQuitProgressView = overlay
+        accountQuitProgressView = QuitAccountPresenter.makeProgressView(in: view)
     }
     
     internal func activateConstraints() {

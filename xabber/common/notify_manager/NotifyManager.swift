@@ -440,6 +440,10 @@ class NotifyManager {
     /// A terminal local wipe must not replay a deferred notification route
     /// when onboarding replaces the former account UI.
     func clearPendingRoutesForPasscodeWipe() {
+        clearPendingRoutesForSessionReset()
+    }
+
+    func clearPendingRoutesForSessionReset() {
         pendingMessageNotificationChatRouteState = MessageNotificationChatRoutePendingState()
         deliveredNotificationsIds.removeAll()
         currentDialog = nil

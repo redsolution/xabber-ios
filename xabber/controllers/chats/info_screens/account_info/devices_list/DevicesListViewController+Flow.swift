@@ -42,26 +42,27 @@ extension DevicesListViewController {
         }
 
         setAccountQuitProgressVisible(true)
-        DispatchQueue.main.async { [weak self] in
-            self?.performConfirmedQuitAccountCleanup()
+        let window = view.window
+        DispatchQueue.main.async {
+            self.performConfirmedQuitAccountCleanup(window: window)
         }
         return true
     }
 
-    private func performConfirmedQuitAccountCleanup() {
+    private func performConfirmedQuitAccountCleanup(window: UIWindow?) {
         unsubscribe()
-        accountQuitDeletionHandler?(jid) { [weak self] result in
-            self?.finishConfirmedQuitAccountCleanup(result)
-        } ?? AccountManager.shared.deleteAccountAsync(by: jid) { [weak self] result in
-            self?.finishConfirmedQuitAccountCleanup(result)
+        accountQuitDeletionHandler?(jid) { result in
+            self.finishConfirmedQuitAccountCleanup(result, window: window)
+        } ?? AccountManager.shared.deleteAccountAsync(by: jid) { result in
+            self.finishConfirmedQuitAccountCleanup(result, window: window)
         }
     }
 
-    private func finishConfirmedQuitAccountCleanup(_ result: AccountDeletionCleanupResult) {
+    private func finishConfirmedQuitAccountCleanup(_ result: AccountDeletionCleanupResult, window: UIWindow?) {
         guard result.succeeded else {
             accountQuitFlow.failCleanup()
             setAccountQuitProgressVisible(false)
-            presentAccountQuitCleanupFailure()
+            QuitAccountPresenter.presentCleanupFailure(in: self)
             return
         }
 
@@ -69,44 +70,9 @@ extension DevicesListViewController {
             ?? !AccountManager.shared.emptyAccountsList()
         let route = accountQuitFlow.complete(hasRemainingAccounts: hasRemainingAccounts)
         setAccountQuitProgressVisible(false)
-        routeAfterQuitAccountCleanup(route)
+        QuitAccountPresenter.routeAfterCleanup(route, from: self, window: window)
     }
 
-    private func presentAccountQuitCleanupFailure() {
-        let alert = UIAlertController(
-            title: L10n.text("devices__list__account_data_could_not_be_deleted", fallback: "Account data could not be deleted"),
-            message: L10n.text("devices__list__please_try_again", fallback: "Please try again."),
-            preferredStyle: .alert
-        )
-        alert.addAction(
-            UIAlertAction(
-                title: L10n.text("common__action__ok", fallback: "OK"),
-                style: .default
-            )
-        )
-        present(alert, animated: true)
-    }
-
-    private func routeAfterQuitAccountCleanup(_ route: QuitAccountCleanupRoute) {
-        switch route {
-        case .onboarding:
-            DispatchQueue.main.async {
-                let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                AppDelegate.setupRootViewController(
-                    instance: appDelegate,
-                    window: appDelegate?.window,
-                    userInfo: nil
-                )
-            }
-        case .root:
-            DispatchQueue.main.async {
-                self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-                self.navigationController?.navigationBar.shadowImage = nil
-                self.navigationController?.popToRootViewController(animated: true)
-            }
-        }
-    }
-    
     internal final func onRevokeAll() {
         guard accountQuitFlow.canPerformSecurityAction else {
             return

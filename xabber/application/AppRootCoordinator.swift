@@ -806,6 +806,14 @@ final class AppRootCoordinator: NSObject {
         retryPendingNotificationRequestListIfPossible()
     }
 
+    func rebuildRootAfterAccountRemoval() {
+        pendingRoute = nil
+        pendingSceneNotificationRequest = nil
+        pendingNotificationRequestList = nil
+        NotifyManager.shared.clearPendingRoutesForSessionReset()
+        rebuildRoot(userInfo: nil)
+    }
+
     func resumeAfterWipe() {
         pendingRoute = nil
         pendingSceneNotificationRequest = nil

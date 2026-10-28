@@ -285,6 +285,7 @@ enum AccountDeletionStorageCleanupKind: Equatable {
     case favorites
     case authenticatedKeyExchange
     case subscriptions
+    case remainingAccountData
 
     static var defaultOrder: [AccountDeletionStorageCleanupKind] {
         AccountDeletionStorageCleanupStep.defaultSteps.map(\.kind)
@@ -293,17 +294,30 @@ enum AccountDeletionStorageCleanupKind: Equatable {
 
 struct AccountDeletionStorageCleanupStep {
     let kind: AccountDeletionStorageCleanupKind
-    let perform: (_ jid: String) -> Void
+    let perform: (_ jid: String) throws -> Void
 
     static let defaultSteps: [AccountDeletionStorageCleanupStep] = [
         AccountDeletionStorageCleanupStep(kind: .account) {
             Account.remove(for: $0, commitTransaction: false)
+            let realm = try WRealm.safe()
+            realm.delete(realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", $0))
         },
         AccountDeletionStorageCleanupStep(kind: .vCards) {
             VCardManager.remove(for: $0, commitTransaction: false)
+            let realm = try WRealm.safe()
+            // The roster-based cleanup does not include the account's own
+            // profile when the account is absent from its contact list.
+            if let profile = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: $0) {
+                realm.delete(profile)
+            }
+            realm.delete(realm.objects(AvatarStorageItem.self).filter("owner == %@", $0))
         },
         AccountDeletionStorageCleanupStep(kind: .messages) {
             MessageManager.remove(for: $0, commitTransaction: false)
+            let realm = try WRealm.safe()
+            realm.delete(realm.objects(MessageMediaAttachmentStorageItem.self).filter("owner == %@", $0))
+            realm.delete(realm.objects(TemporaryMessageStanzaStorageItem.self).filter("owner == %@", $0))
+            realm.delete(realm.objects(ChatLocalHistoryIndexStorageItem.self).filter("owner == %@", $0))
         },
         AccountDeletionStorageCleanupStep(kind: .presence) {
             PresenceManager.remove(for: $0, commitTransaction: false)
@@ -341,6 +355,9 @@ struct AccountDeletionStorageCleanupStep {
         },
         AccountDeletionStorageCleanupStep(kind: .recentChats) {
             LastChats.remove(for: $0, commitTransaction: false)
+            let realm = try WRealm.safe()
+            realm.delete(realm.objects(ConversationArchiveCoverageStorageItem.self).filter("owner == %@", $0))
+            realm.delete(realm.objects(RegularChatArchiveSyncStateStorageItem.self).filter("owner == %@", $0))
         },
         AccountDeletionStorageCleanupStep(kind: .clientSynchronization) {
             ClientSynchronizationManager.remove(for: $0, commitTransaction: false)
@@ -361,7 +378,7 @@ struct AccountDeletionStorageCleanupStep {
             ReliableMessageDeliveryManager.remove(for: $0, commitTransaction: false)
         },
         AccountDeletionStorageCleanupStep(kind: .omemo) {
-            OmemoManager.remove(for: $0, commitTransaction: false)
+            try OmemoManager.removeAccountData(for: $0, commitTransaction: false)
         },
         AccountDeletionStorageCleanupStep(kind: .certificates) {
             X509XMPPManager.remove(for: $0, commitTransaction: false)
@@ -377,6 +394,19 @@ struct AccountDeletionStorageCleanupStep {
         },
         AccountDeletionStorageCleanupStep(kind: .subscriptions) {
             SubscribtionsManager.shared.remove(for: $0, commitTransaction: false)
+        },
+        AccountDeletionStorageCleanupStep(kind: .remainingAccountData) { owner in
+            let realm = try WRealm.safe()
+            // A scalar owner string is the local account JID throughout the
+            // Realm schema. Keep this final sweep after manager-specific
+            // teardown so newly added account tables cannot survive logout.
+            for schema in realm.schema.objectSchema {
+                guard !schema.isEmbedded,
+                      let property = schema.properties.first(where: { $0.name == "owner" }),
+                      property.type == .string,
+                      !property.isArray, !property.isSet, !property.isMap else { continue }
+                realm.delete(realm.dynamicObjects(schema.className).filter("owner == %@", owner))
+            }
         }
     ]
 }
@@ -944,6 +974,9 @@ public class AccountManager: NSObject {
     func accountStorePresence() -> AccountStorePresence {
         do {
             let realm = try WRealm.safe()
+            if !realm.isInWriteTransaction {
+                realm.refresh()
+            }
             return realm.objects(AccountStorageItem.self).isEmpty ? .empty : .hasAccounts
         } catch {
             DDLogError("AccountManager: account store unavailable")
@@ -1213,8 +1246,8 @@ public class AccountManager: NSObject {
         let realm = try WRealm.safe()
         try autoreleasepool {
             try realm.write {
-                AccountDeletionStorageCleanupStep.defaultSteps.forEach { step in
-                    step.perform(jid)
+                try AccountDeletionStorageCleanupStep.defaultSteps.forEach { step in
+                    try step.perform(jid)
                 }
             }
         }
@@ -1228,6 +1261,9 @@ public class AccountManager: NSObject {
         // The application PIN belongs to the installation, not an individual
         // account. Keep it while any account (including a disabled one) remains.
         let realm = try WRealm.safe()
+        if !realm.isInWriteTransaction {
+            realm.refresh()
+        }
         guard AccountDeletionCredentialCleanupPolicy.shouldClearApplicationLock(
             remainingStoredAccountCount: realm.objects(AccountStorageItem.self).count
         ) else { return }

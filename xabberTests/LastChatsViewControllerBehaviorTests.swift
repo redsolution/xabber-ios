@@ -806,6 +806,67 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertTrue(fixture.chat.isFreshNotEmptyEncryptedChat, "Presentation must repair no persisted state.")
     }
 
+    func testLogoutDeletionCannotInvalidateAnInFlightLastChatsDatasetSnapshot() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
+        let realm = try WRealm.safe()
+        let owner = fixture.chat.owner
+        let jid = fixture.chat.jid
+        let expectedBody = fixture.message.body
+        let account = AccountStorageItem()
+        account.jid = owner
+        let roster = RosterStorageItem()
+        roster.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        roster.owner = owner
+        roster.jid = jid
+        roster.username = "Logout snapshot peer"
+        let resource = ResourceStorageItem()
+        resource.primary = "logout-snapshot-resource"
+        resource.owner = owner
+        resource.jid = jid
+        resource.status_ = ResourceStatus.online.rawValue
+        try realm.write {
+            realm.add(account)
+            realm.add(roster)
+            realm.add(resource)
+            fixture.chat.rosterItem = roster
+        }
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([owner])
+        controller.showSkeleton.accept(false)
+        let snapshot = LastChatsViewController.makeDatasetReadSnapshot(from: realm)
+        let retainedChat = try XCTUnwrap(snapshot.objects(LastChatsStorageItem.self).first)
+
+        // Account cleanup commits after rows have been materialized. The
+        // entitlement lookup used by mapDataset refreshes the live Realm.
+        try realm.write {
+            realm.delete(fixture.chat)
+            realm.delete(fixture.message)
+            realm.delete(roster)
+            realm.delete(resource)
+            realm.delete(account)
+        }
+        _ = SubscribtionsManager.shared.hasActiveSubsription()
+
+        XCTAssertTrue(fixture.chat.isInvalidated)
+        XCTAssertFalse(retainedChat.isInvalidated)
+        let rows = controller.mapDataset(
+            in: snapshot,
+            showsSpecialMessageBanners: false,
+            dismissedInvitePrimaries: []
+        )
+        let row = try XCTUnwrap(rows.first { $0.jid == jid })
+        XCTAssertEqual(row.message, expectedBody)
+        XCTAssertEqual(row.username, "Logout snapshot peer")
+        XCTAssertEqual(row.status, .online,
+                       "Linked presence must come from the same stable snapshot")
+
+        let afterLogout = controller.mapDataset(
+            showsSpecialMessageBanners: false,
+            dismissedInvitePrimaries: []
+        )
+        XCTAssertFalse(afterLogout.contains { $0.owner == owner })
+    }
+
     func testStaleFreshEncryptedFlagCannotReplaceColdMaterializedRecentMessage() throws {
         let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: false)
         let controller = LastChatsViewController()

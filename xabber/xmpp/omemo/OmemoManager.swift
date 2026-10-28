@@ -346,45 +346,51 @@ open class OmemoManager: AbstractXMPPManager {
     
     static func remove(for owner: String, commitTransaction: Bool) {
         do {
-            let realm = try WRealm.safe()
-            let identitys = realm.objects(SignalIdentityStorageItem.self).filter("owner == %@", owner)
-            let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@", owner)
-            let preKeys = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@", owner)
-            let sessions = realm.objects(SessionRecordStorageItem.self).filter("owner == %@", owner)
-            let deviceLists = realm.objects(OMEMO2DeviceListStorageItem.self).filter("owner == %@", owner)
-            let optOutDecisions = realm.objects(OMEMO2OptOutStorageItem.self).filter("owner == %@", owner)
-            let trustedIdentity = realm.objects(SignalTrustedIdentityStoreageItem.self).filter("owner == %@", owner)
-            let senderKeys = realm.objects(SignalSenderKeyStoreageItem.self).filter("owner == %@", owner)
-            try CredentialsManager.shared.removeOMEMO2State(for: owner)
-            CredentialsManager.shared.removeIdentityKey(for: owner)
-            CredentialsManager.shared.removeDeviceId(for: owner)
-            preKeys.forEach {
-                CredentialsManager.shared.removePreKey(for: owner, id: $0.pkId)
-            }
-            CredentialsManager.shared.removeSignedPreKey(for: owner, id: 1)
-            if commitTransaction {
-                try realm.write {
-                    identitys.forEach { realm.delete($0) }
-                    deviceLists.forEach { realm.delete($0) }
-                    optOutDecisions.forEach { realm.delete($0) }
-                    devices.forEach { realm.delete($0) }
-                    preKeys.forEach { realm.delete($0) }
-                    sessions.forEach { realm.delete($0) }
-                    trustedIdentity.forEach { realm.delete($0) }
-                    senderKeys.forEach { realm.delete($0) }
-                }
-            } else {
-                identitys.forEach { realm.delete($0) }
-                deviceLists.forEach { realm.delete($0) }
-                optOutDecisions.forEach { realm.delete($0) }
-                devices.forEach { realm.delete($0) }
-                preKeys.forEach { realm.delete($0) }
-                sessions.forEach { realm.delete($0) }
-                trustedIdentity.forEach { realm.delete($0) }
-                senderKeys.forEach { realm.delete($0) }
-            }
+            try removeAccountData(for: owner, commitTransaction: commitTransaction)
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    /// Account deletion must propagate protected-store failures so its Realm
+    /// transaction can roll back and the UI cannot report successful cleanup.
+    static func removeAccountData(
+        for owner: String,
+        commitTransaction: Bool,
+        removeProtectedState: (String) throws -> Void = {
+            try CredentialsManager.shared.removeOMEMO2State(for: $0)
+        }
+    ) throws {
+        let realm = try WRealm.safe()
+        let identitys = realm.objects(SignalIdentityStorageItem.self).filter("owner == %@", owner)
+        let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@", owner)
+        let preKeys = realm.objects(SignalPreKeysStorageItem.self).filter("owner == %@", owner)
+        let sessions = realm.objects(SessionRecordStorageItem.self).filter("owner == %@", owner)
+        let deviceLists = realm.objects(OMEMO2DeviceListStorageItem.self).filter("owner == %@", owner)
+        let optOutDecisions = realm.objects(OMEMO2OptOutStorageItem.self).filter("owner == %@", owner)
+        let trustedIdentity = realm.objects(SignalTrustedIdentityStoreageItem.self).filter("owner == %@", owner)
+        let senderKeys = realm.objects(SignalSenderKeyStoreageItem.self).filter("owner == %@", owner)
+        try removeProtectedState(owner)
+        CredentialsManager.shared.removeIdentityKey(for: owner)
+        CredentialsManager.shared.removeDeviceId(for: owner)
+        preKeys.forEach {
+            CredentialsManager.shared.removePreKey(for: owner, id: $0.pkId)
+        }
+        CredentialsManager.shared.removeSignedPreKey(for: owner, id: 1)
+        let removeRows = {
+            identitys.forEach { realm.delete($0) }
+            deviceLists.forEach { realm.delete($0) }
+            optOutDecisions.forEach { realm.delete($0) }
+            devices.forEach { realm.delete($0) }
+            preKeys.forEach { realm.delete($0) }
+            sessions.forEach { realm.delete($0) }
+            trustedIdentity.forEach { realm.delete($0) }
+            senderKeys.forEach { realm.delete($0) }
+        }
+        if commitTransaction {
+            try realm.write { removeRows() }
+        } else {
+            removeRows()
         }
     }
 }

@@ -115,19 +115,8 @@ extension SettingsViewController {
     }
     
     internal func onDeleteXMPPAccount(jid: String) {
-        let presenter = QuitAccountPresenter(jid: jid)
-        presenter.present(in: self, animated: true) {
-            AccountManager.shared.deleteAccount(by: jid)
-            if AccountManager.shared.emptyAccountsList() {
-                DispatchQueue.main.async {
-                    let appDelegate = UIApplication.shared.delegate as? AppDelegate
-                    AppDelegate.setupRootViewController(
-                        instance: appDelegate,
-                        window: appDelegate?.window,
-                        userInfo: nil
-                    )
-                }
-            }
+        QuitAccountPresenter(jid: jid).presentAndQuit(in: self) {
+            self.unsubscribe()
         }
     }
 }
