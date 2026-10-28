@@ -53,3 +53,16 @@ Cached Debug test action, iOS 26.0 Simulator, Xabber Development iPhone 16 Pro (
 - `LastChatsViewControllerBehaviorTests.testBootstrapDatasetUpdatePolicySuppressesExpensiveAnimatedWorkOnlyDuringBootstrap`
 
 6/6 passed; app, push extension and test targets built with no compiler/linker errors. These fixtures protect existing pagination/presentation behavior; they do not validate live latency. No separate build or cache reset.
+
+## Concurrent traffic audit
+
+For 16:06:37.123 → 16:06:56.172, excluding the initial sync request/result, logged outgoing application stanzas total 40 IQ + 1 available presence:
+
+- 26 OMEMO2 bundle queries, 7 OMEMO2 device-list queries, 2 trustsharing queries.
+- 2 account-device-list queries, 1 push enable, 1 rewrite query, 1 IQ result.
+
+Incoming application stanzas total 109: 62 presence (6 subscribe, 21 available, 35 remote-server-timeout errors), 10 MAM invite-recovery results, 33 PubSub headline events and 4 IQ replies (devices result, push bad-request, MAM fin, rewrite result). Headline events comprise 19 avatar metadata, 7 OMEMO device lists, 5 OMEMO bundles and 2 trustsharing. The MAM recovery request was sent before this interval.
+
+Separate SM activity: ack sends at 37.168 and 52.301, ack request at 37.254, no logged stream_management_ack_received in the interval. A liveness ping was suppressed because an SM ack was already outstanding; timeout diagnostics are not wire stanzas. Two HTTP cloud-stats requests completed during the interval.
+
+Traffic is not uniformly distributed: after incoming subscriptions end at 37.234, no incoming callback occurs until 52.250; then replies, presence/PubSub and new OMEMO queries run before sync reaches the callback at 56.172. Concurrent background traffic is established; its causal contribution to the delay is not quantified.
