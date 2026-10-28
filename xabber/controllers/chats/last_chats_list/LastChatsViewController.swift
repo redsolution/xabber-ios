@@ -3130,12 +3130,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
     }
     
+    internal let navigationTitleView = LastChatsNavigationTitleView(frame: .zero)
+
     internal func updateTitle(_ value: Filter) {
         guard !self.isNavigationTransitionActive else {
             self.pendingNavigationChromeRefreshAfterNavigationTransition = true
             return
         }
         self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
+        navigationTitleView.titleLabel.text = self.title
     }
     
     private final func scrollTableViewToTop(animated: Bool) {
@@ -5568,6 +5571,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             isTransitionActive: self.isNavigationTransitionActive
         )
         self.updateTitle(self.filter.value)
+        if navigationItem.titleView !== navigationTitleView {
+            navigationItem.titleView = navigationTitleView
+        }
 
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
