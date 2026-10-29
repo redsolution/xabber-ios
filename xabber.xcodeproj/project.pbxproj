@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DA071E8167BF410BA8B4C951 /* LastChatsSkeletonReplacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */; };
 		E399C7099F5E42DCA86BA2AB /* LeftMenuGlassTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */; };
 		54BE13FBBA5346108D8180B3 /* LeftMenuGlassPremiumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */; };
 		C677ACEA89C14223BEEB54CF /* LastChatsNavigationTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */; };
@@ -1246,6 +1247,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSkeletonReplacementTests.swift; sourceTree = "<group>"; };
 		4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassTableViewCell.swift; sourceTree = "<group>"; };
 		D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassPremiumTests.swift; sourceTree = "<group>"; };
 		11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationTitleView.swift; sourceTree = "<group>"; };
@@ -4521,6 +4523,7 @@
 				4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */,
 				4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */,
 				A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */,
+				325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */,
 				EE7A5D9E6DA74AEA9A8FEC36 /* LastChatsNavigationTitleBackdropTests.swift */,
 				A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */,
 				4E5039110000000000000001 /* RedmineRegression/RedmineIssue50391Tests.swift */,
@@ -6912,6 +6915,7 @@
 				C1C100023D03000000ABC001 /* RosterCircleManagementTests.swift in Sources */,
 				B8A200023C21000000ABC001 /* AccountEditProfileTests.swift in Sources */,
 				A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */,
+				DA071E8167BF410BA8B4C951 /* LastChatsSkeletonReplacementTests.swift in Sources */,
 				75A54EA9E9214504838A4E61 /* LastChatsNavigationTitleBackdropTests.swift in Sources */,
 				A1B2C3D4321200000ABC0012 /* LastChatsSpecialMessageVisibilityTests.swift in Sources */,
 				4E5039120000000000000001 /* RedmineRegression/RedmineIssue50391Tests.swift in Sources */,

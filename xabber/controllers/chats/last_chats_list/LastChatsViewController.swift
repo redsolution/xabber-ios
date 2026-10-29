@@ -4749,6 +4749,17 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
             return
         }
+        if oldShowsSkeleton && !newShowsSkeleton {
+            UIView.performWithoutAnimation {
+                prepare()
+                self.tableView.reloadData()
+                if self.tableView.window != nil {
+                    self.tableView.layoutIfNeeded()
+                }
+            }
+            self.finishDatasetUpdateCycle()
+            return
+        }
         if LastChatsDatasourceApplyPolicy.resolve(
             isTableAttachedToWindow: self.tableView.window != nil
         ) == .detachedSnapshot {
