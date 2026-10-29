@@ -61,20 +61,67 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         let cell = controller.tableView(controller.tableView, cellForRowAt: path)
         let title = try XCTUnwrap(labels(in: cell).first { $0.text == "Xabber Premium" })
         let description = try XCTUnwrap(labels(in: cell).first { $0.text == premiumDescription })
-        let surface = try XCTUnwrap(effectSurfaces(in: cell).first)
+        let background = try XCTUnwrap(cell.backgroundConfiguration)
         let goldenIcons = descendants(of: cell).compactMap { $0 as? UIImageView }
             .filter { $0.image != nil && $0.tintColor == .systemYellow }
 
         XCTAssertFalse(premiumDescription.isEmpty)
         XCTAssertTrue(description.numberOfLines == 0 || description.numberOfLines >= 3)
-        XCTAssertTrue(title.isDescendant(of: surface.contentView))
-        XCTAssertTrue(description.isDescendant(of: surface.contentView))
+        XCTAssertNotNil(background.visualEffect)
+        XCTAssertTrue(title.isDescendant(of: cell.contentView))
+        XCTAssertTrue(description.isDescendant(of: cell.contentView))
         XCTAssertEqual(goldenIcons.count, 1)
         XCTAssertEqual(cell.accessibilityIdentifier, "left_menu_premium_row")
         XCTAssertTrue(cell.isAccessibilityElement)
         XCTAssertTrue(cell.accessibilityTraits.contains(.button))
         XCTAssertTrue(cell.accessibilityLabel?.contains("Xabber Premium") == true)
         XCTAssertTrue(cell.accessibilityLabel?.contains(premiumDescription) == true)
+    }
+
+    func testPremiumUsesSystemInsetGroupedBackgroundWithoutCustomCornerGeometry() throws {
+        let controller = makeMenu()
+        let path = try premiumIndexPath(in: controller)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+        controller.tableView.reloadData()
+        window.layoutIfNeeded()
+        controller.tableView.scrollToRow(at: path, at: .none, animated: false)
+        window.layoutIfNeeded()
+        let cell = try XCTUnwrap(controller.tableView.cellForRow(at: path) as? LeftMenuGlassTableViewCell)
+        let background = try XCTUnwrap(cell.backgroundConfiguration)
+        var systemBackground: UIBackgroundConfiguration
+        if #available(iOS 18.0, *) {
+            systemBackground = .listCell()
+        } else {
+            systemBackground = .listGroupedCell()
+        }
+        systemBackground = systemBackground.updated(for: cell.configurationState)
+
+        XCTAssertTrue(cell.window === window)
+        XCTAssertEqual(controller.tableView.style, .insetGrouped)
+        XCTAssertEqual(background.cornerRadius, systemBackground.cornerRadius)
+        XCTAssertEqual(background.backgroundInsets, systemBackground.backgroundInsets)
+        XCTAssertNil(background.customView)
+        XCTAssertNotNil(background.visualEffect)
+        XCTAssertNil(cell.glassSurfaceView.effect)
+        XCTAssertEqual(cell.glassSurfaceView.layer.cornerRadius, 0)
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(cell.glassSurfaceView.cornerConfiguration, UIVisualEffectView(effect: nil).cornerConfiguration)
+            let glass = try XCTUnwrap(background.visualEffect as? UIGlassEffect)
+            XCTAssertFalse(glass.isInteractive)
+            XCTAssertNil(glass.tintColor)
+        } else {
+            XCTAssertTrue(background.visualEffect is UIBlurEffect)
+        }
     }
 
     func testOrdinaryRowsShareOneNativeGlassBackdropAndKeepTheirOwnBackgroundsTransparent() throws {

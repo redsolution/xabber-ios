@@ -17,7 +17,7 @@ enum LeftMenuPremiumContent {
     }
 }
 
-/// Sidebar-only cells keep their content inside the native glass surface.
+/// Sidebar rows use the shared glass plate or a system grouped Premium background.
 final class LeftMenuGlassTableViewCell: UITableViewCell {
     static let cellName = "LeftMenuGlassTableViewCell"
     static let premiumCellName = "LeftMenuPremiumTableViewCell"
@@ -52,18 +52,21 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        // Keep separate reuse pools: changing native glass to nil replaces its
-        // content host on iOS 26. Plain rows never create a native glass surface.
-        if reuseIdentifier == Self.premiumCellName {
-            XabberGlassStyle.applySurface(
-                to: glassSurfaceView, role: .leftMenuSurface,
-                cornerStyle: .fixed(16), interactive: false
-            )
-            glassSurfaceView.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
-        }
         backgroundConfiguration = .clear()
         backgroundColor = .clear
         contentView.backgroundColor = .clear
+        if reuseIdentifier == Self.premiumCellName {
+            // Let the containing inset-grouped table own the section's shape.
+            var background: UIBackgroundConfiguration
+            if #available(iOS 18.0, *) {
+                background = .listCell()
+            } else {
+                background = .listGroupedCell()
+            }
+            background.visualEffect = LeftMenuSurfaceEffectFactory.makeEffect()
+            background.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
+            backgroundConfiguration = background
+        }
         isOpaque = false
         selectionStyle = .none
         contentView.isAccessibilityElement = false
