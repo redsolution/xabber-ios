@@ -77330,6 +77330,47 @@
         }
       }
     },
+    "left_menu__premium__description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة سحابية أكبر وخيارات تخصيص أكثر. ادعم تطوير Xabber."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More cloud storage and customisation. Support Xabber development."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más espacio en la nube y personalización. Apoya el desarrollo de Xabber."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus d’espace cloud et de personnalisation. Soutenez le développement de Xabber."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Больше места в облаке и настроек. Поддержите развитие Xabber."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多云端存储空间和个性化设置。支持 Xabber 的开发。"
+          }
+        }
+      }
+    },
     "license_url": {
       "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",

@@ -519,12 +519,8 @@ class LeftMenuViewController: UIViewController {
     }
     private enum ExperimentLayout {
         static let menuSurfaceHorizontalInset: CGFloat = 16
-        static let menuSurfaceBottomInset: CGFloat = 16
-        static let menuSurfaceMinimumTopInset: CGFloat = 0
-        static let menuSurfaceSafeAreaTopOffset: CGFloat = 2
         static let tableHeaderHeight: CGFloat = 112
         static let titleSafeAreaTopOffset: CGFloat = 8
-        static let titleHeight: CGFloat = 28
         static let titleHorizontalInset: CGFloat = 16
     }
 
@@ -689,29 +685,27 @@ class LeftMenuViewController: UIViewController {
         LastChatsViewController?
     
     internal let tableView: UITableView = {
-        let style: UITableView.Style = ContinuousSplitBackgroundExperiment.usesSplitListChrome ? .insetGrouped : .grouped
-        let view = UITableView(frame: .zero, style: style)
-        
-        view.register(MenuItemTableCell.self, forCellReuseIdentifier: MenuItemTableCell.cellName)
-//        view.register(UITableViewCell.self, forCellReuseIdentifier: "tablecell")
-        view.applyContinuousSplitInsetGroupedAppearance()
-        if !ContinuousSplitBackgroundExperiment.usesSplitListChrome {
-            view.separatorStyle = .none
-        }
-        view.isScrollEnabled = false
+        let view = LeftMenuTableView(frame: .zero, style: .insetGrouped)
+        view.register(LeftMenuGlassTableViewCell.self, forCellReuseIdentifier: LeftMenuGlassTableViewCell.cellName)
+        view.register(LeftMenuGlassTableViewCell.self, forCellReuseIdentifier: LeftMenuGlassTableViewCell.premiumCellName)
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.separatorStyle = .none
+        view.estimatedRowHeight = 56
+        view.sectionHeaderTopPadding = 0
+        view.isScrollEnabled = true
+        view.alwaysBounceVertical = false
         
         return view
     }()
 
     private let menuSurfaceView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: LeftMenuSurfaceEffectFactory.makeEffect())
-
+        let view = UIVisualEffectView(effect: nil)
+        XabberGlassStyle.applySurface(
+            to: view, role: .leftMenuSurface, cornerStyle: .capsule, interactive: false
+        )
         view.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
-        view.layer.cornerRadius = 24
-        view.layer.cornerCurve = .continuous
-        view.clipsToBounds = true
         view.isUserInteractionEnabled = false
-
         return view
     }()
 
@@ -743,10 +737,9 @@ class LeftMenuViewController: UIViewController {
     
     var previousSelectedKey: String? = "chat"
 
-    private var isPremiumActive: Bool = false
+    private let menuBackgroundBackdropView = ChatBackgroundBackdropView()
 
     private func loadDatasource() {
-        isPremiumActive = SubscribtionsManager.shared.hasActiveSubsription()
         do {
             let realm = try WRealm.safe()
             let accounts = realm.objects(AccountStorageItem.self).filter("enabled == true").sorted(byKeyPath: "order")
@@ -790,10 +783,11 @@ class LeftMenuViewController: UIViewController {
                 if let savedItem {
                     mainItems.append(savedItem)
                 }
-                self.datasource = [mainItems, [
-                   Datasource(title: L10n.text("navigation__destination__settings", fallback: "Settings"), icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
-                ]
-               ]
+                mainItems.append(Datasource(
+                    title: L10n.text("navigation__destination__settings", fallback: "Settings"),
+                    icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false
+                ))
+                self.datasource = [mainItems]
             } else {
                 var mainItems = [
                     Datasource(title: L10n.text("navigation__destination__chats", fallback: "Chats"), icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
@@ -805,12 +799,16 @@ class LeftMenuViewController: UIViewController {
                 if let savedItem {
                     mainItems.append(savedItem)
                 }
-                self.datasource = [mainItems, [
-                   Datasource(title: L10n.text("navigation__destination__settings", fallback: "Settings"), icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
-                ]
-               ]
+                mainItems.append(Datasource(
+                    title: L10n.text("navigation__destination__settings", fallback: "Settings"),
+                    icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false
+                ))
+                self.datasource = [mainItems]
             }
             
+            if CommonConfigManager.shared.config.support_subscribtions {
+                datasource.append([LeftMenuPremiumContent.menuItem])
+            }
         } catch {
             DDLogDebug("LeftMenuViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1098,14 +1096,6 @@ class LeftMenuViewController: UIViewController {
 //    }()
     
     public func configure() {
-        let title = CommonConfigManager.shared.config.app_name.capitalized
-        if ContinuousSplitBackgroundExperiment.isActive {
-            self.title = nil
-            navigationItem.title = nil
-            menuTitleLabel.text = title
-        } else {
-            self.title = title
-        }
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
 
         navigationItem.largeTitleDisplayMode = .automatic
@@ -1118,15 +1108,13 @@ class LeftMenuViewController: UIViewController {
 //        }
 //        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
 
-        configureMenuSurfaceIfNeeded()
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
-        configureExperimentTitleIfNeeded()
+        configureMenuBackground()
+        configureMenuHeader()
         tableView.delegate = self
         tableView.dataSource = self
         loadDatasource()
-        updatePremiumBarButton()
 
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onTableViewEmptySpaceTap))
         tapGesture.cancelsTouchesInView = false
@@ -1134,8 +1122,27 @@ class LeftMenuViewController: UIViewController {
 
     }
 
+    private func configureMenuHeader() {
+        let usesSharedBackdrop = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
+        menuSurfaceView.isHidden = !usesSharedBackdrop
+        let appTitle = CommonConfigManager.shared.config.app_name.capitalized
+        if usesSharedBackdrop {
+            if title != nil { title = nil }
+            if navigationItem.title != nil { navigationItem.title = nil }
+            menuTitleLabel.text = appTitle
+            configureMenuSurfaceIfNeeded()
+            configureExperimentTitleIfNeeded()
+            configureExperimentTableHeaderIfNeeded()
+            layoutMenuSurfaceIfNeeded()
+            layoutMenuTitleIfNeeded()
+        } else {
+            if title != appTitle { title = appTitle }
+            if tableView.tableHeaderView != nil { tableView.tableHeaderView = nil }
+        }
+    }
+
     private func configureMenuSurfaceIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
         guard menuSurfaceView.superview == nil else { return }
 
         view.insertSubview(menuSurfaceView, at: 0)
@@ -1144,18 +1151,19 @@ class LeftMenuViewController: UIViewController {
     }
 
     private func configureExperimentTitleIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
         guard menuTitleLabel.superview == nil else {
-            view.bringSubviewToFront(menuTitleLabel)
+            view.bringSubviewToFront(menuSurfaceView)
             return
         }
 
-        view.addSubview(menuTitleLabel)
+        menuSurfaceView.contentView.addSubview(menuTitleLabel)
+        view.bringSubviewToFront(menuSurfaceView)
         layoutMenuTitleIfNeeded()
     }
 
     private func configureExperimentTableHeaderIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
         let headerFrame = CGRect(
             x: 0,
             y: 0,
@@ -1176,52 +1184,47 @@ class LeftMenuViewController: UIViewController {
         tableView.tableHeaderView = headerView
     }
 
-    private func layoutMenuSurfaceIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
-        let topInset = max(
-            ExperimentLayout.menuSurfaceMinimumTopInset,
-            topSafeAreaInset + ExperimentLayout.menuSurfaceSafeAreaTopOffset
-        )
-        let surfaceFrame = CGRect(
-            x: ExperimentLayout.menuSurfaceHorizontalInset,
-            y: topInset,
-            width: max(0, view.bounds.width - ExperimentLayout.menuSurfaceHorizontalInset * 2),
-            height: max(0, view.bounds.height - topInset - ExperimentLayout.menuSurfaceBottomInset)
-        )
-
-        menuSurfaceView.frame = surfaceFrame
-    }
-
-    private func layoutMenuTitleIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.isActive else { return }
-        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
-        let surfaceFrame = menuSurfaceView.frame
-        menuTitleLabel.frame = CGRect(
-            x: surfaceFrame.minX + ExperimentLayout.titleHorizontalInset,
-            y: topSafeAreaInset + ExperimentLayout.titleSafeAreaTopOffset,
-            width: max(0, surfaceFrame.width - ExperimentLayout.titleHorizontalInset * 2),
-            height: ExperimentLayout.titleHeight
-        )
-    }
-
-    private func updatePremiumBarButton() {
-        let iconName = isPremiumActive ? "star.fill" : "star"
-        let image = UIImage(systemName: iconName)
-        let button = UIBarButtonItem(image: image, style: .plain, target: self, action: #selector(onPremiumButton))
-        button.tintColor = isPremiumActive ? .systemYellow : .label
-        if CommonConfigManager.shared.config.support_subscribtions {
-            navigationItem.rightBarButtonItem = button
+    private func configureMenuBackground() {
+        tableView.backgroundColor = .clear
+        tableView.isOpaque = false
+        if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop {
+            tableView.backgroundView = nil
+        } else if tableView.backgroundView !== menuBackgroundBackdropView {
+            menuBackgroundBackdropView.reloadFromSettings()
+            tableView.backgroundView = menuBackgroundBackdropView
         }
     }
 
-    @objc
-    private func onPremiumButton() {
-        let vc = PremiumSubscribtionViewController()
-        vc.jid = AccountManager.shared.users.first?.jid ?? ""
-        vc.owner = AccountManager.shared.users.first?.jid ?? ""
-        showModal(vc, parent: self, dismissalHandler: makeModalDismissalRecoveryHandler())
-        revealSelectedContentColumn()
+    private func layoutMenuSurfaceIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
+        let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
+        menuSurfaceView.frame = CGRect(
+            x: ExperimentLayout.menuSurfaceHorizontalInset,
+            y: topSafeAreaInset + ExperimentLayout.titleSafeAreaTopOffset,
+            width: max(0, view.bounds.width - ExperimentLayout.menuSurfaceHorizontalInset * 2),
+            height: XabberGlassStyle.minimumHeight
+        )
+        view.bringSubviewToFront(menuSurfaceView)
+    }
+
+    private func layoutMenuTitleIfNeeded() {
+        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
+        menuTitleLabel.frame = menuSurfaceView.bounds.insetBy(
+            dx: ExperimentLayout.titleHorizontalInset, dy: 0
+        )
+    }
+
+    @discardableResult
+    internal func presentPremiumPurchase() -> Bool {
+        guard CommonConfigManager.shared.config.support_subscribtions else { return false }
+        let didPresent = SubscribtionsPresenter().present(
+            animated: true,
+            owner: AccountManager.shared.users.first?.jid,
+            parent: self,
+            dismissalHandler: makeModalDismissalRecoveryHandler()
+        )
+        if didPresent { revealSelectedContentColumn() }
+        return didPresent
     }
     
     @objc
@@ -1246,6 +1249,12 @@ class LeftMenuViewController: UIViewController {
     }
 
     private func observer() {
+        NotificationCenter.default.addObserver(
+            menuBackgroundBackdropView,
+            selector: #selector(ChatBackgroundBackdropView.reloadFromSettings),
+            name: .chatBackgroundChanged,
+            object: nil
+        )
         NotificationCenter
             .default
             .addObserver(self,
@@ -1256,20 +1265,12 @@ class LeftMenuViewController: UIViewController {
 
     private func removeNotificationObserer() {
         NotificationCenter.default.removeObserver(self)
+        NotificationCenter.default.removeObserver(menuBackgroundBackdropView)
     }
 
     deinit {
         unsubscribe()
         removeNotificationObserer()
-    }
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        let newPremiumState = SubscribtionsManager.shared.hasActiveSubsription()
-        if newPremiumState != isPremiumActive {
-            isPremiumActive = newPremiumState
-            updatePremiumBarButton()
-        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1279,9 +1280,8 @@ class LeftMenuViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        configureExperimentTableHeaderIfNeeded()
-        layoutMenuSurfaceIfNeeded()
-        layoutMenuTitleIfNeeded()
+        configureMenuHeader()
+        configureMenuBackground()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -1301,25 +1301,16 @@ extension LeftMenuViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: MenuItemTableCell.cellName, for: indexPath) as? MenuItemTableCell else {
-            fatalError()
-        }
         let item = datasource[indexPath.section][indexPath.row]
-        
-        cell.configure(
-            title: item.title,
-            badge: item.subtitle,
-            icon: item.icon,
-            isImportant: true,
-            accessibilityIdentifier: "left_menu_\(item.key)_row"
-        )
-        if item.key == "archive" {
-            cell.badgeView.backgroundColor = .systemGray
-        } else {
-            cell.badgeView.backgroundColor = UIColor(red: 0.2196, green: 0.5569, blue: 0.2353, alpha: 1.0)
+        let reuseIdentifier = item.key == LeftMenuPremiumContent.key
+            ? LeftMenuGlassTableViewCell.premiumCellName
+            : LeftMenuGlassTableViewCell.cellName
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: reuseIdentifier, for: indexPath
+        ) as? LeftMenuGlassTableViewCell else {
+            fatalError("Unexpected sidebar cell type")
         }
-        cell.applyContinuousSplitSystemBackground()
-        cell.selectionStyle = .none
+        cell.configure(item: item)
         return cell
     }
     
@@ -1644,7 +1635,7 @@ class MenuItemTableCell: UITableViewCell {
 
 extension LeftMenuViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 44
+        return UITableView.automaticDimension
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
@@ -1660,7 +1651,7 @@ extension LeftMenuViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return 0
+        return section == 0 ? .leastNormalMagnitude : 12
     }
     
     private func selectionPresentationAction(for splitVC: UISplitViewController) -> LeftMenuSelectionPresentationPolicy.PresentationAction {
@@ -2636,6 +2627,11 @@ extension LeftMenuViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let key = self.datasource[indexPath.section][indexPath.row].key
+        if key == LeftMenuPremiumContent.key {
+            tableView.deselectRow(at: indexPath, animated: true)
+            presentPremiumPurchase()
+            return
+        }
         if key == "settings" {
             let vc = SettingsViewController()
             vc.jid = AccountManager.shared.users.first?.jid ?? ""

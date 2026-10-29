@@ -27,7 +27,8 @@ struct SubscribtionsPresenter {
         animated: Bool,
         owner: String? = nil,
         parent: UIViewController? = nil,
-        modalPresentationStyle: UIModalPresentationStyle = .formSheet
+        modalPresentationStyle: UIModalPresentationStyle = .formSheet,
+        dismissalHandler: (() -> Void)? = nil
     ) -> Bool {
         if ApplicationStateManager.shared.isSubscribtionsShowed {
             return false
@@ -49,7 +50,8 @@ struct SubscribtionsPresenter {
         let didPresent = showModal(
             vc,
             parent: parent,
-            modalPresentationStyle: modalPresentationStyle
+            modalPresentationStyle: modalPresentationStyle,
+            dismissalHandler: dismissalHandler
         )
         if !didPresent {
             ApplicationStateManager.shared.isSubscribtionsShowed = false

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E399C7099F5E42DCA86BA2AB /* LeftMenuGlassTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */; };
+		54BE13FBBA5346108D8180B3 /* LeftMenuGlassPremiumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */; };
 		C677ACEA89C14223BEEB54CF /* LastChatsNavigationTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */; };
 		75A54EA9E9214504838A4E61 /* LastChatsNavigationTitleBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7A5D9E6DA74AEA9A8FEC36 /* LastChatsNavigationTitleBackdropTests.swift */; };
 		A32810280000000000000002 /* InitialSyncTrafficOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */; };
@@ -1244,6 +1246,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassTableViewCell.swift; sourceTree = "<group>"; };
+		D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassPremiumTests.swift; sourceTree = "<group>"; };
 		11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationTitleView.swift; sourceTree = "<group>"; };
 		EE7A5D9E6DA74AEA9A8FEC36 /* LastChatsNavigationTitleBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationTitleBackdropTests.swift; sourceTree = "<group>"; };
 		A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InitialSyncTrafficOrderingTests.swift; sourceTree = "<group>"; };
@@ -4539,6 +4543,7 @@
 				4E1300012F66200000ABC001 /* RootBottomBarIntegrationTests.swift */,
 				4E6000032F90000000ABC001 /* XabberGlassStyleTests.swift */,
 				4E1000052F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift */,
+				D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */,
 				4E5600012F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift */,
 				4E2000032F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift */,
 				4E3100092F69000000ABC001 /* CallsListCoordinatorTests.swift */,
@@ -5372,6 +5377,7 @@
 				66EF49A82BCEAADD00984187 /* EmptyChatViewController.swift */,
 				66EF49AA2BCEAB7B00984187 /* SplitViewControllerDelegateProtocol.swift */,
 				66F8F4F22BD6410C00449848 /* LeftMenuViewController.swift */,
+				4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */,
 				66EB54952C22FD1E00E50566 /* XabberTabBarViewController.swift */,
 			);
 			path = split;
@@ -6558,6 +6564,7 @@
 				6691AB0C2ECF395A002FBACF /* DateTimePickerPresenter.swift in Sources */,
 				66EF49A92BCEAADD00984187 /* EmptyChatViewController.swift in Sources */,
 				66F8F4F32BD6410C00449848 /* LeftMenuViewController.swift in Sources */,
+				E399C7099F5E42DCA86BA2AB /* LeftMenuGlassTableViewCell.swift in Sources */,
 				665D33CB22D887C00034F74E /* LastCallsViewController.swift in Sources */,
 				66DCA9E52EE9885000A631ED /* EditCirclesViewController.swift in Sources */,
 				6643F32B21C2650E00333229 /* NSConstraintLayoutSet.swift in Sources */,
@@ -7159,6 +7166,7 @@
 				4E5900492F8A000000ABC001 /* ChatAttachmentAccessibilityLocalizationTests.swift in Sources */,
 				4E5600022F74000000ABC001 /* LeftMenuSelectionPresentationPolicyTests.swift in Sources */,
 				4E1000062F66000000ABC001 /* LeftMenuSurfaceEffectFactoryTests.swift in Sources */,
+				54BE13FBBA5346108D8180B3 /* LeftMenuGlassPremiumTests.swift in Sources */,
 				66D2B585253EFED100299578 /* XabberAssetsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
