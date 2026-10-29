@@ -1515,7 +1515,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
         return BottomBarPresentation(
             actions: FloatingBottomBarView.ActionPresentation(
-                isLeftVisible: hasUnreadActions,
+                isLeftVisible: routeSupportsUnreadActions,
                 isCenterVisible: hasUnreadActions && !hasConnectingEnabledAccounts
             ),
             isActionBarHidden: hidesUnderlyingActions || !routeSupportsUnreadActions
@@ -5419,6 +5419,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
         self.floatingBottomBarView.updateLeftButton(imageName: imageName, isActive: isUnreadFilterActive)
         self.floatingBottomBarView.applyActionPresentation(presentation.actions)
+        self.floatingBottomBarFilterButton.isEnabled =
+            presentation.actions.isLeftVisible && self.unreadChatsCount > 0
         self.floatingBottomBarView.isHidden = presentation.isActionBarHidden
         self.floatingBottomBarView.refreshAppearance()
     }

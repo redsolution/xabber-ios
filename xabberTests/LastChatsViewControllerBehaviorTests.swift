@@ -144,7 +144,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         )
     }
 
-    func testZeroUnreadHidesUnreadActionsWithoutMovingSearchButton() {
+    func testZeroUnreadKeepsDisabledFilterVisibleWithoutMovingSearchButton() {
         let controller = LastChatsViewController()
         controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
         controller.loadViewIfNeeded()
@@ -164,9 +164,25 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
             to: controller.view
         )
 
-        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isEnabled)
         XCTAssertTrue(controller.markAllReadButton.isHidden)
         XCTAssertEqual(searchFrameWithoutActions, searchFrameWithActions)
+    }
+
+    func testUnreadFilterAvailabilityChangesEnabledStateWithoutHidingTheButton() {
+        let controller = LastChatsViewController()
+        AccountManager.shared.connectingUsers.accept([])
+
+        for unreadCount in [0, 3, 0, 1] {
+            controller.updateUnreadChatsCounter(count: unreadCount)
+            controller.updateFloatingToolbarFilterButtonState()
+
+            XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+            XCTAssertEqual(controller.floatingBottomBarFilterButton.isEnabled, unreadCount > 0)
+            XCTAssertTrue(controller.floatingBottomBarFilterButton.isAccessibilityElement)
+            XCTAssertEqual(controller.markAllReadButton.isHidden, unreadCount == 0)
+        }
     }
 
     func testUnreadChatsShowFilterAndMarkAllActions() {
@@ -216,7 +232,8 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
 
         XCTAssertEqual(controller.filter.value, .chats)
         XCTAssertEqual(controller.normalState, .chats)
-        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isEnabled)
         XCTAssertTrue(controller.markAllReadButton.isHidden)
     }
 
@@ -229,7 +246,8 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         controller.onTitleBarButtonTapped()
 
         XCTAssertEqual(controller.filter.value, .chats)
-        XCTAssertTrue(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isHidden)
+        XCTAssertFalse(controller.floatingBottomBarFilterButton.isEnabled)
         XCTAssertTrue(controller.markAllReadButton.isHidden)
     }
 

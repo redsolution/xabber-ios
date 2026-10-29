@@ -185,7 +185,7 @@ final class RootBottomBarIntegrationTests: XCTestCase {
                 filter: .chats,
                 shouldShowBottomBar: true,
                 searchHidesActions: false,
-                expectedActions: .init(isLeftVisible: false, isCenterVisible: false),
+                expectedActions: .init(isLeftVisible: true, isCenterVisible: false),
                 expectedBarHidden: false
             ),
             Case(
