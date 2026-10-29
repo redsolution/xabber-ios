@@ -56,6 +56,79 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         super.tearDown()
     }
 
+    func testNormalGroupRowSelectionWithMentionOpensFirstServerUnread() throws {
+        let request = try normalGroupRowSelectionRequest(syncUnreadCount: 4)
+
+        XCTAssertEqual(request?.source, .initialUnreadBoundary)
+        XCTAssertEqual(request?.targetResolution, .firstIncomingAfterBoundary("read-boundary"))
+        XCTAssertEqual(request?.anchor.archivedId, "read-boundary")
+        XCTAssertFalse(request?.markReadOnVisible ?? true)
+    }
+
+    func testNormalReadGroupRowSelectionIgnoresOldMentionAndOpensLatest() throws {
+        let request = try normalGroupRowSelectionRequest(syncUnreadCount: 0)
+
+        XCTAssertNil(request, "A mention badge must not turn a normal chat-row tap into an exact message route")
+    }
+
+    func testExplicitGroupMentionRouteStillOverridesNormalUnreadOpening() throws {
+        _ = try normalGroupRowSelectionRequest(syncUnreadCount: 4)
+        let realm = try WRealm.safe()
+        let explicit = try XCTUnwrap(LastChatsViewController.unreadMentionOpenRequest(
+            owner: "group-open-owner@example.com",
+            jid: "group-open@example.com",
+            conversationType: .group,
+            in: realm
+        ))
+
+        let request = LastChatsViewController.initialOpenRequest(
+            owner: explicit.owner,
+            jid: explicit.chatJid,
+            conversationType: .group,
+            explicitOpenMessageRequest: explicit,
+            in: realm
+        )
+
+        XCTAssertEqual(request, explicit)
+        XCTAssertEqual(request?.source, .mentionNotification)
+        XCTAssertEqual(request?.anchor.archivedId, "old-mention")
+    }
+
+    private func normalGroupRowSelectionRequest(syncUnreadCount: Int) throws -> ChatOpenMessageRequest? {
+        let owner = "group-open-owner@example.com"
+        let jid = "group-open@example.com"
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .group)
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .group
+        chat.unread = syncUnreadCount
+        chat.syncUnreadCount = syncUnreadCount
+        chat.syncUnreadAfterId = "read-boundary"
+        chat.mentionId = "old-mention"
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(chat, update: .modified) }
+
+        let controller = LastChatsViewController()
+        controller.showSkeleton.accept(false)
+        controller.datasourceSections = [.init(kind: .chats, rows: [
+            makeDatasource(jid: jid, owner: owner, conversationType: .group)
+        ])]
+        var selections: [ChatOpenMessageRequest?] = []
+        controller.performanceChatRowSelectionObserver = { _, _, request in selections.append(request) }
+
+        controller.tableView(controller.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+
+        XCTAssertEqual(selections.count, 1)
+        return LastChatsViewController.initialOpenRequest(
+            owner: owner,
+            jid: jid,
+            conversationType: .group,
+            explicitOpenMessageRequest: selections.first ?? nil,
+            in: realm
+        )
+    }
+
     func testConfigureBarsTabsWithNoSecurityShowsOnlyAddButton() {
         withInterfaceType(.tabs, useYubikey: false) {
             let controller = LastChatsViewController()

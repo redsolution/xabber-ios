@@ -963,11 +963,16 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         }
         func page(_ primaries: [String], newest: String, generation: UInt64) throws -> ArchiveWindowSnapshot {
             let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "sequential-\(generation)")
+            let ledger = try primaries.map { primary in
+                let message = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary))
+                return try XCTUnwrap(ArchiveCursor(rawValue: message.mamArchiveId))
+            }
             let segment = try XCTUnwrap(ArchiveCoverageSegment(
                 oldest: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
                 newest: try XCTUnwrap(ArchiveCursor(rawValue: newest)),
                 reachesArchiveStart: true, reachesLiveEdge: true,
-                fingerprint: freshness.fingerprint, isVerified: true))
+                fingerprint: freshness.fingerprint, isVerified: true,
+                orderedArchiveIDs: ledger))
             return .init(messagePrimaryIDs: primaries, target: .latest, verifiedSegment: segment,
                 coverageGeneration: generation, freshnessToken: freshness)
         }
@@ -1263,7 +1268,8 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let freshToken = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "fresh-reused-latest")
         let freshSegment = try XCTUnwrap(ArchiveCoverageSegment(oldest: cursor,
             newest: try XCTUnwrap(ArchiveCursor(rawValue: "300")), reachesArchiveStart: true,
-            reachesLiveEdge: true, fingerprint: freshToken.fingerprint, isVerified: true))
+            reachesLiveEdge: true, fingerprint: freshToken.fingerprint, isVerified: true,
+            orderedArchiveIDs: try [a, b].map { try XCTUnwrap(ArchiveCursor(rawValue: $0.mamArchiveId)) }))
         controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: [a.primary, b.primary], target: .latest,
             verifiedSegment: freshSegment, coverageGeneration: 2, freshnessToken: freshToken)))
         for _ in 0..<400 where controller.pendingOpenMessageRequest != nil || controller.initialTargetFirstFrameContext != nil {
@@ -1346,7 +1352,8 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let oldest = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
         let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: oldest,
             newest: try XCTUnwrap(ArchiveCursor(rawValue: "200")), reachesArchiveStart: true,
-            reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+            reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true,
+            orderedArchiveIDs: try oldRows.map { try XCTUnwrap(ArchiveCursor(rawValue: $0.mamArchiveId)) }))
         controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: oldRows.map(\.primary), target: .latest,
             verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
         for _ in 0..<400 where controller.timelineSession?.verifiedScope == nil || controller.showSkeletonObserver.value {
@@ -1394,7 +1401,8 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let freshToken = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "fresh-media-window")
         let freshSegment = try XCTUnwrap(ArchiveCoverageSegment(oldest: oldest,
             newest: try XCTUnwrap(ArchiveCursor(rawValue: "300")), reachesArchiveStart: true,
-            reachesLiveEdge: true, fingerprint: freshToken.fingerprint, isVerified: true))
+            reachesLiveEdge: true, fingerprint: freshToken.fingerprint, isVerified: true,
+            orderedArchiveIDs: try (oldRows + [b]).map { try XCTUnwrap(ArchiveCursor(rawValue: $0.mamArchiveId)) }))
         controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: (oldRows + [b]).map(\.primary),
             target: freshTarget, verifiedSegment: freshSegment, coverageGeneration: 2, freshnessToken: freshToken)))
         for _ in 0..<400 {
@@ -1459,7 +1467,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
     func testPrimaryOnlyLiveReferenceRejectsUnqualifiedOrUnauthenticatedCanonicalRows() throws {
         for invalid in ["owner", "peer", "type", "primary", "messageID", "deleted", "hidden", "tombstone",
                         "expired", "error", "empty-reference", "whitespace-reference", "missing-auth", "auth-owner", "auth-jid",
-                        "auth-device", "auth-trusted", "fingerprint", "fingerprint-grouping", "invalid-MAM"] {
+                        "auth-device", "auth-trusted", "fingerprint", "fingerprint-grouping"] {
             try withPrimaryOnlyLiveAnchorFixture(mutate: { row in
                 var auth = row.systemMetadata?["omemo_authenticated_sender_v1"] as? [String: Any] ?? [:]
                 switch invalid {
@@ -1482,7 +1490,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
                 case "auth-trusted": auth.removeValue(forKey: "trusted")
                 case "fingerprint": auth["fingerprint"] = String(repeating: "z", count: 64)
                 case "fingerprint-grouping": auth["fingerprint"] = String(repeating: "aa ", count: 32)
-                default: row.mamArchiveId = "not-a-MAM-cursor"
+                default: XCTFail("Unhandled live reference mutation: \(invalid)")
                 }
                 if invalid.hasPrefix("auth-") || invalid.hasPrefix("fingerprint") {
                     row.systemMetadata = ["omemo_authenticated_sender_v1": auth]
@@ -1546,12 +1554,13 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
 
                 try realm.write { b.mamArchiveId = cursor.rawValue; c.mamArchiveId = "400" }
                 let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "fresh-nontail-B")
+                let orderedRows = olderThanWindow ? [b] + history + [c] : history + [b, c]
                 let segment = try XCTUnwrap(ArchiveCoverageSegment(
                     oldest: try XCTUnwrap(ArchiveCursor(rawValue: olderThanWindow ? "150" : "200")),
                     newest: try XCTUnwrap(ArchiveCursor(rawValue: "400")), reachesArchiveStart: true,
-                    reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
-                let primaries = olderThanWindow ? [b.primary] + history.map(\.primary) + [c.primary]
-                    : history.map(\.primary) + [b.primary, c.primary]
+                    reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true,
+                    orderedArchiveIDs: try orderedRows.map { try XCTUnwrap(ArchiveCursor(rawValue: $0.mamArchiveId)) }))
+                let primaries = orderedRows.map(\.primary)
                 controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: primaries,
                     target: .archiveID(cursor), verifiedSegment: segment, coverageGeneration: 2,
                     freshnessToken: freshness)))
@@ -1589,6 +1598,104 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
             XCTAssertTrue(controller.showSkeletonObserver.value, "Cursor identity still needs owned window materialization")
             XCTAssertNil(controller.timelineSession?.verifiedScope)
             XCTAssertFalse(b.isRead)
+        }
+    }
+
+    @MainActor
+    func testUnreadFirstFrameUsesVerifiedIncomingWhenLongOutgoingPrefixTrimsBoundary() async throws {
+        for isInitialOpen in [true, false] {
+            let previous = Realm.Configuration.defaultConfiguration
+            Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "UnreadTrimmedBoundary-\(UUID())")
+            defer { Realm.Configuration.defaultConfiguration = previous }
+            let realm = try WRealm.safe()
+            let rows: [MessageStorageItem] = (0..<120).map { index in
+                let row = MessageStorageItem()
+                row.owner = owner; row.opponent = jid; row.conversationType = .regular
+                row.messageId = "trimmed-\(index)"
+                row.primary = MessageStorageItem.genPrimary(messageId: row.messageId, owner: owner)
+                row.archivedId = "stanza-\(index)"
+                row.mamArchiveId = "opaque-cursor-\(120 - index)"
+                row.historyPositionOrdinal = Int64(index + 1)
+                row.date = Date(timeIntervalSince1970: Double(1_700_000_120 - index))
+                row.sentDate = row.date
+                row.outgoing = index != 0 && index != 101 && index != 119
+                row.body = "Verified unread context \(index)"; row.legacyBody = row.body
+                row.state = .deliver
+                return row
+            }
+            try realm.write { realm.add(rows) }
+            let controller = ChatViewController()
+            controller.owner = owner; controller.jid = jid; controller.conversationType = .regular
+            controller.ownerSender = Sender(id: owner, displayName: owner)
+            controller.opponentSender = Sender(id: jid, displayName: jid)
+            controller.loadViewIfNeeded()
+            controller.stopArchiveEnginePresentationSubscription()
+            controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            controller.view.layoutIfNeeded()
+            controller.timelineSession = ChatTimelineSession(
+                store: RealmChatTimelineSessionStore(owner: owner, jid: jid, conversationType: .regular),
+                pageSize: ArchivePageSizing.history,
+                conversationKey: .init(owner: owner, jid: jid, conversationType: .regular),
+                observesStoreImmediately: false)
+            let boundary = try XCTUnwrap(ArchiveCursor(rawValue: rows[0].mamArchiveId))
+            let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: rows[0].archivedId)
+            controller.pendingOpenMessageRequest = request
+            var completionCount = 0
+            if isInitialOpen {
+                controller.initialTargetFirstFrameContext = .init(request: request) { completionCount += 1 }
+                controller.isPreparingStackedNavigationPresentation = true
+            }
+            let locator = ArchiveWindowLocator.firstUnread(after: boundary)
+            controller.archiveWindowStateTask = Task {}
+            controller.archiveWindowIntent = .init(
+                conversation: .init(owner: owner, jid: jid, conversationType: .regular),
+                locator: locator, contextBefore: ArchivePageSizing.anchorBefore,
+                contextAfter: ArchivePageSizing.anchorAfter, priority: .target)
+            controller.archiveWindowTargetOpenRequest = request
+            controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: locator)
+            controller.setSkeletonVisible(true)
+            _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+            defer { controller.stopArchiveEnginePresentationSubscription() }
+            var duplicateLoadedPositionCount = 0
+            controller.loadedAnchorPositioningDriverForTests = { completion in
+                duplicateLoadedPositionCount += 1
+                completion(true)
+            }
+            let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "trimmed-unread")
+            let segment = try XCTUnwrap(ArchiveCoverageSegment(
+                orderedArchiveIDs: rows.compactMap { ArchiveCursor(rawValue: $0.mamArchiveId) },
+                reachesArchiveStart: true, reachesLiveEdge: true,
+                fingerprint: freshness.fingerprint, isVerified: true))
+            let centeredRows = Array(rows[61...119])
+            XCTAssertFalse(centeredRows.contains { $0.primary == rows[0].primary })
+
+            controller.receiveArchiveWindowState(.verified(.init(
+                messagePrimaryIDs: centeredRows.map(\.primary), target: locator,
+                verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
+            for _ in 0..<400 where controller.pendingOpenMessageRequest != nil || controller.initialTargetFirstFrameContext != nil {
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+            controller.messagesCollectionView.layoutIfNeeded()
+
+            XCTAssertNil(controller.pendingOpenMessageRequest, "initial=\(isInitialOpen)")
+            XCTAssertNil(controller.initialTargetFirstFrameContext)
+            XCTAssertFalse(controller.showSkeletonObserver.value)
+            XCTAssertEqual(controller.retainedMessageAnchor?.primary, rows[101].primary,
+                "The first incoming row follows 100 outgoing rows in verified ledger order, independent of dates and cursor text")
+            XCTAssertEqual(controller.timelineSession?.snapshot.items.map(\.primary), centeredRows.map(\.primary))
+            XCTAssertEqual(completionCount, isInitialOpen ? 1 : 0)
+            XCTAssertEqual(duplicateLoadedPositionCount, 0,
+                "The winning atomic receipt must complete the original unread request without a second loaded-message scroll")
+            if let section = controller.datasourceSnapshot.primaryIndex[rows[101].primary],
+               let attributes = controller.messagesCollectionView.layoutAttributesForItem(at: .init(item: 0, section: section)) {
+                let collection = controller.messagesCollectionView
+                let expected = ChatAnchorContentOffsetPolicy.centeredOffsetY(targetMidY: attributes.frame.midY,
+                    viewportHeight: collection.bounds.height, contentHeight: collection.contentSize.height,
+                    adjustedContentInsets: collection.adjustedContentInset)
+                XCTAssertEqual(collection.contentOffset.y, expected, accuracy: 1)
+            } else {
+                XCTFail("Winning first unread target must have actual committed layout")
+            }
         }
     }
 
@@ -1663,7 +1770,8 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let freshness = ArchiveFreshnessToken.sessionMAM(connectionGeneration: 1, queryID: "stale-verified80")
         let segment = try XCTUnwrap(ArchiveCoverageSegment(oldest: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
             newest: try XCTUnwrap(ArchiveCursor(rawValue: "279")), reachesArchiveStart: false,
-            reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true))
+            reachesLiveEdge: true, fingerprint: freshness.fingerprint, isVerified: true,
+            orderedArchiveIDs: try history.map { try XCTUnwrap(ArchiveCursor(rawValue: $0.mamArchiveId)) }))
         controller.receiveArchiveWindowState(.verified(.init(messagePrimaryIDs: history.map(\.primary), target: .latest,
             verifiedSegment: segment, coverageGeneration: 1, freshnessToken: freshness)))
         for _ in 0..<400 where controller.timelineSession?.verifiedScope == nil || controller.showSkeletonObserver.value {
@@ -1714,7 +1822,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
     @MainActor
     func testPrimaryOnlyExactAnchorRejectsUnqualifiedHiddenExpiredAndMissingMAMRows() throws {
         for mutation in ["owner", "peer", "type", "primary", "messageID", "deleted", "hidden",
-                         "tombstone", "expired", "empty-MAM", "invalid-MAM"] {
+                         "tombstone", "expired", "empty-MAM"] {
             try withPrimaryOnlyMAMAnchorFixture(mutate: { row in
                 switch mutation {
                 case "owner": row.owner = "other@example.org"
@@ -1729,11 +1837,29 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
                 case "empty-MAM":
                     row.mamArchiveId = ""
                     row.archivedId = "999"
-                default: row.mamArchiveId = "opaque-not-a-MAM-cursor"
+                default: XCTFail("Unhandled exact anchor mutation: \(mutation)")
                 }
             }) { controller, _, request in
                 XCTAssertNil(controller.resolvedArchiveAnchor(for: request).archiveCursor, mutation)
             }
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyExactAnchorAcceptsOpaquePersistedMAMCursor() throws {
+        try withPrimaryOnlyMAMAnchorFixture(mutate: { $0.mamArchiveId = "opaque-MAM-record" }) {
+            controller, _, request in
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: request).archiveCursor,
+                           ArchiveCursor(rawValue: "opaque-MAM-record"))
+        }
+    }
+
+    @MainActor
+    func testPrimaryOnlyLiveReferenceUsesOpaqueMAMCursorWhenPersistenceWins() throws {
+        try withPrimaryOnlyLiveAnchorFixture(mutate: { $0.mamArchiveId = "opaque-materialized-MAM" }) {
+            controller, _, request in
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: request).archiveCursor,
+                           ArchiveCursor(rawValue: "opaque-materialized-MAM"))
         }
     }
 

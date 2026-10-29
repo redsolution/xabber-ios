@@ -1021,7 +1021,7 @@ final class ChatPerformanceLastChatsRouteHostViewController:
               tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
               p14SourceRowVisibleBeforeTap,
               p14SourceRowTapCount == 0,
-              request?.source == .mentionNotification else {
+              request == nil else {
             return
         }
         p14RowReadinessWorkItem?.cancel()

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		45C5B466412648B1B808DB7B /* ChatOpeningSavedPositionRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB8788C865BC47ABA7B3A1A0 /* ChatOpeningSavedPositionRegressionTests.swift */; };
 		DA071E8167BF410BA8B4C951 /* LastChatsSkeletonReplacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */; };
 		E399C7099F5E42DCA86BA2AB /* LeftMenuGlassTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */; };
 		54BE13FBBA5346108D8180B3 /* LeftMenuGlassPremiumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */; };
@@ -1249,6 +1250,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AB8788C865BC47ABA7B3A1A0 /* ChatOpeningSavedPositionRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatOpeningSavedPositionRegressionTests.swift; sourceTree = "<group>"; };
 		325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSkeletonReplacementTests.swift; sourceTree = "<group>"; };
 		4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassTableViewCell.swift; sourceTree = "<group>"; };
 		D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassPremiumTests.swift; sourceTree = "<group>"; };
@@ -4658,6 +4660,7 @@
 				CA280001CA280001CA280001 /* ArchiveGlobalSearchHardCutTests.swift */,
 				14D2E19D4CE1478F9BD74E25 /* ChatSearchArchiveCursorIdentityTests.swift */,
 				CA290001CA290001CA290001 /* AccountArchiveConsumedContinuationTests.swift */,
+				AB8788C865BC47ABA7B3A1A0 /* ChatOpeningSavedPositionRegressionTests.swift */,
 				CA2A0001CA2A0001CA2A0001 /* ChatInitialTargetFirstFrameTests.swift */,
 				CA2B0001CA2B0001CA2B0001 /* SynchronizedArrayConcurrencyTests.swift */,
 				4E9800012FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift */,
@@ -7071,6 +7074,7 @@
 				CA280002CA280002CA280002 /* ArchiveGlobalSearchHardCutTests.swift in Sources */,
 				AF4CED4911564136B0FA492A /* ChatSearchArchiveCursorIdentityTests.swift in Sources */,
 				CA290002CA290002CA290002 /* AccountArchiveConsumedContinuationTests.swift in Sources */,
+				45C5B466412648B1B808DB7B /* ChatOpeningSavedPositionRegressionTests.swift in Sources */,
 				CA2A0002CA2A0002CA2A0002 /* ChatInitialTargetFirstFrameTests.swift in Sources */,
 				CA2B0002CA2B0002CA2B0002 /* SynchronizedArrayConcurrencyTests.swift in Sources */,
 				4E9800022FF800000ABC001 /* ChatCollectionAnchorPreservationTests.swift in Sources */,

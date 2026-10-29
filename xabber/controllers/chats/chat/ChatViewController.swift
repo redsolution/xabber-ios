@@ -3108,7 +3108,8 @@ class ChatViewController: MessagesViewController {
         self.performOnMain {
             if isVisible, self.archiveOpeningWaitExpired,
                self.archiveOpeningWaitDescriptor == self.archiveWindowIntent?.semanticDescriptor,
-               self.isArchiveHistoryUnavailable {
+               self.isArchiveHistoryUnavailable,
+               !self.requiresArchiveTargetLoadingSkeleton {
                 self.showNeutralArchivePendingStateIfNeeded(allowPendingRequest: true)
                 return
             }
@@ -7957,13 +7958,16 @@ class ChatViewController: MessagesViewController {
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
         self.didCancelNavigationDisappearanceTransition = false
-        self.stopArchiveEnginePresentationSubscription()
         self.flushPendingScrollWork()
+        // Persist while the resident window still identifies the live edge
+        // and pending anchor navigation still protects intermediate rows.
+        // Archive/search teardown invalidates both of those inputs.
+        self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
+        self.stopArchiveEnginePresentationSubscription()
         self.releaseNavigationAvatarItemAfterConfirmedRemoval()
         self.teardownChatSearchLifecycle(reason: .navigationAway)
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
         self.flushPendingVisibleReadTarget()
-        self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
         self.sendCanonicalGroupChatPresence(.gone)
         self.performTerminalChatResourceTeardown()
     }

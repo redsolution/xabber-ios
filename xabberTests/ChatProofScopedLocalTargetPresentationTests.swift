@@ -118,7 +118,7 @@ final class ChatProofScopedLocalTargetPresentationTests: XCTestCase {
             in: archiveSource,
             endingBefore: "internal func canRequestTimelineBoundary("
         )
-        XCTAssertTrue(remote.contains("ChatAnchorArchiveLocatorPolicy.locator("))
+        XCTAssertTrue(remote.contains("resolvedArchiveLocator(for: request)"))
         XCTAssertTrue(remote.contains("account.archiveEngine.submit(intent)"))
     }
 

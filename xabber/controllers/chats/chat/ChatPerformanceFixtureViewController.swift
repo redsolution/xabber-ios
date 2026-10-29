@@ -454,6 +454,38 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             } catch {
                 openScenarioSetupFailure = String(describing: type(of: error))
             }
+            if scenario == .lastChatsSeededMentionExact {
+                installP14NormalOpeningDiagnostics()
+            }
+        }
+    }
+
+    private func installP14NormalOpeningDiagnostics() {
+        performanceOpenMessageRequestAdmissionObserver = { [weak self] request, isViewLoaded in
+            guard let self else { return }
+            self.p14RequestAdmissionCount += 1
+            if !isViewLoaded { self.p14RequestAdmissionBeforeViewLoadCount += 1 }
+            if request.owner == self.owner, request.chatJid == self.jid, request.conversationType == .group {
+                self.p14GroupConversationProofCount += 1
+            }
+            switch request.source {
+            case .initialUnreadBoundary: self.p14UnreadRequestCount += 1
+            case .savedVisiblePosition: self.p14SavedRequestCount += 1
+            default: self.p14ExplicitRequestCount += 1
+            }
+            self.recordP14FreshMentionState(self.queryP14FreshMentionState(), expectedRead: false) {
+                self.p14MentionUnreadAtAdmission = $0
+            }
+        }
+        visibleMentionReadScheduledForTests = { [weak self] count in self?.p14MentionReadScheduledCount += count }
+        visibleMentionReadAfterFirstPersistentMutationBarrierForTests = { [weak self] in
+            DispatchQueue.main.async { self?.p14MentionReadCommittedCountForTesting += 1 }
+        }
+        visibleMentionReadTerminalForTests = { [weak self] success in
+            DispatchQueue.main.async {
+                if success { self?.p14MentionReadTerminalSuccessCount += 1 }
+                else { self?.p14MentionReadTerminalFailureCount += 1 }
+            }
         }
     }
 
@@ -583,7 +615,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         let plan = ChatOpenRealPipelineFixturePlan(
             scenario: .lastChatsSeededMentionExact
         )
-        let expectedTargetPrimary = openPrimary(plan.p14ExplicitMentionOrdinal)
+        let expectedTargetPrimary = openPrimary(plan.p14UnreadTargetOrdinal)
         let targetSection = datasourceSnapshot.primaryIndex[expectedTargetPrimary]
         let targetIndexPath = targetSection.map {
             IndexPath(item: 0, section: $0)
@@ -1347,6 +1379,13 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             }
         case .none, .preserveContentOffset:
             break
+        }
+        if plan.scenario == .lastChatsSeededMentionExact {
+            if case .message(let anchor) = receipt.viewportDiagnostics.anchorStrategy {
+                if anchor.primary == openPrimary(plan.p14UnreadTargetOrdinal) { p14MentionUnreadFrameCount += 1 }
+                if anchor.primary == openPrimary(plan.p14SavedTargetOrdinal) { p14MentionSavedFrameCount += 1 }
+            }
+            recordP14FreshMentionState(queryP14FreshMentionState(), expectedRead: false) { p14MentionUnreadAtInitialCommit = $0 }
         }
         if !ChatOpenRealPipelineFixtureDiagnosticsPolicy.isExpectedCommit(
             targetKind: plan.targetKind,
@@ -2375,6 +2414,12 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         let gapRequestCount = openScenarioGapRequestCount
         let activeProductionWorkCount =
             captureOpenScenarioActiveProductionWorkCount()
+        if plan.scenario == .lastChatsSeededMentionExact {
+            let mentionState = queryP14FreshMentionState()
+            recordP14FreshMentionState(mentionState, expectedRead: false) { _ in
+                p14MentionReadAtTerminal = mentionState.isRead == true
+            }
+        }
         let p14MentionDiagnostics = captureP14MentionDiagnostics()
         let evidence = ChatOpenRealPipelineFixtureTerminalEvidenceSnapshot(
             // Mapping-job generations may advance for work that is cancelled

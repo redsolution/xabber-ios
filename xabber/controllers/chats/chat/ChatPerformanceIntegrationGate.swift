@@ -22,6 +22,8 @@ enum ChatOpenRealPipelineFixtureScenario: String, CaseIterable, Equatable {
     case latestWithUnrelatedOlderGap = "latest-with-unrelated-older-gap"
     case lastChatsAnimatedPush = "last-chats-animated-push"
     case mentionDeletedAdvance = "mention-deleted-advance"
+    /// Ordinary recents-row tap with a mention badge; opens first server unread.
+    /// The legacy raw value remains stable for existing matrix artifact selectors.
     case lastChatsSeededMentionExact =
         "last-chats-seeded-mention-exact"
     case coldPushExact = "cold-push-exact"
@@ -1349,8 +1351,8 @@ struct ChatPerformanceRouteHostDiagnostics: Equatable {
                 p14RequestAdmissionCount == 1 &&
                 p14RequestAdmissionBeforeViewLoadCount == 1 &&
                 p14GroupConversationProofCount == 1 &&
-                p14ExplicitRequestCount == 1 &&
-                p14UnreadRequestCount == 0 &&
+                p14ExplicitRequestCount == 0 &&
+                p14UnreadRequestCount == 1 &&
                 p14SavedRequestCount == 0 &&
                 p14LatestRequestCount == 0
         case .mentionDeletedAdvance:
@@ -1473,18 +1475,18 @@ struct ChatPerformanceP14MentionDiagnostics: Equatable {
     )
 
     var isAccepted: Bool {
-        unreadFrameCount == 0 &&
+        unreadFrameCount == 1 &&
             savedFrameCount == 0 &&
             readEagerMutationCount == 0 &&
-            readScheduledCount == 1 &&
-            readCommittedCount == 1 &&
-            readSuccessfulFlushCount == 1 &&
-            readTerminalSuccessCount == 1 &&
+            readScheduledCount == 0 &&
+            readCommittedCount == 0 &&
+            readSuccessfulFlushCount == 0 &&
+            readTerminalSuccessCount == 0 &&
             readTerminalFailureCount == 0 &&
             unreadBeforeTap &&
             unreadAtAdmission &&
             unreadAtInitialCommit &&
-            readAtTerminal &&
+            !readAtTerminal &&
             freshRealmMatchCount == 1 &&
             freshRealmProofFailureCount == 0 &&
             pendingCandidateCount == 0 &&
@@ -2403,10 +2405,9 @@ struct ChatOpenRealPipelineFixturePlan: Equatable {
         switch scenario {
         case .notificationExactLocal, .notificationExactRemote,
              .notificationKnownGapTarget, .coldPushExact,
-             .mentionDeletedAdvance,
-             .lastChatsSeededMentionExact:
+             .mentionDeletedAdvance:
             return true
-        case .searchExactLocal, .searchExactLocalOutsideWindow,
+        case .lastChatsSeededMentionExact, .searchExactLocal, .searchExactLocalOutsideWindow,
              .searchExactRemote, .knownGapMissingTarget,
              .newerCrossingGap, .unreadBoundaryLocal,
              .savedPositionLocal:
@@ -2470,11 +2471,11 @@ struct ChatOpenRealPipelineFixturePlan: Equatable {
             return .search
         case .knownGapMissingTarget, .newerCrossingGap:
             return .directOpenAtMessage
-        case .unreadBoundaryLocal:
+        case .unreadBoundaryLocal, .lastChatsSeededMentionExact:
             return .initialUnreadBoundary
         case .savedPositionLocal:
             return .savedVisiblePosition
-        case .mentionDeletedAdvance, .lastChatsSeededMentionExact:
+        case .mentionDeletedAdvance:
             return .mentionNotification
         case .preloadedLatest, .confirmedEmpty, .bootstrapEmptyToContent,
              .bootstrapStaleLocalToContent,
@@ -2511,9 +2512,10 @@ struct ChatOpenRealPipelineFixturePlan: Equatable {
              .notificationKnownGapTarget, .searchExactLocal,
              .searchExactRemote, .knownGapMissingTarget,
              .unreadBoundaryLocal, .savedPositionLocal, .coldPushExact,
-             .mentionDeletedAdvance,
-             .lastChatsSeededMentionExact:
+             .mentionDeletedAdvance:
             return 160
+        case .lastChatsSeededMentionExact:
+            return p14UnreadTargetOrdinal
         case .searchExactLocalOutsideWindow, .newerCrossingGap:
             return 40
         case .preloadedLatest, .confirmedEmpty, .bootstrapEmptyToContent,

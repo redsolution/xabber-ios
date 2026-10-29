@@ -19614,7 +19614,7 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
     }
 
-    func testInvalidSyncUnreadAfterIdWithPositiveSyncUnreadCountOpensBottom() {
+    func testOpaqueSyncUnreadAfterIdWithPositiveSyncUnreadCountCreatesUnreadTarget() {
         let state = makeState(
             unread: 3,
             syncUnreadCount: 3,
@@ -19622,7 +19622,12 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
             lastReadId: "1711283294000000"
         )
 
-        XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
+        guard case .open(let request) = ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil) else {
+            return XCTFail("A nonnumeric server reference remains an eligible unread boundary")
+        }
+        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("not-a-server-archive-id"))
+        XCTAssertNil(request.anchor.archiveCursor)
+        XCTAssertNil(request.anchor.sourceDate)
     }
 
     func testBlankSyncUnreadAfterIdOpensBottomWithoutLastReadFallback() {

@@ -709,6 +709,17 @@ extension ChatViewController {
         }
     }
 
+    /// A required message target owns its loading presentation. Retained rows
+    /// from a different window are usable after offline/terminal failure, but
+    /// cannot stand in for that target while its archive request is active.
+    internal var requiresArchiveTargetLoadingSkeleton: Bool {
+        guard let request = pendingOpenMessageRequest,
+              ChatInitialTargetFirstFramePolicy.owns(request: request,
+                owner: owner, jid: jid, conversationType: conversationType),
+              case .skeleton(let reason, _) = archiveWindowState else { return false }
+        return reason != .offline
+    }
+
     /// Receiving a verified result starts materialization; only its winning
     /// UIKit commit replaces visibility fallback and restores authority.
     internal var hasVisibleArchiveFallbackAwaitingCommit: Bool {
@@ -848,7 +859,7 @@ extension ChatViewController {
               request.conversationType == conversationType,
               !isPrimaryOnlyCurrentAuthenticatedLiveTail(request) else { return nil }
         let anchor = resolvedArchiveAnchor(for: request)
-        guard ChatAnchorArchiveLocatorPolicy.locator(for: anchor) == nil,
+        guard resolvedArchiveLocator(for: request) == nil,
               anchor.archivedId?.isNotEmpty == true else { return nil }
         return request
     }
@@ -937,10 +948,79 @@ extension ChatViewController {
         return ArchiveCursor(rawValue: item.mamArchiveId)
     }
 
+    /// An unread cursor identifies the last read boundary. Its archive window
+    /// must scan to the first incoming row after it, including outgoing-only
+    /// pages; exact-message routes keep their ordinary anchor locator.
+    internal func resolvedArchiveLocator(for request: ChatOpenMessageRequest) -> ArchiveWindowLocator? {
+        let anchor = resolvedArchiveAnchor(for: request)
+        switch request.targetResolution {
+        case .anchor:
+            return ChatAnchorArchiveLocatorPolicy.locator(for: anchor)
+        case .firstIncomingAfterBoundary:
+            return anchor.archiveCursor.map { .firstUnread(after: $0) }
+        }
+    }
+
+    /// The engine may center a first-unread window beyond a long outgoing
+    /// prefix, leaving the original boundary outside the bounded datasource.
+    /// Its owned verified locator and ledger still prove which incoming row
+    /// must be positioned; the boundary row need not be rendered.
+    internal func resolvedArchiveInitialTargetPrimary(
+        for request: ChatOpenMessageRequest,
+        snapshot: ArchiveWindowSnapshot,
+        candidateItems: [MessageStorageItem],
+        datasource: [Datasource]
+    ) -> String? {
+        guard case .firstIncomingAfterBoundary = request.targetResolution else {
+            return ChatLoadedMessageNavigationPolicy.index(in: datasource, for: request)
+                .flatMap { datasource.indices.contains($0) ? datasource[$0].primary : nil }
+        }
+        guard pendingOpenMessageRequest == request,
+              archiveWindowTargetOpenRequest == request,
+              request.owner == owner, request.chatJid == jid,
+              request.conversationType == conversationType,
+              archiveWindowIntent?.conversation == archiveEngineConversationKey,
+              archiveWindowIntent?.locator == snapshot.target,
+              case .firstUnread(.some(let boundary)) = snapshot.target,
+              let scope = ChatTimelineVerifiedScope(
+                conversationKey: chatTimelineConversationKey,
+                segment: snapshot.verifiedSegment,
+                coverageGeneration: snapshot.coverageGeneration,
+                freshnessToken: snapshot.freshnessToken
+              ),
+              let boundaryIndex = scope.index(of: boundary) else { return nil }
+        let expectedPrimaries = Set(snapshot.messagePrimaryIDs)
+        let now = Date().timeIntervalSince1970
+        var firstIncoming: (primary: String, cursor: ArchiveCursor, index: Int)?
+        for item in candidateItems {
+            guard expectedPrimaries.contains(item.primary), !item.outgoing,
+                  item.deleteState == .visible, scope.contains(item),
+                  item.effectiveAutoDeleteExpiresAt <= 0 || item.effectiveAutoDeleteExpiresAt > now,
+                  let cursor = scope.archiveCursor(for: item),
+                  let index = scope.index(of: cursor), index > boundaryIndex else { continue }
+            if let firstIncoming, firstIncoming.index == index,
+               firstIncoming.primary != item.primary { return nil }
+            if index < (firstIncoming?.index ?? Int.max) {
+                firstIncoming = (item.primary, cursor, index)
+            }
+        }
+        guard let target = firstIncoming else { return nil }
+        let mapped = datasource.filter {
+            !$0.isFakeMessage && !$0.isOutgoing && $0.primary == target.primary &&
+                $0.owner == owner && $0.jid == jid &&
+                $0.mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) == target.cursor
+        }
+        return mapped.count == 1 ? target.primary : nil
+    }
+
     internal func resolvedArchiveAnchor(for request: ChatOpenMessageRequest) -> ChatMessageAnchorRef {
         guard request.owner == owner, request.chatJid == jid,
               request.conversationType == conversationType else {
             return request.anchor
+        }
+        if case .anchor = request.targetResolution,
+           let anchor = persistedSavedVisiblePositionArchiveAnchor(for: request) {
+            return anchor
         }
         if case .anchor = request.targetResolution,
            let cursor = persistedPrimaryOnlyArchiveCursor(for: request) {
@@ -977,6 +1057,38 @@ extension ChatViewController {
             authorId: request.anchor.authorId,
             bodyFingerprint: request.anchor.bodyFingerprint,
             sourceDate: nil
+        )
+    }
+
+    /// Saved positions historically store the outer MAM ID in `archivedId`.
+    /// Recover its typed cursor from the exact visible persisted row instead
+    /// of treating that legacy field as a protocol reference or guessing from
+    /// the saved timestamp. This resolves identity only, never archive proof.
+    private func persistedSavedVisiblePositionArchiveAnchor(
+        for request: ChatOpenMessageRequest
+    ) -> ChatMessageAnchorRef? {
+        guard request.source == .savedVisiblePosition,
+              request.anchor.archiveCursor == nil,
+              let primary = request.anchor.messagePrimary, primary.isNotEmpty,
+              let realm = try? WRealm.safe() else { return nil }
+        realm.refresh()
+        guard let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary),
+              !message.isInvalidated, message.primary == primary,
+              message.owner == owner, message.opponent == jid,
+              message.conversationType == conversationType,
+              request.anchor.messageId == nil || request.anchor.messageId == message.messageId,
+              !message.isDeleted, !message.isLocallyHiddenByReport, message.deleteState == .visible,
+              message.effectiveAutoDeleteExpiresAt <= 0 ||
+                message.effectiveAutoDeleteExpiresAt > Date().timeIntervalSince1970,
+              let cursor = ArchiveCursor(rawValue: message.mamArchiveId) else { return nil }
+        return ChatMessageAnchorRef(
+            messagePrimary: primary,
+            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil,
+            archiveCursor: cursor,
+            messageId: request.anchor.messageId,
+            authorId: request.anchor.authorId,
+            bodyFingerprint: request.anchor.bodyFingerprint,
+            sourceDate: request.anchor.sourceDate
         )
     }
 
@@ -1078,6 +1190,12 @@ extension ChatViewController {
     /// timeline window, manufacture coverage, or decrypt a cached stanza here.
     @discardableResult
     internal func restoreArchiveHistoryFailurePresentationIfNeeded() -> Bool {
+        guard !requiresArchiveTargetLoadingSkeleton else {
+            archiveHistoryFailureFallbackIsVisible = false
+            // An already queued cache read no longer owns presentation.
+            archiveHistoryFailureFallbackRequestID = nil
+            return false
+        }
         let isRetrying: Bool
         if case .skeleton? = archiveWindowState { isRetrying = archiveHistoryFailureFallbackIsVisible }
         else { isRetrying = false }
@@ -1128,6 +1246,8 @@ extension ChatViewController {
         let retainedPrimaries = archiveHistoryFailureVisibleSnapshot.flatMap {
             $0.conversation == key ? $0.persistedPrimaries : nil
         }
+        let isColdPresentation = archiveHistoryFailureVisibleSnapshot?.conversation != key &&
+            !datasource.contains(where: { !$0.isFakeMessage })
         datasetMappingQueue.async { [weak self] in
             guard let self else { return }
             let now = Date().timeIntervalSince1970
@@ -1170,7 +1290,8 @@ extension ChatViewController {
                 guard self.chatTimelineConversationKey == key,
                       self.archiveWindowApplyGeneration == generation,
                       self.datasetMappingGeneration == mappingJob.generation,
-                      !mappingJob.token.isCancelled, !mapped.wasCancelled else { return }
+                      !mappingJob.token.isCancelled, !mapped.wasCancelled,
+                      !self.requiresArchiveTargetLoadingSkeleton else { return }
                 let isRetrying: Bool
                 if case .skeleton? = self.archiveWindowState {
                     isRetrying = self.archiveHistoryFailureFallbackIsVisible
@@ -1190,6 +1311,15 @@ extension ChatViewController {
                     }
                     return
                 }
+                let alignsColdLatestToBottom: Bool
+                switch self.archiveWindowState {
+                case .skeleton(_, .latest)?, .retryableFailure(_, .latest)?:
+                    alignsColdLatestToBottom = isColdPresentation &&
+                        self.pendingOpenMessageRequest == nil &&
+                        !self.datasource.contains(where: { !$0.isFakeMessage })
+                default:
+                    alignsColdLatestToBottom = false
+                }
                 self.archiveHistoryFailureVisibleSnapshot = ChatArchiveFailureVisibleSnapshot(
                     conversation: key, items: mapped.datasource, layouts: mapped.layoutSnapshot,
                     persistedPrimaries: rows.map(\.primary)
@@ -1202,6 +1332,9 @@ extension ChatViewController {
                     animated: false,
                     preparedLayouts: mapped.layoutSnapshot,
                     suppressDefaultBottomScroll: true,
+                    // A cold latest window has no reading offset to restore.
+                    // Align it in this apply before its first real frame.
+                    forceBottomAlignmentTarget: alignsColdLatestToBottom ? .newestRealMessage : nil,
                     presentationOwner: .archiveEngine,
                     completion: { [weak self] in self?.finishArchiveFailureVisiblePreparationIfNeeded() }
                 )
@@ -1682,7 +1815,7 @@ extension ChatViewController {
             return false
         }
         cancelArchiveReferenceResolution()
-        let locator = ChatAnchorArchiveLocatorPolicy.locator(for: resolvedArchiveAnchor(for: request))
+        let locator = resolvedArchiveLocator(for: request)
         if locator == nil {
             if isPrimaryOnlyCurrentAuthenticatedLiveTail(request) {
                 // Expanded navigation reuses a stable controller, so it has no
@@ -2793,9 +2926,7 @@ extension ChatViewController {
            request.owner == owner,
            request.chatJid == jid,
            request.conversationType == conversationType {
-            if let locator = ChatAnchorArchiveLocatorPolicy.locator(
-                for: resolvedArchiveAnchor(for: request)
-            ) {
+            if let locator = resolvedArchiveLocator(for: request) {
                 return ArchiveWindowIntent(
                     conversation: conversation,
                     locator: locator,
@@ -3574,7 +3705,8 @@ extension ChatViewController {
     /// Unknown/unavailable is distinct from a verified empty archive. A terminal
     /// request cannot leave fake loading rows on screen forever.
     internal func showNeutralArchivePendingStateIfNeeded(allowPendingRequest: Bool = false) {
-        guard isViewLoaded, !datasource.contains(where: { !$0.isFakeMessage }) else { return }
+        guard isViewLoaded, !requiresArchiveTargetLoadingSkeleton,
+              !datasource.contains(where: { !$0.isFakeMessage }) else { return }
         switch archiveWindowState {
         case .retryableFailure?: break
         case .skeleton(let reason, _)? where allowPendingRequest || reason == .offline: break
@@ -4103,6 +4235,15 @@ extension ChatViewController {
                         ) ? request : nil
                     }
                 if let request = currentOwnedPendingRequest {
+                    // Runtime unread jumps use the same atomic positioning
+                    // receipt as initial opens, even without navigation work.
+                    if self.initialTargetFirstFrameContext == nil,
+                       case .firstIncomingAfterBoundary = request.targetResolution,
+                       case .firstUnread = snapshot.target {
+                        let context = ChatInitialTargetFirstFrameContext(request: request, completion: {})
+                        context.releasePreparationCompletion()
+                        self.initialTargetFirstFrameContext = context
+                    }
                     self.initialTargetFirstFrameContext?.retarget(to: request)
                 }
                 let initialTargetFirstFrameRequest =
@@ -4111,18 +4252,14 @@ extension ChatViewController {
                             ? context.request
                             : nil
                     }
-                let resolvedInitialTargetIndex =
-                    initialTargetFirstFrameRequest.flatMap { request in
-                        ChatLoadedMessageNavigationPolicy.index(
-                            in: mappingResult.datasource,
-                            for: request
-                        )
-                    }
                 let resolvedInitialTargetPrimary =
-                    resolvedInitialTargetIndex.flatMap { index in
-                        mappingResult.datasource.indices.contains(index)
-                            ? mappingResult.datasource[index].primary
-                            : nil
+                    initialTargetFirstFrameRequest.flatMap { request in
+                        self.resolvedArchiveInitialTargetPrimary(
+                            for: request,
+                            snapshot: snapshot,
+                            candidateItems: candidate.items,
+                            datasource: mappingResult.datasource
+                        )
                     }
                 let resolvedInitialTargetHeight =
                     resolvedInitialTargetPrimary.flatMap { primary in
@@ -4308,8 +4445,6 @@ extension ChatViewController {
                                 .uikitApply,
                                 value: snapshot.messagePrimaryIDs.count
                             )
-                            self.setSkeletonVisible(false)
-                            self.setDatasourceLoadingEnabled(true)
                             if let request = commitReceipt
                                     .initialTargetFirstFrameRequest,
                                let positionedPrimary = commitReceipt
@@ -4325,6 +4460,11 @@ extension ChatViewController {
                             }
                             commitReceipt.didCommitInitialTargetFirstFrame =
                                 targetFirstFramePlan.canCompletePreparation
+                            // Revealing content drains observer/navigation work.
+                            // Publish aligned ownership before those callbacks
+                            // can attempt a second loaded-message scroll.
+                            self.setSkeletonVisible(false)
+                            self.setDatasourceLoadingEnabled(true)
                             var boundaryCompletionOwnedByTypedTerminal = false
                             if var request = self.timelineBoundaryRequest,
                                request.phase == .waitingRemote,

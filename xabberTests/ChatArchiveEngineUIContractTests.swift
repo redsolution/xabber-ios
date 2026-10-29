@@ -179,43 +179,29 @@ final class ChatArchiveEngineUIContractTests: XCTestCase {
             in: source
         )
 
-        XCTAssertTrue(initialIntent.contains("ChatAnchorArchiveLocatorPolicy.locator("))
+        XCTAssertTrue(initialIntent.contains("resolvedArchiveLocator(for: request)"))
         XCTAssertFalse(initialIntent.contains("syncUnreadAfterId"))
         XCTAssertFalse(initialIntent.contains(".firstUnread(after:"))
         XCTAssertFalse(initialIntent.contains("ArchiveCursor(rawValue: rawUnreadBoundary)"))
     }
 
-    func testTerminalRetryableFailureSchedulesEngineOwnedAutomaticRetry() throws {
+    func testTerminalRetryableFailureKeepsBackoffOwnedByArchiveActor() throws {
         let source = try archiveEngineSource()
+        let handler = try sourceMethod(named: "internal func receiveArchiveWindowState", in: source)
 
-        let stateHandler = try XCTUnwrap(source.range(of: "internal func receiveArchiveWindowState"))
-        let handlerTail = source[stateHandler.lowerBound...]
-        let handlerEnd = handlerTail.range(of: "private func receiveArchiveWindowActivity")?.lowerBound
-            ?? handlerTail.endIndex
-        let handler = String(handlerTail[..<handlerEnd])
-
-        XCTAssertTrue(
-            handler.contains("case .retryableFailure"),
-            "The state reducer must distinguish terminal failure from ordinary loading skeleton"
-        )
-        XCTAssertTrue(
-            handler.contains("scheduleArchiveHistoryAutomaticRetry("),
-            "The retryable-failure branch must schedule actor-owned automatic backoff"
-        )
+        XCTAssertTrue(handler.contains("case .retryableFailure"),
+            "A terminal failure must remain distinct from an ordinary loading skeleton")
+        XCTAssertFalse(source.contains("scheduleArchiveHistoryAutomaticRetry("),
+            "A second UIKit retry timer can race the actor's owned target")
         XCTAssertFalse(handler.contains("archiveEngineRetryView.present"))
         XCTAssertFalse(handler.contains("presentArchiveBoundaryRetry("))
 
-        let scheduler = try XCTUnwrap(
-            source.range(of: "private func scheduleArchiveHistoryAutomaticRetry")
-        )
-        let schedulerTail = source[scheduler.lowerBound...]
-        let schedulerEnd = schedulerTail.range(
-            of: "internal func submitArchiveEngineLatestTarget"
-        )?.lowerBound ?? schedulerTail.endIndex
-        let schedulerMethod = String(schedulerTail[..<schedulerEnd])
-        XCTAssertTrue(schedulerMethod.contains("asyncAfter"))
-        XCTAssertTrue(schedulerMethod.contains("archiveEngine.retry(conversation:"))
-        XCTAssertFalse(schedulerMethod.contains("requestTimelineBoundary("))
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let actor = try String(contentsOf: root.appendingPathComponent(
+            "xabber/xmpp/messages/message_archive/engine/AccountArchiveEngine.swift"), encoding: .utf8)
+        XCTAssertTrue(actor.contains("await retryClock.sleep(retryClock.jitter("))
+        XCTAssertTrue(actor.contains("retainTerminalFailure("))
     }
 
     private func makeController() -> ChatViewController {

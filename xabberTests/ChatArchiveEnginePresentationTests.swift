@@ -484,6 +484,102 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testColdLatestCacheFallbackCommitsAtLiveBottomWithoutArchiveAuthority() async throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "ColdLatestCacheBottom-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let rows = (0..<80).map { index in
+            let row = message(primary: "cold-latest-\(index)", archiveID: "\(1000 + index)")
+            row.messageId = "cold-message-\(index)"
+            row.body = "Cached message \(index): this conversation must open at its newest visible message."
+            row.legacyBody = row.body
+            row.sentDate = row.date
+            row.historyPositionOrdinal = Int64(index + 1)
+            return row
+        }
+        try realm.write { realm.add(rows) }
+        let controller = ChatViewController()
+        controller.owner = conversation.owner; controller.jid = conversation.jid
+        controller.conversationType = conversation.conversationType
+        controller.ownerSender = Sender(id: conversation.owner, displayName: conversation.owner)
+        controller.opponentSender = Sender(id: conversation.jid, displayName: conversation.jid)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.archiveHistoryFailureVisibleSnapshot = nil
+        controller.archiveHistoryFailureFallbackIsVisible = false
+        controller.archiveHistoryFailureFallbackRequestID = nil
+        controller.pendingOpenMessageRequest = nil
+        controller.initialTargetFirstFrameContext = nil
+        controller.applyChatDatasource([], mode: .fullReload(keepOffset: false), animated: false,
+            suppressDefaultBottomScroll: true, presentationOwner: .archiveEngine)
+        controller.archiveWindowIntent = .init(conversation: conversation, locator: .latest,
+            contextBefore: ArchivePageSizing.initial, contextAfter: 0, priority: .visibleIntegrity)
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+        let published = expectation(description: "cold cached latest rows reach the hosted collection")
+        published.assertForOverFulfill = false
+        controller.datasourceDidSetForTests = { mapped in
+            if mapped.contains(where: { $0.primary == rows.last?.primary && !$0.isFakeMessage }) { published.fulfill() }
+        }
+
+        controller.setSkeletonVisible(true)
+        _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+        await fulfillment(of: [published], timeout: 3)
+        for _ in 0..<200 where controller.isChatDatasourceStructuralTransactionActive {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let collection = controller.messagesCollectionView
+        XCTAssertGreaterThan(collection.contentSize.height, collection.bounds.height * 2)
+        let expectedBottom = max(-collection.adjustedContentInset.top,
+            collection.contentSize.height - collection.bounds.height + collection.adjustedContentInset.bottom)
+        XCTAssertEqual(collection.contentOffset.y, expectedBottom, accuracy: 0.5,
+            "A cold latest fallback must not reveal the oldest row at the prior skeleton offset")
+        XCTAssertTrue(controller.archiveHistoryFailureFallbackIsVisible)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertNil(controller.committedTimelineScope())
+        XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+    }
+
+    @MainActor
+    func testRetainedCacheRecoveryKeepsExistingReadingViewport() throws {
+        try withRecoveryBannerGeometryFixture(size: CGSize(width: 390, height: 844)) { controller, window in
+            scrollRecoveryGeometryFixture(controller, fraction: 0.45)
+            let beforeOffset = controller.messagesCollectionView.contentOffset.y
+            let visible = recoveryVisibleCellRects(controller, window: window).sorted { $0.rect.minY < $1.rect.minY }
+            let anchor = try XCTUnwrap(visible.dropFirst(visible.count / 2).first)
+            let layout = try XCTUnwrap(controller.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)
+            // This synthetic fixture has no archive state to retain from; give
+            // recovery the actual accepted rendered window it must preserve.
+            controller.archiveHistoryFailureVisibleSnapshot = .init(
+                conversation: controller.chatTimelineConversationKey,
+                items: controller.datasource, layouts: layout.cache.reuseSnapshot(), persistedPrimaries: [])
+            controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+
+            controller.setSkeletonVisible(true)
+            window.layoutIfNeeded()
+            controller.messagesCollectionView.layoutIfNeeded()
+
+            let after = try XCTUnwrap(recoveryVisibleCellRects(controller, window: window).first { $0.primary == anchor.primary })
+            XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, beforeOffset, accuracy: 0.5)
+            XCTAssertEqual(after.rect.minY, anchor.rect.minY, accuracy: 1)
+            XCTAssertFalse(controller.showSkeletonObserver.value)
+            XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        }
+    }
+
+    @MainActor
     func testColdOfflineEncryptedArchiveShowsOnlyScopedAcceptedRowsWithoutArchiveAuthority() async throws {
         let previous = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "OfflineArchiveVisibility-\(UUID())")
@@ -587,6 +683,129 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         XCTAssertNil(controller.archiveHistoryRecoveryStatusView.superview)
         XCTAssertEqual(controller.archiveHistoryRecoveryBannerHeight, 0)
         XCTAssertEqual(controller.messagesCollectionView.contentInset.top, originalTopInset)
+    }
+
+    @MainActor
+    func testPendingExactTargetLoadingKeepsSkeletonInsteadOfRestoringRetainedWindow() throws {
+        for reason: ArchiveSkeletonReason in [.opening, .loadingTarget, .staleFingerprint, .unverifiedCoverage, .boundaryGap] {
+            let controller = try controllerWithCommittedMessage()
+            let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+            let request = ChatOpenMessageRequest(chatJid: conversation.jid, owner: conversation.owner,
+                conversationType: conversation.conversationType,
+                anchor: .init(messagePrimary: "requested-target", archivedId: "requested-stanza",
+                    archiveCursor: cursor, messageId: nil, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+                highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+            controller.pendingOpenMessageRequest = request
+            controller.archiveWindowTargetOpenRequest = request
+            var completed = 0
+            controller.initialTargetFirstFrameContext = .init(request: request) { completed += 1 }
+            controller.isPreparingStackedNavigationPresentation = true
+            controller.archiveWindowState = .skeleton(reason: reason, target: .archiveID(cursor))
+            controller.timelineSession?.invalidateVerifiedScope()
+            controller.archiveWindowCommittedCoverageGeneration = nil
+
+            controller.setSkeletonVisible(true)
+            _ = controller.commitArchiveEngineOpeningSkeletonSynchronously()
+
+            XCTAssertTrue(controller.showSkeletonObserver.value, "\(reason)")
+            XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage), "\(reason)")
+            XCTAssertFalse(controller.archiveHistoryFailureFallbackIsVisible)
+            XCTAssertEqual(controller.initialTargetFirstFrameContext?.request, request)
+            XCTAssertEqual(completed, 0, "Cached content at another row cannot finish this target's navigation")
+        }
+    }
+
+    @MainActor
+    func testPendingExactTargetOpeningDeadlineKeepsSameSkeletonAndPreparation() throws {
+        let controller = ChatViewController()
+        controller.owner = conversation.owner
+        controller.jid = conversation.jid
+        controller.conversationType = conversation.conversationType
+        controller.ownerSender = Sender(id: conversation.owner, displayName: conversation.owner)
+        controller.opponentSender = Sender(id: conversation.jid, displayName: conversation.jid)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.archiveHistoryFailureVisibleSnapshot = nil
+        controller.archiveHistoryFailureFallbackIsVisible = false
+        controller.archiveHistoryFailureFallbackRequestID = nil
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+        let request = ChatOpenMessageRequest(chatJid: conversation.jid, owner: conversation.owner,
+            conversationType: conversation.conversationType,
+            anchor: .init(messagePrimary: "requested-target", archivedId: "requested-stanza",
+                archiveCursor: cursor, messageId: nil, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+        controller.pendingOpenMessageRequest = request
+        controller.archiveWindowTargetOpenRequest = request
+        controller.archiveWindowIntent = .init(conversation: conversation, locator: .archiveID(cursor),
+            contextBefore: 40, contextAfter: 40, priority: .target)
+        controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .archiveID(cursor))
+        var completed = 0
+        controller.initialTargetFirstFrameContext = .init(request: request) { completed += 1 }
+        controller.setSkeletonVisible(true)
+        XCTAssertTrue(controller.commitArchiveEngineOpeningSkeletonSynchronously())
+        let skeletonPrimaries = controller.datasource.map(\.primary)
+        XCTAssertFalse(skeletonPrimaries.isEmpty)
+        let intentID = controller.archiveWindowIntent?.id
+        let preparation = try XCTUnwrap(controller.initialTargetFirstFrameContext)
+        controller.refreshArchiveHistoryRecoveryPresentation()
+        XCTAssertNotNil(controller.archiveOpeningWaitToken, "The actual opening timer must be installed before expiry")
+
+        controller.expireArchiveOpeningWaitForTesting()
+        controller.expireArchiveOpeningWaitForTesting()
+        controller.setSkeletonVisible(true)
+        XCTAssertTrue(controller.commitArchiveEngineOpeningSkeletonSynchronously())
+
+        XCTAssertTrue(controller.archiveOpeningWaitExpired)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.archiveHistoryPendingLabel.isHidden)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertEqual(controller.initialTargetFirstFrameContext?.request, request)
+        XCTAssertTrue(controller.initialTargetFirstFrameContext === preparation)
+        XCTAssertEqual(controller.archiveWindowIntent?.id, intentID)
+        XCTAssertEqual(completed, 0)
+        controller.stopArchiveEnginePresentationSubscription()
+    }
+
+    @MainActor
+    func testPendingExactTargetOfflineOrTerminalFailureStillAllowsAcceptedCachedContent() throws {
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+        for state: ArchiveWindowState in [
+            .skeleton(reason: .offline, target: .archiveID(cursor)),
+            .retryableFailure(.init(message: "timeout", retryCount: 1, canRetry: true), target: .archiveID(cursor))
+        ] {
+            let controller = try controllerWithCommittedMessage()
+            let primaries = controller.datasource.map(\.primary)
+            let request = ChatOpenMessageRequest(chatJid: conversation.jid, owner: conversation.owner,
+                conversationType: conversation.conversationType,
+                anchor: .init(messagePrimary: "requested-target", archivedId: "requested-stanza",
+                    archiveCursor: cursor, messageId: nil, authorId: nil, bodyFingerprint: nil, sourceDate: nil),
+                highlight: false, markReadOnVisible: false, source: .directOpenAtMessage)
+            controller.pendingOpenMessageRequest = request
+            controller.archiveWindowTargetOpenRequest = request
+            controller.archiveWindowState = state
+            controller.timelineSession?.invalidateVerifiedScope()
+            controller.archiveWindowCommittedCoverageGeneration = nil
+
+            controller.setSkeletonVisible(true)
+
+            XCTAssertFalse(controller.showSkeletonObserver.value)
+            XCTAssertEqual(controller.datasource.map(\.primary), primaries)
+            XCTAssertTrue(controller.archiveHistoryFailureFallbackIsVisible)
+            XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+            XCTAssertFalse(controller.canAdvanceReadStateFromVisiblePresentation())
+        }
     }
 
     @MainActor
@@ -969,6 +1188,147 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
 
         XCTAssertTrue(statusView.isHidden)
         XCTAssertTrue(controller.showSkeletonObserver.value)
+    }
+
+    @MainActor
+    func testLocalUnreadBoundarySubmissionUsesFirstUnreadLocator() throws {
+        let controller = try controllerWithCommittedMessage()
+        let boundary = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        boundary.archivedId = "opaque-read-boundary"
+        boundary.mamArchiveId = "2002"
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: boundary.archivedId)
+        controller.pendingOpenMessageRequest = request
+        let previousUsers = AccountManager.shared.users
+        let account = Account(jid: conversation.owner, queue: DispatchQueue(label: "LocalUnreadBoundarySubmission"))
+        AccountManager.shared.users = [account]
+        defer {
+            controller.stopArchiveEnginePresentationSubscription()
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+            AccountManager.shared.users = previousUsers
+        }
+
+        _ = controller.submitArchiveEngineTarget(request)
+
+        XCTAssertEqual(controller.archiveWindowIntent?.locator, .firstUnread(after: try XCTUnwrap(ArchiveCursor(rawValue: "2002"))),
+            "The persisted cursor identifies the read boundary; the requested target is the following incoming row")
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+    }
+
+    @MainActor
+    func testInitialLocalUnreadBoundaryUsesFirstUnreadLocatorBeforeSubscription() throws {
+        let controller = try controllerWithCommittedMessage()
+        let boundary = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        boundary.archivedId = "opaque-read-boundary"
+        boundary.mamArchiveId = "2002"
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: boundary.archivedId)
+        controller.pendingOpenMessageRequest = request
+        defer { controller.stopArchiveEnginePresentationSubscription() }
+
+        controller.startArchiveEnginePresentationIfNeeded()
+
+        XCTAssertEqual(controller.archiveWindowIntent?.locator, .firstUnread(after: try XCTUnwrap(ArchiveCursor(rawValue: "2002"))))
+    }
+
+    @MainActor
+    func testMatchingAuthoritativeEmptyUnreadTargetTerminatesWithoutResubmittingBoundary() throws {
+        let controller = try controllerWithCommittedMessage()
+        let boundary = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        boundary.archivedId = "opaque-read-boundary"
+        boundary.mamArchiveId = "2002"
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: boundary.archivedId)
+        controller.pendingOpenMessageRequest = request
+        var observedAction: ChatAuthoritativeEmptyPendingTargetAction?
+        controller.authoritativeEmptyPendingTargetActionObserverForTests = { observedAction = $0 }
+
+        _ = controller.resolvePendingOpenMessageRequestAfterAuthoritativeEmpty(
+            target: .firstUnread(after: try XCTUnwrap(ArchiveCursor(rawValue: "2002"))))
+
+        XCTAssertEqual(observedAction, .failTargetMissing,
+            "An authoritative empty result for this exact unread locator is terminal, not a disjoint archive-ID retry")
+    }
+
+    @MainActor
+    func testUnreadTargetDoesNotFallBackToBoundaryWhenOnlyOutgoingRowsFollowIt() throws {
+        let controller = try controllerWithCommittedMessage()
+        let boundary = try XCTUnwrap(controller.timelineSession?.snapshot.items.first)
+        boundary.archivedId = "opaque-read-boundary"
+        boundary.mamArchiveId = "2002"
+        let outgoing = message(primary: "outgoing-after-boundary", archiveID: "2003")
+        outgoing.messageId = "outgoing-after-boundary"
+        outgoing.body = "Outgoing after read boundary"
+        outgoing.legacyBody = outgoing.body
+        outgoing.outgoing = true
+        let request = controller.makeScrollDownUnreadBoundaryRequest(boundaryId: boundary.archivedId)
+        let rows = controller.mapDataset(dataset: [boundary, outgoing])
+
+        XCTAssertNil(ChatLoadedMessageNavigationPolicy.index(in: rows, for: request),
+            "Missing first incoming target must keep resolution pending, never position the read boundary itself")
+    }
+
+    @MainActor
+    func testSavedVisiblePositionResolvesPersistedMAMCursorInsteadOfTimestamp() throws {
+        let previous = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "SavedVisiblePositionCursor-\(UUID())")
+        defer { Realm.Configuration.defaultConfiguration = previous }
+        let realm = try WRealm.safe()
+        let stored = message(primary: "saved-primary", archiveID: "2002")
+        stored.archivedId = "opaque-saved-message"
+        stored.messageId = "saved-message"
+        try realm.write { realm.add(stored) }
+        let controller = ChatViewController()
+        controller.owner = conversation.owner
+        controller.jid = conversation.jid
+        controller.conversationType = conversation.conversationType
+        let request = ChatOpenMessageRequest(chatJid: conversation.jid, owner: conversation.owner,
+            conversationType: conversation.conversationType,
+            anchor: .init(messagePrimary: stored.primary, archivedId: stored.mamArchiveId,
+                messageId: stored.messageId, authorId: nil, bodyFingerprint: nil,
+                sourceDate: Date(timeIntervalSince1970: 99)),
+            highlight: false, markReadOnVisible: false, source: .savedVisiblePosition)
+
+        let resolved = controller.resolvedArchiveAnchor(for: request)
+
+        XCTAssertEqual(resolved.archiveCursor, ArchiveCursor(rawValue: stored.mamArchiveId))
+        XCTAssertEqual(ChatAnchorArchiveLocatorPolicy.locator(for: resolved), .archiveID(try XCTUnwrap(ArchiveCursor(rawValue: "2002"))),
+            "The saved row's owned cursor must select archive context even when timestamps are skewed")
+        XCTAssertNil(request.anchor.archiveCursor, "Resolution must not mutate the pending request identity")
+        XCTAssertNil(controller.timelineSession?.verifiedScope, "Persisted identity is not current archive coverage")
+    }
+
+    @MainActor
+    func testSavedVisiblePositionCannotBorrowForeignHiddenOrMismatchedStoredCursor() throws {
+        for invalid in ["owner", "peer", "type", "messageID", "deleted", "hidden", "tombstone", "expired"] {
+            let previous = Realm.Configuration.defaultConfiguration
+            Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: "SavedVisiblePositionInvalid-\(invalid)-\(UUID())")
+            defer { Realm.Configuration.defaultConfiguration = previous }
+            let realm = try WRealm.safe()
+            let stored = message(primary: "saved-primary", archiveID: "2002")
+            stored.messageId = "saved-message"
+            switch invalid {
+            case "owner": stored.owner = "foreign@example.org"
+            case "peer": stored.opponent = "foreign@example.org"
+            case "type": stored.conversationType = .group
+            case "messageID": stored.messageId = "another-message"
+            case "deleted": stored.isDeleted = true
+            case "hidden": stored.isLocallyHiddenByReport = true
+            case "tombstone": stored.deleteState = .autoDeleted
+            default: stored.autoDeleteExpiresAt = 1
+            }
+            try realm.write { realm.add(stored) }
+            let controller = ChatViewController()
+            controller.owner = conversation.owner
+            controller.jid = conversation.jid
+            controller.conversationType = conversation.conversationType
+            let request = ChatOpenMessageRequest(chatJid: conversation.jid, owner: conversation.owner,
+                conversationType: conversation.conversationType,
+                anchor: .init(messagePrimary: "saved-primary", archivedId: "2002",
+                    messageId: "saved-message", authorId: nil, bodyFingerprint: nil,
+                    sourceDate: Date(timeIntervalSince1970: 99)),
+                highlight: false, markReadOnVisible: false, source: .savedVisiblePosition)
+
+            XCTAssertEqual(controller.resolvedArchiveAnchor(for: request), request.anchor, invalid)
+        }
     }
 
     @MainActor

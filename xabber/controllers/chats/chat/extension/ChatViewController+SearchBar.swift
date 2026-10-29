@@ -164,8 +164,12 @@ enum ChatInitialPositionPolicy {
            chat.unread == 0,
            let savedPosition = chat.savedPosition,
            savedPosition.hasAnchor,
-           chat.savedAtLastMessageId == chat.lastMessageId,
-           chat.savedAtSnapshotLastArchiveId == chat.syncSnapshotLastArchiveId {
+           let lastMessageId = normalizedId(chat.lastMessageId),
+           let savedLastMessageId = normalizedId(chat.savedAtLastMessageId),
+           let snapshotLastArchiveId = normalizedId(chat.syncSnapshotLastArchiveId),
+           let savedSnapshotLastArchiveId = normalizedId(chat.savedAtSnapshotLastArchiveId),
+           savedLastMessageId == lastMessageId,
+           savedSnapshotLastArchiveId == snapshotLastArchiveId {
             return .open(
                 ChatOpenMessageRequest(
                     chatJid: chat.jid,
@@ -194,7 +198,7 @@ enum ChatInitialPositionPolicy {
     }
 
     static func normalizedId(_ value: String?) -> String? {
-        guard let value, value.isNotEmpty else { return nil }
+        guard let value, value.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else { return nil }
         return value
     }
 
@@ -555,9 +559,8 @@ enum ChatLoadedMessageNavigationPolicy {
         in items: [ChatViewController.Datasource],
         for request: ChatOpenMessageRequest
     ) -> Int? {
-        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution,
-           let target = firstIncomingAfterBoundaryIndex(in: items, boundaryArchivedId: boundaryArchivedId) {
-            return target
+        if case .firstIncomingAfterBoundary(let boundaryArchivedId) = request.targetResolution {
+            return firstIncomingAfterBoundaryIndex(in: items, boundaryArchivedId: boundaryArchivedId)
         }
 
         if request.source == .search, let cursor = request.anchor.archiveCursor {
@@ -3517,7 +3520,7 @@ extension ChatViewController {
         let candidates = self.visiblePositionPersistenceCandidates()
         let residentSnapshot = self.timelineSession?.snapshot
         let viewportCenterY = self.messagesCollectionView.contentOffset.y + (self.messagesCollectionView.bounds.height / 2)
-        let isLiveBottom = ChatVisiblePositionPersistencePolicy.isLiveBottom(
+        let isLiveBottom = residentSnapshot?.state.isResidentAtLiveTail == true && ChatVisiblePositionPersistencePolicy.isLiveBottom(
             isNearBottom: self.isNearBottom(),
             lastRealDatasourcePrimary: self.lastRealDatasourceMessagePrimary(),
             residentPrimaryPositions: residentSnapshot?.residentIndex.primaryIndexByID ?? [:],
@@ -4119,11 +4122,6 @@ extension ChatViewController {
         _ boundaryArchivedId: String
     ) -> MessageStorageItem? {
         self.timelineSession?.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId)
-            ?? self.timelineSession?.resolvedMessage(
-                primary: nil,
-                archivedId: boundaryArchivedId,
-                messageId: nil
-            )
     }
 
     private func resolvedTargetAfterContextPrefetch(
@@ -4494,9 +4492,7 @@ extension ChatViewController {
         guard let request = self.pendingOpenMessageRequest else {
             return false
         }
-        let requestedTarget = ChatAnchorArchiveLocatorPolicy.locator(
-            for: request.anchor
-        )
+        let requestedTarget = self.resolvedArchiveLocator(for: request)
         let action = ChatAuthoritativeEmptyPendingTargetPolicy.action(
             emptyTarget: target,
             requestedTarget: requestedTarget

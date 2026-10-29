@@ -5690,7 +5690,8 @@ extension ChatViewController {
         assert(Thread.isMainThread, "Opening skeleton commits are main-owned")
         if archiveOpeningWaitExpired,
            archiveOpeningWaitDescriptor == archiveWindowIntent?.semanticDescriptor,
-           isArchiveHistoryUnavailable {
+           isArchiveHistoryUnavailable,
+           !requiresArchiveTargetLoadingSkeleton {
             showNeutralArchivePendingStateIfNeeded(allowPendingRequest: true)
             return true
         }

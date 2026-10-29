@@ -1154,7 +1154,7 @@ final class ChatPerformanceLabTests: XCTestCase {
             (.notificationKnownGapTarget, .pushNotification, true),
             (.coldPushExact, .pushNotification, true),
             (.mentionDeletedAdvance, .mentionNotification, true),
-            (.lastChatsSeededMentionExact, .mentionNotification, false),
+            (.lastChatsSeededMentionExact, .initialUnreadBoundary, false),
             (.searchExactLocal, .search, true),
             (.searchExactLocalOutsideWindow, .search, true),
             (.searchExactRemote, .search, true),
@@ -1192,7 +1192,7 @@ final class ChatPerformanceLabTests: XCTestCase {
             (.notificationKnownGapTarget, true),
             (.coldPushExact, true),
             (.mentionDeletedAdvance, true),
-            (.lastChatsSeededMentionExact, true),
+            (.lastChatsSeededMentionExact, false),
             (.searchExactLocal, false),
             (.searchExactLocalOutsideWindow, false),
             (.searchExactRemote, false),
@@ -1510,7 +1510,7 @@ final class ChatPerformanceLabTests: XCTestCase {
     }
 
     @MainActor
-    func testP14LastChatsSeededMentionResolvesBeforeInitialFramePreparation()
+    func testP14NormalGroupOpenResolvesFirstUnreadBeforeInitialFramePreparation()
         throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = makeRealmMigrationConfiguration(
@@ -1537,10 +1537,10 @@ final class ChatPerformanceLabTests: XCTestCase {
         XCTAssertEqual(controller.conversationType, .group)
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
-        XCTAssertEqual(plan.expectedRequestSource, .mentionNotification)
+        XCTAssertEqual(plan.expectedRequestSource, .initialUnreadBoundary)
         XCTAssertEqual(plan.expectedRequestHighlight, false)
-        XCTAssertEqual(plan.expectedRequestMarkReadOnVisible, true)
-        XCTAssertEqual(plan.expectedTargetOrdinal, plan.p14ExplicitMentionOrdinal)
+        XCTAssertEqual(plan.expectedRequestMarkReadOnVisible, false)
+        XCTAssertEqual(plan.expectedTargetOrdinal, plan.p14UnreadTargetOrdinal)
         XCTAssertEqual(plan.initialLocalMessageCount, 320)
         XCTAssertEqual(plan.expectedInitialSkeletonRowCount, 0)
         XCTAssertEqual(plan.expectedDatasourceApplyCount, 1)
@@ -1647,6 +1647,59 @@ final class ChatPerformanceLabTests: XCTestCase {
             controller.openScenarioArchiveId(plan.p14UnreadTargetOrdinal)
         )
         XCTAssertEqual(controller.p14MentionReadCommittedCountForTesting, 0)
+    }
+
+    func testP14NormalUnreadFrameKeepsOffscreenMentionUnread() {
+        let diagnostics = ChatPerformanceP14MentionDiagnostics(
+            unreadFrameCount: 1,
+            savedFrameCount: 0,
+            readEagerMutationCount: 0,
+            readScheduledCount: 0,
+            readCommittedCount: 0,
+            readSuccessfulFlushCount: 0,
+            readTerminalSuccessCount: 0,
+            readTerminalFailureCount: 0,
+            unreadBeforeTap: true,
+            unreadAtAdmission: true,
+            unreadAtInitialCommit: true,
+            readAtTerminal: false,
+            freshRealmMatchCount: 1,
+            freshRealmProofFailureCount: 0,
+            pendingCandidateCount: 0,
+            inFlightFlushCount: 0,
+            hasReconciliationWorkItem: false,
+            hasStableLayoutRetryWorkItem: false
+        )
+
+        XCTAssertTrue(diagnostics.isAccepted)
+    }
+
+    func testP14NormalGroupRowGateAcceptsUnreadAndRejectsImplicitMention() {
+        func diagnostics(explicitRequests: Int, unreadRequests: Int) -> ChatPerformanceRouteHostDiagnostics {
+            ChatPerformanceRouteHostDiagnostics(
+                rootInstalled: true,
+                lastChatsVisibleBeforeRoute: true,
+                routeAttemptCount: 1,
+                nativePushCount: 1,
+                destinationOpaqueBeforeFirstRow: true,
+                lastChatsExposureCount: 0,
+                coldPendingBeforeRoot: 0,
+                accountMaterializationCount: 1,
+                coldConsumeBeforeStableCount: 0,
+                coldConsumeAfterStableCount: 0,
+                hostKind: .lastChatsSeededMention,
+                p14SourceRowVisibleBeforeTap: true,
+                p14SourceRowTapCount: 1,
+                p14RequestAdmissionCount: 1,
+                p14RequestAdmissionBeforeViewLoadCount: 1,
+                p14GroupConversationProofCount: 1,
+                p14ExplicitRequestCount: explicitRequests,
+                p14UnreadRequestCount: unreadRequests
+            )
+        }
+
+        XCTAssertTrue(diagnostics(explicitRequests: 0, unreadRequests: 1).isAccepted(for: .lastChatsSeededMentionExact))
+        XCTAssertFalse(diagnostics(explicitRequests: 1, unreadRequests: 0).isAccepted(for: .lastChatsSeededMentionExact))
     }
 
     @MainActor
@@ -3719,10 +3772,10 @@ final class ChatPerformanceLabTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertEqual(receipt.requestSource, .mentionNotification, file: file, line: line)
+        XCTAssertEqual(receipt.requestSource, .initialUnreadBoundary, file: file, line: line)
         XCTAssertFalse(receipt.requestHighlight, file: file, line: line)
-        XCTAssertEqual(receipt.requestMarkReadOnVisible, true, file: file, line: line)
-        XCTAssertEqual(receipt.resolvedTargetOrdinal, 160, file: file, line: line)
+        XCTAssertEqual(receipt.requestMarkReadOnVisible, false, file: file, line: line)
+        XCTAssertEqual(receipt.resolvedTargetOrdinal, 120, file: file, line: line)
         XCTAssertEqual(receipt.targetMatchCount, 1, file: file, line: line)
         XCTAssertEqual(receipt.latestVisualCommitCount, 0, file: file, line: line)
         XCTAssertEqual(receipt.storeQueryBaselineCount, 0, file: file, line: line)
@@ -3767,25 +3820,25 @@ final class ChatPerformanceLabTests: XCTestCase {
         XCTAssertEqual(host.p14RequestAdmissionCount, 1, file: file, line: line)
         XCTAssertEqual(host.p14RequestAdmissionBeforeViewLoadCount, 1, file: file, line: line)
         XCTAssertEqual(host.p14GroupConversationProofCount, 1, file: file, line: line)
-        XCTAssertEqual(host.p14ExplicitRequestCount, 1, file: file, line: line)
-        XCTAssertEqual(host.p14UnreadRequestCount, 0, file: file, line: line)
+        XCTAssertEqual(host.p14ExplicitRequestCount, 0, file: file, line: line)
+        XCTAssertEqual(host.p14UnreadRequestCount, 1, file: file, line: line)
         XCTAssertEqual(host.p14SavedRequestCount, 0, file: file, line: line)
         XCTAssertEqual(host.p14LatestRequestCount, 0, file: file, line: line)
         XCTAssertTrue(host.isAccepted(for: .lastChatsSeededMentionExact), file: file, line: line)
 
         let mention = receipt.p14Mention
-        XCTAssertEqual(mention.unreadFrameCount, 0, file: file, line: line)
+        XCTAssertEqual(mention.unreadFrameCount, 1, file: file, line: line)
         XCTAssertEqual(mention.savedFrameCount, 0, file: file, line: line)
         XCTAssertEqual(mention.readEagerMutationCount, 0, file: file, line: line)
-        XCTAssertEqual(mention.readScheduledCount, 1, file: file, line: line)
-        XCTAssertEqual(mention.readCommittedCount, 1, file: file, line: line)
-        XCTAssertEqual(mention.readSuccessfulFlushCount, 1, file: file, line: line)
-        XCTAssertEqual(mention.readTerminalSuccessCount, 1, file: file, line: line)
+        XCTAssertEqual(mention.readScheduledCount, 0, file: file, line: line)
+        XCTAssertEqual(mention.readCommittedCount, 0, file: file, line: line)
+        XCTAssertEqual(mention.readSuccessfulFlushCount, 0, file: file, line: line)
+        XCTAssertEqual(mention.readTerminalSuccessCount, 0, file: file, line: line)
         XCTAssertEqual(mention.readTerminalFailureCount, 0, file: file, line: line)
         XCTAssertTrue(mention.unreadBeforeTap, file: file, line: line)
         XCTAssertTrue(mention.unreadAtAdmission, file: file, line: line)
         XCTAssertTrue(mention.unreadAtInitialCommit, file: file, line: line)
-        XCTAssertTrue(mention.readAtTerminal, file: file, line: line)
+        XCTAssertFalse(mention.readAtTerminal, file: file, line: line)
         XCTAssertEqual(mention.freshRealmMatchCount, 1, file: file, line: line)
         XCTAssertEqual(mention.freshRealmProofFailureCount, 0, file: file, line: line)
         XCTAssertEqual(mention.pendingCandidateCount, 0, file: file, line: line)

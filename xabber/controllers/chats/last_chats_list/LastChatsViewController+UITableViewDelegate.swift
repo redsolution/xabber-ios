@@ -310,25 +310,17 @@ extension LastChatsViewController: UITableViewDelegate {
             case .invite:
                 self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "groups", category: "show_all_invites")
             case .none:
-                let openMessageRequest = item.conversationType == .group
-                    ? self.unreadMentionOpenRequest(
-                        owner: item.owner,
-                        jid: item.jid,
-                        conversationType: item.conversationType
-                    )
-                    : nil
 #if DEBUG || CHAT_PERFORMANCE_LAB
                 self.performanceChatRowSelectionObserver?(
                     item,
                     indexPath,
-                    openMessageRequest
+                    nil
                 )
 #endif
                 self.stackNewChat(
                     owner: item.owner,
                     jid: item.jid,
-                    conversationType: item.conversationType,
-                    openMessageRequest: openMessageRequest
+                    conversationType: item.conversationType
                 )
         }
     }

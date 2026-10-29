@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import RealmSwift
 @testable import xabber
 
@@ -65,6 +66,86 @@ final class ChatDisappearanceReadStateTests: XCTestCase {
         XCTAssertEqual(chat.runtimeUnreadCount, 1)
         XCTAssertEqual(chat.unread, 2)
         XCTAssertFalse(chat.isPrereaded)
+    }
+
+    @MainActor
+    func testNavigationDisappearanceClearsSavedAnchorAtRealLiveBottomBeforeSessionInvalidation() throws {
+        let controller = try makePositionedController(isResidentAtLiveTail: true)
+        controller.scrollToBottom(animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom())
+        XCTAssertFalse(try storedChat().lastVisibleMessagePrimary?.isEmpty ?? true)
+
+        controller.runNavigationDisappearanceCleanupIfNeeded()
+
+        let chat = try storedChat()
+        XCTAssertNil(chat.lastVisibleMessagePrimary,
+                     "Leaving live bottom must not replace it with the viewport's center message")
+        XCTAssertNil(chat.lastVisibleMessageArchivedId)
+        XCTAssertNil(chat.lastVisibleMessageId)
+        XCTAssertTrue(controller.timelineSession?.snapshot.items.isEmpty == true,
+                      "Position persistence must complete before normal archive teardown empties the session")
+        XCTAssertNil(LastChatsViewController.initialOpenRequest(
+            owner: owner, jid: jid, conversationType: .regular,
+            explicitOpenMessageRequest: nil, in: try WRealm.safe()
+        ), "The unchanged zero-unread chat must reopen at live bottom")
+    }
+
+    @MainActor
+    func testBottomOfBoundedHistoricalWindowKeepsSavedAnchorOnDisappearance() throws {
+        let controller = try makePositionedController(isResidentAtLiveTail: false)
+        controller.scrollToBottom(animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.isNearBottom())
+
+        controller.saveCurrentVisibleMessagePositionIfNeeded(reason: .programmaticBottom)
+        let historicalAnchor = try XCTUnwrap(try storedChat().lastVisibleMessagePrimary,
+                                            "The bottom of a historical window is not the live chat bottom")
+        controller.runNavigationDisappearanceCleanupIfNeeded()
+
+        XCTAssertEqual(try storedChat().lastVisibleMessagePrimary, historicalAnchor)
+        XCTAssertEqual(LastChatsViewController.initialOpenRequest(
+            owner: owner, jid: jid, conversationType: .regular,
+            explicitOpenMessageRequest: nil, in: try WRealm.safe()
+        )?.anchor.messagePrimary, historicalAnchor)
+    }
+
+    @MainActor
+    func testNavigationDisappearancePreservesReadingPositionAwayFromLiveBottom() throws {
+        let controller = try makePositionedController(isResidentAtLiveTail: true)
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 8), at: .top, animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertFalse(controller.isNearBottom())
+        controller.saveCurrentVisibleMessagePositionIfNeeded()
+        let readingAnchor = try XCTUnwrap(try storedChat().lastVisibleMessagePrimary)
+
+        controller.runNavigationDisappearanceCleanupIfNeeded()
+
+        XCTAssertEqual(try storedChat().lastVisibleMessagePrimary, readingAnchor)
+    }
+
+    @MainActor
+    func testNavigationDisappearanceDoesNotSaveRowsFromAnUnfinishedAnchorNavigation() throws {
+        let controller = try makePositionedController(isResidentAtLiveTail: true)
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 8), at: .top, animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertFalse(controller.isNearBottom())
+        controller.pendingOpenMessageRequest = ChatOpenMessageRequest(
+            chatJid: jid, owner: owner, conversationType: .regular,
+            anchor: .init(messagePrimary: "position-30", archivedId: nil,
+                          messageId: nil, authorId: nil, bodyFingerprint: nil,
+                          sourceDate: nil),
+            highlight: false, markReadOnVisible: false, source: .savedVisiblePosition
+        )
+
+        controller.runNavigationDisappearanceCleanupIfNeeded()
+
+        XCTAssertEqual(try storedChat().lastVisibleMessagePrimary, "position-0",
+                       "Teardown must not erase pending-target protection before saving the viewport")
     }
 
     func testCachedOldLatestMAMRecreatesMissingRegularLastChatsProjectionForListDiscovery() throws {
@@ -192,6 +273,81 @@ final class ChatDisappearanceReadStateTests: XCTestCase {
         controller.conversationType = .regular
         controller.ownerSender = Sender(id: owner, displayName: owner)
         controller.opponentSender = Sender(id: jid, displayName: jid)
+        return controller
+    }
+
+    @MainActor
+    private func makePositionedController(isResidentAtLiveTail: Bool) throws -> ChatViewController {
+        let realm = try WRealm.safe()
+        let messages = (0..<40).map { index in
+            let message = makeMessage(
+                primary: "position-\(index)", archivedId: "archive-\(index)",
+                messageId: "message-position-\(index)",
+                date: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + index))
+            )
+            message.isRead = true
+            message.state = .read
+            return message
+        }
+        let chat = LastChatsStorageItem()
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        chat.lastMessage = messages.last
+        chat.lastMessageId = try XCTUnwrap(messages.last).messageId
+        chat.messageDate = try XCTUnwrap(messages.last).sentDate
+        chat.syncSnapshotLastArchiveId = "archive-39"
+        chat.lastVisibleMessagePrimary = "position-0"
+        chat.lastVisibleMessageArchivedId = "archive-0"
+        chat.lastVisibleMessageId = "message-position-0"
+        chat.lastVisibleMessageDate = messages[0].sentDate
+        chat.lastVisiblePositionSavedAtLastMessageId = chat.lastMessageId
+        chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = chat.syncSnapshotLastArchiveId
+        try realm.write {
+            realm.add(messages, update: .modified)
+            realm.add(chat, update: .modified)
+        }
+
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.stopArchiveEnginePresentationSubscription()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        let key = ChatTimelineConversationKey(owner: owner, jid: jid, conversationType: .regular)
+        let session = ChatTimelineSession(
+            store: RealmChatTimelineSessionStore(owner: owner, jid: jid, conversationType: .regular),
+            pageSize: 40, conversationKey: key, observesStoreImmediately: false
+        )
+        controller.timelineSession = session
+        _ = session.commit(ChatTimelineSnapshot(
+            items: messages.map { $0.freeze() },
+            state: ChatVirtualTimelineState(
+                conversationKey: key,
+                segments: isResidentAtLiveTail ? [.liveTail] : [.unknownNewer],
+                oldest: nil, newest: nil,
+                residentPrimaryKeys: messages.map(\.primary),
+                residentArchivedIds: messages.map(\.archivedId),
+                isResidentAtLiveTail: isResidentAtLiveTail
+            ),
+            anchorRestore: nil
+        ))
+        controller.showSkeletonObserver.accept(false)
+        controller.applyChatDatasource(
+            messages.map { makeDatasource(primary: $0.primary, archivedId: $0.archivedId, sentDate: $0.sentDate) },
+            mode: .fullReload(), animated: false, invalidateLayout: true,
+            suppressDefaultBottomScroll: true, presentationOwner: .archiveEngine
+        )
+        var didPrepareLayouts = false
+        controller.prepareAndApplyCurrentDatasourceLayouts { didPrepareLayouts = true }
+        let deadline = Date().addingTimeInterval(3)
+        while !didPrepareLayouts, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(didPrepareLayouts)
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertGreaterThan(controller.messagesCollectionView.contentSize.height,
+                             controller.messagesCollectionView.bounds.height)
         return controller
     }
 
