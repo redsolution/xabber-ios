@@ -103,11 +103,17 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 }
                 return
             }
-            self.logConnectionDiagnostics(
-                event: "stanza_send",
-                details: ["element": $0.name ?? "unknown"],
-                rawXML: $0.prettyXMLString ?? $0.xmlString
-            )
+            // Standard stanzas are logged by their didSend callbacks. Retain
+            // the existing fallback for custom elements without such a callback.
+            let hasStandardSendCallback = $0 is XMPPIQ || $0 is XMPPMessage || $0 is XMPPPresence
+                || ["iq", "message", "presence"].contains($0.name ?? "")
+            if !hasStandardSendCallback {
+                self.logConnectionDiagnostics(
+                    event: "stanza_send",
+                    details: ["element": $0.name ?? "unknown"],
+                    rawXML: $0.prettyXMLString ?? $0.xmlString
+                )
+            }
             sender.send($0)
         }
         self.logConnectionDiagnostics(event: "disconnect_requested", details: ["reason": "queuedStanzasSent"])

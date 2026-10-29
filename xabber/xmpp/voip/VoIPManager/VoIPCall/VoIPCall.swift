@@ -1337,18 +1337,6 @@ extension VoIPCall: XMPPStreamDelegate {
                 details: ["callId": self.callId],
                 rawXML: error.prettyXMLString ?? error.xmlString
             )
-	        if let failure = XMPPAuthenticationFailure(element: error) {
-	            let resolution = XMPPAuthenticationFailureResolution.resolve(
-	                failure: failure,
-	                credentialKind: credentialsItem.kind,
-	                source: .secondaryStream
-	            )
-	            if resolution.shouldLogRawFailure {
-	                DDLogDebug("XMPP VoIP auth failure for \(owner): \(failure.rawXML)")
-	            }
-	        } else {
-	            DDLogDebug("XMPP VoIP auth failure for \(owner): \(error.xmlString)")
-	        }
 	        credentialsItem.release(.authFailedRecoverable)
 	        self.stream.disconnect()
 	        DispatchQueue.main.async {
@@ -1390,7 +1378,6 @@ extension VoIPCall: XMPPStreamDelegate {
             ],
             rawXML: iq.prettyXMLString ?? iq.xmlString
         )
-        DDLogInfo("send: \(iq.prettyXMLString ?? "")")
     }
     
     func xmppStream(_ sender: XMPPStream, didSend message: XMPPMessage) {
@@ -1407,7 +1394,6 @@ extension VoIPCall: XMPPStreamDelegate {
             ],
             rawXML: message.prettyXMLString ?? message.xmlString
         )
-        DDLogInfo("send: \(message.prettyXMLString ?? "")")
         if isMatchingProposeMessage(message) {
             DDLogDebug("VoIPCall: sent propose owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none")")
             DispatchQueue.main.async {
@@ -1438,8 +1424,6 @@ extension VoIPCall: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
-        print("VoIP:IQ:RECV: \(iq.prettyXMLString ?? "")")
-        DDLogInfo(iq.prettyXMLString ?? "")
         self.logConnectionDiagnostics(
             event: "stanza_receive_iq",
             details: [
@@ -1474,7 +1458,6 @@ extension VoIPCall: XMPPStreamDelegate {
         case .unhandled:
             break
         }
-        print("VOIP FAIL STANZA \(iq.prettyXMLString)")
         return false
     }
     
@@ -1483,8 +1466,6 @@ extension VoIPCall: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive message: XMPPMessage) {
-        print("VoIP:Message:RECV: \(message.prettyXMLString ?? "")")
-        DDLogInfo(message.prettyXMLString ?? "")
         self.logConnectionDiagnostics(
             event: "stanza_receive_message",
             details: [

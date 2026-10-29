@@ -103,65 +103,37 @@ final class ProfileHydrationTests: XCTestCase {
         XCTAssertEqual(realm.object(ofType: vCardStorageItem.self, forPrimaryKey: owner)?.nickname, "Own profile")
     }
 
-    func testPreparedStreamHydratesOwnAndActiveRosterAvatarsWithoutPresenceNotifications() throws {
-        let peer = "peer@example.com"
-        try addRoster(jid: peer)
+    func testPreparedStreamUsesPEPWithoutOwnOrRosterMetadataSweep() throws {
+        try addRoster(jid: "peer@example.com")
         try addRoster(jid: owner)
         try addRoster(jid: "removed@example.com", removed: true)
-        let sent = expectation(description: "own and peer metadata sent")
-        sent.expectedFulfillmentCount = 2
-        stream.onSend = { element in
-            if element.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub") != nil { sent.fulfill() }
-        }
         account.avatarManager.onStreamPrepared(stream)
-        account.queue.sync {}
-        XCTAssertTrue(stream.elements.isEmpty)
-
         account.sendReadiness.markStreamManagementEnabled()
-        wait(for: [sent], timeout: 2)
-        let requests = stream.elements
-        XCTAssertEqual(requests.count, 2)
-        XCTAssertEqual(Set(requests.compactMap { $0.attributeStringValue(forName: "to") }), Set([owner!, peer]))
-        XCTAssertTrue(requests.allSatisfy {
-            $0.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node") == "urn:xmpp:avatar:metadata"
-        })
+        waitForAvatarTasks()
+
+        XCTAssertTrue(stream.elements.isEmpty, "Initial presence/PEP supplies metadata; stream preparation must not poll the roster")
+        XCTAssertTrue(account.avatarManager.namespaces().contains("urn:xmpp:avatar:metadata+notify"))
     }
 
-    func testOwnBinaryAvatarDataRunsBeforeQueuedRosterMetadataAfterBootstrap() throws {
+    func testOwnPEPBinaryAvatarRequestsOnlyMissingDataAfterBootstrap() throws {
         try addRoster(jid: "peer-a@example.com")
         try addRoster(jid: "peer-b@example.com")
         stream.startupAccount = account
         defer { stream.startupAccount = nil }
-        let sent = expectation(description: "own metadata, own data and two peer metadata sent")
-        sent.expectedFulfillmentCount = 4
-        stream.onSend = { [unowned self] element in
-            guard let items = element.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?.element(forName: "items"),
-                  ["urn:xmpp:avatar:metadata", "urn:xmpp:avatar:data"]
-                    .contains(items.attributeStringValue(forName: "node") ?? "") else { return }
-            XCTAssertFalse(account.isStartupBackgroundTrafficBlocked)
-            sent.fulfill()
-            if items.attributeStringValue(forName: "node") == "urn:xmpp:avatar:metadata",
-               element.attributeStringValue(forName: "to") == owner {
-                do {
-                    let id = try XCTUnwrap(element.attributeStringValue(forName: "id"))
-                    let response = try iq("""
-                        <iq type='result' id='\(id)'><pubsub xmlns='http://jabber.org/protocol/pubsub'>
-                          <items node='urn:xmpp:avatar:metadata'><item id='own-binary-photo'><metadata xmlns='urn:xmpp:avatar:metadata'>
-                            <info id='own-binary-photo' type='image/png'/>
-                          </metadata></item></items>
-                        </pubsub></iq>
-                        """)
-                    XCTAssertTrue(account.avatarManager.read(withIQ: response))
-                } catch { XCTFail("Own metadata response could not be delivered: \(error)") }
-            }
-        }
         account.syncManager.isAvailable = true
         account.syncManager.prepareForAuthenticatedStream(didResume: false)
         account.didReceiveRoster()
         account.sendReadiness.markStreamManagementEnabled()
         account.queue.sync {}
         XCTAssertTrue(account.isStartupBackgroundTrafficBlocked)
-        XCTAssertFalse(stream.elements.contains { $0.element(forName: "pubsub") != nil })
+        let sent = expectation(description: "PEP missing binary data sent after bootstrap")
+        stream.onSend = { element in
+            if element.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node") == "urn:xmpp:avatar:data" {
+                sent.fulfill()
+            }
+        }
+        let notification = try metadataHeadline(photoID: "own-binary-photo")
+        XCTAssertTrue(account.avatarManager.readMessage(notification))
         let syncRequest = try XCTUnwrap(stream.elements.first {
             $0.element(forName: "query", xmlns: ClientSynchronizationManager.primaryNamespace) != nil
         })
@@ -175,23 +147,153 @@ final class ProfileHydrationTests: XCTestCase {
             </iq>
             """)))
         account.syncManager.waitForPendingSnapshotApplies()
-        wait(for: [sent], timeout: 2)
+        wait(for: [sent], timeout: 3)
+        waitForAvatarTasks()
 
         let requests = stream.elements.filter {
             guard let node = $0.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node") else { return false }
             return ["urn:xmpp:avatar:metadata", "urn:xmpp:avatar:data"].contains(node)
         }
-        XCTAssertEqual(requests.count, 4)
-        XCTAssertEqual(requests.prefix(2).compactMap { $0.attributeStringValue(forName: "to") }, [owner!, owner!])
-        XCTAssertEqual(requests.prefix(2).compactMap { $0.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node") }, ["urn:xmpp:avatar:metadata", "urn:xmpp:avatar:data"])
-        XCTAssertEqual(requests.last?.attributeStringValue(forName: "to"), "peer-b@example.com")
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.attributeStringValue(forName: "to"), owner)
+        XCTAssertEqual(request.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node"), "urn:xmpp:avatar:data")
         let presenceIndex = try XCTUnwrap(stream.elements.firstIndex { element in
             element.name == "presence" && element.attributeStringValue(forName: "to") == nil
         })
         let avatarIndex = try XCTUnwrap(stream.elements.firstIndex {
-            $0.attributeStringValue(forName: "id") == requests.first?.attributeStringValue(forName: "id")
+            $0.attributeStringValue(forName: "id") == request.attributeStringValue(forName: "id")
         })
         XCTAssertLessThan(presenceIndex, avatarIndex)
+    }
+
+    func testEquivalentAvatarRequestIsDeduplicatedWhileInFlight() throws {
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner + "/other-resource", by: "")
+
+        XCTAssertEqual(stream.elements.count, 1)
+        let id = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
+        XCTAssertTrue(account.avatarManager.read(withIQ: try metadataResult(id: id, photoID: "photo", url: "https://example.com/photo.png")))
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        XCTAssertEqual(stream.elements.count, 2, "A terminal response must release the request reservation")
+    }
+
+    func testDifferentAvatarNodesAndDataItemsKeepIndependentRequests() {
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        account.avatarManager.requestPubSubItem(stream, node: .data, jid: owner, by: "photo-a")
+        account.avatarManager.requestPubSubItem(stream, node: .data, jid: owner, by: "photo-b")
+
+        XCTAssertEqual(stream.elements.count, 3)
+        XCTAssertEqual(Set(stream.elements.compactMap { $0.attributeStringValue(forName: "id") }).count, 3)
+    }
+
+    func testAvatarErrorReleasesInFlightRequestForExplicitRetry() throws {
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        let id = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        XCTAssertEqual(stream.elements.count, 1)
+
+        XCTAssertTrue(account.avatarManager.read(withIQ: try iq("<iq type='error' id='\(id)'/>")))
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+
+        XCTAssertEqual(stream.elements.count, 2)
+        XCTAssertFalse(account.avatarManager.queryIds.contains(id))
+    }
+
+    func testExpiredAvatarRequestAllowsRetryAndRejectsLateResponse() throws {
+        var now: TimeInterval = 100
+        account.avatarManager.pubSubRequestNow = { now }
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        let oldID = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
+        now += 31
+
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+
+        XCTAssertEqual(stream.elements.count, 2)
+        XCTAssertFalse(account.avatarManager.queryIds.contains(oldID))
+        XCTAssertFalse(account.avatarManager.read(withIQ: try metadataResult(id: oldID, photoID: "expired", url: "https://example.com/expired.png")))
+        let currentID = try XCTUnwrap(stream.elements.last?.attributeStringValue(forName: "id"))
+        XCTAssertTrue(account.avatarManager.read(withIQ: try metadataResult(id: currentID, photoID: "current", url: "https://example.com/current.png")))
+        XCTAssertEqual(realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.avatarMaxUrl, "https://example.com/current.png")
+    }
+
+    func testAvatarSessionResetInvalidatesQueuedWorkWithoutSuppressingNewSessionRequest() {
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        account.avatarManager.clearSession()
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        account.sendReadiness.markStreamManagementEnabled()
+        waitForAvatarTasks()
+
+        XCTAssertEqual(stream.elements.count, 1)
+    }
+
+    func testSchedulerCancellationReleasesQueuedAvatarReservation() {
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        let reset = expectation(description: "scheduler reset")
+        account.xmppTaskScheduler.resetObserverForTests = { reset.fulfill() }
+        account.xmppTaskScheduler.reset()
+        wait(for: [reset], timeout: 2)
+        account.xmppTaskScheduler.resetObserverForTests = nil
+
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        account.sendReadiness.markStreamManagementEnabled()
+        waitForAvatarTasks()
+
+        XCTAssertEqual(stream.elements.count, 1)
+    }
+
+    func testAvatarSessionResetAllowsNewRequestAndRejectsOldResponse() throws {
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+        let oldID = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
+        account.avatarManager.clearSession()
+        account.avatarManager.requestPubSubItem(stream, node: .metadata, jid: owner, by: "")
+
+        XCTAssertEqual(stream.elements.count, 2)
+        XCTAssertFalse(account.avatarManager.read(withIQ: try metadataResult(id: oldID, photoID: "old", url: "https://example.com/old.png")))
+        XCTAssertNil(realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.avatarMaxUrl)
+    }
+
+    func testPEPMetadataMakesQueuedMetadataRequestUnnecessary() throws {
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        XCTAssertTrue(account.avatarManager.readMessage(try metadataHeadline(photoID: "pep-photo", url: "https://example.com/pep.png")))
+        account.sendReadiness.markStreamManagementEnabled()
+        waitForAvatarTasks()
+
+        XCTAssertTrue(stream.elements.isEmpty)
+        XCTAssertEqual(realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.avatarMaxUrl, "https://example.com/pep.png")
+    }
+
+    func testExplicitMetadataDemandAfterPEPCanReplaceSupersededQueuedRequest() throws {
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        XCTAssertTrue(account.avatarManager.readMessage(try metadataHeadline(photoID: "pep-photo", url: "https://example.com/pep.png")))
+        account.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        account.sendReadiness.markStreamManagementEnabled()
+        waitForAvatarTasks()
+
+        XCTAssertEqual(stream.elements.count, 1)
+    }
+
+    func testRepeatedPEPBinaryMetadataDoesNotDuplicateInFlightDataRequest() throws {
+        let notification = try metadataHeadline(photoID: "uncached-\(UUID())")
+        account.sendReadiness.markStreamManagementEnabled()
+        XCTAssertTrue(account.avatarManager.readMessage(notification))
+        waitForAvatarTasks()
+        XCTAssertEqual(stream.elements.count, 1)
+
+        XCTAssertTrue(account.avatarManager.readMessage(notification))
+        waitForAvatarTasks()
+
+        XCTAssertEqual(stream.elements.count, 1)
+    }
+
+    func testNewPEPURLCancelsQueuedDataForOlderMetadata() throws {
+        XCTAssertTrue(account.avatarManager.readMessage(try metadataHeadline(photoID: "old-photo")))
+        XCTAssertTrue(account.avatarManager.readMessage(try metadataHeadline(photoID: "new-photo", url: "https://example.com/new.png")))
+        account.sendReadiness.markStreamManagementEnabled()
+        waitForAvatarTasks()
+
+        XCTAssertTrue(stream.elements.isEmpty)
+        XCTAssertEqual(realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.avatarMaxUrl, "https://example.com/new.png")
     }
 
     func testCorrelatedOwnPEPMetadataResultMayOmitFrom() throws {
@@ -336,6 +438,28 @@ final class ProfileHydrationTests: XCTestCase {
         wait(for: [sent], timeout: 2)
 
         XCTAssertEqual(stream.elements.first?.element(forName: "pubsub")?.element(forName: "items")?.attributeStringValue(forName: "node"), "urn:xmpp:avatar:data")
+    }
+
+    private func waitForAvatarTasks() {
+        let drained = expectation(description: "avatar task queue drained")
+        account.xmppTaskScheduler.enqueue(priority: .background, resource: .avatar, deduplicationKey: nil) { finish in
+            finish()
+            drained.fulfill()
+        }
+        wait(for: [drained], timeout: 3)
+        account.queue.sync {}
+    }
+
+    private func metadataHeadline(photoID: String, url: String? = nil) throws -> XMPPMessage {
+        let urlAttribute = url.map { " url='\($0)'" } ?? ""
+        let document = try DDXMLDocument(xmlString: """
+            <message type='headline' from='\(owner!)'><event xmlns='http://jabber.org/protocol/pubsub#event'>
+              <items node='urn:xmpp:avatar:metadata'><item id='\(photoID)'><metadata xmlns='urn:xmpp:avatar:metadata'>
+                <info id='\(photoID)' type='image/png'\(urlAttribute)/>
+              </metadata></item></items>
+            </event></message>
+            """, options: 0)
+        return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
     }
 
     private func addRoster(jid: String, removed: Bool = false) throws {

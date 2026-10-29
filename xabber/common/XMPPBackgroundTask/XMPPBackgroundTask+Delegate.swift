@@ -251,21 +251,8 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             details: ["streamError": self.streamErrorName(error)],
             rawXML: error.prettyXMLString ?? error.xmlString
         )
-        print(#function, error)
         authenticationCounterTracker.authenticationDidFail()
         let credentialsItem = CredentialsManager.shared.getItem(for: jid)
-        if let failure = XMPPAuthenticationFailure(element: error) {
-            let resolution = XMPPAuthenticationFailureResolution.resolve(
-                failure: failure,
-                credentialKind: credentialsItem.kind,
-                source: .secondaryStream
-            )
-            if resolution.shouldLogRawFailure {
-                DDLogDebug("XMPP background auth failure for \(jid): \(failure.rawXML)")
-            }
-        } else {
-            DDLogDebug("XMPP background auth failure for \(jid): \(error.xmlString)")
-        }
         credentialsItem.release(.authFailedRecoverable)
         self.disconnect()
         self.endBackgroundUpdateTask()

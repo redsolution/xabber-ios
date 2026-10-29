@@ -263,6 +263,155 @@ final class OMEMO2BootstrapBundleTests: XCTestCase {
         XCTAssertEqual(controller.omemoDevices.map(\.deviceId), [7])
     }
 
+    func testRepeatedOrdinaryBundleFetchesShareOnePendingRequestAcrossStreamsAndResources() throws {
+        let manager = OmemoManager(withOwner: owner)
+        let first = Stream()
+        let second = Stream()
+
+        manager.getContactBundle(first, jid: peer, deviceId: 7)
+        manager.getContactBundle(second, jid: peer + "/desktop", deviceId: 7, force: true)
+        manager.getContactBundle(first, jid: peer, deviceId: 7)
+
+        XCTAssertEqual(first.elements.count + second.elements.count, 1)
+        XCTAssertEqual(manager.omemo2BundleRequests.count, 1)
+    }
+
+    func testConcurrentOrdinaryFetchesReserveOnlyOneRequestForTheSameDevice() {
+        let manager = OmemoManager(withOwner: owner)
+        let peerJID = peer
+        let sentIDs = LockedRequestIDs()
+
+        DispatchQueue.concurrentPerform(iterations: 32) { _ in
+            let stream = Stream()
+            manager.getContactBundle(stream, jid: peerJID, deviceId: 7, force: true)
+            for packet in stream.elements {
+                if let id = packet.attributeStringValue(forName: "id") { sentIDs.append(id) }
+            }
+        }
+
+        XCTAssertEqual(sentIDs.values.count, 1)
+        XCTAssertEqual(manager.omemo2BundleRequests.count, 1)
+    }
+
+    func testBundleErrorReleasesThePendingSlotForAnExplicitRetry() throws {
+        let manager = OmemoManager(withOwner: owner)
+        let stream = Stream()
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+        let id = try XCTUnwrap(stream.elements.last?.attributeStringValue(forName: "id"))
+        let error = try XMPPIQ(xmlString: "<iq xmlns='jabber:client' from='\(peer)' type='error' id='\(id)'><error type='cancel'><item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>")
+
+        XCTAssertTrue(manager.read(withIQ: error))
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+
+        XCTAssertEqual(stream.elements.count, 2)
+        XCTAssertFalse(manager.queryIds.contains(id))
+        XCTAssertEqual(manager.omemo2BundleRequests.count, 1)
+    }
+
+    func testExpiredOrdinaryBundleRequestCannotRetainOwnershipOrBlockItsReplacement() throws {
+        let manager = OmemoManager(withOwner: owner)
+        defer {
+            manager.clearSession()
+            drainMainRunLoop()
+        }
+        let stream = Stream()
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        manager.omemo2MaintenanceNow = { now }
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+        let expiredID = try XCTUnwrap(stream.elements.last?.attributeStringValue(forName: "id"))
+
+        now = now.addingTimeInterval(OmemoManager.omemo2PublicationIQTimeout + 1)
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+
+        XCTAssertEqual(stream.elements.count, 2)
+        XCTAssertNil(manager.omemo2BundleRequests[expiredID])
+        XCTAssertFalse(manager.queryIds.contains(expiredID))
+        XCTAssertEqual(manager.omemo2BundleRequests.count, 1)
+        XCTAssertFalse(manager.read(withIQ: try reply(id: expiredID, from: peer, bundle: bundle(deviceID: 7))))
+    }
+
+    func testBundleProjectionKeepsFetchCoalescedUntilTheValidatedCacheIsCommitted() throws {
+        let manager = OmemoManager(withOwner: owner)
+        let stream = Stream()
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+        let id = try XCTUnwrap(stream.elements.last?.attributeStringValue(forName: "id"))
+        XCTAssertTrue(manager.read(withIQ: try reply(id: id, from: peer, bundle: bundle(deviceID: 7))))
+
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+        XCTAssertEqual(stream.elements.count, 1)
+        drainMainRunLoop()
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+        XCTAssertEqual(stream.elements.count, 1)
+        XCTAssertTrue(manager.omemo2BundleRequests.isEmpty)
+    }
+
+    func testOrdinaryFetchRetentionHasAHardBoundWithoutEvictingLiveRequests() throws {
+        let manager = OmemoManager(withOwner: owner)
+        let stream = Stream()
+
+        for device in 1...300 { manager.getContactBundle(stream, jid: peer, deviceId: device, force: true) }
+
+        XCTAssertLessThanOrEqual(manager.omemo2BundleRequests.count, 256)
+        XCTAssertEqual(stream.elements.count, manager.omemo2BundleRequests.count)
+        let firstID = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
+        XCTAssertNotNil(manager.omemo2BundleRequests[firstID])
+    }
+
+    func testFreshRecoveryFetchRetainsItsOwnCorrelationBesideAnOrdinaryRequest() {
+        let manager = OmemoManager(withOwner: owner)
+        let stream = Stream()
+        manager.getContactBundle(stream, jid: peer, deviceId: 7)
+
+        manager.getContactBundle(stream, jid: peer, deviceId: 7, force: true, requestID: "fresh-reset-generation")
+
+        XCTAssertEqual(stream.elements.count, 2)
+        XCTAssertEqual(manager.omemo2BundleRequests.count, 1)
+        XCTAssertEqual(stream.elements.last?.attributeStringValue(forName: "id"), "fresh-reset-generation")
+    }
+
+    func testBundlePEPProjectsEveryPublishedItemRatherThanOnlyTheFirstDevice() throws {
+        let manager = OmemoManager(withOwner: owner)
+        let first = try bundle(deviceID: 7)
+        let second = try bundle(deviceID: 8)
+        let message = try bundleHeadline([OMEMO2BundleCodec.encode(first), OMEMO2BundleCodec.encode(second)])
+
+        XCTAssertTrue(manager.onContactDeviceReceiveHeadline(message))
+        drainMainRunLoop()
+
+        XCTAssertEqual(identity(jid: peer, deviceID: 7)?.identityKey, first.identityKey.base64EncodedString())
+        XCTAssertEqual(identity(jid: peer, deviceID: 8)?.identityKey, second.identityKey.base64EncodedString())
+        XCTAssertTrue(manager.omemo2BundleRequests.isEmpty)
+    }
+
+    func testRejectedPEPItemCannotHideAValidSiblingOrLaterChangedPublication() throws {
+        let manager = OmemoManager(withOwner: owner)
+        let first = try bundle(deviceID: 7)
+        let second = try bundle(deviceID: 8)
+        let malformed = try OMEMO2BundleCodec.encode(first)
+        malformed.element(forName: "bundle")?.element(forName: "ik")?.stringValue = Data(repeating: 1, count: 33).base64EncodedString()
+
+        XCTAssertTrue(manager.onContactDeviceReceiveHeadline(try bundleHeadline([malformed, OMEMO2BundleCodec.encode(second)])))
+        drainMainRunLoop()
+        XCTAssertNil(identity(jid: peer, deviceID: 7))
+        XCTAssertNotNil(identity(jid: peer, deviceID: 8))
+
+        XCTAssertTrue(manager.onContactDeviceReceiveHeadline(try bundleHeadline([OMEMO2BundleCodec.encode(first)])))
+        drainMainRunLoop()
+        XCTAssertEqual(identity(jid: peer, deviceID: 7)?.identityKey, first.identityKey.base64EncodedString())
+    }
+
+    private func bundleHeadline(_ entries: [DDXMLElement]) throws -> XMPPMessage {
+        let items = DDXMLElement(name: "items", xmlns: OMEMO2DeviceListCodec.event)
+        items.addAttribute(withName: "node", stringValue: OmemoManager.NodeType.bundle.rawValue)
+        for item in entries { items.addChild(item) }
+        let event = DDXMLElement(name: "event", xmlns: OMEMO2DeviceListCodec.event)
+        event.addChild(items)
+        let message = XMPPMessage(type: "headline")
+        message.addAttribute(withName: "from", stringValue: peer)
+        message.addChild(event)
+        return message
+    }
+
     private func identity(jid: String, deviceID: Int) -> SignalIdentityStorageItem? {
         realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: owner, jid: jid, deviceId: deviceID))
     }

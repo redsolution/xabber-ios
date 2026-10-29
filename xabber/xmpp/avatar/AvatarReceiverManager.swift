@@ -33,6 +33,8 @@ class XmppAvatarManager: AbstractXMPPManager {
         let node: AvatarNode
         let itemId: String
         let metadataRevision: UInt64
+        let generation: UInt64
+        let deadline: TimeInterval
     }
 
     private struct MetadataState {
@@ -46,33 +48,27 @@ class XmppAvatarManager: AbstractXMPPManager {
     private var metadataByJID: [String: MetadataState] = [:]
     private var sessionGeneration: UInt64 = 0
 
-    override func onStreamPrepared(_ stream: XMPPStream) {
-        super.onStreamPrepared(stream)
-        guard let account = AccountManager.shared.find(for: owner),
-              account.avatarManager === self,
-              account.xmppStream === stream else { return }
-        clearSession()
-        enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
-        do {
-            let realm = try WRealm.safe()
-            let peers = Set(realm.objects(RosterStorageItem.self)
-                .filter("owner == %@ AND removed == false", owner)
-                .compactMap { XMPPJID(string: $0.jid)?.bare })
-            peers.sorted().filter { $0 != owner }.forEach {
-                enqueuePubSubItemRequest(node: .metadata, jid: $0, by: "")
-            }
-        } catch {
-            DDLogDebug("XmppAvatarManager: \(#function). \(error.localizedDescription)")
-        }
+    // Session reset/disconnect owns invalidation. Preparing extensions can run
+    // after initial PEP notifications, so it must not discard their queued data.
+    internal var pubSubRequestNow: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    private static let pubSubRequestTimeout: TimeInterval = 30
+
+    /// Lost responses release their reservation on the next request/response.
+    /// No automatic retry is scheduled: only a new explicit demand sends again.
+    private func expirePubSubRequestsLocked(now: TimeInterval) -> [String] {
+        let expired = requestsByID.compactMap { $0.value.deadline <= now ? $0.key : nil }
+        for id in expired { requestsByID.removeValue(forKey: id) }
+        return expired
     }
 
     override func clearSession() {
         requestLock.lock()
         sessionGeneration &+= 1
+        let cancelledIDs = Array(requestsByID.keys)
         requestsByID.removeAll()
         metadataByJID.removeAll()
         requestLock.unlock()
-        queryIds.removeAll()
+        cancelledIDs.forEach { queryIds.remove($0) }
         super.clearSession()
     }
     
@@ -396,16 +392,19 @@ class XmppAvatarManager: AbstractXMPPManager {
     }
 
     public final func enqueuePubSubItemRequest(node: AvatarNode, jid: String, by itemId: String) {
-        guard let account = AccountManager.shared.find(for: self.owner) else {
+        guard let publisherJID = XMPPJID(string: jid)?.bare,
+              let account = AccountManager.shared.find(for: self.owner) else {
             return
         }
         requestLock.lock()
         let expectedGeneration = sessionGeneration
+        let expectedMetadataRevision = metadataByJID[publisherJID]?.revision ?? 0
         requestLock.unlock()
+        let metadataRevisionKey = node == .metadata ? expectedMetadataRevision : 0
         account.xmppTaskScheduler.enqueueAccountTask(
-            priority: jid == owner && node == .data ? .foreground : .background,
+            priority: publisherJID == owner && node == .data ? .foreground : .background,
             resource: .avatar,
-            deduplicationKey: "avatar.\(self.owner).\(expectedGeneration).\(node.rawValue).\(jid).\(itemId)",
+            deduplicationKey: "avatar.\(self.owner).\(expectedGeneration).\(node.rawValue).\(publisherJID).\(itemId).\(metadataRevisionKey)",
             requiresAuthenticatedStream: true
         ) { [weak self] _, stream, finish in
             guard let self else {
@@ -418,12 +417,20 @@ class XmppAvatarManager: AbstractXMPPManager {
             }
             self.requestLock.lock()
             let isCurrentGeneration = self.sessionGeneration == expectedGeneration
+            let metadata = self.metadataByJID[publisherJID]
+            let isCurrentMetadata: Bool
+            switch node {
+            case .metadata:
+                isCurrentMetadata = (metadata?.revision ?? 0) == expectedMetadataRevision
+            case .data:
+                isCurrentMetadata = metadata.map { !$0.hasURL && $0.itemId == itemId } ?? true
+            }
             self.requestLock.unlock()
-            guard isCurrentGeneration else {
+            guard isCurrentGeneration && isCurrentMetadata else {
                 finish()
                 return
             }
-            self.requestPubSubItem(stream, node: node, jid: jid, by: itemId)
+            self.requestPubSubItem(stream, node: node, jid: publisherJID, by: itemId)
             finish()
         }
     }
@@ -443,19 +450,47 @@ class XmppAvatarManager: AbstractXMPPManager {
         pubsub.addChild(items)
         let elementId = [UUID().uuidString, ":IQ:avatar:pubsub"].joined()
         let iq = XMPPIQ(iqType: .get, to: XMPPJID(string: publisherJID), elementID: elementId, child: pubsub)
+        let now = pubSubRequestNow()
         requestLock.lock()
+        let expiredIDs = expirePubSubRequestsLocked(now: now)
+        guard !requestsByID.values.contains(where: {
+            $0.jid == publisherJID && $0.node == node && $0.itemId == itemId
+        }) else {
+            requestLock.unlock()
+            expiredIDs.forEach { queryIds.remove($0) }
+            return
+        }
+        let requestGeneration = sessionGeneration
         requestsByID[elementId] = PubSubRequest(
             jid: publisherJID,
             node: node,
             itemId: itemId,
-            metadataRevision: metadataByJID[publisherJID]?.revision ?? 0
+            metadataRevision: metadataByJID[publisherJID]?.revision ?? 0,
+            generation: requestGeneration,
+            deadline: now + Self.pubSubRequestTimeout
         )
         requestLock.unlock()
+        expiredIDs.forEach { queryIds.remove($0) }
         self.queryIds.insert(elementId)
+        // Reset can race correlation registration. Only the same recorded
+        // generation may proceed; never hold requestLock across transport.
+        requestLock.lock()
+        let isCurrentRequest = requestsByID[elementId]?.generation == requestGeneration
+            && sessionGeneration == requestGeneration
+        requestLock.unlock()
+        guard isCurrentRequest else {
+            self.queryIds.remove(elementId)
+            return
+        }
         xmppStream.send(iq)
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
+        let now = pubSubRequestNow()
+        requestLock.lock()
+        let expiredIDs = expirePubSubRequestsLocked(now: now)
+        requestLock.unlock()
+        expiredIDs.forEach { queryIds.remove($0) }
         guard let elementId = iq.elementID,
               self.queryIds.contains(elementId) else {
             return false

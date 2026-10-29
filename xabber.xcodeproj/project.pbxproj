@@ -39,6 +39,8 @@
 		A32310230000000000000001 /* EncryptedChatBackgroundAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32310230000000000000002 /* EncryptedChatBackgroundAppearanceTests.swift */; };
 		A32310230000000000000011 /* ChatNavigationTitleGlassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32310230000000000000012 /* ChatNavigationTitleGlassTests.swift */; };
 		A32310230000000000000021 /* ChatSplitCloseNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32310230000000000000022 /* ChatSplitCloseNavigationTests.swift */; };
+		A32910290000000000000001 /* PEPDiagnosticLoggingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32910290000000000000002 /* PEPDiagnosticLoggingTests.swift */; };
+		A32910290000000000000003 /* SupplementalStreamXMLLoggingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32910290000000000000004 /* SupplementalStreamXMLLoggingTests.swift */; };
 		45D2355C411C465BBC440103 /* OMEMO2BundleDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */; };
 		45D2355C411C465BBC440105 /* OMEMO2BundleDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440106 /* OMEMO2BundleDiagnostics.swift */; };
 		45D2355C411C465BBC440101 /* OMEMO2OwnDeviceBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */; };
@@ -1277,6 +1279,8 @@
 		A32310230000000000000002 /* EncryptedChatBackgroundAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptedChatBackgroundAppearanceTests.swift; sourceTree = "<group>"; };
 		A32310230000000000000012 /* ChatNavigationTitleGlassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNavigationTitleGlassTests.swift; sourceTree = "<group>"; };
 		A32310230000000000000022 /* ChatSplitCloseNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSplitCloseNavigationTests.swift; sourceTree = "<group>"; };
+		A32910290000000000000002 /* PEPDiagnosticLoggingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PEPDiagnosticLoggingTests.swift; sourceTree = "<group>"; };
+		A32910290000000000000004 /* SupplementalStreamXMLLoggingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupplementalStreamXMLLoggingTests.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleDiagnosticsTests.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440106 /* OMEMO2BundleDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleDiagnostics.swift; sourceTree = "<group>"; };
 		45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2OwnDeviceBindingTests.swift; sourceTree = "<group>"; };
@@ -4472,6 +4476,8 @@
 				A32010200000000000000024 /* ChatEncryptedAttachmentReceiverTests.swift */,
 				A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */,
 				A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */,
+				A32910290000000000000002 /* PEPDiagnosticLoggingTests.swift */,
+				A32910290000000000000004 /* SupplementalStreamXMLLoggingTests.swift */,
 				45D2355C411C465BBC440104 /* OMEMO2BundleDiagnosticsTests.swift */,
 				45D2355C411C465BBC440102 /* OMEMO2OwnDeviceBindingTests.swift */,
 				732E4515482A40DCB05BDFB8 /* ProfileHydrationTests.swift */,
@@ -6871,6 +6877,8 @@
 				13C6CE8D47FC43F0A8BD6D95 /* OMEMO2NormativeIncomingTrustRenderingTests.swift in Sources */,
 				FC0FB2A1340A4342A9BDCEF0 /* OMEMO2BootstrapBundleTests.swift in Sources */,
 				D896CBF61ACA4093A294906A /* ProfileHydrationTests.swift in Sources */,
+				A32910290000000000000001 /* PEPDiagnosticLoggingTests.swift in Sources */,
+				A32910290000000000000003 /* SupplementalStreamXMLLoggingTests.swift in Sources */,
 				45D2355C411C465BBC440103 /* OMEMO2BundleDiagnosticsTests.swift in Sources */,
 				45D2355C411C465BBC440101 /* OMEMO2OwnDeviceBindingTests.swift in Sources */,
 				F68282DF012B42EEBA1C90F2 /* OMEMO2NormativeIncomingTrustStorageTests.swift in Sources */,

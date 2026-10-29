@@ -3135,6 +3135,40 @@ struct ConnectionDiagnosticsLogger {
     // Stream XML is logged in full, without redaction or string escaping.
     static let rawXMLLoggingEnabled = true
 
+    // These observations repeat information already present in each wire stanza.
+    // Keep lifecycle/failure events, and never filter a record carrying actual XML.
+    private static let routineEvents: Set<String> = [
+        "resilience_activity_observed",
+        "resilience_outbound_stanza_observed",
+        "primary_stream_iq_response_correlated",
+        "primary_stream_iq_response_stanza_observed",
+        "primary_stream_liveness_probe_stanza_observed",
+        "primary_stream_bootstrap_sync_stanza_observed",
+        "primary_stream_long_running_background_stanza_observed",
+        "primary_stream_non_health_stanza_observed",
+        "stream_management_ack_requested",
+        "stream_management_raw_ack_received",
+        "stream_management_ack_received",
+        "stream_management_ack_sent"
+    ]
+
+    static func shouldLog(
+        event: String,
+        details: [String: Any?],
+        rawXML: String?,
+        error: Error?
+    ) -> Bool {
+        if rawXML != nil || error != nil { return true }
+        if event == "connection_health_snapshot" {
+            return details["isSuspectedStale"] as? Bool == true
+        }
+        if event == "resilience_primary_stream_ack_timeout",
+           details["action"] as? String == "diagnosticOnly" {
+            return false
+        }
+        return !routineEvents.contains(event)
+    }
+
     static func log(
         event: String,
         stream: ConnectionDiagnosticsStreamKind,
@@ -3148,6 +3182,7 @@ struct ConnectionDiagnosticsLogger {
         error: Error? = nil,
         includeRawXML: Bool = rawXMLLoggingEnabled
     ) {
+        guard shouldLog(event: event, details: details, rawXML: rawXML, error: error) else { return }
         let timing = attemptID.map {
             ConnectionDiagnosticsTimeline.shared.record(
                 stream: stream,
@@ -4899,6 +4934,9 @@ final class Account: NSObject {
         rawXML: String? = nil,
         error: Error? = nil
     ) {
+        guard ConnectionDiagnosticsLogger.shouldLog(
+            event: event, details: details, rawXML: rawXML, error: error
+        ) else { return }
         let snapshot = self.connectionGate.snapshot()
         ConnectionDiagnosticsLogger.log(
             event: event,

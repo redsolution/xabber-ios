@@ -439,30 +439,30 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didSendCustomElement element: DDXMLElement) {
-        guard sender === self.xmppStream,
-              element.localName == "a",
-              element.uri == "urn:xmpp:sm:3" || element.uri == "urn:xmpp:sm:2",
-              let rawCount = element.attributeStringValue(forName: "h"),
-              let handledCount = UInt32(rawCount) else { return }
+        guard sender === self.xmppStream else { return }
         self.logConnectionDiagnostics(
-            event: "stream_management_ack_sent",
-            details: ["handledCount": handledCount]
+            event: "stanza_send_custom",
+            details: ["element": element.localName ?? "unknown"],
+            rawXML: element.prettyXMLString ?? element.xmlString
         )
     }
 
     func xmppStream(_ sender: XMPPStream, didReceiveCustomElement element: DDXMLElement) {
         guard sender === self.xmppStream,
-              element.name == "a",
-              let namespace = element.xmlns(),
+              element.localName == "a" || element.localName == "r",
+              let namespace = element.uri,
               namespace == "urn:xmpp:sm:3" || namespace == "urn:xmpp:sm:2" else {
             return
         }
-        self.primaryStreamAckRequestCoordinator.noteRawAck()
-        self.connectionResilience.noteStreamManagementAck()
         self.logConnectionDiagnostics(
-            event: "stream_management_raw_ack_received",
-            details: ["handledCount": element.attributeStringValue(forName: "h") ?? "none"]
+            event: "stanza_receive_custom",
+            details: ["element": element.localName ?? "unknown"],
+            rawXML: element.prettyXMLString ?? element.xmlString
         )
+        if element.localName == "a" {
+            self.primaryStreamAckRequestCoordinator.noteRawAck()
+            self.connectionResilience.noteStreamManagementAck()
+        }
     }
     
     func xmppStreamDidDisconnect(_ sender: XMPPStream, withError error: Error?) {

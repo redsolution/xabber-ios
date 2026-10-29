@@ -379,6 +379,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             return false
         }
 
+        // MAM modules may consume this IQ before didReceive is delivered.
+        if stage == "willReceive" {
+            self.logReceivedIQ(iq)
+        }
         let mamPresent = self.mam != nil
         let handledByMam = self.mam?.read(sender, withIQ: iq) ?? false
         var fallbackDelivered = false
@@ -414,15 +418,12 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 "handledByMam": handledByMam,
                 "fallbackDelivered": fallbackDelivered,
                 "stage": stage
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         return true
     }
-    
-    func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
-        guard self.isCurrentStream(sender, callback: "didReceiveIQ") else { return false }
-//        print("UI RECV: \(iq.prettyXMLString ?? "")" )
+
+    private func logReceivedIQ(_ iq: XMPPIQ) {
         self.logConnectionDiagnostics(
             event: "stanza_receive_iq",
             details: [
@@ -433,6 +434,10 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             ],
             rawXML: iq.prettyXMLString ?? iq.xmlString
         )
+    }
+
+    func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
+        guard self.isCurrentStream(sender, callback: "didReceiveIQ") else { return false }
         if let routingId = self.mamCompletionRoutingId(for: iq),
            self.preRoutedMamCompletionIQIds.remove(routingId) != nil {
             self.logConnectionDiagnostics(
@@ -441,12 +446,12 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     "id": iq.elementID ?? "none",
                     "routingId": routingId,
                     "reason": "preRouted"
-                ],
-                rawXML: iq.prettyXMLString ?? iq.xmlString
+                ]
             )
             self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
             return true
         }
+        self.logReceivedIQ(iq)
         if self.routeMamCompletionIQIfNeeded(sender, iq: iq, stage: "didReceive") {
             self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
             return true

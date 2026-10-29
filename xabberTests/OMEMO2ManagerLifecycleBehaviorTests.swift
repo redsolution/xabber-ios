@@ -86,6 +86,189 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    func testRepeatedDeviceListPEPUpdatesMembershipWithoutFetchingEveryBundle() throws {
+        let f = try fixture()
+        f.stream.authenticated = true
+        let message = try XMPPMessage(xmlString: "<message xmlns='jabber:client' type='headline' from='\(f.peer)'><event xmlns='http://jabber.org/protocol/pubsub#event'><items node='urn:xmpp:omemo:2:devices'><item id='current'><devices xmlns='urn:xmpp:omemo:2'><device id='77'/><device id='78'/></devices></item></items></event></message>")
+
+        for _ in 0..<3 { XCTAssertTrue(f.manager.onContactDeviceListReceiveHeadline(message)) }
+        drainAccount(f)
+
+        XCTAssertTrue(requests(f.stream, node: .bundle).isEmpty)
+        let snapshot = try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: WRealm.safe(), owner: f.manager.owner, jid: f.peer))
+        XCTAssertEqual(Set(snapshot.deviceIDs), [77, 78])
+        XCTAssertTrue(snapshot.isKnown)
+    }
+
+    func testExplicitSecretChatPreparationFetchesOnlyMissingBundlesWithoutPresencePEP() throws {
+        let f = try fixture()
+        try addIdentity(owner: f.manager.owner, jid: f.peer, id: 77)
+        withUIAction(f) { ui in
+            f.manager.prepareSecretChat(wit: f.peer, success: nil, fail: nil)
+            resumeUIAction(ui, fixture: f)
+        }
+        let id = try XCTUnwrap(requests(f.stream, node: .device).only?.attributeStringValue(forName: "id"))
+        let reply = try deviceListReply(f, id: id, ids: [77, 78])
+
+        XCTAssertTrue(f.manager.read(withIQ: reply))
+        drainAccount(f)
+
+        XCTAssertEqual(try requests(f.stream, node: .bundle).map(requestDeviceID), [78])
+        XCTAssertNil(try WRealm.safe().object(ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: f.peer, owner: f.manager.owner)))
+    }
+
+    func testExplicitChatOpeningUsesKnownDeviceListToFetchOneMissingBundle() throws {
+        let f = try fixture()
+        try knownPeerSnapshot(f, ids: [77, 78])
+        try addIdentity(owner: f.manager.owner, jid: f.peer, id: 77)
+        withUIAction(f) { ui in
+            f.manager.initChat(jid: f.peer)
+            f.manager.initChat(jid: f.peer)
+            resumeUIAction(ui, fixture: f)
+        }
+
+        XCTAssertTrue(requests(f.stream, node: .device).isEmpty)
+        XCTAssertEqual(try requests(f.stream, node: .bundle).map(requestDeviceID), [78])
+    }
+
+    func testPendingExplicitSecretChatDemandCanUseNewerPEPDeviceListWithoutDuplicateFetch() throws {
+        let f = try fixture()
+        withUIAction(f) { ui in
+            f.manager.prepareSecretChat(wit: f.peer, success: nil, fail: nil)
+            resumeUIAction(ui, fixture: f)
+        }
+        let id = try XCTUnwrap(requests(f.stream, node: .device).only?.attributeStringValue(forName: "id"))
+        let message = try XMPPMessage(xmlString: "<message xmlns='jabber:client' type='headline' from='\(f.peer)'><event xmlns='http://jabber.org/protocol/pubsub#event'><items node='urn:xmpp:omemo:2:devices'><item id='current'><devices xmlns='urn:xmpp:omemo:2'><device id='77'/></devices></item></items></event></message>")
+
+        XCTAssertTrue(f.manager.onContactDeviceListReceiveHeadline(message))
+        XCTAssertTrue(f.manager.onContactDeviceListReceiveHeadline(message))
+        XCTAssertTrue(f.manager.read(withIQ: try deviceListReply(f, id: id, ids: [77])))
+        drainAccount(f)
+
+        XCTAssertEqual(try requests(f.stream, node: .bundle).map(requestDeviceID), [77])
+    }
+
+    func testSessionResetDiscardsExplicitBundleDemandAndRejectsItsLateDeviceListIQ() throws {
+        let f = try fixture()
+        withUIAction(f) { ui in
+            f.manager.prepareSecretChat(wit: f.peer, success: nil, fail: nil)
+            resumeUIAction(ui, fixture: f)
+        }
+        let id = try XCTUnwrap(requests(f.stream, node: .device).only?.attributeStringValue(forName: "id"))
+
+        f.manager.clearSession()
+
+        XCTAssertFalse(f.manager.read(withIQ: try deviceListReply(f, id: id, ids: [77])))
+        drainAccount(f)
+        XCTAssertFalse(f.manager.queryIds.contains(id))
+        XCTAssertTrue(f.manager.omemo2DeviceListRequests.isEmpty)
+        XCTAssertTrue(requests(f.stream, node: .bundle).isEmpty)
+    }
+
+    func testResetCancelsExplicitBundleDemandAlreadyQueuedOnTheAccount() throws {
+        let f = try fixture()
+        try knownPeerSnapshot(f, ids: [77])
+        f.stream.authenticated = true
+        holdAccountQueue(f) {
+            f.manager.getContactDevices(f.stream, jid: f.peer, requestBundles: true)
+            f.manager.clearSession()
+        }
+        drainAccount(f)
+
+        XCTAssertTrue(requests(f.stream, node: .bundle).isEmpty)
+    }
+
+    func testExpiredDeviceListDemandReleasesItsCorrelationForExplicitRetry() throws {
+        let f = try fixture()
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        f.manager.omemo2MaintenanceNow = { now }
+        withUIAction(f) { ui in
+            f.manager.prepareSecretChat(wit: f.peer, success: nil, fail: nil)
+            resumeUIAction(ui, fixture: f)
+        }
+        let oldID = try XCTUnwrap(requests(f.stream, node: .device).only?.attributeStringValue(forName: "id"))
+        now = now.addingTimeInterval(OmemoManager.omemo2PublicationIQTimeout + 1)
+
+        withUIAction(f) { ui in
+            f.manager.prepareSecretChat(wit: f.peer, success: nil, fail: nil)
+            resumeUIAction(ui, fixture: f)
+        }
+
+        XCTAssertEqual(requests(f.stream, node: .device).count, 2)
+        XCTAssertNil(f.manager.omemo2DeviceListRequests[oldID])
+        XCTAssertFalse(f.manager.queryIds.contains(oldID))
+        XCTAssertEqual(f.manager.omemo2DeviceListRequests.count, 1)
+        XCTAssertFalse(f.manager.read(withIQ: try deviceListReply(f, id: oldID, ids: [77])))
+    }
+
+    func testActualSendDemandPromotesAnAlreadyPendingOrdinaryDeviceListRequest() throws {
+        let f = try fixture()
+        try ownSnapshot(f, ids: [42])
+        f.stream.authenticated = true
+        f.manager.getContactDevices(f.stream, jid: f.peer)
+        let id = try XCTUnwrap(requests(f.stream, node: .device).only?.attributeStringValue(forName: "id"))
+
+        f.manager.requestMissingDeviceLists(jid: f.peer)
+        drainAccount(f)
+        XCTAssertTrue(f.manager.read(withIQ: try deviceListReply(f, id: id, ids: [77])))
+        drainAccount(f)
+
+        XCTAssertEqual(requests(f.stream, node: .device).count, 1)
+        XCTAssertEqual(try requests(f.stream, node: .bundle).map(requestDeviceID), [77])
+    }
+
+    func testActualSendDemandRetriesAnExpiredLostDeviceListRatherThanTreatingItAsLive() throws {
+        let f = try fixture()
+        try ownSnapshot(f, ids: [42])
+        f.stream.authenticated = true
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        f.manager.omemo2MaintenanceNow = { now }
+        f.manager.getContactDevices(f.stream, jid: f.peer)
+        let oldID = try XCTUnwrap(requests(f.stream, node: .device).only?.attributeStringValue(forName: "id"))
+        now = now.addingTimeInterval(OmemoManager.omemo2PublicationIQTimeout + 1)
+
+        f.manager.requestMissingDeviceLists(jid: f.peer)
+        drainAccount(f)
+
+        XCTAssertEqual(requests(f.stream, node: .device).count, 2)
+        XCTAssertNil(f.manager.omemo2DeviceListRequests[oldID])
+        XCTAssertFalse(f.manager.queryIds.contains(oldID))
+        XCTAssertFalse(f.manager.read(withIQ: try deviceListReply(f, id: oldID, ids: [77])))
+    }
+
+    func testBundlePEPBeforeLateExtensionPreparationStillCommitsItsValidatedCache() throws {
+        let f = try fixture()
+        try ownSnapshot(f, ids: [42])
+        let bundle = try peerBundle(owner: f.peer, id: 77)
+
+        XCTAssertTrue(f.manager.onContactDeviceReceiveHeadline(try bundleHeadline(from: f.peer, bundle: bundle)))
+        f.manager.onStreamPrepared(f.stream)
+        drainMainRunLoop()
+        drainAccount(f)
+
+        let identity = try XCTUnwrap(WRealm.safe().object(ofType: SignalIdentityStorageItem.self,
+            forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: f.manager.owner, jid: f.peer, deviceId: 77)))
+        XCTAssertEqual(identity.identityKey, bundle.identityKey.base64EncodedString())
+    }
+
+    func testActualSessionResetRejectsBundlePEPQueuedBeforeDisconnect() throws {
+        let f = try fixture()
+        let bundle = try peerBundle(owner: f.peer, id: 77)
+
+        XCTAssertTrue(f.manager.onContactDeviceReceiveHeadline(try bundleHeadline(from: f.peer, bundle: bundle)))
+        f.manager.clearSession()
+        drainMainRunLoop()
+
+        XCTAssertNil(try WRealm.safe().object(ofType: SignalIdentityStorageItem.self,
+            forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: f.manager.owner, jid: f.peer, deviceId: 77)))
+    }
+
+    private func deviceListReply(_ f: Fixture, id: String, ids: [Int]) throws -> XMPPIQ {
+        let devices = ids.map { "<device id='\($0)'/>" }.joined()
+        return try XMPPIQ(xmlString: "<iq xmlns='jabber:client' type='result' id='\(id)' from='\(f.peer)'><pubsub xmlns='http://jabber.org/protocol/pubsub'><items node='urn:xmpp:omemo:2:devices'><item id='current'><devices xmlns='urn:xmpp:omemo:2'>\(devices)</devices></item></items></pubsub></iq>")
+    }
+
     func testDisconnectedPreparedStreamCannotResetRequestsOrStartRegistration() throws {
         let f = try fixture(prepared: false)
         f.manager.getContactBundle(f.stream, jid: f.peer, deviceId: 77, force: true)

@@ -1,8 +1,8 @@
 import Foundation
 import XMPPFramework
 
-/// Logs the original stanza serialization without changing any XML content.
-/// Diagnostics never determine bundle, identity, trust, or session admission.
+/// Builds diagnostic records without emitting them. Live XML belongs to stream delegates.
+/// Formatting never determines bundle, identity, trust, or session admission.
 enum OMEMO2BundleDiagnostics {
     struct Record {
         let summary: String

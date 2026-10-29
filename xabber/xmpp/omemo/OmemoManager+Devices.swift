@@ -6,22 +6,38 @@ struct OMEMO2DeviceListRequest {
     let jid: String
     let eventRevision: String
     let stream: XMPPStream
+    var requestsBundles: Bool
+    let startedAt: Date
 }
 
 extension OmemoManager {
-    public func getContactDevices(_ stream: XMPPStream, jid: String, force: Bool = false) {
+    public func getContactDevices(_ stream: XMPPStream, jid: String, force: Bool = false, requestBundles: Bool = false) {
+        expireDeviceListRequests()
         if let account = AccountManager.shared.find(for: owner),
            account.xmppStream === stream,
            account.deferWorkUntilStartupSynchronizationCompletes(
-            key: "omemo.devices.\(jid).\(force)",
+            key: "omemo.devices.\(jid).\(force).\(requestBundles)",
             work: { user, currentStream in
-                user.omemo.getContactDevices(currentStream, jid: jid, force: force)
+                user.omemo.getContactDevices(currentStream, jid: jid, force: force, requestBundles: requestBundles)
             }
            ) { return }
         do {
             let realm = try WRealm.safe()
             let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid) ?? OMEMO2DeviceListStorageItem()
-            if !force && snapshot.isKnown { return }
+            if !force && snapshot.isKnown {
+                if requestBundles { requestContactBundles(jid: jid, ids: Array(snapshot.deviceIDs), force: false) }
+                return
+            }
+            // A second explicit caller can share the current device-list IQ;
+            // its missing-bundle intent survives until that response or PEP.
+            if (!force || requestBundles), let pendingID = snapshot.pendingRequestID,
+               let pending = omemo2DeviceListRequests[pendingID], pending.jid == jid,
+               pending.eventRevision == snapshot.eventRevision {
+                if requestBundles { omemo2DeviceListRequests[pendingID]?.requestsBundles = true }
+                return
+            }
+            // Explicit peer preparation cannot retain unlimited lost IQs.
+            guard omemo2DeviceListRequests.count < 256 else { return }
             let id = stream.generateUUID
             try realm.write {
                 if snapshot.realm == nil {
@@ -32,7 +48,7 @@ extension OmemoManager {
                 snapshot.pendingRequestID = id
                 snapshot.requestEventRevision = snapshot.eventRevision
             }
-            omemo2DeviceListRequests[id] = OMEMO2DeviceListRequest(jid: jid, eventRevision: snapshot.eventRevision, stream: stream)
+            omemo2DeviceListRequests[id] = OMEMO2DeviceListRequest(jid: jid, eventRevision: snapshot.eventRevision, stream: stream, requestsBundles: requestBundles, startedAt: omemo2MaintenanceNow())
             let pubsub = DDXMLElement(name: "pubsub", xmlns: OMEMO2DeviceListCodec.pubsub)
             let items = DDXMLElement(name: "items", xmlns: OMEMO2DeviceListCodec.pubsub)
             items.addAttribute(withName: "node", stringValue: NodeType.device.rawValue)
@@ -45,6 +61,7 @@ extension OmemoManager {
 
     /// Correlation, sender and current PEP revision are checked before projection.
     internal func onContactDeviceListReceive(_ iq: XMPPIQ) -> Bool {
+        expireDeviceListRequests()
         guard iq.iqType == .result, let id = iq.elementID,
               let request = omemo2DeviceListRequests[id], validDeviceListSender(iq, request: request) else { return false }
         guard let pubsub = SCEReceivePolicy.children(of: iq, named: "pubsub", xmlns: OMEMO2DeviceListCodec.pubsub).only,
@@ -59,11 +76,12 @@ extension OmemoManager {
                 decoded = try OMEMO2DeviceListCodec.decode(entries[0])
             }
             guard try consumeDeviceListRequest(id, request: request) else { return true }
-            return applyDeviceList(decoded, jid: request.jid, fromMessage: false, stream: request.stream)
+            return applyDeviceList(decoded, jid: request.jid, fromMessage: false, stream: request.stream, requestsBundles: request.requestsBundles)
         } catch { return true }
     }
 
     internal func onContactDeviceListErrorReceive(_ iq: XMPPIQ) -> Bool {
+        expireDeviceListRequests()
         guard iq.iqType == .error, let id = iq.elementID,
               let request = omemo2DeviceListRequests[id], validDeviceListSender(iq, request: request) else { return false }
         do {
@@ -114,7 +132,9 @@ extension OmemoManager {
 
     @discardableResult
     private func applyDeviceList(_ decoded: OMEMO2DeviceListCodec.Decoded, jid: String, fromMessage: Bool,
-                                 stream: XMPPStream? = nil, createNode: Bool = false) -> Bool {
+                                 stream: XMPPStream? = nil, createNode: Bool = false,
+                                 requestsBundles: Bool = false) -> Bool {
+        expireDeviceListRequests()
         do {
             let realm = try WRealm.safe()
             let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid) ?? OMEMO2DeviceListStorageItem()
@@ -163,15 +183,38 @@ extension OmemoManager {
                 }
             }
             resumeMissingOMEMO2Sessions(afterDeviceList: jid)
-            for id in decoded.ids {
-                AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactBundle(stream, jid: jid, deviceId: id, force: self.isRefreshRequest) }
-            }
+            // Normal device-list PEP updates membership only. The separately
+            // advertised bundles+notify node delivers complete public bundles;
+            // fetching every device here duplicates those payloads and races
+            // repeated presence deliveries. Explicit manual refresh is retained.
+            let refreshBundles = isRefreshRequest
             isRefreshRequest = false
+            // A newer PEP list can satisfy an explicit secret-chat request
+            // before its IQ response. Consume only its fetching intent here;
+            // the revision guard still prevents that old IQ replacing PEP.
+            let pendingDemandIDs = fromMessage ? omemo2DeviceListRequests.compactMap { id, request in
+                request.jid == jid && request.requestsBundles ? id : nil
+            } : []
+            for id in pendingDemandIDs { omemo2DeviceListRequests[id]?.requestsBundles = false }
+            if refreshBundles || requestsBundles || !pendingDemandIDs.isEmpty {
+                requestContactBundles(jid: jid, ids: decoded.ids, force: refreshBundles)
+            }
             if jid == owner {
                 onOwnDeviceListUpdated(stream, createNode: createNode)
             }
             return true
         } catch { DDLogDebug("OMEMO2 devices snapshot could not be stored"); return true }
+    }
+
+    private func expireDeviceListRequests() {
+        let now = omemo2MaintenanceNow()
+        let expired = omemo2DeviceListRequests.compactMap { id, request in
+            now.timeIntervalSince(request.startedAt) >= Self.omemo2PublicationIQTimeout ? id : nil
+        }
+        for id in expired {
+            omemo2DeviceListRequests.removeValue(forKey: id)
+            queryIds.remove(id)
+        }
     }
 
     internal func onOwnDeviceListUpdated(_ stream: XMPPStream?, createNode: Bool = false) {
@@ -212,16 +255,24 @@ extension OmemoManager {
     }
 
     internal func requestMissingDeviceLists(jid: String) {
+        expireDeviceListRequests()
         guard let realm = try? WRealm.safe() else { return }
         for target in Set([owner, jid]) {
             let list = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: target)
-            guard list?.isKnown != true, !hasLiveDeviceListRequest(list) else { continue }
+            guard list?.isKnown != true else { continue }
+            if hasLiveDeviceListRequest(list), let id = list?.pendingRequestID {
+                // Actual send demand can adopt an ordinary discovery IQ
+                // already in flight without issuing a second list request.
+                omemo2DeviceListRequests[id]?.requestsBundles = true
+                continue
+            }
             if let request = omemo2DeviceListRequester { request(target) }
-            else { AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactDevices(stream, jid: target, force: true) } }
+            else { AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactDevices(stream, jid: target, force: true, requestBundles: true) } }
         }
     }
 
     internal func refreshDevicesForUnknownSender(jid: String, deviceID: Int) {
+        expireDeviceListRequests()
         guard let realm = try? WRealm.safe(),
               !OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: jid, deviceID: deviceID),
               !hasLiveDeviceListRequest(OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)) else { return }
@@ -235,6 +286,7 @@ extension OmemoManager {
         // Realm outlives the manager. A persisted token alone cannot represent
         // an IQ that can still be correlated after process restart.
         return request.jid == snapshot.jid
+            && omemo2MaintenanceNow().timeIntervalSince(request.startedAt) < Self.omemo2PublicationIQTimeout
     }
 }
 

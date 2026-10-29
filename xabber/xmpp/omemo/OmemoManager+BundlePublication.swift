@@ -150,7 +150,6 @@ extension OmemoManager {
         self.queryIds.insert(elementID)
         queued = true
         let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementID, child: pubsub)
-        logOMEMO2BundleStanza(iq, jid: owner, source: "own-publication")
         xmppStream.send(iq)
     }
 
@@ -180,7 +179,6 @@ extension OmemoManager {
             return true
         }
         guard let expectedHash = self.omemo2BundlePublications.removeValue(forKey: elementID) else { return false }
-        logOMEMO2BundleStanza(iq, jid: owner, source: "own-publication-response")
         self.omemo2BundlePublicationStartedAt.removeValue(forKey: elementID)
         self.queryIds.remove(elementID)
         guard !isOwnOMEMOExplicitlyDisabled else { self.shouldPublicate = false; return true }
