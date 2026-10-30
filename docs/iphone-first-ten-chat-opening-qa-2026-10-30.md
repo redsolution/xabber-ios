@@ -88,3 +88,5 @@ The saved native fragments have a30.397 s gap and lack early custom actor diagno
 - A preflight Swift debugger expression failed and restored/detached; it is not an ordinary app-crash reproduction. No debugger pauses occurred during measured opening intervals.
 
 Private evidence and row mapping: `/Users/igor.boldin/projects/xabber/xabber/projects/xabber/debug/2026-10-30-iphone-first-ten-chat-opening/`. Task/handoff and UI/tests/XMPP notes in the vault link the raw evidence, the three open defect tasks, the D06 triage and reproducible conditions. Final post-supplement audit retained9034 messages with zero removed existing keys or changed deletion/hidden flags. No message/media was sent, edited or deleted and no account was reset or logged out. Normal opening, read-marker, MAM, roster hydration and cache writes occurred.
+
+A later user-triggered crash while adding a contact through QR was independently confirmed after these automated passes; see [QR contact-add crash](qr-contact-crash-2026-10-30.md). It is a fourth recorded defect outside the chat-opening matrix.
