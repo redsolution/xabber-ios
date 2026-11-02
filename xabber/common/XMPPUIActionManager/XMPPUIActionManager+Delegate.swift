@@ -461,7 +461,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         case (self.mam?.read(sender, withIQ: iq) ?? false):
                 self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
                 return true
-        case (AccountManager.shared.find(for: self.currentJid ?? "")?.omemo.read(withIQ: iq) ?? false):
+        case (AccountManager.shared.find(for: self.currentJid ?? "")?.omemo.read(withIQ: iq, on: sender) ?? false):
             return true
         case (self.vcardManager?.read(withIQ: iq) ?? false): return true
         case (self.avatarUploader?.read(withIQ: iq) ?? false): return true

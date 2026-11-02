@@ -19,12 +19,14 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
         private var captured: [DDXMLElement] = []
         var authenticated = false
         var disconnected = false
+        var onSend: ((DDXMLElement) -> Void)?
         override var isAuthenticated: Bool { authenticated }
         override var isDisconnected: Bool { disconnected }
         override func send(_ element: DDXMLElement) {
             lock.lock()
             captured.append(element.copy() as! DDXMLElement)
             lock.unlock()
+            onSend?(element)
         }
         var elements: [DDXMLElement] {
             lock.lock()
@@ -894,7 +896,7 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
         try assertXabberBundlePackets(f, count: 1)
         XCTAssertFalse(try ownIdentity(f).isPublicated)
         let requestID = try XCTUnwrap(Array(f.manager.omemo2BundlePublications.keys).only)
-        XCTAssertTrue(f.manager.onOMEMO2PublicationResult(XMPPIQ(iqType: .result, to: nil, elementID: requestID)))
+        XCTAssertTrue(f.manager.onOMEMO2PublicationResult(managedReply(f, id: requestID), on: f.stream))
         XCTAssertTrue(try ownIdentity(f).isPublicated)
         let realm = try WRealm.safe()
         XCTAssertEqual(Array(try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: realm, owner: f.manager.owner, jid: f.manager.owner)).deviceIDs), [99])
@@ -937,7 +939,7 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
                 : "<\(condition) xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>"
             let error = try XMPPIQ(xmlString: "<iq xmlns='jabber:client' type='error' id='\(requestID)'><error type='wait'>\(errorXML)</error></iq>")
 
-            XCTAssertTrue(f.manager.onOMEMO2PublicationResult(error))
+            XCTAssertTrue(f.manager.onOMEMO2PublicationResult(managedEnvelope(error, fixture: f), on: f.stream))
             XCTAssertNil(f.manager.omemo2BundleConfigurationRequestID)
             XCTAssertTrue(configurations(f.stream).isEmpty)
             XCTAssertFalse(try ownIdentity(f).isPublicated)
@@ -947,7 +949,7 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
             try assertXabberBundlePackets(f, count: 2)
             let retryID = try XCTUnwrap(Array(f.manager.omemo2BundlePublications.keys).only)
             XCTAssertNotEqual(requestID, retryID)
-            XCTAssertTrue(f.manager.onOMEMO2PublicationResult(XMPPIQ(iqType: .result, to: nil, elementID: retryID)))
+            XCTAssertTrue(f.manager.onOMEMO2PublicationResult(managedReply(f, id: retryID), on: f.stream))
             XCTAssertTrue(try ownIdentity(f).isPublicated)
             XCTAssertEqual(try f.storage.localBundle().deviceID, originalID)
             XCTAssertEqual(try f.storage.identity().publicKey, originalIdentity)
@@ -964,7 +966,7 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
         f.manager.omemo2RegistrationStream = nil
         f.stream.authenticated = true
 
-        XCTAssertTrue(f.manager.onOMEMO2PublicationResult(try preconditionError(id: requestID)))
+        XCTAssertTrue(f.manager.onOMEMO2PublicationResult(managedEnvelope(try preconditionError(id: requestID), fixture: f), on: f.stream))
         drainAccount(f)
 
         XCTAssertTrue(configurations(f.stream).isEmpty)
@@ -1004,7 +1006,7 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
 
         try f.manager.publicateOwnDevice(f.stream, createNode: true)
 
-        let packet = try XCTUnwrap(f.stream.elements.only)
+        let packet = try XCTUnwrap(f.stream.elements.filter { !isManagedMetadataRequest($0) }.only)
         let wire = try DDXMLElement(xmlString: packet.xmlString)
         let pubsub = try XCTUnwrap(wire.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"))
         XCTAssertEqual((pubsub.children ?? []).compactMap { ($0 as? DDXMLElement)?.localName }, ["retract"])
@@ -1044,13 +1046,46 @@ final class OMEMO2ManagerLifecycleBehaviorTests: XCTestCase {
         let features = DDXMLElement(name: "features")
         features.addChild(DDXMLElement(name: "devices", xmlns: "https://xabber.com/protocol/devices"))
         f.account.devices.setAvailable(features)
+        f.stream.authenticated = true
+        f.account.devices.recordAuthenticatedSession(on: f.stream, deviceID: "managed-test-device", didResume: false)
+        let owner = f.manager.owner
+        f.stream.onSend = { [weak manager = f.manager, weak stream = f.stream] packet in
+            guard let manager, let stream,
+                  packet.attributeStringValue(forName: "type") == "get",
+                  packet.element(forName: "query", xmlns: "https://xabber.com/protocol/devices#items") != nil,
+                  let id = packet.attributeStringValue(forName: "id") else { return }
+            let query = DDXMLElement(name: "query", xmlns: "https://xabber.com/protocol/devices#items")
+            let device = DDXMLElement(name: "device", xmlns: "https://xabber.com/protocol/devices")
+            device.addAttribute(withName: "id", stringValue: "managed-test-device")
+            device.addChild(DDXMLElement(name: "omemo-id", stringValue: "42")); query.addChild(device)
+            let reply = XMPPIQ(iqType: .result, to: stream.myJID, elementID: id, child: query)
+            reply.addAttribute(withName: "from", stringValue: owner)
+            let parsed = try! XMPPIQ(xmlString: reply.xmlString)
+            _ = manager.read(withIQ: parsed, on: stream)
+        }
         XCTAssertTrue(f.account.devices.isAvailable)
+    }
+
+    private func managedReply(_ f: Fixture, id: String) -> XMPPIQ {
+        managedEnvelope(XMPPIQ(iqType: .result, elementID: id), fixture: f)
+    }
+
+    private func managedEnvelope(_ iq: XMPPIQ, fixture f: Fixture) -> XMPPIQ {
+        iq.addAttribute(withName: "from", stringValue: f.manager.owner)
+        iq.addAttribute(withName: "to", stringValue: f.stream.myJID!.full)
+        return iq
+    }
+
+    private func isManagedMetadataRequest(_ packet: DDXMLElement) -> Bool {
+        packet.attributeStringValue(forName: "type") == "get" &&
+            packet.element(forName: "query", xmlns: "https://xabber.com/protocol/devices#items") != nil
     }
 
     private func assertXabberBundlePackets(_ f: Fixture, count: Int,
                                          file: StaticString = #filePath, line: UInt = #line) throws {
-        XCTAssertEqual(f.stream.elements.count, count, file: file, line: line)
-        for packet in f.stream.elements {
+        let publications = f.stream.elements.filter { !isManagedMetadataRequest($0) }
+        XCTAssertEqual(publications.count, count, file: file, line: line)
+        for packet in publications {
             let wire = try DDXMLElement(xmlString: packet.xmlString)
             XCTAssertEqual(wire.attributeStringValue(forName: "type"), "set", file: file, line: line)
             let pubsub = try XCTUnwrap(wire.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"), file: file, line: line)

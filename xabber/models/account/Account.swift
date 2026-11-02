@@ -5431,7 +5431,7 @@ final class Account: NSObject {
  *    sets modules to initial state
  *    calls after any kind of disconnect
  **/
-    func resetModules() {
+    func resetModules(preservingDeviceBindingForResume: Bool = false) {
         self.cancelStartupTrafficOrdering()
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
@@ -5457,7 +5457,11 @@ final class Account: NSObject {
         )
         self.presences.didResetState()
         self.msgDeleteManager.clearSession()
-        self.devices.clearSession()
+        if preservingDeviceBindingForResume {
+            self.devices.suspendSessionForReconnect()
+        } else {
+            self.devices.clearSession()
+        }
         self.roster.clearInitialRosterSession()
         self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
         self.syncManager.reset()
@@ -5851,7 +5855,7 @@ extension Account: XMPPReconnectDelegate {
             event: "reconnect_detected_accidental_disconnect",
             details: ["connectionFlags": UInt32(connectionFlags)]
         )
-        self.resetModules()
+        self.resetModules(preservingDeviceBindingForResume: true)
         self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.showReconnectStatus(connectionFlags: connectionFlags)
         AccountManager.shared.markAsConnecting(jid: self.jid)

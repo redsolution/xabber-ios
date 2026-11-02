@@ -141,6 +141,8 @@ extension Account: XMPPStreamDelegate {
             self.tokenShouldUpdate()
         }
         cancelDelayedConnectTimer()
+        self.authenticationCounterTracker.authenticationDidFail()
+        self.devices.beginAuthentication(on: stream)
         self.connectionGate.markAuthenticating()
         self.sendReadiness.markAuthenticating()
 //        DispatchQueue.main.async {
@@ -154,12 +156,13 @@ extension Account: XMPPStreamDelegate {
                 details: [
                     "credentialKind": "password",
                     "supportsHOTP": stream.supportsHOTPAuthentication,
+                    "supportsOCRA": stream.supportsOCRAAuthentication,
                     "supportsXToken": stream.supportsXTokenAuthentication
                 ]
             )
             do {
                 if let password = creditionalsItem.creditionalString {
-                    if stream.supportsHOTPAuthentication {
+                    if stream.supportsOCRAAuthentication || stream.supportsHOTPAuthentication {
                         if let secret = creditionalsItem.getSecret() {
 //                            if let deviceId = self.devices.deviceId {
 //                                stream.xabberDeviceId = deviceId
@@ -309,6 +312,13 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: resumeResponse?.prettyXMLString ?? resumeResponse?.xmlString
         )
+        // Capture the UUID actually used by this successful OCRA attempt, or
+        // the exact acknowledged pre-bind registration, before clearing the
+        // authentication counter reservation. Cached device UUID is no proof.
+        let authenticatedDeviceID = self.authenticationCounterTracker.pendingDevicesDeviceID
+            ?? self.devices.registeredDeviceID(on: sender)
+        self.devices.recordAuthenticatedSession(on: sender, deviceID: authenticatedDeviceID,
+            didResume: didResume, legacyHOTP: self.authenticationCounterTracker.pendingUsesLegacyHOTP)
         self.syncManager.prepareForAuthenticatedStream(didResume: didResume)
         self.primaryStreamAckRequestCoordinator.reset()
         let ackedIds = (resumedStanzaIds as? [Any])?.compactMap { $0 as? String } ?? []
@@ -389,6 +399,7 @@ extension Account: XMPPStreamDelegate {
             return
         }
         DDLogDebug("primary stream didNotAuthenticate jid=\(self.jid) error=\(self.streamErrorName(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
+        self.devices.clearSession()
         self.logConnectionDiagnostics(
             event: "authentication_failed",
             details: ["streamError": self.streamErrorName(error)],
@@ -598,7 +609,8 @@ extension Account: XMPPStreamDelegate {
                 break
             case sender === self.xmppStream && self.push.read(withIQ: iq):
                 break
-            case self.devices.read(withIQ: iq):
+            case self.omemo.read(withIQ: iq, on: sender): break
+            case self.devices.read(withIQ: iq, on: sender):
                 self.omemo.checkInfo()
                 break
             case XabberAccountManager.shared.read(sender, with: iq): break
@@ -618,7 +630,6 @@ extension Account: XMPPStreamDelegate {
             case self.disco.read(withIQ: iq):
                 AccountManager.shared.markAsConnected(jid: jid)
                 break
-            case self.omemo.read(withIQ: iq): break
             case self.notifications.read(withIQ: iq): break
             case self.x509Manager.read(withIQ: iq): break
             case self.trustSharingManager.read(withIQ: iq): break
@@ -1137,7 +1148,7 @@ extension Account: XMPPStreamDelegate {
             event: "device_registration_requested",
             details: ["id": elementId]
         )
-        self.devices.queryIds.insert(elementId)
+        self.devices.beginDeviceRegistration(on: self.xmppStream, requestID: elementId)
     }
     
     func xmppStreamResponseDeviceRegistration(_ iq: XMPPIQ) {
@@ -1146,7 +1157,7 @@ extension Account: XMPPStreamDelegate {
             details: ["id": iq.elementID ?? "none"],
             rawXML: iq.prettyXMLString ?? iq.xmlString
         )
-        _ = self.devices.read(withIQ: iq)
+        _ = self.devices.read(withIQ: iq, on: self.xmppStream)
     }
 }
 

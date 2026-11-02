@@ -106,6 +106,7 @@ open class OmemoManager: AbstractXMPPManager {
     internal var omemo2FreshDeviceIDGenerator: (() -> Int)?
     internal weak var omemo2RegistrationStream: XMPPStream?
     internal var omemo2FreshRegistrationPending = false
+    internal let omemo2ManagedDevicesPublication = OMEMO2ManagedDevicesPublication()
     internal var omemo2BundlePublications: [String: Data] = [:]
     internal var omemo2BundlePublicationStartedAt: [String: Date] = [:]
     internal var omemo2PublicationReconfigured = false
@@ -145,6 +146,9 @@ open class OmemoManager: AbstractXMPPManager {
     }
 
     override func clearSession() {
+        omemo2MaintenanceLock.lock()
+        resetManagedDevicesPublication()
+        omemo2MaintenanceLock.unlock()
         super.clearSession()
         resetBundleRequestOwnership(invalidatePEP: true)
     }
@@ -217,6 +221,7 @@ open class OmemoManager: AbstractXMPPManager {
                 CredentialsManager.shared.setDeviceId(deviceId, for: owner)
             }
             self.isOmemoPrepared = true
+            self.resetManagedDevicesPublication()
             self.omemo2PublicationReconfigured = false
             for requestID in self.omemo2BundlePublications.keys { self.queryIds.remove(requestID) }
             self.omemo2BundlePublications.removeAll()
@@ -316,6 +321,12 @@ open class OmemoManager: AbstractXMPPManager {
         }
     }
     
+    internal func read(withIQ iq: XMPPIQ, on stream: XMPPStream) -> Bool {
+        if handleManagedDevicesPublicationReply(iq, on: stream) { return true }
+        if onOMEMO2PublicationResult(iq, on: stream) { return true }
+        return read(withIQ: iq)
+    }
+
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
         case handleOMEMO2FreshBundleResponse(iq): return true

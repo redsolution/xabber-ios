@@ -21,6 +21,9 @@ final class OMEMO2OwnDeviceBindingTests: XCTestCase {
     }
 
     private final class Stream: XMPPStream {
+        var connected = false
+        override var isAuthenticated: Bool { connected }
+        override var isDisconnected: Bool { !connected }
         var elements: [DDXMLElement] = []
         override func send(_ element: DDXMLElement) { elements.append(element.copy() as! DDXMLElement) }
     }
@@ -115,9 +118,13 @@ final class OMEMO2OwnDeviceBindingTests: XCTestCase {
         let f = try fixture(preparedID: 42)
         _ = try f.manager.ensureOMEMO2Prepared(attemptPublication: false)
         let devices = XMPPDeviceManager(withOwner: f.manager.owner)
-        let iq = try XMPPIQ(xmlString: "<iq xmlns='jabber:client' type='result' id='devices'><query xmlns='https://xabber.com/protocol/devices#items'><device id='current-session'><client>Xabber</client><expire>2000000000</expire><ip>127.0.0.1</ip><last-auth>1</last-auth></device><device id='remote-session'><client>Other</client><expire>2000000000</expire><ip>127.0.0.2</ip><last-auth>1</last-auth><omemo-id>99</omemo-id></device></query></iq>")
+        f.stream.connected = true
+        f.stream.myJID = XMPPJID(string: f.manager.owner + "/devices-test")
+        devices.requestList(f.stream)
+        let requestID = try XCTUnwrap(f.stream.elements.last?.attributeStringValue(forName: "id"))
+        let iq = try XMPPIQ(xmlString: "<iq xmlns='jabber:client' type='result' id='\(requestID)' from='\(f.manager.owner)' to='\(f.manager.owner)/devices-test'><query xmlns='https://xabber.com/protocol/devices#items'><device id='current-session'><client>Xabber</client><expire>2000000000</expire><ip>127.0.0.1</ip><last-auth>1</last-auth></device><device id='remote-session'><client>Other</client><expire>2000000000</expire><ip>127.0.0.2</ip><last-auth>1</last-auth><omemo-id>99</omemo-id></device></query></iq>")
 
-        XCTAssertTrue(devices.read(withIQ: iq))
+        XCTAssertTrue(devices.read(withIQ: iq, on: f.stream))
         f.manager.checkInfo()
 
         XCTAssertEqual(f.current.omemoDeviceId, 42)

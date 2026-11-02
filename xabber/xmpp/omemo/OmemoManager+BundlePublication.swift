@@ -113,14 +113,31 @@ extension OmemoManager {
         }
         guard isOwnOMEMOEnabled else { return }
         enabledAttempt = true
-        self.omemo2MaintenancePublicationStream = xmppStream
+        let publicationStream: XMPPStream
+        if usesServerManagedOMEMO2Nodes {
+            guard let accepted = authenticatedOMEMO2PublicationStream(xmppStream) else {
+                shouldPublicate = true
+                omemo2PublicationRetryAt = omemo2MaintenanceNow().addingTimeInterval(Self.omemo2PublicationRetryInterval)
+                queued = true
+                return
+            }
+            publicationStream = accepted
+        } else { publicationStream = xmppStream }
+        self.omemo2MaintenancePublicationStream = publicationStream
         let realm = try WRealm.safe()
         guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true else {
-            getContactDevices(xmppStream, jid: owner, force: true)
+            getContactDevices(publicationStream, jid: owner, force: true)
             throw OMEMO2StorageError.stateUnavailable
         }
         guard let storage = self.omemo2Storage else { throw OmemoManagerError.sessionCreationFailed }
         let value = OMEMO2PublishedBundle(try storage.replenishPreKeys(minimumCount: 100))
+        if usesServerManagedOMEMO2Nodes,
+           !prepareManagedDevicesPublication(on: publicationStream, localSID: value.deviceID) {
+            // The owned metadata/retract request has its own watchdog. A cached
+            // UUID, queued IQ, or a terminal policy block is not authorization.
+            queued = true
+            return
+        }
         let pubsub = try OMEMO2BundleCodec.publication(value)
         if usesServerManagedOMEMO2Nodes {
             // Server-owned Xabber nodes accept the bundle item without client
@@ -141,21 +158,27 @@ extension OmemoManager {
             throw OMEMO2BundleCodec.Error.invalidBundle
         }
         let publicationHash = Data(publicationXML.utf8).sha256Data
-        let elementID = xmppStream.generateUUID
+        let elementID = publicationStream.generateUUID
+        if usesServerManagedOMEMO2Nodes,
+           !recordManagedDevicesPublication(elementID, on: publicationStream, localSID: value.deviceID) {
+            throw OMEMO2StorageError.stateUnavailable
+        }
         self.omemo2BundlePublications[elementID] = publicationHash
         self.omemo2BundlePublicationStartedAt[elementID] = omemo2MaintenanceNow()
-        self.omemo2MaintenancePublicationStream = xmppStream
+        self.omemo2MaintenancePublicationStream = publicationStream
         self.omemo2PublicationRetryAt = nil
         self.shouldPublicate = false
         self.queryIds.insert(elementID)
         queued = true
-        let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementID, child: pubsub)
-        xmppStream.send(iq)
+        let iq = XMPPIQ(iqType: .set,
+            to: usesServerManagedOMEMO2Nodes ? XMPPJID(string: owner) : nil,
+            elementID: elementID, child: pubsub)
+        publicationStream.send(iq)
     }
 
     /// PEP acceptance is the publication proof. A queued write alone cannot
     /// mark a bundle as public or suppress a later OPK replenishment.
-    internal func onOMEMO2PublicationResult(_ iq: XMPPIQ) -> Bool {
+    internal func onOMEMO2PublicationResult(_ iq: XMPPIQ, on receivedStream: XMPPStream? = nil) -> Bool {
         omemo2MaintenanceLock.lock()
         defer {
             scheduleOMEMO2PublicationMaintenance()
@@ -178,11 +201,20 @@ extension OmemoManager {
             }
             return true
         }
+        let isManaged = omemo2ManagedDevicesPublication.publications[elementID] != nil
+        if isManaged, !validManagedDevicesPublicationReply(iq, on: receivedStream, id: elementID) { return false }
         guard let expectedHash = self.omemo2BundlePublications.removeValue(forKey: elementID) else { return false }
         self.omemo2BundlePublicationStartedAt.removeValue(forKey: elementID)
+        if isManaged { finishManagedDevicesPublication(iq, id: elementID) }
         self.queryIds.remove(elementID)
         guard !isOwnOMEMOExplicitlyDisabled else { self.shouldPublicate = false; return true }
         guard iq.iqType == .result else {
+            if isManaged, let receivedStream,
+               AccountManager.shared.find(for: owner)?.devices.authenticatedLegacyHOTP(on: receivedStream) == true,
+               omemo2ManagedDevicesPublication.blocked != nil {
+                self.shouldPublicate = false; self.omemo2PublicationRetryAt = nil
+                return true
+            }
             self.shouldPublicate = true
             self.omemo2PublicationRetryAt = omemo2MaintenanceNow().addingTimeInterval(Self.omemo2PublicationRetryInterval)
             if !self.usesServerManagedOMEMO2Nodes, !self.omemo2PublicationReconfigured,
@@ -268,10 +300,13 @@ extension OmemoManager {
             shouldPublicate = true
             omemo2PublicationRetryAt = nil
         }
+        expireManagedDevicesPublication(at: time)
         guard isOwnOMEMOEnabled else { return }
         if let suppliedStream, suppliedStream.isAuthenticated { omemo2MaintenancePublicationStream = suppliedStream }
         guard let stream = authenticatedOMEMO2PublicationStream(suppliedStream) else {
-            if shouldPublicate {
+            // Managed candidates already include the primary stream. Without
+            // accepted proof another queued Account.action cannot add authority.
+            if shouldPublicate, !usesServerManagedOMEMO2Nodes {
                 AccountManager.shared.find(for: owner)?.action { account, stream in
                     guard stream.isAuthenticated else { return }
                     account.omemo.retryOMEMO2BundlePublication(on: stream)
@@ -301,12 +336,15 @@ extension OmemoManager {
         let time = omemo2MaintenanceNow()
         let pending = omemo2BundlePublicationStartedAt.values.map { $0.addingTimeInterval(Self.omemo2PublicationIQTimeout) }
         var deadlines = pending
+        if let request = omemo2ManagedDevicesPublication.pending {
+            deadlines.append(request.startedAt.addingTimeInterval(Self.omemo2PublicationIQTimeout))
+        }
         if let startedAt = omemo2BundleConfigurationStartedAt {
             deadlines.append(startedAt.addingTimeInterval(Self.omemo2PublicationIQTimeout))
         } else if shouldPublicate, let retryAt = omemo2PublicationRetryAt {
             deadlines.append(retryAt)
         }
-        guard isOwnOMEMOEnabled,
+        guard (isOwnOMEMOEnabled || omemo2ManagedDevicesPublication.withdrawalRequested),
               authenticatedOMEMO2PublicationStream() != nil,
               let deadline = deadlines.min() else {
             omemo2MaintenanceWorkItem?.cancel()
@@ -327,7 +365,8 @@ extension OmemoManager {
             self.omemo2MaintenanceWorkID = nil
             let stream = self.authenticatedOMEMO2PublicationStream()
             self.omemo2MaintenanceLock.unlock()
-            self.performOMEMO2KeyMaintenance(stream)
+            if self.isOwnOMEMOEnabled { self.performOMEMO2KeyMaintenance(stream) }
+            else { self.retryOMEMO2BundlePublication(on: stream) }
         }
         omemo2MaintenanceWorkItem = work
         omemo2MaintenanceWorkDeadline = deadline
@@ -345,8 +384,16 @@ extension OmemoManager {
     }
 
     private func authenticatedOMEMO2PublicationStream(_ supplied: XMPPStream? = nil) -> XMPPStream? {
-        [supplied, omemo2MaintenancePublicationStream, omemo2RegistrationStream]
-            .compactMap { $0 }.first { $0.isAuthenticated }
+        var candidates = [supplied, omemo2MaintenancePublicationStream, omemo2RegistrationStream].compactMap { $0 }
+        if usesServerManagedOMEMO2Nodes, let primary = AccountManager.shared.find(for: owner)?.xmppStream {
+            candidates.append(primary)
+        }
+        return candidates.first { stream in
+            guard stream.isAuthenticated else { return false }
+            if !usesServerManagedOMEMO2Nodes { return true }
+            guard let devices = AccountManager.shared.find(for: owner)?.devices else { return false }
+            return devices.authenticatedDeviceID(on: stream) != nil || devices.authenticatedLegacyHOTP(on: stream)
+        }
     }
 
     internal final func sendOwnDevice(_ xmppStream: XMPPStream, createNode: Bool, excludingIDs: Set<Int> = []) throws {
@@ -396,6 +443,10 @@ extension OmemoManager {
     
     public final func sendRetractOwnDevice(_ xmppStream: XMPPStream) {
         guard localStore.localDeviceId() > 0 else { return }
+        if usesServerManagedOMEMO2Nodes {
+            beginManagedDevicesWithdrawal(on: xmppStream)
+            return
+        }
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let retract = DDXMLElement(name: "retract")
         retract.addAttribute(withName: "node", stringValue: NodeType.bundle.rawValue)
@@ -451,9 +502,11 @@ extension OmemoManager {
             self.sendRetractOwnDevice(xmppStream)
             self.shouldPublicate = false
             self.omemo2PublicationRetryAt = nil
-            for requestID in self.omemo2BundlePublications.keys { self.queryIds.remove(requestID) }
-            self.omemo2BundlePublications.removeAll()
-            self.omemo2BundlePublicationStartedAt.removeAll()
+            if !usesServerManagedOMEMO2Nodes {
+                for requestID in self.omemo2BundlePublications.keys { self.queryIds.remove(requestID) }
+                self.omemo2BundlePublications.removeAll()
+                self.omemo2BundlePublicationStartedAt.removeAll()
+            }
             if let requestID = self.omemo2BundleConfigurationRequestID { self.queryIds.remove(requestID) }
             self.omemo2BundleConfigurationRequestID = nil
             self.omemo2BundleConfigurationStartedAt = nil

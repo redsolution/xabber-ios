@@ -756,6 +756,7 @@
 		66898067265B89EA00E13ED1 /* SignUpSelectAvatarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66898066265B89EA00E13ED1 /* SignUpSelectAvatarViewController.swift */; };
 		6689B4B624AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6689B4B524AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift */; };
 		6689B4B824AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6689B4B724AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift */; };
+		C96EC4B783FD4B819270568A /* OmemoManager+ManagedDevicesPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C0029F75034CA1A0190F94 /* OmemoManager+ManagedDevicesPublication.swift */; };
 		668B705A283F64C100BE4879 /* OmemoManager+BundlePublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668B7059283F64C100BE4879 /* OmemoManager+BundlePublication.swift */; };
 		668B705E283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */; };
 		668D32BF257622050079BE57 /* VoIPCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668D32BE257622050079BE57 /* VoIPCall.swift */; };
@@ -1186,6 +1187,8 @@
 		9D07E3D8F3B5438F984E2CE0 /* OMEMO2StorageBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B05FFBF29844B08B3E0C128 /* OMEMO2StorageBehaviorTests.swift */; };
 		172ECDAC59184011908F893A /* OMEMO2NativeProtocolBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F225B06B82472C8746CCCB /* OMEMO2NativeProtocolBehaviorTests.swift */; };
 		E6A2D882A4E24EE1AEEC5A2A /* OMEMO2NativePayloadBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */; };
+		724188EB8F864E6181254167 /* DevicesAuthenticationBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D988E1B6628A4BC7B6E53689 /* DevicesAuthenticationBindingTests.swift */; };
+		3B1D2679609A4CB8A0746B2E /* DevicesBundlePublicationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64662B71C91C4B58BB32B5B8 /* DevicesBundlePublicationPolicyTests.swift */; };
 		978243CAD7044F4184EF201B /* OMEMO2ManagerLifecycleBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */; };
 		2CD1324E200B40A78383A423 /* OMEMO2CompatibilityIngressBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */; };
 		3797896C3A2E470E9E3D503A /* OMEMO2AccountDeletionBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */; };
@@ -1959,6 +1962,7 @@
 		66898066265B89EA00E13ED1 /* SignUpSelectAvatarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignUpSelectAvatarViewController.swift; sourceTree = "<group>"; };
 		6689B4B524AB183D00A993BD /* LastChatsViewController+PullDownTableHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+PullDownTableHeaderView.swift"; sourceTree = "<group>"; };
 		6689B4B724AB1C2200A993BD /* LastChatsViewController+AccountNavButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+AccountNavButton.swift"; sourceTree = "<group>"; };
+		A8C0029F75034CA1A0190F94 /* OmemoManager+ManagedDevicesPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManager+ManagedDevicesPublication.swift"; sourceTree = "<group>"; };
 		668B7059283F64C100BE4879 /* OmemoManager+BundlePublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManager+BundlePublication.swift"; sourceTree = "<group>"; };
 		668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+SignatureManagerDelegate.swift"; sourceTree = "<group>"; };
 		668D32BE257622050079BE57 /* VoIPCall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPCall.swift; sourceTree = "<group>"; };
@@ -2419,6 +2423,8 @@
 		4B05FFBF29844B08B3E0C128 /* OMEMO2StorageBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2StorageBehaviorTests.swift; sourceTree = "<group>"; };
 		B7F225B06B82472C8746CCCB /* OMEMO2NativeProtocolBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NativeProtocolBehaviorTests.swift; sourceTree = "<group>"; };
 		3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NativePayloadBoundaryTests.swift; sourceTree = "<group>"; };
+		D988E1B6628A4BC7B6E53689 /* DevicesAuthenticationBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesAuthenticationBindingTests.swift; sourceTree = "<group>"; };
+		64662B71C91C4B58BB32B5B8 /* DevicesBundlePublicationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesBundlePublicationPolicyTests.swift; sourceTree = "<group>"; };
 		B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2ManagerLifecycleBehaviorTests.swift; sourceTree = "<group>"; };
 		4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2CompatibilityIngressBehaviorTests.swift; sourceTree = "<group>"; };
 		99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2AccountDeletionBehaviorTests.swift; sourceTree = "<group>"; };
@@ -3991,6 +3997,7 @@
 				7DA3C223F509485ABDE1BF64 /* OmemoManager+Devices.swift */,
 				6695786327A1317A00A6C4AB /* OmemoManager.swift */,
 				66A15B48281C002700FC1E65 /* OmemoManager+Encryption.swift */,
+				A8C0029F75034CA1A0190F94 /* OmemoManager+ManagedDevicesPublication.swift */,
 				668B7059283F64C100BE4879 /* OmemoManager+BundlePublication.swift */,
 			);
 			path = omemo;
@@ -4452,6 +4459,8 @@
 			children = (
 				A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */,
 				3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */,
+				D988E1B6628A4BC7B6E53689 /* DevicesAuthenticationBindingTests.swift */,
+				64662B71C91C4B58BB32B5B8 /* DevicesBundlePublicationPolicyTests.swift */,
 				B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */,
 				4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */,
 				99F14413AACD4491B69F04E8 /* OMEMO2AccountDeletionBehaviorTests.swift */,
@@ -6328,6 +6337,7 @@
 				66153B4A22E1BF87005D4567 /* SearchResultsViewController+SearchResultsUpdater.swift in Sources */,
 				6643F31021C2650E00333229 /* UIView+Extensions.swift in Sources */,
 				665451C222A945600077635D /* AccountNewStatusViewController+BaseStatus.swift in Sources */,
+				C96EC4B783FD4B819270568A /* OmemoManager+ManagedDevicesPublication.swift in Sources */,
 				668B705A283F64C100BE4879 /* OmemoManager+BundlePublication.swift in Sources */,
 				66E5642F2DF19F3A0028D13B /* ContextMenu.swift in Sources */,
 				6697B13C24768C6300861AE8 /* ShowedNotificationRequests.swift in Sources */,
@@ -6859,6 +6869,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				E6A2D882A4E24EE1AEEC5A2A /* OMEMO2NativePayloadBoundaryTests.swift in Sources */,
+				724188EB8F864E6181254167 /* DevicesAuthenticationBindingTests.swift in Sources */,
+				3B1D2679609A4CB8A0746B2E /* DevicesBundlePublicationPolicyTests.swift in Sources */,
 				978243CAD7044F4184EF201B /* OMEMO2ManagerLifecycleBehaviorTests.swift in Sources */,
 				2CD1324E200B40A78383A423 /* OMEMO2CompatibilityIngressBehaviorTests.swift in Sources */,
 				3797896C3A2E470E9E3D503A /* OMEMO2AccountDeletionBehaviorTests.swift in Sources */,

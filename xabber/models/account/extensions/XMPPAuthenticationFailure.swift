@@ -421,6 +421,7 @@ struct XMPPStoredCredentialAuthenticator {
         ownerJID: String,
         counterTracker: XMPPAuthenticationCounterTracker
     ) throws -> XMPPStoredCredentialAuthenticationResult {
+        counterTracker.authenticationDidFail()
         stream.shouldRequestXToken = false
         stream.shouldRegisterDevice = false
 
@@ -444,15 +445,26 @@ struct XMPPStoredCredentialAuthenticator {
                     return .missingCredential
                 }
                 let counter = try counterTracker.counterForAuthentication(using: storage)
-                try stream.authenticate(
-                    withOCRASecret: secret,
-                    validationKey: validationKey,
-                    deviceId: deviceUUID,
-                    counter: counter
-                )
+                counterTracker.noteDevicesAuthentication(deviceID: deviceUUID, legacyHOTP: false)
+                do {
+                    try stream.authenticate(
+                        withOCRASecret: secret,
+                        validationKey: validationKey,
+                        deviceId: deviceUUID,
+                        counter: counter
+                    )
+                } catch {
+                    counterTracker.authenticationDidFail()
+                    throw error
+                }
             } else {
                 let counter = try counterTracker.counterForAuthentication(using: storage)
-                try stream.authenticate(withHOTPSecret: secret, counter: counter)
+                counterTracker.noteDevicesAuthentication(deviceID: nil, legacyHOTP: true)
+                do { try stream.authenticate(withHOTPSecret: secret, counter: counter) }
+                catch {
+                    counterTracker.authenticationDidFail()
+                    throw error
+                }
             }
             return .started
 
@@ -469,12 +481,32 @@ struct XMPPStoredCredentialAuthenticator {
 }
 
 final class XMPPAuthenticationCounterTracker {
+    private var pendingDeviceID: String?
+    private var pendingLegacyHOTP = false
+    internal var pendingDevicesDeviceID: String? {
+        lock.lock(); defer { lock.unlock() }
+        return pendingDeviceID
+    }
+    internal var pendingUsesLegacyHOTP: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return pendingLegacyHOTP
+    }
+
+    internal func noteDevicesAuthentication(deviceID: String?, legacyHOTP: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        guard pendingReservation != nil else { return }
+        pendingDeviceID = deviceID
+        pendingLegacyHOTP = legacyHOTP
+    }
+
     private var pendingReservation: CredentialsManager.Storage.AuthenticationCounterReservation?
     private let lock = NSRecursiveLock()
 
     func counterForAuthentication(using storage: CredentialsManager.Storage) throws -> UInt64 {
         lock.lock()
         defer { lock.unlock() }
+        pendingDeviceID = nil
+        pendingLegacyHOTP = false
         let reservation = try storage.reserveCounterForAuthentication()
         pendingReservation = reservation
         return reservation.counter
@@ -485,6 +517,8 @@ final class XMPPAuthenticationCounterTracker {
         defer { lock.unlock() }
         if pendingReservation?.jid == storage.jid {
             pendingReservation = nil
+            pendingDeviceID = nil
+            pendingLegacyHOTP = false
         }
     }
 
@@ -492,6 +526,8 @@ final class XMPPAuthenticationCounterTracker {
         lock.lock()
         defer { lock.unlock() }
         pendingReservation = nil
+        pendingDeviceID = nil
+        pendingLegacyHOTP = false
     }
 }
 
