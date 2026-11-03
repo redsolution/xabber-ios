@@ -32,7 +32,6 @@ extension APNSManager {
         guard let endpointKey = voip ? self.voipToken : self.deviceToken,
               endpointKey.isNotEmpty,
               let target = endpointTarget(forJid: jid, voip: voip) else {
-            print("cant get tokens. \(#function)")
             completion?(false)
             return false
         }
@@ -43,8 +42,6 @@ extension APNSManager {
             completion?(false)
             return false
         }
-        
-        print("SEND REGJID REQUEST FOR \(jid)")
         
         let url: String = APNSManager.apiUrl(for: "jid/endpoints/")
         
@@ -59,18 +56,15 @@ extension APNSManager {
             "endpoint_key": deviceToken,
             "call_endpoint_key": voipToken
         ]
-        print(params, "REGJIDPARAMS")
 //        let retrier = RequestRetrier()
 //        self.sendDeleteRequest(jid: jid, voip: voip) {
             AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
-                print("PUSH RESPONSE", response.debugDescription, response)
                 switch response.result {
                     case .success(let data):
                         guard let json = try? JSONDecoder().decode(NodeData.self, from: data) else {
                             completion?(false)
                             return
                         }
-                        print("PUSH RESPONSE JSON", json)
                         do {
                             try self.register(json, completionHandler: nil)
                             completion?(true)
@@ -78,8 +72,7 @@ extension APNSManager {
                             completion?(false)
                         }
                         break
-                    case .failure(let error):
-                        print(error.localizedDescription)
+                    case .failure:
                         completion?(false)
                         break
                 }
@@ -93,7 +86,6 @@ extension APNSManager {
         guard let endpointKey = voip ? self.voipToken : self.deviceToken,
               endpointKey.isNotEmpty,
               let target = endpointTarget(forJid: jid, voip: voip) else {
-            DDLogDebug("cant get voip token. \(#function)")
             return
         }
         
@@ -115,12 +107,10 @@ extension APNSManager {
     func sendDeleteRequest(_ pushData: [AnyHashable: Any], voip: Bool) {
         guard let VoIPtoken = self.voipToken,
             let deviceToken = self.deviceToken else {
-            DDLogDebug("cant get voip token. \(#function)")
             return
         }
         let dict = pushData as NSDictionary
         guard let target = dict.value(forKey: "target") as? String else {
-            DDLogDebug("cant get target from pushData. \(#function)")
             return
         }
         
@@ -135,17 +125,8 @@ extension APNSManager {
             "target": target,
             "endpoint_key": voip ? VoIPtoken : deviceToken
         ]
-        print(url, #function, params)
         AF.request(url, method: .delete, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers))
-            .responseJSON {
-                response in
-                switch response.result {
-                    case .success(let value):
-                        DDLogError("Send delete endpoint request. Success. \(value)")
-                    case .failure(let error):
-                        DDLogError("Send delete endpoint request. Failure. \(error.localizedDescription)")
-                }
-        }
+            .responseJSON { _ in }
     }
     
     func websocketLookup(for jid: String, callback: @escaping ((String?) -> Void)) {
@@ -169,26 +150,22 @@ extension APNSManager {
         
         func httpRequest() {
             do {
-                print(httpUrl)
                 let response = try String(contentsOf: httpUrl)
                 if let uri = try parse(response) {
                     callback(uri)
                 }
             } catch {
-                print(error.localizedDescription)
                 callback(nil)
             }
         }
         
         func httpsRequest() {
             do {
-                print(httpsUrl)
                 let response = try String(contentsOf: httpsUrl)
                 if let uri = try parse(response) {
                     callback(uri)
                 }
             } catch {
-                print(error.localizedDescription)
                 httpRequest()
             }
         }

@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import CocoaLumberjack
+import Alamofire
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -54,7 +55,13 @@ final class APNSManagerDiagnosticPrivacyTests: XCTestCase {
             "print(jid)",
             "print(service)",
             "print(\"REGISTR INFO\", node, service)",
-            "print(stanzaIds)"
+            "print(stanzaIds)",
+            "REGJIDPARAMS",
+            "response.debugDescription",
+            "PUSH RESPONSE",
+            "print(url, #function, params)",
+            "\\(value)",
+            "\\(error.localizedDescription)"
         ]
 
         let matches = activeDiagnosticLines(in: source).filter { line in
@@ -88,6 +95,35 @@ final class APNSManagerDiagnosticPrivacyTests: XCTestCase {
             matches.isEmpty,
             "APNSManager must route diagnostics through an injected typed seam instead of \(matches.count) direct stdout/logger sink calls"
         )
+    }
+
+    func testCredentialBearingHTTPResponseCannotReachNetworkDiagnosticSinks() throws {
+        let authorization = sentinel(label: "http-authorization")
+        let endpoint = sentinel(label: "apns-endpoint")
+        let callEndpoint = sentinel(label: "voip-endpoint")
+        let responseValue = sentinel(label: "registration-response")
+        let url = try XCTUnwrap(URL(string: "https://example.invalid/jid/endpoints/"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "endpoint_key": endpoint, "call_endpoint_key": callEndpoint
+        ])
+        let body = try JSONSerialization.data(withJSONObject: ["encrypted": responseValue])
+        let http = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                               headerFields: ["Content-Type": "application/json"]))
+        let response = DataResponse<Data, AFError>(request: request, response: http, data: body,
+                                                  metrics: nil, serializationDuration: 0, result: .success(body))
+
+        // Exercise the dependency's actual renderer: raw response descriptions
+        // contain both request credentials and response payloads.
+        let unsafeRepresentation = response.debugDescription
+        for value in [authorization, endpoint, callEndpoint, responseValue] {
+            XCTAssertTrue(unsafeRepresentation.contains(value), "Synthetic credential must be present in the raw HTTP debug representation")
+        }
+        let sinks = activeDiagnosticLines(in: try appSideNetworkSource())
+        XCTAssertTrue(sinks.isEmpty, "APNS network diagnostics must not expose credential-bearing requests or raw responses through \(sinks.count) direct sinks")
     }
 
     func testTypedEventsRenderOnlyAllowlistedCategoriesBooleansAndBoundedCounts() {
@@ -295,6 +331,14 @@ final class APNSManagerDiagnosticPrivacyTests: XCTestCase {
     }
 
     private func appSideManagerSource() throws -> String {
+        try appSideSource(named: "APNSManager.swift") + "\n" + appSideNetworkSource()
+    }
+
+    private func appSideNetworkSource() throws -> String {
+        try appSideSource(named: "APNSManager+Network.swift")
+    }
+
+    private func appSideSource(named filename: String) throws -> String {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -303,7 +347,7 @@ final class APNSManagerDiagnosticPrivacyTests: XCTestCase {
             .appendingPathComponent("xmpp")
             .appendingPathComponent("push_notifications")
             .appendingPathComponent("APNS")
-            .appendingPathComponent("APNSManager.swift")
+            .appendingPathComponent(filename)
         return try String(contentsOf: sourceURL, encoding: .utf8)
     }
 
