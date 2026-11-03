@@ -444,6 +444,7 @@ class DevicesListViewController: BaseViewController {
     }
     
     open func configure(for jid: String) {
+        self.owner = jid
         self.jid =  jid
         view.addSubview(tableView)
         tableView.fillSuperview()

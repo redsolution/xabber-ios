@@ -198,6 +198,58 @@ final class VerificationSessionBannerSelectionTests: XCTestCase {
         }
     }
 
+    func testConfigureFromEmptyOwnerExposesIncomingRequestAction() throws {
+        let account = try fixture()
+        let current = try session(account, tag: 1)
+        let controller = DevicesListViewController(); controller.view = UIView()
+        XCTAssertTrue(controller.owner.isEmpty)
+        controller.configure(for: account.jid)
+        XCTAssertEqual(controller.owner, account.jid)
+        XCTAssertEqual(controller.activeVerificationSessionSid, current.sid)
+        try assertAction(devicesCell(controller), target: controller, selector: "onAcceptButtonPressed")
+    }
+
+    func testConfigureFromEmptyOwnerExposesAcceptedRequestAction() throws {
+        let account = try fixture()
+        _ = try session(account, tag: 1, state: .acceptedRequest)
+        let controller = DevicesListViewController(); controller.view = UIView()
+        controller.configure(for: account.jid)
+        XCTAssertEqual(controller.owner, account.jid)
+        try assertAction(devicesCell(controller), target: controller, selector: "onShowCodePressed")
+    }
+
+    func testConfigureFromEmptyOwnerExposesCodeEntryAction() throws {
+        let account = try fixture()
+        _ = try session(account, tag: 1, state: .receivedRequestAccept, role: .initiator)
+        let controller = DevicesListViewController(); controller.view = UIView()
+        controller.configure(for: account.jid)
+        XCTAssertEqual(controller.owner, account.jid)
+        try assertAction(devicesCell(controller), target: controller, selector: "onEnterCodePressed")
+    }
+
+    func testConfigureReplacesPreviousAccountOwnerBeforeReadingSession() throws {
+        let account = try fixture()
+        _ = try session(account, tag: 1)
+        let controller = DevicesListViewController(); controller.view = UIView()
+        controller.owner = "previous-account@example.test"
+        controller.configure(for: account.jid)
+        XCTAssertEqual(controller.owner, account.jid)
+        try assertAction(devicesCell(controller), target: controller, selector: "onAcceptButtonPressed")
+    }
+
+    func testActualSettingsDevicesNavigationKeepsSessionActionAccountScoped() throws {
+        let account = try fixture()
+        _ = try session(account, tag: 1, state: .receivedRequestAccept, role: .initiator)
+        let profile = settings(account)
+        let navigation = UINavigationController(rootViewController: profile)
+        let section = try XCTUnwrap(profile.datasource.firstIndex { $0.childs.contains { $0.key == .accountSessions } })
+        let row = try XCTUnwrap(profile.datasource[section].childs.firstIndex { $0.key == .accountSessions })
+        profile.tableView(profile.tableView, didSelectRowAt: IndexPath(row: row, section: section))
+        let controller = try XCTUnwrap(navigation.topViewController as? DevicesListViewController)
+        XCTAssertEqual(controller.owner, account.jid)
+        try assertAction(devicesCell(controller), target: controller, selector: "onEnterCodePressed")
+    }
+
     func testSelectionPreservesTrustHistoryPrivateKeysAndNativeRatchet() throws {
         let account = try fixture(), memory = Memory()
         let local = try XabberOMEMO2Storage(owner: account.jid, persistence: memory)
