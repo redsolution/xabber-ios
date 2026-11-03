@@ -6,7 +6,7 @@ Implementation under final verification, updated 2026-11-03. Reference: web `126
 
 Managed publication requires the exact Devices UUID accepted by pre-bind registration or mutually verified DEVICES-OCRA for the current account, stream, full JID and authentication generation. Cached UUIDs, UI metadata, UUID numeric prefixes and post-bind registration are not current-resource authority. Fresh owned Devices#items is required before each publication. The detached response must pass request, namespace, route, UUID, SID, duplicate/collision and lifetime checks. Ordinary PEP retains its separate lifecycle.
 
-An existing server omemo-id determines the publication item ID. A previously unassigned device retains initial registration: choose an available local SID and let the server bind its first publication. Bundle-only item writes are permitted; managed membership and node configuration remain server-owned. Publication ACK is followed by a fresh own membership read; startup requires its own SID to be present.
+An existing server omemo-id determines the publication item ID. A previously unassigned device retains initial registration: choose an available local SID and let the server bind its first publication. Bundle-only item writes are permitted; managed membership and node configuration remain server-owned. Publication ACK is followed by a fresh own membership read; startup requires its own SID to be present. A qualified optional XEP-0059 RSM result can accompany PubSub items; its cursor/count never provides membership or identity authority. Duplicate, foreign and malformed metadata remains rejected.
 
 ## Protected state
 
@@ -37,3 +37,5 @@ The final broader affected-scenario gate passed **1071/1071** methods across **7
 Original-tree integration verification passed **234/234** methods across **11 classes**, with 0 failures, and built the affected app/push/test targets. The focused task patch was staged separately from pre-existing chat/QR work. No clean or redundant simulator Debug build was run after the successful test actions.
 
 No live server or physical-device success is established for this replacement implementation. The earlier three successful iPhone publications of `1027b67e` tested the superseded implementation. The newly requested phone/tablet/web acceptance is a separate task; its results must identify the tested binaries and account/transport conditions.
+
+A live iPhone startup exposed the legal RSM-plus-items server envelope missing from the original transport fixtures. The focused regression reproduced 9 expected failures across 5 new methods before the parser fix. After explicit independent startup/publication identity checkpoints, the affected 5-suite gate passed **120/120** with the original key/session preservation and actual decrypt assertions. Physical retest of this follow-up is recorded in the separate live QA epoch.

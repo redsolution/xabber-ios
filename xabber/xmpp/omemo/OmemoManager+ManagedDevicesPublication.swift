@@ -637,9 +637,40 @@ extension OmemoManager {
         let payload = managedDevicesElements(iq)
         guard payload.count == 1, payload[0].localName == "pubsub", payload[0].uri == OMEMO2DeviceListCodec.pubsub else { throw OMEMO2ManagedPublicationError.invalidMetadata }
         let children = managedDevicesElements(payload[0])
-        guard children.count == 1, children[0].localName == "items", children[0].uri == OMEMO2DeviceListCodec.pubsub,
-              children[0].attributeStringValue(forName: "node") == node else { throw OMEMO2ManagedPublicationError.invalidMetadata }
-        return children[0]
+        let items = children.filter { $0.localName == "items" && $0.uri == OMEMO2DeviceListCodec.pubsub }
+        guard items.count == 1, items[0].attributeStringValue(forName: "node") == node else { throw OMEMO2ManagedPublicationError.invalidMetadata }
+        let metadata = children.filter { $0 !== items[0] }
+        guard metadata.count <= 1 else { throw OMEMO2ManagedPublicationError.invalidMetadata }
+        if let rsm = metadata.first { try validateManagedDevicesRSMResult(rsm) }
+        return items[0]
+    }
+    /// XEP-0060 item results may include XEP-0059 result metadata beside
+    /// items. Cursors/counts never supply membership or identity authority.
+    private func validateManagedDevicesRSMResult(_ set: DDXMLElement) throws {
+        let namespace = "http://jabber.org/protocol/rsm"
+        guard set.localName == "set", set.uri == namespace, (set.attributes ?? []).isEmpty else {
+            throw OMEMO2ManagedPublicationError.invalidMetadata
+        }
+        try managedDevicesContainer(set)
+        var seen = Set<String>()
+        for field in managedDevicesElements(set) {
+            guard field.uri == namespace, let name = field.localName,
+                  ["count", "first", "last"].contains(name), seen.insert(name).inserted,
+                  managedDevicesElements(field).isEmpty else { throw OMEMO2ManagedPublicationError.invalidMetadata }
+            let attributes = field.attributes ?? []
+            if name == "first" {
+                guard attributes.count <= 1 else { throw OMEMO2ManagedPublicationError.invalidMetadata }
+                if let index = attributes.first {
+                    guard index.name == "index", (index.uri ?? "").isEmpty,
+                          let text = index.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          let value = Int32(text), value >= 0 else { throw OMEMO2ManagedPublicationError.invalidMetadata }
+                }
+            } else if !attributes.isEmpty { throw OMEMO2ManagedPublicationError.invalidMetadata }
+            if name == "count" {
+                guard let text = field.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      let value = Int32(text), value >= 0 else { throw OMEMO2ManagedPublicationError.invalidMetadata }
+            }
+        }
     }
     private func managedDevicesErrorCondition(_ iq: XMPPIQ) -> String? {
         let errors = managedDevicesElements(iq).filter { $0.localName == "error" && ["", "jabber:client"].contains($0.uri ?? "") }

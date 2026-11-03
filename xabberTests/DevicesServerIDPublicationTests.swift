@@ -155,6 +155,187 @@ final class DevicesServerIDPublicationTests: XCTestCase {
         XCTAssertFalse(f.manager.isOmemoPrepared)
     }
 
+    func testServerRSMAllowsRetainedIdentityPublicationAndFreshConfirmationWithoutResettingCrypto() throws {
+        for beforeItems in [true, false] {
+            let f = try fixture(); let peer = try fixture(localSID: 202)
+            try establishSession(f, peer: peer)
+            let originalIdentity = try f.storage.identity()
+            let originalBundle = try f.storage.localBundle()
+            let originalSession = try XCTUnwrap(f.storage.sessionMetadata(jid: peer.owner, deviceID: 202))
+            let originalSnapshot = try XCTUnwrap(f.storage.registrationSnapshot())
+            f.manager.beginOMEMO2Registration(f.stream)
+            let startupMetadataID = try XCTUnwrap(metadataRequests(f).last?.attributeStringValue(forName: "id"))
+            _ = f.manager.read(withIQ: metadata(f, id: startupMetadataID, sid: 42), on: f.stream)
+            let startupMembershipID = try XCTUnwrap(membershipRequests(f).last?.attributeStringValue(forName: "id"))
+            _ = f.manager.read(withIQ: try addingRSM(to: membership(f, id: startupMembershipID, ids: [42, 99]),
+                                                   beforeItems: beforeItems), on: f.stream)
+            let startupIdentity = try XCTUnwrap(identityRequests(f).last)
+            let startupIdentityID = try XCTUnwrap(startupIdentity.attributeStringValue(forName: "id"))
+            XCTAssertEqual(identityRequests(f).count, 1, "Startup must perform exactly one owned identity check")
+            XCTAssertEqual(startupIdentity.attributeStringValue(forName: "to"), f.owner)
+            XCTAssertEqual(startupIdentity.element(forName: "pubsub")?.element(forName: "items")?
+                .element(forName: "item")?.attributeStringValue(forName: "id"), "42")
+            let startupPending = try XCTUnwrap(f.manager.omemo2ManagedDevicesPublication.pending)
+            guard case .identity(let startupFlow, let startupSID, .retained) = startupPending.operation else {
+                return XCTFail("Startup identity response must belong to its pending owned flow")
+            }
+            XCTAssertEqual(startupPending.id, startupIdentityID)
+            XCTAssertTrue(startupFlow.intent == .startup)
+            XCTAssertEqual(startupSID, 42)
+            XCTAssertEqual(startupFlow.binding.fullJID, f.stream.myJID?.full)
+            XCTAssertTrue(startupFlow.snapshot?.hasSameIdentity(as: originalSnapshot) == true)
+            let startupResponse = try identity(f, id: startupIdentityID, deviceID: 42,
+                                               bundle: OMEMO2PublishedBundle(originalBundle))
+            _ = f.manager.read(withIQ: try addingRSM(to: startupResponse, beforeItems: beforeItems), on: f.stream)
+
+            // Setup consumes its own authority. Publication must obtain a new
+            // Devices binding and its separate retained-identity check.
+            XCTAssertTrue(publications(f).isEmpty)
+            XCTAssertEqual(identityRequests(f).map { $0.attributeStringValue(forName: "id") }, [startupIdentityID])
+            XCTAssertEqual(metadataRequests(f).count, 2)
+            let publicationMetadataID = try XCTUnwrap(metadataRequests(f).last?.attributeStringValue(forName: "id"))
+            XCTAssertNotEqual(publicationMetadataID, startupMetadataID)
+            let publicationMetadataPending = try XCTUnwrap(f.manager.omemo2ManagedDevicesPublication.pending)
+            guard case .metadata(.publication) = publicationMetadataPending.operation else {
+                return XCTFail("Publication must refresh its own Devices binding after setup")
+            }
+            XCTAssertEqual(publicationMetadataPending.id, publicationMetadataID)
+            _ = f.manager.read(withIQ: metadata(f, id: publicationMetadataID, sid: 42), on: f.stream)
+            let publicationIdentities = identityRequests(f).filter { $0.attributeStringValue(forName: "id") != startupIdentityID }
+            XCTAssertEqual(publicationIdentities.count, 1, "The fresh publication flow must have exactly one identity check")
+            let publicationIdentity = try XCTUnwrap(publicationIdentities.first)
+            let publicationIdentityID = try XCTUnwrap(publicationIdentity.attributeStringValue(forName: "id"))
+            XCTAssertNotEqual(publicationIdentityID, startupIdentityID)
+            XCTAssertEqual(publicationIdentity.attributeStringValue(forName: "to"), f.owner)
+            XCTAssertEqual(publicationIdentity.element(forName: "pubsub")?.element(forName: "items")?
+                .element(forName: "item")?.attributeStringValue(forName: "id"), "42")
+            let publicationPending = try XCTUnwrap(f.manager.omemo2ManagedDevicesPublication.pending)
+            guard case .identity(let publicationFlow, let publicationSID, .retained) = publicationPending.operation else {
+                return XCTFail("The second identity response must belong to the new publication flow")
+            }
+            XCTAssertEqual(publicationPending.id, publicationIdentityID)
+            XCTAssertTrue(publicationFlow.intent == .publication)
+            XCTAssertEqual(publicationSID, 42)
+            XCTAssertEqual(publicationFlow.binding.fullJID, f.stream.myJID?.full)
+            XCTAssertTrue(publicationFlow.snapshot?.hasSameIdentity(as: originalSnapshot) == true)
+            let publicationResponse = try identity(f, id: publicationIdentityID, deviceID: 42,
+                                                   bundle: OMEMO2PublishedBundle(originalBundle))
+            _ = f.manager.read(withIQ: try addingRSM(to: publicationResponse, beforeItems: beforeItems), on: f.stream)
+            XCTAssertEqual(publications(f).map { $0.attributeStringValue(forName: "id") }, ["42"])
+            XCTAssertFalse(f.manager.isOmemoPrepared)
+            let publicationID = try XCTUnwrap(f.manager.omemo2BundlePublications.keys.first)
+            _ = f.manager.read(withIQ: result(f, id: publicationID), on: f.stream)
+            XCTAssertFalse(f.manager.isOmemoPrepared, "Bundle ACK alone cannot finish startup")
+            let confirmation = try XCTUnwrap(membershipRequests(f).last?.attributeStringValue(forName: "id"))
+            _ = f.manager.read(withIQ: try addingRSM(to: membership(f, id: confirmation, ids: [42, 99]),
+                                                   beforeItems: beforeItems), on: f.stream)
+            XCTAssertTrue(f.manager.isOmemoPrepared)
+            let retainedIdentity = try f.storage.identity()
+            XCTAssertTrue(retainedIdentity.privateKey == originalIdentity.privateKey, "RSM parsing must preserve private identity")
+            XCTAssertTrue(retainedIdentity.publicKey == originalIdentity.publicKey)
+            let retainedBundle = try f.storage.localBundle()
+            XCTAssertTrue(retainedBundle.signedPreKey == originalBundle.signedPreKey)
+            XCTAssertEqual(retainedBundle.signedPreKeyID, originalBundle.signedPreKeyID)
+            let retainedSession = try XCTUnwrap(f.storage.sessionMetadata(jid: peer.owner, deviceID: 202))
+            XCTAssertTrue(retainedSession.remoteIdentityKey == originalSession.remoteIdentityKey)
+            XCTAssertTrue(retainedSession.ephemeralKey == originalSession.ephemeralKey)
+            XCTAssertEqual(retainedSession.sendCounter, originalSession.sendCounter)
+            XCTAssertEqual(retainedSession.receiveCounter, originalSession.receiveCounter)
+            XCTAssertEqual(retainedSession.receiveOnly, originalSession.receiveOnly)
+            XCTAssertEqual(retainedSession.keyExchangePending, originalSession.keyExchangePending)
+            XCTAssertTrue(retractions(f).isEmpty)
+            let material = Data(repeating: 0x65, count: 48)
+            let packet = try f.storage.encrypt(material, jid: peer.owner, deviceID: 202)
+            XCTAssertTrue(try peer.storage.decrypt(packet, jid: f.owner, deviceID: 42) == material,
+                          "The actual retained native ratchet must remain decryptable")
+        }
+    }
+
+    func testServerRSMEmptyIdentityResultPreservesAssignedFirstRegistrationAndRequiresConfirmation() throws {
+        let f = try fixture(localSID: nil)
+        f.manager.beginOMEMO2Registration(f.stream)
+        try drive(f, sid: 7, members: [7, 99], untilIdentityRead: true, rsmBeforeItems: true)
+        XCTAssertNil(f.persistence.records[f.owner], "RSM membership cannot skip the assigned identity read")
+        XCTAssertEqual(identityRequests(f).count, 1)
+        try drive(f, sid: 7, members: [7, 99], untilPublications: 1, rsmBeforeItems: true)
+        XCTAssertEqual(try? f.storage.localBundle().deviceID, 7)
+        XCTAssertEqual(publications(f).map { $0.attributeStringValue(forName: "id") }, ["7"])
+        let publicationID = try XCTUnwrap(f.manager.omemo2BundlePublications.keys.first)
+        _ = f.manager.read(withIQ: result(f, id: publicationID), on: f.stream)
+        XCTAssertFalse(f.manager.isOmemoPrepared)
+        let confirmation = try XCTUnwrap(membershipRequests(f).last?.attributeStringValue(forName: "id"))
+        _ = f.manager.read(withIQ: try addingRSM(to: membership(f, id: confirmation, ids: [7, 99]),
+                                               beforeItems: false), on: f.stream)
+        XCTAssertTrue(f.manager.isOmemoPrepared)
+        XCTAssertTrue(retractions(f).isEmpty)
+    }
+
+    func testRSMCursorCannotSubstituteForOwnIDInFreshPostACKMembership() throws {
+        let f = try fixture()
+        f.manager.beginOMEMO2Registration(f.stream)
+        try drive(f, sid: 42, members: [42, 99], untilPublications: 1, rsmBeforeItems: true)
+        let publicationID = try XCTUnwrap(f.manager.omemo2BundlePublications.keys.first)
+        _ = f.manager.read(withIQ: result(f, id: publicationID), on: f.stream)
+        let before = f.persistence.records[f.owner]
+        let confirmation = try XCTUnwrap(membershipRequests(f).last?.attributeStringValue(forName: "id"))
+        let rsm = "<set xmlns='http://jabber.org/protocol/rsm'><count>1</count><first index='0'>42</first><last>42</last></set>"
+        _ = f.manager.read(withIQ: try addingRSM(to: membership(f, id: confirmation, ids: [99]),
+                                               beforeItems: true, xml: rsm), on: f.stream)
+        XCTAssertFalse(f.manager.isOmemoPrepared)
+        XCTAssertTrue(f.persistence.records[f.owner] == before, "RSM cursor text cannot confirm or rewrite protected registration")
+    }
+
+    func testMalformedOrAmbiguousRSMCannotAuthorizeManagedMembership() throws {
+        let malformed = [
+            "<set xmlns='urn:foreign'><count>1</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><count>1</count><count>1</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><count xmlns='urn:foreign'>1</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><count><nested/></count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><count>invalid</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><count>-1</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><first index='-1'>cursor</first></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><max>1</max></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm' extra='1'><count>1</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'><count extra='1'>1</count></set>",
+            "<set xmlns='http://jabber.org/protocol/rsm'/><set xmlns='http://jabber.org/protocol/rsm'/>"
+        ]
+        for xml in malformed {
+            let f = try fixture(); let before = f.persistence.records[f.owner]
+            f.manager.beginOMEMO2Registration(f.stream)
+            let metadataID = try XCTUnwrap(metadataRequests(f).last?.attributeStringValue(forName: "id"))
+            _ = f.manager.read(withIQ: metadata(f, id: metadataID, sid: 42), on: f.stream)
+            let membershipID = try XCTUnwrap(membershipRequests(f).last?.attributeStringValue(forName: "id"))
+            _ = f.manager.read(withIQ: try addingRSM(to: membership(f, id: membershipID, ids: [42, 99]),
+                                                   beforeItems: true, xml: xml), on: f.stream)
+            XCTAssertTrue(identityRequests(f).isEmpty)
+            XCTAssertTrue(publications(f).isEmpty)
+            XCTAssertFalse(f.manager.isOmemoPrepared)
+            XCTAssertTrue(f.persistence.records[f.owner] == before, "Rejected RSM must leave protected state byte-identical")
+        }
+    }
+
+    func testRSMCannotHideDifferentPublishedIdentityBehindItsCount() throws {
+        let f = try fixture(); let peer = try fixture(localSID: 202); let other = try fixture(localSID: 42)
+        try establishSession(f, peer: peer)
+        let before = f.persistence.records[f.owner]
+        f.manager.beginOMEMO2Registration(f.stream)
+        let metadataID = try XCTUnwrap(metadataRequests(f).last?.attributeStringValue(forName: "id"))
+        _ = f.manager.read(withIQ: metadata(f, id: metadataID, sid: 42), on: f.stream)
+        let membershipID = try XCTUnwrap(membershipRequests(f).last?.attributeStringValue(forName: "id"))
+        _ = f.manager.read(withIQ: try addingRSM(to: membership(f, id: membershipID, ids: [42, 99]),
+                                               beforeItems: true), on: f.stream)
+        let identityID = try XCTUnwrap(identityRequests(f).last?.attributeStringValue(forName: "id"))
+        let response = try identity(f, id: identityID, deviceID: 42, bundle: OMEMO2PublishedBundle(other.storage.localBundle()))
+        _ = f.manager.read(withIQ: try addingRSM(to: response, beforeItems: false,
+                                               xml: "<set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>"), on: f.stream)
+        XCTAssertTrue(publications(f).isEmpty)
+        XCTAssertFalse(f.manager.isOmemoPrepared)
+        XCTAssertTrue(f.persistence.records[f.owner] == before, "RSM metadata cannot override the own identity check")
+        let material = Data(repeating: 0x66, count: 48)
+        let packet = try f.storage.encrypt(material, jid: peer.owner, deviceID: 202)
+        XCTAssertTrue(try peer.storage.decrypt(packet, jid: f.owner, deviceID: 42) == material)
+    }
+
     func testExplicitDisableCannotRetractDifferentServerSID() throws {
         let f = try fixture(enabled: false)
         try f.manager.publicateOwnDevice(f.stream, createNode: false)
@@ -598,6 +779,18 @@ final class DevicesServerIDPublicationTests: XCTestCase {
         for id in ids { let d=DDXMLElement(name:"device");d.addAttribute(withName:"id",stringValue:String(id));devices.addChild(d) }
         item.addChild(devices);items.addChild(item);pubsub.addChild(items);return envelope(f,id:id,child:pubsub)
     }
+    private func addingRSM(to response: XMPPIQ, beforeItems: Bool, xml: String? = nil) throws -> XMPPIQ {
+        let response = try XMPPIQ(xmlString: response.xmlString)
+        let pubsub = try XCTUnwrap(response.element(forName: "pubsub", xmlns: OMEMO2DeviceListCodec.pubsub))
+        let rsm = xml ?? "<set xmlns='http://jabber.org/protocol/rsm'><count>1</count><first index='0'>opaque-cursor</first><last>opaque-cursor</last></set>"
+        let wrapper = try DDXMLElement(xmlString: "<wrapper>\(rsm)</wrapper>")
+        let nodes = wrapper.elements(forName: "set").map { $0.copy() as! DDXMLElement }
+        for node in nodes.reversed() {
+            if beforeItems { pubsub.insertChild(node, at: 0) }
+            else { pubsub.addChild(node) }
+        }
+        return try XMPPIQ(xmlString: response.xmlString)
+    }
     private func identity(_ f: Fixture, id: String, deviceID: Int, bundle: OMEMO2PublishedBundle?) throws -> XMPPIQ {
         let pubsub = DDXMLElement(name: "pubsub", xmlns: OMEMO2DeviceListCodec.pubsub)
         let items = DDXMLElement(name: "items"); items.addAttribute(withName:"node",stringValue:OmemoManager.NodeType.bundle.rawValue)
@@ -612,7 +805,8 @@ final class DevicesServerIDPublicationTests: XCTestCase {
         return try! XMPPIQ(xmlString:iq.xmlString)
     }
     private func drive(_ f: Fixture, sid: Int?, members: [Int], identity bundle: OMEMO2PublishedBundle? = nil,
-                       untilPublications target: Int? = nil, untilIdentityRead: Bool = false, stopBeforePublication: Bool = false) throws {
+                       untilPublications target: Int? = nil, untilIdentityRead: Bool = false, stopBeforePublication: Bool = false,
+                       rsmBeforeItems: Bool? = nil) throws {
         var handled = Set<String>()
         for _ in 0..<40 {
             if let target, publications(f).count >= target { return }
@@ -628,11 +822,16 @@ final class DevicesServerIDPublicationTests: XCTestCase {
                 }
                 _=f.manager.read(withIQ:metadata(f,id:id,sid:sid),on:f.stream)
             } else if request.element(forName:"pubsub")?.element(forName:"items")?.attributeStringValue(forName:"node")==OmemoManager.NodeType.device.rawValue {
-                _=f.manager.read(withIQ:membership(f,id:id,ids:members),on:f.stream)
+                let reply = membership(f,id:id,ids:members)
+                _=f.manager.read(withIQ:try rsmBeforeItems.map { try addingRSM(to: reply, beforeItems: $0) } ?? reply,on:f.stream)
             } else {
                 if untilIdentityRead { return }
                 let wanted=request.element(forName:"pubsub")?.element(forName:"items")?.element(forName:"item")?.attributeIntegerValue(forName:"id") ?? 0
-                _=f.manager.read(withIQ:try identity(f,id:id,deviceID:wanted,bundle:bundle),on:f.stream)
+                let reply = try identity(f,id:id,deviceID:wanted,bundle:bundle)
+                _=f.manager.read(withIQ:try rsmBeforeItems.map {
+                    try addingRSM(to: reply, beforeItems: $0, xml: bundle == nil
+                        ? "<set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set>" : nil)
+                } ?? reply,on:f.stream)
             }
         }
     }
