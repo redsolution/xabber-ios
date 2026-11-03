@@ -74,22 +74,16 @@ extension SettingsViewController: UITableViewDataSource {
 
                 switch instance?.state {
                 case .receivedRequest:
-                    cell.blueButton.setTitle(L10n.text("settings__action__proceed_to_verification", fallback: "Proceed to Verification"), for: .normal)
+                    cell.showVerificationButton(title: L10n.text("settings__action__proceed_to_verification", fallback: "Proceed to Verification"))
                     cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 case .acceptedRequest:
-                    cell.blueButton.setTitle(L10n.text("settings__action__show_the_code", fallback: "Show the code"), for: .normal)
+                    cell.showVerificationButton(title: L10n.text("settings__action__show_the_code", fallback: "Show the code"))
                     cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 case .receivedRequestAccept:
-                    cell.blueButton.setTitle(L10n.text("settings__action__enter_the_code", fallback: "Enter the code"), for: .normal)
+                    cell.showVerificationButton(title: L10n.text("settings__action__enter_the_code", fallback: "Enter the code"))
                     cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
-                    cell.labelsStack.addArrangedSubview(cell.blueButton)
-                    cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 default:
                     break

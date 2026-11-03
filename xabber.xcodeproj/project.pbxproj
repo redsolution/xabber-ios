@@ -1211,6 +1211,7 @@
 		533F627A053EEC926FE7080D /* DevicesPendingRegistrationStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */; };
 		8CB7FD1FA0142ACB86681490 /* DevicesSessionResumePublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */; };
 		60DD5EEB8EC00F87A47D7D33 /* DevicesGuardedKeyMaintenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */; };
+		EF396B7B2266463AB1964A36 /* VerificationActionVisibilityAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAECFB0EA694B8093DC989B /* VerificationActionVisibilityAccessibilityTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2452,6 +2453,7 @@
 		D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesPendingRegistrationStorageTests.swift; sourceTree = "<group>"; };
 		DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesSessionResumePublicationTests.swift; sourceTree = "<group>"; };
 		07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesGuardedKeyMaintenanceTests.swift; sourceTree = "<group>"; };
+		9EAECFB0EA694B8093DC989B /* VerificationActionVisibilityAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationActionVisibilityAccessibilityTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4489,6 +4491,7 @@
 				C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */,
 				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
 				B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */,
+				9EAECFB0EA694B8093DC989B /* VerificationActionVisibilityAccessibilityTests.swift */,
 				A32010200000000000000006 /* TrustVerificationInteropTests.swift */,
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
 				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
@@ -6905,6 +6908,7 @@
 				C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */,
 				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
 				B3AD03000000000000000001 /* VerificationSessionBannerSelectionTests.swift in Sources */,
+				EF396B7B2266463AB1964A36 /* VerificationActionVisibilityAccessibilityTests.swift in Sources */,
 				A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */,
 				A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */,
 				A32010200000000000000013 /* XENTrustTransportInteroperabilityTests.swift in Sources */,
