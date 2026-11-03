@@ -4,9 +4,18 @@ import RealmSwift
 import XMPPFramework
 import CocoaLumberjack
 import CryptoKit
+import CocoaAsyncSocket
 @testable import xabber
 
 final class DevicesAuthenticationPublicationContractTests: XCTestCase {
+    /// Capture the actual framework registration serializer without a socket,
+    /// server account, cached UUID or replacement request builder in the test.
+    private final class RegistrationSocket: GCDAsyncSocket {
+        var writes: [Data] = []
+        override func write(_ data: Data?, withTimeout timeout: TimeInterval, tag: Int) {
+            if let data { writes.append(data) }
+        }
+    }
     private final class Stream: XMPPStream {
         var authenticated = true
         var disconnected = false
@@ -46,6 +55,144 @@ final class DevicesAuthenticationPublicationContractTests: XCTestCase {
         manager.beginAuthentication(on: wire)
         manager.beginDeviceRegistration(on: wire, requestID: "registration")
         return manager
+    }
+    private func actualRegistrationRequest(resource: String = "current", existing: Bool = false) throws -> (Stream, XMPPIQ) {
+        let wire = stream()
+        wire.authenticated = false
+        wire.myJID = XMPPJID(string: owner + (resource.isEmpty ? "" : "/" + resource))
+        wire.shouldRegisterDevice = true
+        wire.xabberClientInfo = "Synthetic registration fixture"
+        wire.xabberDeviceInfo = "Synthetic device"
+        wire.xabberPublicLabel = "Synthetic public label"
+        if existing {
+            wire.xabberDeviceId = "opaque-existing-device"
+            wire.xabberDeviceSecret = "synthetic-secret"
+        }
+        let socket = RegistrationSocket()
+        wire.setValue(socket, forKey: "asyncSocket")
+        let queue = try XCTUnwrap(wire.value(forKey: "xmppQueue") as? DispatchQueue)
+        let selector = NSSelectorFromString("registerDevice")
+        XCTAssertTrue(wire.responds(to: selector))
+        queue.sync { _ = wire.perform(selector) }
+        XCTAssertEqual(socket.writes.count, 1)
+        let data = try XCTUnwrap(socket.writes.first)
+        let xml = try XCTUnwrap(String(data: data, encoding: .utf8))
+        return (wire, try XMPPIQ(xmlString: xml))
+    }
+    private func mirroredRegistrationResult(for request: XMPPIQ) throws -> XMPPIQ {
+        // mod_devices responds with make_iq_result(originalIQ, device).
+        // A result mirrors the request's recipient; never supply the expected
+        // sender independently and accidentally hide missing request routing.
+        let result = try reply()
+        result.removeAttribute(forName: "from")
+        result.removeAttribute(forName: "to")
+        result.removeAttribute(forName: "id")
+        result.addAttribute(withName: "id", stringValue: try XCTUnwrap(request.elementID))
+        if let recipient = request.to { result.addAttribute(withName: "from", stringValue: recipient.full) }
+        return result
+    }
+    func testActualPreBindRegistrationRequestTargetsOwnBareJIDForFirstAndRetainedRegistration() throws {
+        for (resource, existing) in [("current", false), ("other-resource", true), ("", false)] {
+            let (_, request) = try actualRegistrationRequest(resource: resource, existing: existing)
+            XCTAssertEqual(request.to?.full, owner)
+            XCTAssertEqual(request.type, "set")
+            XCTAssertNotNil(request.elementID)
+            let register = try XCTUnwrap(request.element(forName: "register", xmlns: ns))
+            let device = try XCTUnwrap(register.element(forName: "device", xmlns: ns))
+            XCTAssertEqual(device.attributeStringValue(forName: "id"), existing ? "opaque-existing-device" : nil)
+            XCTAssertEqual(device.element(forName: "client", xmlns: ns)?.stringValue, "Synthetic registration fixture")
+            XCTAssertEqual(device.element(forName: "type", xmlns: ns)?.stringValue, "ios")
+            XCTAssertEqual(device.element(forName: "secret", xmlns: ns) != nil, existing)
+        }
+    }
+    func testActualRequestMirroredPreBindReplyEstablishesOnlyTheCurrentBoundDevicesSession() throws {
+        let (wire, request) = try actualRegistrationRequest()
+        let manager = XMPPDeviceManager(withOwner: owner)
+        manager.beginAuthentication(on: wire)
+        let generation = try XCTUnwrap(manager.authenticationAttemptGeneration(on: wire))
+        manager.beginDeviceRegistration(on: wire, requestID: try XCTUnwrap(request.elementID), authenticationGeneration: generation)
+        XCTAssertTrue(manager.acceptDeviceRegistration(try mirroredRegistrationResult(for: request), on: wire, authenticationGeneration: generation))
+        let accepted = manager.registeredDeviceID(on: wire)
+        XCTAssertEqual(accepted, "accepted-device")
+        XCTAssertNil(manager.authenticatedDeviceID(on: wire), "A registration reply alone does not create a bound session")
+        wire.authenticated = true
+        manager.recordAuthenticatedSession(on: wire, deviceID: accepted, didResume: false)
+        XCTAssertEqual(manager.authenticatedDeviceID(on: wire), "accepted-device")
+        XCTAssertNil(manager.authenticatedDeviceID(on: stream()), "Another raw stream is not authorized")
+        wire.myJID = XMPPJID(string: owner + "/replacement")
+        XCTAssertNil(manager.authenticatedDeviceID(on: wire), "A different resource revokes the accepted binding")
+    }
+    func testAddressedRegistrationDoesNotAdmitMissingDomainForeignStalePostBindOrMalformedReplies() throws {
+        for variant in ["missing-from", "domain-from", "foreign-from", "stale-attempt", "post-bind", "malformed-device"] {
+            let (wire, request) = try actualRegistrationRequest()
+            let manager = XMPPDeviceManager(withOwner: owner)
+            manager.beginAuthentication(on: wire)
+            let generation = try XCTUnwrap(manager.authenticationAttemptGeneration(on: wire))
+            manager.beginDeviceRegistration(on: wire, requestID: try XCTUnwrap(request.elementID), authenticationGeneration: generation)
+            let result = try mirroredRegistrationResult(for: request)
+            // Give unrelated variants a correctly addressed response so each
+            // assertion continues protecting its own boundary after the fix.
+            result.removeAttribute(forName: "from")
+            result.addAttribute(withName: "from", stringValue: owner)
+            switch variant {
+            case "missing-from": result.removeAttribute(forName: "from")
+            case "domain-from":
+                result.removeAttribute(forName: "from")
+                result.addAttribute(withName: "from", stringValue: try XCTUnwrap(XMPPJID(string: owner)?.domain))
+            case "foreign-from":
+                result.removeAttribute(forName: "from")
+                result.addAttribute(withName: "from", stringValue: "foreign@example.test")
+            case "stale-attempt": manager.beginAuthentication(on: wire)
+            case "post-bind":
+                wire.authenticated = true
+                manager.recordAuthenticatedSession(on: wire, deviceID: nil, didResume: false)
+            case "malformed-device": result.element(forName: "device", xmlns: ns)?.removeAttribute(forName: "id")
+            default: XCTFail("Unexpected synthetic variant")
+            }
+            XCTAssertFalse(manager.acceptDeviceRegistration(result, on: wire, authenticationGeneration: generation), variant)
+            XCTAssertNil(manager.registeredDeviceID(on: wire), variant)
+            XCTAssertNil(manager.authenticatedDeviceID(on: wire), variant)
+        }
+    }
+    func testAddressedRegistrationRetainsCredentialsForRealMutualOCRAOnNextConnection() throws {
+        let (wire, request) = try actualRegistrationRequest()
+        let manager = XMPPDeviceManager(withOwner: owner)
+        manager.beginAuthentication(on: wire)
+        let generation = try XCTUnwrap(manager.authenticationAttemptGeneration(on: wire))
+        manager.beginDeviceRegistration(on: wire, requestID: try XCTUnwrap(request.elementID), authenticationGeneration: generation)
+        guard manager.acceptDeviceRegistration(try mirroredRegistrationResult(for: request), on: wire, authenticationGeneration: generation) else {
+            XCTFail("The mirrored response to the actual addressed request must establish pre-bind registration")
+            return
+        }
+        let credentials = CredentialsManager.shared.getItem(for: owner)
+        XCTAssertEqual(credentials.kind, .secret)
+        let storedSecret = try XCTUnwrap(credentials.getSecret())
+        let secret = try XCTUnwrap(Data(base64Encoded: storedSecret))
+        let validationKey = try XCTUnwrap(credentials.validationKey)
+        let retainedID = try XCTUnwrap(CredentialsManager.getXabberDeviceId(for: owner))
+        XCTAssertEqual(retainedID, "accepted-device")
+        let replacement = stream()
+        let auth = DeterministicOCRA(stream: replacement, secret: storedSecret,
+            validationKey: validationKey, counter: credentials.currentCounter(), deviceId: retainedID)
+        try auth.start()
+        let suite = "OCRA-1:HOTP-SHA256-8:QA10"
+        var input = Data(suite.utf8); input.append(0)
+        var question = Data("a1B2c3D4e5".utf8); question.append(Data(repeating: 0, count: 128 - question.count))
+        input.append(question)
+        let hash = Array(HMAC<SHA256>.authenticationCode(for: input, using: SymmetricKey(data: secret)))
+        let offset = Int(hash[hash.count - 1] & 0x0f)
+        let number = ((UInt32(hash[offset]) << 24) | (UInt32(hash[offset + 1]) << 16)
+            | (UInt32(hash[offset + 2]) << 8) | UInt32(hash[offset + 3])) & 0x7fffffff
+        let proof = Data(String(format: "%08u", number % 100_000_000).utf8).base64EncodedString()
+        let payload = Data((proof + "\0OCRA-1:HOTP-SHA256-8:C-QA10\0server-question").utf8).base64EncodedString()
+        XCTAssertEqual(auth.handleAuth(try DDXMLElement(xmlString: "<challenge xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\(payload)</challenge>")).rawValue, 2)
+        XCTAssertEqual(auth.handleAuth(try DDXMLElement(xmlString: "<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")).rawValue, 1)
+        manager.beginAuthentication(on: replacement)
+        manager.recordAuthenticatedSession(on: replacement, deviceID: retainedID, didResume: false)
+        XCTAssertEqual(manager.authenticatedDeviceID(on: replacement), retainedID)
+        XCTAssertTrue(credentials.getSecret() == storedSecret)
+        XCTAssertTrue(credentials.validationKey == validationKey)
+        XCTAssertEqual(CredentialsManager.getXabberDeviceId(for: owner), retainedID)
     }
     func testAcceptedPreBindRegistrationRemainsEligibleWhenFrameworkSASLFlagIsAlreadyTrue() throws {
         let wire = stream(), manager = registeredManager(wire)
