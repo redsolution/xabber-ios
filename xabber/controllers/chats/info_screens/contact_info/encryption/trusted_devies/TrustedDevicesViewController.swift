@@ -26,6 +26,33 @@ import CoreMedia
 import RxSwift
 import XMPPFramework
 
+/// Presentation only: the current protocol's live session must not be hidden by
+/// retained history. Selection never changes protocol state or trust records.
+enum VerificationSessionBannerSelection {
+    static func current(in realm: Realm, owner: String, peer: String, localDeviceID: Int,
+                        now: Date = Date()) -> VerificationSessionStorageItem? {
+        guard localDeviceID > 0, !owner.isEmpty, !peer.isEmpty else { return nil }
+        let sessions = realm.objects(VerificationSessionStorageItem.self)
+            .filter("owner == %@ AND jid == %@ AND myDeviceId == %@ AND expires > %@",
+                    owner, peer, localDeviceID, NSNumber(value: now.timeIntervalSince1970))
+        return sessions.reduce(nil) { selected, candidate in
+            // These are the role/state pairs consumed by the existing
+            // XEP-TRUST manager. Unknown/legacy and terminal rows are history.
+            switch (candidate.role, candidate.state) {
+            case (.initiator, .sentRequest), (.initiator, .receivedRequestAccept), (.initiator, .responseSent),
+                 (.responder, .receivedRequest), (.responder, .acceptedRequest),
+                 (.responder, .responseReceived), (.responder, .verifySent):
+                break
+            default:
+                return selected
+            }
+            guard let selected else { return candidate }
+            // The manager already gives a strictly newer request precedence.
+            // Preserve existing order when timestamps are equal.
+            return (Int(candidate.timestamp) ?? 0) > (Int(selected.timestamp) ?? 0) ? candidate : selected
+        }
+    }
+}
 
 class TrustedDevicesViewController: SimpleBaseViewController {
     
@@ -160,13 +187,8 @@ class TrustedDevicesViewController: SimpleBaseViewController {
                 DDLogDebug("TrustedDevicesViewController: \(#function).")
                 return
             }
-            let predicate = NSPredicate(format: "owner == %@ AND myDeviceId == %@ AND jid == %@", argumentArray: [
-                self.owner,
-                myDeviceId,
-                self.jid
-            ])
-            
-            let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
+            let verificationSession = VerificationSessionBannerSelection.current(in: realm,
+                owner: self.owner, peer: self.jid, localDeviceID: myDeviceId)
             let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND isInDeviceList == true", self.owner, self.jid)
             
             var isVerificationNeeded = false

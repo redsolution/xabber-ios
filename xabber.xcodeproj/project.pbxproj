@@ -1204,6 +1204,7 @@
 		9CCF91998DB6488CA4150B02 /* PushNotificationAvatarDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */; };
 		A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */; };
 		A32010200000000000000003 /* TrustSharingProtocolProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */; };
+		B3AD03000000000000000001 /* VerificationSessionBannerSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */; };
 		A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000006 /* TrustVerificationInteropTests.swift */; };
 		12EE3B6FA6F19743DFD5C54C /* DevicesServerIDPublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */; };
 		DD710C4D2D561258ECAFBFC4 /* DevicesAuthenticationPublicationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */; };
@@ -2444,6 +2445,7 @@
 		63A330EBC3E34E468EE0514B /* PushNotificationAvatarDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationAvatarDeviceTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingTimestampAdmissionTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingProtocolProfileTests.swift; sourceTree = "<group>"; };
+		B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationSessionBannerSelectionTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000006 /* TrustVerificationInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustVerificationInteropTests.swift; sourceTree = "<group>"; };
 		8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesServerIDPublicationTests.swift; sourceTree = "<group>"; };
 		5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesAuthenticationPublicationContractTests.swift; sourceTree = "<group>"; };
@@ -4486,6 +4488,7 @@
 				377D0C98DD1A4A9DA238D25D /* OMEMO2CryptoBackendBehaviorTests.swift */,
 				C0140000000000000000000C /* OMEMO2CryptoBackendStorageTests.swift */,
 				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
+				B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */,
 				A32010200000000000000006 /* TrustVerificationInteropTests.swift */,
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
 				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
@@ -6901,6 +6904,7 @@
 				7736DD9052BD4C6BA7E41033 /* OMEMO2CryptoBackendBehaviorTests.swift in Sources */,
 				C0140000000000000000000B /* OMEMO2CryptoBackendStorageTests.swift in Sources */,
 				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
+				B3AD03000000000000000001 /* VerificationSessionBannerSelectionTests.swift in Sources */,
 				A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */,
 				A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */,
 				A32010200000000000000013 /* XENTrustTransportInteroperabilityTests.swift in Sources */,

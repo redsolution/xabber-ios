@@ -277,7 +277,9 @@ class DevicesListViewController: BaseViewController {
                 .filter("owner == %@ AND jid == %@", jid, jid)
                 .toArray()
             
-            let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid).first
+            let sessionInstance = VerificationSessionBannerSelection.current(in: realm,
+                owner: self.jid, peer: self.jid,
+                localDeviceID: AccountManager.shared.find(for: self.jid)?.omemo.localStore.localDeviceId() ?? 0)
             activeVerificationSessionSid = sessionInstance?.sid
             
             self.brokenOmemoDevices = omemoDevices.filter {

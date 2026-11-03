@@ -1019,7 +1019,9 @@ class SettingsViewController: BaseViewController {
                     }
                 }
 
-                if let sessionInstance = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.owner).first {
+                if let sessionInstance = VerificationSessionBannerSelection.current(in: realm,
+                    owner: self.owner, peer: self.owner,
+                    localDeviceID: AccountManager.shared.find(for: self.owner)?.omemo.localStore.localDeviceId() ?? 0) {
                     self.activeVerificationSessionSid = sessionInstance.sid
                     let (text, secondaryText) = TrustedDevicesViewController.getCellPropertiesForVerificationSession(withOwnDevice: true, verificationState: sessionInstance.state)
                     let verificationDatasource = Datasource(section: .session, childs: [Datasource(section: .session, title: text, subtitle: secondaryText)])
