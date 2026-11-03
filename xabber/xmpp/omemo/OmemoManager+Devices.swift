@@ -139,6 +139,7 @@ extension OmemoManager {
             let realm = try WRealm.safe()
             let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid) ?? OMEMO2DeviceListStorageItem()
             let ids = Set(decoded.ids)
+            if jid == owner { invalidateManagedDevicesMembershipWitness() }
             let oldDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", owner, jid)
             let xabberDevices = realm.objects(DeviceStorageItem.self).filter("owner == %@", owner)
             try realm.write {
@@ -220,6 +221,11 @@ extension OmemoManager {
     internal func onOwnDeviceListUpdated(_ stream: XMPPStream?, createNode: Bool = false) {
         guard let stream = stream ?? omemo2RegistrationStream else {
             AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.onOwnDeviceListUpdated(stream, createNode: createNode) }
+            return
+        }
+        if usesServerManagedOMEMO2Nodes {
+            // The dedicated current-auth request owns managed bootstrap and
+            // post-publication readiness; UI/PEP projection grants no authority.
             return
         }
         do {

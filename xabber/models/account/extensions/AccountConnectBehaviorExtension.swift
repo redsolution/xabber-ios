@@ -61,6 +61,15 @@ extension Account {
                 stream: self.xmppStream,
                 disco: self.disco
             )
+            // Accidental disconnect resets managed publication readiness even
+            // when SM preserves the authenticated Devices session. A completed
+            // startup skips updateExtensions on resume, so restart only this
+            // verification boundary. Interrupted initial sync still releases
+            // OMEMO through its existing presence/background admission path.
+            if self.omemo.usesServerManagedOMEMO2Nodes,
+               !self.isStartupBackgroundTrafficBlocked {
+                self.omemo.onStreamPrepared(self.xmppStream)
+            }
         } else {
             DispatchQueue.main.async {
                 ToastPresenter().present(message: L10n.text("account_sync", fallback: "Synchronization"), image: imageLiteral("cloud"))

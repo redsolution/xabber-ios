@@ -27,6 +27,7 @@ import RxCocoa
 import SwiftKeychainWrapper
 import UIKit
 import MaterialComponents.MaterialPalettes
+import CocoaLumberjack
 
 /// An account-local scheduling gate owned by one or more visible archive
 /// presentations. While active it admits only interactive scheduler work;
@@ -3129,10 +3130,61 @@ final class ConnectionDiagnosticsTimeline {
     }
 }
 
+/// Applied to both OS and file loggers so XMPPFramework's own wire logger
+/// cannot bypass the app-level credential-frame policy. Wrapping the existing
+/// file formatter retains its timestamp and other public diagnostic formatting.
+final class XMPPPrivatePayloadLogFormatter: NSObject, DDLogFormatter {
+    private let wrapped: DDLogFormatter?
+    private let lock = NSLock()
+    private var privateRegistrationIDs: [String] = []
+
+    init(wrapping wrapped: DDLogFormatter? = nil) {
+        self.wrapped = wrapped
+        super.init()
+    }
+
+    func format(message logMessage: DDLogMessage) -> String? {
+        let value: String
+        if let wrapped {
+            guard let formatted = wrapped.format(message: logMessage) else { return nil }
+            value = formatted
+        } else { value = logMessage.message }
+        // Remember a bounded history so raw registration errors and duplicate
+        // responses are omitted even when they contain no credential child.
+        // Framework wire records are post-parser complete frames and each sink
+        // receives the outgoing registration before its incoming response.
+        let probe = value.replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+        let idPattern = #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?iq\b[^>]*\bid\s*=\s*(?:"([^"]+)"|'([^']+)')"#
+        if let regex = try? NSRegularExpression(pattern: idPattern),
+           let match = regex.firstMatch(in: probe, range: NSRange(probe.startIndex..., in: probe)) {
+            let capture = match.range(at: 1).location == NSNotFound ? match.range(at: 2) : match.range(at: 1)
+            if let range = Range(capture, in: probe) {
+                let id = String(probe[range])
+                lock.lock()
+                if probe.range(of: #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?register(?=[\s/>])"#, options: .regularExpression) != nil,
+                   !privateRegistrationIDs.contains(id) {
+                    privateRegistrationIDs.append(id)
+                    if privateRegistrationIDs.count > 256 { privateRegistrationIDs.removeFirst() }
+                }
+                let isPrivate = privateRegistrationIDs.contains(id)
+                lock.unlock()
+                if isPrivate {
+                    let start = value.range(of: "<")?.lowerBound ?? value.range(of: "&lt;")?.lowerBound ?? value.startIndex
+                    return String(value[..<start]) + "[private XMPP payload omitted]"
+                }
+            }
+        }
+        return ConnectionDiagnosticsLogger.sanitizedXMLPayload(in: value)
+    }
+}
+
 struct ConnectionDiagnosticsLogger {
     static let prefix = "CONNECTION_DIAGNOSTICS"
 
-    // Stream XML is logged in full, without redaction or string escaping.
+    // Public protocol XML remains available; credential-bearing frames and
+    // private verification material are omitted before reaching any sink.
     static let rawXMLLoggingEnabled = true
 
     // These observations repeat information already present in each wire stanza.
@@ -3267,9 +3319,45 @@ struct ConnectionDiagnosticsLogger {
 
         let header = parts.joined(separator: " ")
         if includeRawXML, let rawXML {
-            return header + "\n" + rawXML
+            return sanitizedXMLPayload(in: header + "\n" + rawXML)
         }
-        return header
+        return sanitizedXMLPayload(in: header)
+    }
+
+    /// Registration replies are omitted as a whole frame, not serialized with
+    /// individual fields replaced. This also protects the framework's separate
+    /// raw SEND/RECV logger and escaped/partial XML in failure diagnostics.
+    static func sanitizedXMLPayload(in message: String) -> String {
+        var probe = message
+        for _ in 0..<2 {
+            probe = probe.replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&quot;", with: "\"")
+                .replacingOccurrences(of: "&#39;", with: "'")
+                .replacingOccurrences(of: "&amp;", with: "&")
+        }
+        let secretTag = #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?(?:auth|register|secret|validation[-_]?key|password|token|private[-_]?key|verification[-_]?code|encryption[-_]?key)(?=[\s/>])"#
+        let secretAttribute = #"(?i)\b(?:device[-_]?secret|validation[-_]?key|encryption[-_]?key|private[-_]?key|verification[-_]?code|access[-_]?token|refresh[-_]?token|password|jwt|authorization)\s*[:=]"#
+        let directDeviceReply = #"(?is)<(?:[a-z_][a-z0-9_.-]*:)?iq\b[^>]*>\s*<(?:[a-z_][a-z0-9_.-]*:)?device\b[^>]*https://xabber\.com/protocol/devices"#
+        let containsPrivateMaterial = probe.contains("urn:ietf:params:xml:ns:xmpp-sasl")
+            || probe.range(of: secretTag, options: .regularExpression) != nil
+            || probe.range(of: secretAttribute, options: .regularExpression) != nil
+            || probe.range(of: directDeviceReply, options: .regularExpression) != nil
+            || (probe.contains("https://xabber.com/protocol/push")
+                && probe.range(of: #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?key(?=[\s/>])"#, options: .regularExpression) != nil)
+            || probe.contains("PRIVATE KEY-----")
+        guard containsPrivateMaterial else { return message }
+        let xmlStart = [message.range(of: "<")?.lowerBound,
+                        message.range(of: "&lt;")?.lowerBound].compactMap { $0 }.min()
+        // Preserve only safe connection metadata preceding the XML. Plain-text
+        // credential/PEM records have no safe payload prefix to retain.
+        if let xmlStart, probe.range(of: secretAttribute, options: .regularExpression) == nil {
+            return String(message[..<xmlStart]) + "[private XMPP payload omitted]"
+        }
+        if let xmlStart, let newline = message[..<xmlStart].lastIndex(of: "\n") {
+            return String(message[...newline]) + "[private XMPP payload omitted]"
+        }
+        return "[private XMPP payload omitted]"
     }
 
     static func stateDescription(for stream: XMPPStream) -> String {
@@ -3347,6 +3435,7 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
+    internal var devicesRegistrationDelegate: DevicesRegistrationStreamDelegate?
     private struct GracefulDisconnectAttempt {
         let requestID: UUID
         let stream: XMPPStream

@@ -16,6 +16,9 @@ enum OMEMO2StorageError: Error {
     case authenticatedDuplicate
     case freshBundleRequired
     case pendingOptOut
+    case devicesStateIDMismatch
+    case identityRecoveryRequired
+    case staleRegistration
 }
 
 struct OMEMO2PublicPreKey: Equatable {
@@ -31,6 +34,25 @@ struct OMEMO2LocalBundle {
     let signedPreKeyID: UInt32
     let signature: Data
     let preKeys: [OMEMO2PublicPreKey]
+}
+
+/// Public registration metadata plus an opaque version witness. It never
+/// exposes the private aggregate or supplies authenticated Devices authority.
+struct OMEMO2RegistrationSnapshot {
+    let owner: String
+    let deviceID: Int
+    let identityKey: Data
+    let registrationPending: Bool
+    let isUnusedPending: Bool
+    let publicationNeeded: Bool
+    fileprivate let digest: Data
+    fileprivate let incarnation: UUID?
+
+    /// Public membership/authentication still checks the SID independently.
+    /// Routine ratchet/prekey maintenance must not replace this identity witness.
+    func hasSameIdentity(as other: OMEMO2RegistrationSnapshot) -> Bool {
+        owner == other.owner && identityKey == other.identityKey && incarnation == other.incarnation
+    }
 }
 
 struct OMEMO2PeerAddress: Hashable, Codable {
@@ -147,7 +169,7 @@ final class XabberOMEMO2Storage {
         let backend: String
         let identityRepresentation: String
         let owner: String
-        let deviceID: Int
+        var deviceID: Int
         let identityPrivateKey: Data
         let fingerprintPublicKey: Data
         var signedPreKeyPrivateKey: Data
@@ -166,6 +188,12 @@ final class XabberOMEMO2Storage {
         var sessionReplacements: [String: SessionReplacement]? = nil
         // Realm only mirrors these protected decisions.
         var optOutDecisions: [String: OMEMO2OptOutRecord]? = nil
+        // Additive evidence: old aggregates without it are never inferred to
+        // be unused pending registrations merely because their maps are empty.
+        var registrationPending: Bool? = nil
+        var bundlePublicationNeeded: Bool? = nil
+        var registrationIncarnation: UUID? = nil
+        var registrationKeyMaterialUsed: Bool? = nil
     }
 
     /// The retired backend is decoded only through this domain-only view.
@@ -207,14 +235,23 @@ final class XabberOMEMO2Storage {
     }
 
     @discardableResult
-    func prepare(deviceID: Int, preKeyCount: Int = 100) throws -> OMEMO2LocalBundle {
+    func prepare(deviceID: Int, preKeyCount: Int = 100,
+                 isCurrent: () -> Bool = { true }) throws -> OMEMO2LocalBundle {
         try synchronized {
             guard deviceID > 0, deviceID <= Int(Int32.max), (1...1000).contains(preKeyCount) else {
                 throw OMEMO2StorageError.invalidDeviceID
             }
-            if var state = try loadState() {
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            let original = try persistence.load(owner: owner)
+            if let original {
+                var state = try decodeState(original)
                 guard state.deviceID == deviceID else { throw OMEMO2StorageError.invalidDeviceID }
-                if try rotateSignedPreKeyIfDue(&state) { try save(state) }
+                if try rotateSignedPreKeyIfDue(&state) {
+                    guard isCurrent(), try persistence.load(owner: owner) == original else {
+                        throw OMEMO2StorageError.staleRegistration
+                    }
+                    try save(state)
+                }
                 return try bundle(state)
             }
             // Private scalars and provider snapshots from the retired backend
@@ -233,8 +270,15 @@ final class XabberOMEMO2Storage {
                               nextPreKeyID: 1, preKeys: [], sessions: [:],
                               currentSessions: [:], controlsNeeded: [])
             state.optOutDecisions = preservedDecisions
+            state.registrationPending = true
+            state.bundlePublicationNeeded = true
+            state.registrationIncarnation = UUID()
+            state.registrationKeyMaterialUsed = false
             try addPreKeys(to: &state, count: preKeyCount)
             let result = try bundle(state)
+            guard isCurrent(), try persistence.load(owner: owner) == nil else {
+                throw OMEMO2StorageError.staleRegistration
+            }
             try save(state)
             return result
         }
@@ -244,14 +288,116 @@ final class XabberOMEMO2Storage {
         try synchronized { try bundle(requireState()) }
     }
 
+    /// Loading registration authority never allocates an identity or rotates
+    /// keys. Missing prepared secrets remain a recovery condition, not absence.
+    func registrationSnapshot() throws -> OMEMO2RegistrationSnapshot? {
+        try synchronized {
+            guard let data = try persistence.load(owner: owner) else {
+                guard try !persistence.nativePreparationExists(owner: owner) else {
+                    throw OMEMO2StorageError.stateUnavailable
+                }
+                return nil
+            }
+            let state = try decodeState(data)
+            return OMEMO2RegistrationSnapshot(owner: owner, deviceID: state.deviceID,
+                identityKey: try bundle(state).identityKey,
+                registrationPending: state.registrationPending == true,
+                isUnusedPending: unusedPendingRegistration(state),
+                publicationNeeded: state.bundlePublicationNeeded == true,
+                digest: Data(SHA256.hash(data: data)), incarnation: state.registrationIncarnation)
+        }
+    }
+
+    /// Only the network coordinator can provide fresh, exact-current-device
+    /// metadata, membership and strict own-identity lookup results. Those
+    /// results are necessary but do not replace the protected-state CAS here.
+    @discardableResult
+    func adoptPendingDeviceID(_ deviceID: Int, expected: OMEMO2RegistrationSnapshot,
+                              oldIDAbsent: () -> Bool, publishedOldIdentity: Data?,
+                              publishedTargetIdentity: Data?, externalStateUnused: () -> Bool = { true },
+                              isCurrent: () -> Bool) throws -> OMEMO2LocalBundle {
+        try synchronized {
+            guard deviceID > 0, deviceID <= Int(Int32.max) else { throw OMEMO2StorageError.invalidDeviceID }
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            guard oldIDAbsent(), externalStateUnused(), publishedOldIdentity == nil,
+                  expected.owner == owner, expected.deviceID != deviceID,
+                  expected.isUnusedPending,
+                  let data = try persistence.load(owner: owner),
+                  Data(SHA256.hash(data: data)) == expected.digest else {
+                throw OMEMO2StorageError.devicesStateIDMismatch
+            }
+            var state = try decodeState(data)
+            guard unusedPendingRegistration(state), state.deviceID == expected.deviceID,
+                  state.registrationIncarnation == expected.incarnation,
+                  try bundle(state).identityKey == expected.identityKey else {
+                throw OMEMO2StorageError.devicesStateIDMismatch
+            }
+            if let publishedTargetIdentity, publishedTargetIdentity != expected.identityKey {
+                throw OMEMO2StorageError.identityRecoveryRequired
+            }
+            state.deviceID = deviceID
+            state.bundlePublicationNeeded = true
+            let value = try bundle(state)
+            guard oldIDAbsent(), externalStateUnused() else {
+                throw OMEMO2StorageError.devicesStateIDMismatch
+            }
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            guard try persistence.load(owner: owner) == data else {
+                throw OMEMO2StorageError.devicesStateIDMismatch
+            }
+            // The shared owner lock also serializes crypto/session/control/
+            // replay writers. Reentrant admission callbacks are checked above
+            // against the exact original bytes before the atomic replacement.
+            try save(state)
+            return value
+        }
+    }
+
+    /// Called only after the actual publication result and a fresh membership
+    /// confirmation. The caller's guard includes the accepted bundle hash.
+    func markRegistrationConfirmed(deviceID: Int, identityKey: Data, isCurrent: () -> Bool) throws {
+        try synchronized {
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            guard let data = try persistence.load(owner: owner) else { throw OMEMO2StorageError.stateUnavailable }
+            var state = try decodeState(data)
+            guard state.deviceID == deviceID, try bundle(state).identityKey == identityKey else {
+                throw OMEMO2StorageError.identityRecoveryRequired
+            }
+            guard state.registrationPending != false || state.bundlePublicationNeeded != false else { return }
+            state.registrationPending = false
+            state.bundlePublicationNeeded = false
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            guard try persistence.load(owner: owner) == data else { throw OMEMO2StorageError.staleRegistration }
+            try save(state)
+        }
+    }
+
+    private func unusedPendingRegistration(_ state: State) -> Bool {
+        state.registrationPending == true && state.registrationIncarnation != nil
+            && state.bundlePublicationNeeded != nil && state.registrationKeyMaterialUsed == false
+            && !hasRegistrationKeyUse(state)
+    }
+
+    private func hasRegistrationKeyUse(_ state: State) -> Bool {
+        !state.sessions.isEmpty || !state.currentSessions.isEmpty || !state.controlsNeeded.isEmpty
+            || !(state.authenticatedReceiveFingerprints ?? []).isEmpty || !(state.pendingSyncReceives ?? []).isEmpty
+            || !(state.sessionReplacements ?? [:]).isEmpty || !(state.optOutDecisions ?? [:]).isEmpty
+            || state.preKeys.contains(where: \.consumed)
+    }
+
     /// Activity can maintain an already registered profile without creating a
     /// new identity or session. The rotation and expired grace-key removal are
     /// committed together; a failed save leaves the old aggregate authoritative.
     @discardableResult
-    func maintainKeysIfDue() throws -> Bool {
+    func maintainKeysIfDue(isCurrent: () -> Bool = { true }) throws -> Bool {
         try synchronized {
-            var state = try requireState()
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            guard let original = try persistence.load(owner: owner) else { throw OMEMO2StorageError.stateUnavailable }
+            var state = try decodeState(original)
             guard try rotateSignedPreKeyIfDue(&state) else { return false }
+            guard isCurrent(), try persistence.load(owner: owner) == original else {
+                throw OMEMO2StorageError.staleRegistration
+            }
             try save(state)
             return true
         }
@@ -263,13 +409,19 @@ final class XabberOMEMO2Storage {
     }
 
     @discardableResult
-    func replenishPreKeys(minimumCount: Int = 100) throws -> OMEMO2LocalBundle {
+    func replenishPreKeys(minimumCount: Int = 100,
+                          isCurrent: () -> Bool = { true }) throws -> OMEMO2LocalBundle {
         try synchronized {
             guard (1...1000).contains(minimumCount) else { throw OMEMO2StorageError.invalidKeyID }
-            var state = try requireState()
+            guard isCurrent() else { throw OMEMO2StorageError.staleRegistration }
+            guard let original = try persistence.load(owner: owner) else { throw OMEMO2StorageError.stateUnavailable }
+            var state = try decodeState(original)
             let needed = minimumCount - state.preKeys.filter { !$0.consumed }.count
             if needed > 0 {
                 try addPreKeys(to: &state, count: needed)
+                guard isCurrent(), try persistence.load(owner: owner) == original else {
+                    throw OMEMO2StorageError.staleRegistration
+                }
                 try save(state)
             }
             return try bundle(state)
@@ -438,6 +590,7 @@ final class XabberOMEMO2Storage {
                                                     createdAt: now(), seenIncomingRatchets: [Self.canonicalEphemeralKey(ciphertext.ratchetKey)])
                 state.preKeys[preKeyIndex].consumed = true
                 if !preKeyRecord.consumed {
+                    state.bundlePublicationNeeded = true
                     state.currentSessions[addressKey(address)] = key
                     state.controlsNeeded.insert(address)
                 }
@@ -753,6 +906,7 @@ final class XabberOMEMO2Storage {
         state.signedPreKeyID += 1
         state.signature = try context.sign(new.publicKey, identity: identity)
         state.signedPreKeyCreatedAt = time
+        state.bundlePublicationNeeded = true
         return true
     }
 
@@ -819,6 +973,7 @@ final class XabberOMEMO2Storage {
             state.preKeys.append(PreKey(id: state.nextPreKeyID, privateKey: key.privateKey, consumed: false))
             state.nextPreKeyID += 1
         }
+        if count > 0 { state.bundlePublicationNeeded = true }
     }
 
     private func requireState() throws -> State {
@@ -877,6 +1032,10 @@ final class XabberOMEMO2Storage {
 
     private func loadState() throws -> State? {
         guard let data = try persistence.load(owner: owner) else { return nil }
+        return try decodeState(data)
+    }
+
+    private func decodeState(_ data: Data) throws -> State {
         let state: State
         do { state = try PropertyListDecoder().decode(State.self, from: data) }
         catch { throw OMEMO2StorageError.invalidState }
@@ -929,7 +1088,11 @@ final class XabberOMEMO2Storage {
         return state
     }
 
-    private func save(_ state: State) throws {
+    private func save(_ value: State) throws {
+        var state = value
+        if state.registrationKeyMaterialUsed != nil, hasRegistrationKeyUse(state) {
+            state.registrationKeyMaterialUsed = true
+        }
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         try persistence.save(try encoder.encode(state), owner: owner)

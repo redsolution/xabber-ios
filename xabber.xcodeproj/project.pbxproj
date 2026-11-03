@@ -1205,6 +1205,11 @@
 		A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */; };
 		A32010200000000000000003 /* TrustSharingProtocolProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */; };
 		A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000006 /* TrustVerificationInteropTests.swift */; };
+		12EE3B6FA6F19743DFD5C54C /* DevicesServerIDPublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */; };
+		DD710C4D2D561258ECAFBFC4 /* DevicesAuthenticationPublicationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */; };
+		533F627A053EEC926FE7080D /* DevicesPendingRegistrationStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */; };
+		8CB7FD1FA0142ACB86681490 /* DevicesSessionResumePublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */; };
+		60DD5EEB8EC00F87A47D7D33 /* DevicesGuardedKeyMaintenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2440,6 +2445,11 @@
 		A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingTimestampAdmissionTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingProtocolProfileTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000006 /* TrustVerificationInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustVerificationInteropTests.swift; sourceTree = "<group>"; };
+		8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesServerIDPublicationTests.swift; sourceTree = "<group>"; };
+		5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesAuthenticationPublicationContractTests.swift; sourceTree = "<group>"; };
+		D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesPendingRegistrationStorageTests.swift; sourceTree = "<group>"; };
+		DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesSessionResumePublicationTests.swift; sourceTree = "<group>"; };
+		07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesGuardedKeyMaintenanceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4460,6 +4470,11 @@
 				A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */,
 				3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */,
 				D988E1B6628A4BC7B6E53689 /* DevicesAuthenticationBindingTests.swift */,
+				07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */,
+				DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */,
+				D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */,
+				5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */,
+				8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */,
 				64662B71C91C4B58BB32B5B8 /* DevicesBundlePublicationPolicyTests.swift */,
 				B4510E1C92364E99A4876A1E /* OMEMO2ManagerLifecycleBehaviorTests.swift */,
 				4C0CA89452A84ECB81153920 /* OMEMO2CompatibilityIngressBehaviorTests.swift */,
@@ -6870,6 +6885,11 @@
 			files = (
 				E6A2D882A4E24EE1AEEC5A2A /* OMEMO2NativePayloadBoundaryTests.swift in Sources */,
 				724188EB8F864E6181254167 /* DevicesAuthenticationBindingTests.swift in Sources */,
+				60DD5EEB8EC00F87A47D7D33 /* DevicesGuardedKeyMaintenanceTests.swift in Sources */,
+				8CB7FD1FA0142ACB86681490 /* DevicesSessionResumePublicationTests.swift in Sources */,
+				533F627A053EEC926FE7080D /* DevicesPendingRegistrationStorageTests.swift in Sources */,
+				DD710C4D2D561258ECAFBFC4 /* DevicesAuthenticationPublicationContractTests.swift in Sources */,
+				12EE3B6FA6F19743DFD5C54C /* DevicesServerIDPublicationTests.swift in Sources */,
 				3B1D2679609A4CB8A0746B2E /* DevicesBundlePublicationPolicyTests.swift in Sources */,
 				978243CAD7044F4184EF201B /* OMEMO2ManagerLifecycleBehaviorTests.swift in Sources */,
 				2CD1324E200B40A78383A423 /* OMEMO2CompatibilityIngressBehaviorTests.swift in Sources */,

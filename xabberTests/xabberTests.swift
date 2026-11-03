@@ -10752,7 +10752,7 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
         XCTAssertEqual(newAttempt, ConnectionDiagnosticsTiming(elapsedMs: 0, deltaMs: nil))
     }
 
-    func testRawXMLRetainsCredentialElementValues() {
+    func testRawXMLOmitsCredentialElementValues() {
         let xml = """
         <iq type="result">
           <auth>auth-value</auth>
@@ -10771,11 +10771,14 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
             jid: "owner@example.invalid", rawXML: xml
         )
 
-        XCTAssertTrue(line.hasSuffix("\n" + xml))
-        XCTAssertFalse(line.contains("[redacted]"))
+        for value in ["auth-value", "response-value", "device-secret-value", "validation-key-value",
+                      "legacy-push-key-value", "push-key-value", "token-value", "password-value"] {
+            XCTAssertFalse(line.contains(value))
+        }
+        XCTAssertTrue(line.contains("event=stanza_receive_iq"))
     }
 
-    func testRawXMLRetainsCredentialAttributeValues() {
+    func testRawXMLOmitsCredentialAttributeValues() {
         let xml = """
         <iq device-secret="device-secret-value"
             device_secret='device-secret-underscore-value'
@@ -10790,11 +10793,14 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
             jid: "owner@example.invalid", rawXML: xml
         )
 
-        XCTAssertTrue(line.hasSuffix("\n" + xml))
-        XCTAssertFalse(line.contains("[redacted]"))
+        for value in ["device-secret-value", "device-secret-underscore-value", "device-secret-camel-value",
+                      "validation-key-value", "encryption-key-value", "jwt-value", "Bearer raw-token"] {
+            XCTAssertFalse(line.contains(value))
+        }
+        XCTAssertTrue(line.contains("event=stanza_send_iq"))
     }
 
-    func testPushEncryptionKeyAndErrorRemainUnchangedInStreamXML() {
+    func testPushEncryptionKeyIsOmittedFromStreamXML() {
         for prefix in ["", "push:"] {
             let xml = """
             <iq type='error'><enable xmlns='https://xabber.com/protocol/push'>
@@ -10811,9 +10817,8 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
                 rawXML: xml
             )
 
-            XCTAssertTrue(line.hasSuffix("\n" + xml))
-            XCTAssertTrue(line.contains("push-symmetric-key-sentinel"))
-            XCTAssertFalse(line.contains("[redacted]"))
+            XCTAssertFalse(line.contains("push-symmetric-key-sentinel"))
+            XCTAssertTrue(line.contains("event=stanza_receive_iq"))
         }
     }
 
@@ -10884,14 +10889,14 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
     }
 
     func testRawXMLLinePreservesPayloadWithoutEscapingWhenEnabled() {
-        let xml = "<message id=\"fixture\"><body>Hello &amp; goodbye</body><token>token-value</token></message>"
+        let xml = "<message id=\"fixture\"><body>Hello &amp; goodbye</body><trace>public-trace-value</trace></message>"
         let line = ConnectionDiagnosticsLogger.line(
             event: "stanza_receive", stream: .uiAction,
             jid: "owner@example.invalid", rawXML: xml, includeRawXML: true
         )
 
         XCTAssertTrue(line.hasSuffix("\n" + xml))
-        XCTAssertTrue(line.contains("token-value"))
+        XCTAssertTrue(line.contains("public-trace-value"))
     }
 
     func testRawXMLLineOmitsPayloadWhenDisabled() {

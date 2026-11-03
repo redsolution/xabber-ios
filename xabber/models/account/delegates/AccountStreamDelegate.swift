@@ -24,6 +24,38 @@ import UserNotifications
 import Alamofire
 import CocoaAsyncSocket
 
+/// The framework's registration callbacks omit their sender. A per-attempt
+/// delegate captures the actual raw stream instead of substituting whatever
+/// stream happens to be Account.xmppStream when an asynchronous callback runs.
+internal final class DevicesRegistrationStreamDelegate: NSObject, XMPPStreamDelegate {
+    private weak var account: Account?
+    internal weak var stream: XMPPStream?
+    private let authenticationGeneration: UInt64
+
+    init(account: Account, stream: XMPPStream, authenticationGeneration: UInt64) {
+        self.account = account
+        self.stream = stream
+        self.authenticationGeneration = authenticationGeneration
+        super.init()
+    }
+
+    func xmppStreamRequestDeviceRegistration(_ elementId: String) {
+        guard let account, let stream, stream === account.xmppStream else { return }
+        account.logConnectionDiagnostics(event: "device_registration_requested", details: ["id": elementId])
+        account.devices.beginDeviceRegistration(on: stream, requestID: elementId,
+            authenticationGeneration: authenticationGeneration)
+    }
+
+    func xmppStreamResponseDeviceRegistration(_ iq: XMPPIQ) {
+        guard let account, let stream, stream === account.xmppStream else { return }
+        // Registration frames contain credentials and are never diagnostic XML.
+        account.logConnectionDiagnostics(event: "device_registration_response",
+            details: ["id": iq.elementID ?? "none", "type": iq.type ?? "none"])
+        _ = account.devices.acceptDeviceRegistration(iq, on: stream,
+            authenticationGeneration: authenticationGeneration)
+    }
+}
+
 extension Account: XMPPStreamDelegate {
 
     private func streamErrorName(_ error: DDXMLElement) -> String {
@@ -143,6 +175,7 @@ extension Account: XMPPStreamDelegate {
         cancelDelayedConnectTimer()
         self.authenticationCounterTracker.authenticationDidFail()
         self.devices.beginAuthentication(on: stream)
+        self.installDevicesRegistrationDelegate(on: stream)
         self.connectionGate.markAuthenticating()
         self.sendReadiness.markAuthenticating()
 //        DispatchQueue.main.async {
@@ -1143,22 +1176,21 @@ extension Account: XMPPStreamDelegate {
         _ = self.xTokens.read(withIQ: iq)
     }
     
-    func xmppStreamRequestDeviceRegistration(_ elementId: String) {
-        self.logConnectionDiagnostics(
-            event: "device_registration_requested",
-            details: ["id": elementId]
-        )
-        self.devices.beginDeviceRegistration(on: self.xmppStream, requestID: elementId)
+    internal func installDevicesRegistrationDelegate(on stream: XMPPStream) {
+        if let previous = devicesRegistrationDelegate, let previousStream = previous.stream {
+            previousStream.removeDelegate(previous, delegateQueue: queue)
+        }
+        guard stream === xmppStream,
+              let generation = devices.authenticationAttemptGeneration(on: stream) else {
+            devicesRegistrationDelegate = nil
+            return
+        }
+        let delegate = DevicesRegistrationStreamDelegate(account: self, stream: stream,
+            authenticationGeneration: generation)
+        devicesRegistrationDelegate = delegate
+        stream.addDelegate(delegate, delegateQueue: queue)
     }
-    
-    func xmppStreamResponseDeviceRegistration(_ iq: XMPPIQ) {
-        self.logConnectionDiagnostics(
-            event: "device_registration_response",
-            details: ["id": iq.elementID ?? "none"],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
-        )
-        _ = self.devices.read(withIQ: iq, on: self.xmppStream)
-    }
+
 }
 
 

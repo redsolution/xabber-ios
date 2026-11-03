@@ -194,6 +194,9 @@ extension OmemoManager {
         omemo2MaintenanceLock.lock()
         defer { omemo2MaintenanceLock.unlock() }
         guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
+        let managedCurrent: () -> Bool
+        if usesServerManagedOMEMO2Nodes { managedCurrent = try managedDevicesMaintenanceGuard() }
+        else { managedCurrent = { true } }
         storage.authenticatedReceiveDidCommit = { [weak self] in self?.omemo2PreKeyCleanup.authenticatedReceiveDidCommit() }
         // Fresh preparation follows the verified own-device list collision
         // check in onOwnDeviceListUpdated. Never regenerate at an encrypt call.
@@ -202,15 +205,27 @@ extension OmemoManager {
         let elapsed = omemo2LastMaintenanceAt.map { time.timeIntervalSince($0) }
         let checkDue = forceMaintenance || elapsed == nil || elapsed! < 0 || elapsed! >= Self.omemo2MaintenanceCheckInterval
         if checkDue {
-            if try storage.maintainKeysIfDue() {
+            if try storage.maintainKeysIfDue(isCurrent: managedCurrent) {
                 bundle = try storage.localBundle()
             }
         }
+        guard managedCurrent() else { throw OMEMO2StorageError.staleRegistration }
         try localStore.bindExistingDevice(deviceID: bundle.deviceID)
         try bindLocalOMEMO2Metadata(bundle)
         do { try OMEMO2OptOutPolicy.mirror(storage, in: WRealm.safe()) }
         catch { DDLogDebug("OMEMO2 opt-out projection will be retried") }
         if checkDue { omemo2LastMaintenanceAt = time }
+        return storage
+    }
+
+    /// Managed Devices history and authenticated incoming data can use existing
+    /// private state while publication is blocked, without rotating keys or
+    /// granting outbound readiness. Standard PEP keeps its normal maintenance.
+    internal func retainedOMEMO2StorageForReceive() throws -> XabberOMEMO2Storage {
+        if !usesServerManagedOMEMO2Nodes { return try preparedOMEMO2Storage(forceMaintenance: false) }
+        guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
+        _ = try storage.localBundle()
+        storage.authenticatedReceiveDidCommit = { [weak self] in self?.omemo2PreKeyCleanup.authenticatedReceiveDidCommit() }
         return storage
     }
 
@@ -275,7 +290,7 @@ extension OmemoManager {
     func doubleUnratched(_ encrypted: String, jid: String, deviceId: Int, keyExchange: Bool) throws -> Data {
         let data = try Omemo2PayloadCodec.decodeBase64(encrypted)
         let ciphertext = try OMEMO2Ciphertext(data: data, keyExchange: keyExchange)
-        return try ensureOMEMO2Prepared().decrypt(ciphertext, jid: jid, deviceID: deviceId)
+        return try retainedOMEMO2StorageForReceive().decrypt(ciphertext, jid: jid, deviceID: deviceId)
     }
 
     func doubleRatchet(hmac: Data, jid: String, deviceId: Int) throws -> DDXMLElement {

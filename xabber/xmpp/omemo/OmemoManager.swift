@@ -58,7 +58,19 @@ open class OmemoManager: AbstractXMPPManager {
     
     internal var deviceName: String = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")
     
-    internal var isOmemoPrepared: Bool
+    private var localOMEMO2Prepared: Bool
+    internal var isOmemoPrepared: Bool {
+        get {
+            omemo2MaintenanceLock.lock()
+            defer { omemo2MaintenanceLock.unlock() }
+            return localOMEMO2Prepared && (!usesServerManagedOMEMO2Nodes || isManagedDevicesReady)
+        }
+        set {
+            omemo2MaintenanceLock.lock()
+            localOMEMO2Prepared = newValue
+            omemo2MaintenanceLock.unlock()
+        }
+    }
     
     internal var omemo2Storage: XabberOMEMO2Storage?
     private let omemo2CleanupInitializationLock = NSLock()
@@ -131,7 +143,7 @@ open class OmemoManager: AbstractXMPPManager {
     override init(withOwner owner: String) {
         self.omemo2Storage = try? XabberOMEMO2Storage(owner: owner)
         self.localStore = XabberAxolotlStorage(withOwner: owner)
-        self.isOmemoPrepared = (try? self.omemo2Storage?.localBundle()) != nil
+        self.localOMEMO2Prepared = (try? self.omemo2Storage?.localBundle()) != nil
         super.init(withOwner: owner)
     }
     
@@ -174,6 +186,10 @@ open class OmemoManager: AbstractXMPPManager {
 
     internal func beginOMEMO2Registration(_ stream: XMPPStream) {
         omemo2RegistrationStream = stream
+        if usesServerManagedOMEMO2Nodes {
+            beginManagedDevicesRegistration(on: stream)
+            return
+        }
         do {
             if let existingID = try existingOMEMO2DeviceID() {
                 omemo2FreshRegistrationPending = false
@@ -197,6 +213,10 @@ open class OmemoManager: AbstractXMPPManager {
         var maintenanceLocked = true
         defer { if maintenanceLocked { omemo2MaintenanceLock.unlock() } }
         do {
+            if usesServerManagedOMEMO2Nodes && !consumeManagedDevicesSetup(on: stream, localSID: deviceId) {
+                beginManagedDevicesRegistration(on: stream)
+                return
+            }
             guard try existingOMEMO2DeviceID() != nil else {
                 beginOMEMO2Registration(stream)
                 return
@@ -213,15 +233,25 @@ open class OmemoManager: AbstractXMPPManager {
             let bundle = try storage.localBundle()
             guard bundle.deviceID == deviceId else { throw OMEMO2StorageError.invalidDeviceID }
             try self.localStore.bindExistingDevice(deviceID: bundle.deviceID)
-            _ = try storage.prepare(deviceID: bundle.deviceID)
-            _ = try self.ensureOMEMO2Prepared(attemptPublication: false)
+            let managed = usesServerManagedOMEMO2Nodes
+            _ = try storage.prepare(deviceID: bundle.deviceID, isCurrent: { [weak self, weak stream] in
+                guard managed else { return true }
+                guard let self, let stream else { return false }
+                return self.managedDevicesSetupStateIsCurrent(on: stream)
+            })
+            if managed { self.reconcileLocalOMEMO2Metadata() }
+            else { _ = try self.ensureOMEMO2Prepared(attemptPublication: false) }
+            if managed {
+                guard managedDevicesSetupStateIsCurrent(on: stream) else { throw OMEMO2StorageError.staleRegistration }
+                omemo2ManagedDevicesPublication.setupAuthorization = nil
+            }
             // The server device-registration mirror follows committed native
             // state, including a fresh cutover from an earlier device ID.
             if CredentialsManager.shared.getDeviceId(for: owner) != deviceId {
                 CredentialsManager.shared.setDeviceId(deviceId, for: owner)
             }
             self.isOmemoPrepared = true
-            self.resetManagedDevicesPublication()
+            if !usesServerManagedOMEMO2Nodes { self.resetManagedDevicesPublication() }
             self.omemo2PublicationReconfigured = false
             for requestID in self.omemo2BundlePublications.keys { self.queryIds.remove(requestID) }
             self.omemo2BundlePublications.removeAll()
@@ -235,7 +265,8 @@ open class OmemoManager: AbstractXMPPManager {
             self.omemo2MaintenanceWorkDeadline = nil
             self.omemo2MaintenanceWorkID = nil
             self.shouldPublicate = true
-            self.updateMyDevice(stream)
+            if usesServerManagedOMEMO2Nodes { try self.publicateOwnDevice(stream, createNode: false) }
+            else { self.updateMyDevice(stream) }
             // Control preparation enters sessionQueue before acquiring this
             // lock. Preserve that order when registration finishes.
             omemo2MaintenanceLock.unlock()
@@ -243,8 +274,10 @@ open class OmemoManager: AbstractXMPPManager {
             if isOwnOMEMOEnabled, stream.isAuthenticated {
                 omemo2PreKeyCleanup.retryEligibleCleanup()
             }
-            self.flushOMEMO2Controls()
-            AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
+            if !usesServerManagedOMEMO2Nodes {
+                self.flushOMEMO2Controls()
+                AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
+            }
         } catch {
             self.isOmemoPrepared = false
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
@@ -1378,7 +1411,7 @@ extension OmemoManager {
         guard headers.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
         let header = headers[0]
         let sid = Int(try OMEMO2BundleCodec.keyID(header.attributeStringValue(forName: "sid")))
-        let storage = try ensureOMEMO2Prepared()
+        let storage = try retainedOMEMO2StorageForReceive()
         let localID = try storage.localBundle().deviceID
         let keyGroups = children(header, "keys").filter { $0.attributeStringValue(forName: "jid") == owner }
         guard keyGroups.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }

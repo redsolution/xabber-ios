@@ -229,7 +229,7 @@ final class DevicesAuthenticationBindingTests: XCTestCase {
         wire.authenticated = false
         manager.beginDeviceRegistration(on: wire, requestID: "owned-registration")
         XCTAssertNil(manager.registeredDeviceID(on: wire))
-        XCTAssertTrue(manager.read(withIQ: try registrationResult(id: "owned-registration")))
+        XCTAssertTrue(manager.read(withIQ: try registrationResult(id: "owned-registration"), on: wire))
         XCTAssertEqual(manager.registeredDeviceID(on: wire), "registered-device")
         XCTAssertNil(manager.authenticatedDeviceID(on: wire))
         wire.authenticated = true
@@ -242,12 +242,12 @@ final class DevicesAuthenticationBindingTests: XCTestCase {
         let manager = XMPPDeviceManager(withOwner: owner)
         let wire = stream()
         manager.beginDeviceRegistration(on: wire, requestID: "owned-registration")
-        XCTAssertFalse(manager.read(withIQ: try registrationResult(id: "unowned")))
-        XCTAssertFalse(manager.read(withIQ: try registrationResult(id: "owned-registration", from: "foreign@example.test")))
-        XCTAssertFalse(manager.read(withIQ: try registrationResult(id: "owned-registration", type: "set")))
+        XCTAssertFalse(manager.read(withIQ: try registrationResult(id: "unowned"), on: wire))
+        XCTAssertFalse(manager.read(withIQ: try registrationResult(id: "owned-registration", from: "foreign@example.test"), on: wire))
+        XCTAssertFalse(manager.read(withIQ: try registrationResult(id: "owned-registration", type: "set"), on: wire))
         XCTAssertNil(manager.registeredDeviceID(on: wire))
         let error = try XMPPIQ(xmlString: "<iq type='error' id='owned-registration'><error type='cancel'><not-allowed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>")
-        _ = manager.read(withIQ: error)
+        _ = manager.read(withIQ: error, on: wire)
         XCTAssertNil(manager.registeredDeviceID(on: wire))
     }
 
@@ -311,8 +311,9 @@ final class DevicesAuthenticationBindingTests: XCTestCase {
         account.syncManager.isAvailable = true
         CredentialsManager.shared.getItem(for: owner).storePassword("fixture-password")
         account.xmppStreamDidConnect(wire)
-        account.xmppStreamRequestDeviceRegistration("current-registration")
-        account.xmppStreamResponseDeviceRegistration(try registrationResult(id: "current-registration"))
+        let registration = try XCTUnwrap(account.devicesRegistrationDelegate)
+        registration.xmppStreamRequestDeviceRegistration("current-registration")
+        registration.xmppStreamResponseDeviceRegistration(try registrationResult(id: "current-registration"))
         XCTAssertNil(account.devices.authenticatedDeviceID(on: wire))
         wire.authenticated = true
 
@@ -471,7 +472,7 @@ final class DevicesAuthenticationBindingTests: XCTestCase {
     }
 
     private func registrationResult(id: String, from: String? = nil, type: String = "result") throws -> XMPPIQ {
-        let sender = from.map { " from='\($0)'" } ?? ""
+        let sender = " from='\(from ?? owner)'"
         return try XMPPIQ(xmlString: "<iq type='\(type)' id='\(id)'\(sender)><device xmlns='https://xabber.com/protocol/devices' id='registered-device'><secret>Zml4dHVyZS1zZWNyZXQ=</secret><validation-key>Zml4dHVyZS12YWxpZGF0aW9u</validation-key><expire>2000000000</expire></device></iq>")
     }
 }

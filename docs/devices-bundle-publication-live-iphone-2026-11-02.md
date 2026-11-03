@@ -1,5 +1,7 @@
 # Live Devices bundle publication on cable-connected iPhone
 
+> Historical evidence for implementation `1027b67e`. The current [Devices publication contract](omemo2-devices-publication.md) supersedes its automatic SID-retraction migration and UUID-less HOTP publication. The earlier live pass does not verify the replacement implementation.
+
 Date: 2026-11-02. The committed client fix `1027b67e` passed live-account publication on the USB-connected iPhone 12 Pro (iOS 26.6.1). Three separate application processes authenticated and each published a retained OMEMO2 bundle successfully. No `policy-violation` was observed in the captured logs.
 
 ## Build and execution

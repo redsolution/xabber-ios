@@ -17,7 +17,8 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         override var isAuthenticated: Bool { authenticated }
         override var isDisconnected: Bool { false }
         var packets: [DDXMLElement] = []
-        override func send(_ element: DDXMLElement) { packets.append(element.copy() as! DDXMLElement) }
+        var onSend: ((DDXMLElement) -> Void)?
+        override func send(_ element: DDXMLElement) { packets.append(element.copy() as! DDXMLElement); onSend?(element) }
     }
     private struct Fixture {
         let account: Account
@@ -113,21 +114,14 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         XCTAssertTrue(retractions(f).isEmpty)
     }
 
-    func testOldCurrentDeviceSIDRequiresRetractionACKAndFreshClearedMetadata() throws {
-        let f = try fixture()
-        let before = try f.storage.identity().publicKey
+    func testMismatchedCurrentDeviceSIDRequiresRecoveryWithoutRetraction() throws {
+        let f = try fixture(); let before = try f.storage.identity().publicKey
         let id = try begin(f)
         XCTAssertTrue(f.manager.read(withIQ: metadata(f, id: id, currentSID: "7", siblings: [("sibling", "99")]), on: f.stream))
-        XCTAssertEqual(retractions(f).map { $0.attributeStringValue(forName: "id") }, ["7"])
-        XCTAssertTrue(publications(f).isEmpty)
-        let retractID = try XCTUnwrap(f.stream.packets.last?.attributeStringValue(forName: "id"))
-        XCTAssertTrue(f.manager.read(withIQ: result(f, id: retractID), on: f.stream))
-        XCTAssertTrue(publications(f).isEmpty, "A retract ACK alone cannot prove the Devices metadata changed")
-        let verifyID = try XCTUnwrap(latestMetadataRequest(f).attributeStringValue(forName: "id"))
-        XCTAssertNotEqual(id, verifyID)
-        XCTAssertTrue(f.manager.read(withIQ: metadata(f, id: verifyID, currentSID: nil, siblings: [("sibling", "99")]), on: f.stream))
-        XCTAssertEqual(publications(f).map { $0.attributeStringValue(forName: "id") }, ["42"])
+        XCTAssertTrue(retractions(f).isEmpty); XCTAssertTrue(publications(f).isEmpty)
+        XCTAssertEqual(try f.storage.localBundle().deviceID, 42)
         XCTAssertEqual(try f.storage.identity().publicKey, before)
+        if case OMEMO2StorageError.devicesStateIDMismatch? = f.manager.omemo2ManagedDevicesPublication.lastError as? OMEMO2StorageError {} else { XCTFail("Expected controlled ID mismatch") }
     }
 
     func testOldSIDSharedWithSiblingIsNeverRetracted() throws {
@@ -198,19 +192,14 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         XCTAssertTrue(publications(f).isEmpty)
     }
 
-    func testRetractionErrorOrUnchangedMetadataCannotPublishNewSID() throws {
-        for failsRetraction in [true, false] {
-            let f = try fixture(); let id = try begin(f)
-            _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "7"), on: f.stream)
-            let retractID = try XCTUnwrap(f.stream.packets.last?.attributeStringValue(forName: "id"))
-            _ = f.manager.read(withIQ: result(f, id: retractID, error: failsRetraction), on: f.stream)
-            if !failsRetraction {
-                let verifyID = try XCTUnwrap(latestMetadataRequest(f).attributeStringValue(forName: "id"))
-                _ = f.manager.read(withIQ: metadata(f, id: verifyID, currentSID: "7"), on: f.stream)
-                XCTAssertEqual(retractions(f).count, 1, "Unchanged metadata must not enter a retract loop")
-            }
-            XCTAssertTrue(publications(f).isEmpty)
-        }
+    func testMismatchCannotBeRecoveredByUnrelatedACKOrAutomaticRetry() throws {
+        let f = try fixture(); let id = try begin(f)
+        _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "7"), on: f.stream)
+        XCTAssertFalse(f.manager.read(withIQ: result(f, id: id), on: f.stream))
+        let count = f.stream.packets.count
+        f.manager.retryOMEMO2BundlePublication(on: f.stream)
+        XCTAssertEqual(f.stream.packets.count, count)
+        XCTAssertTrue(retractions(f).isEmpty); XCTAssertTrue(publications(f).isEmpty)
     }
 
     func testPolicyViolationForcesOneFreshReadAndDoesNotRepeatIdenticalPublication() throws {
@@ -279,15 +268,11 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         XCTAssertTrue(publications(f).isEmpty)
     }
 
-    func testCollisionIntroducedInPostRetractionMetadataPreventsPublication() throws {
+    func testCollisionInFreshMetadataCannotAuthorizePublicationOrCleanup() throws {
         let f = try fixture(); let id = try begin(f)
-        _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "7"), on: f.stream)
-        let retractID = try XCTUnwrap(f.stream.packets.last?.attributeStringValue(forName: "id"))
-        _ = f.manager.read(withIQ: result(f, id: retractID), on: f.stream)
-        let verifyID = try XCTUnwrap(latestMetadataRequest(f).attributeStringValue(forName: "id"))
-        _ = f.manager.read(withIQ: metadata(f, id: verifyID, currentSID: nil, siblings: [("sibling", "42")]), on: f.stream)
-        XCTAssertTrue(publications(f).isEmpty)
-        XCTAssertEqual(retractions(f).count, 1)
+        _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "42", siblings: [("sibling", "42")]), on: f.stream)
+        XCTAssertTrue(publications(f).isEmpty); XCTAssertTrue(retractions(f).isEmpty)
+        XCTAssertEqual(try f.storage.localBundle().deviceID, 42)
     }
 
     func testDisabledManagedDeviceWithdrawsOnlyItsFreshlyProvenUniqueServerSID() throws {
@@ -306,13 +291,12 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         }
     }
 
-    func testDisabledWithdrawalOfUniqueCurrentSIDDoesNotDeleteTheSiblingsLocalSID() throws {
+    func testDisabledMismatchedCurrentSIDCannotDeleteEitherDeviceBundle() throws {
         let f = try fixture(enabled: false)
         try f.manager.publicateOwnDevice(f.stream, createNode: false)
         let id = try XCTUnwrap(latestMetadataRequest(f).attributeStringValue(forName: "id"))
         _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "7", siblings: [("sibling", "42")]), on: f.stream)
-        XCTAssertEqual(retractions(f).map { $0.attributeStringValue(forName: "id") }, ["7"])
-        XCTAssertTrue(publications(f).isEmpty)
+        XCTAssertTrue(retractions(f).isEmpty); XCTAssertTrue(publications(f).isEmpty)
     }
 
     func testUnprovenSecondaryStreamUsesAvailableAcceptedPrimaryForPublicationAndWithdrawal() throws {
@@ -353,12 +337,18 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         _ = f.manager.read(withIQ: result(f, id: retractID), on: f.stream)
         let verifyID = try XCTUnwrap(latestMetadataRequest(f).attributeStringValue(forName: "id"))
         _ = f.manager.read(withIQ: metadata(f, id: verifyID, currentSID: nil), on: f.stream)
+        if let refresh = f.manager.omemo2ManagedDevicesPublication.pending,
+           case .metadata = refresh.operation {
+            _ = f.manager.read(withIQ: metadata(f, id: refresh.id, currentSID: nil), on: f.stream)
+        }
         XCTAssertEqual(publications(f).count, 1)
     }
 
     func testLateOrWrongStreamWithdrawalACKCannotPublishAfterReset() throws {
-        let f = try fixture(); let id = try begin(f)
-        _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "7"), on: f.stream)
+        let f = try fixture(enabled: false)
+        try f.manager.publicateOwnDevice(f.stream, createNode: false)
+        let id = try XCTUnwrap(latestMetadataRequest(f).attributeStringValue(forName: "id"))
+        _ = f.manager.read(withIQ: metadata(f, id: id, currentSID: "42"), on: f.stream)
         let retractID = try XCTUnwrap(f.stream.packets.last?.attributeStringValue(forName: "id"))
         let other = CapturingStream(); other.myJID = f.stream.myJID
         XCTAssertFalse(f.manager.read(withIQ: result(f, id: retractID), on: other))
@@ -367,20 +357,16 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         XCTAssertTrue(publications(f).isEmpty)
     }
 
-    func testAcceptedLegacyHOTPUsesItemOnlyPublicationAndPolicyErrorBlocksTheEpoch() throws {
+    func testAcceptedLegacyHOTPDoesNotAuthorizePublicationOrWithdrawal() throws {
         let f = try fixture(accepted: false)
         f.account.devices.recordAuthenticatedSession(on: f.stream, deviceID: nil, didResume: false, legacyHOTP: true)
         XCTAssertNil(f.account.devices.authenticatedDeviceID(on: f.stream))
         try f.manager.sendOwnDeviceBundle(f.stream, createNode: false)
-        XCTAssertEqual(publications(f).count, 1)
-        XCTAssertFalse(f.stream.packets.contains { $0.element(forName: "query") != nil })
-        let id = try XCTUnwrap(f.manager.omemo2BundlePublications.keys.first)
-        _ = f.manager.read(withIQ: result(f, id: id, error: true), on: f.stream)
-        f.manager.shouldPublicate = true
-        f.manager.omemo2PublicationRetryAt = nil
+        XCTAssertTrue(publications(f).isEmpty); XCTAssertTrue(retractions(f).isEmpty)
+        XCTAssertFalse(f.manager.read(withIQ: result(f, id: "unowned", error: true), on: f.stream))
+        f.manager.shouldPublicate = true; f.manager.omemo2PublicationRetryAt = nil
         f.manager.retryOMEMO2BundlePublication(on: f.stream)
-        XCTAssertEqual(publications(f).count, 1)
-        XCTAssertTrue(retractions(f).isEmpty)
+        XCTAssertTrue(publications(f).isEmpty)
     }
 
     private func setEnabled(_ f: Fixture, _ enabled: Bool) throws {
@@ -395,6 +381,8 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         try realm.write { realm.add(row) }
         let storage = try XabberOMEMO2Storage(owner: owner, persistence: Memory())
         _ = try storage.prepare(deviceID: 42, preKeyCount: 2)
+        let identity = try storage.identity().publicKey
+        try storage.markRegistrationConfirmed(deviceID: 42, identityKey: identity, isCurrent: { true })
         let account = Account(jid: owner, queue: DispatchQueue(label: "devices-publication-tests-\(UUID())"))
         account.omemo.omemo2Storage = storage
         account.omemo.omemo2MaintenanceScheduler = { _, _ in }
@@ -413,6 +401,24 @@ final class DevicesBundlePublicationPolicyTests: XCTestCase {
         snapshot.deviceIDs.append(objectsIn: [42, 99])
         snapshot.devicesXML = "<devices xmlns='urn:xmpp:omemo:2'><device id='42'/><device id='99'/></devices>"
         try realm.write { realm.add(snapshot, update: .modified) }
+        stream.onSend = { [weak manager = account.omemo, weak stream] packet in
+            guard let manager, let stream, packet.attributeStringValue(forName: "type") == "get",
+                  let id = packet.attributeStringValue(forName: "id"),
+                  let items = packet.element(forName: "pubsub")?.element(forName: "items"),
+                  let node = items.attributeStringValue(forName: "node") else { return }
+            if case .confirmation = manager.omemo2ManagedDevicesPublication.pending?.operation { return }
+            let pubsub = DDXMLElement(name: "pubsub", xmlns: OMEMO2DeviceListCodec.pubsub)
+            let resultItems = DDXMLElement(name: "items"); resultItems.addAttribute(withName: "node", stringValue: node)
+            if node == OmemoManager.NodeType.device.rawValue {
+                let item = DDXMLElement(name: "item"); item.addAttribute(withName: "id", stringValue: "current")
+                item.addChild(try! DDXMLElement(xmlString: "<devices xmlns='urn:xmpp:omemo:2'><device id='42'/><device id='99'/></devices>"))
+                resultItems.addChild(item)
+            }
+            pubsub.addChild(resultItems)
+            let reply = XMPPIQ(iqType: .result, to: stream.myJID, elementID: id, child: pubsub)
+            reply.addAttribute(withName: "from", stringValue: owner)
+            _ = manager.read(withIQ: try! XMPPIQ(xmlString: reply.xmlString), on: stream)
+        }
         return f
     }
     private func begin(_ f: Fixture) throws -> String {

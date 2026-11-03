@@ -77,7 +77,7 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
         }
     }
 
-    func testOneShotFailedIQRetainsCompleteXMLAndError() throws {
+    func testOneShotFailedIQOmitsSecretAndRetainsErrorMetadata() throws {
         let manager = OneShotManager()
         let iq = try XMPPIQ(xmlString: "<iq type='set' id='failed-iq'><secret>failed-iq-payload</secret></iq>")
         let error = NSError(domain: "stream-log-test", code: 17)
@@ -86,7 +86,8 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
             manager.xmppStream(manager.stream, didFailToSend: iq, error: error)
         }
 
-        assertOneOriginalXML(iq, marker: "failed-iq-payload", in: captured)
+        XCTAssertFalse(captured.messages.contains { $0.contains("failed-iq-payload") })
+        XCTAssertTrue(captured.messages.contains { $0.contains("private XMPP payload omitted") })
         XCTAssertTrue(captured.messages.contains { $0.contains("errorDomain=stream-log-test") && $0.contains("errorCode=17") })
     }
 

@@ -40,6 +40,9 @@ class XMPPDeviceManager: AbstractXMPPManager {
         var acceptedLegacyHOTP = false
         var acceptedGeneration: UInt64?
         var acceptedActive = false
+        // XMPPFramework sets isAuthenticated before bind. This records the
+        // actual completed bind callback, including non-Devices password binds.
+        var boundAuthenticationCompleted = false
         var registrationRequestID: String?
         var registrationAttempt: UInt64?
         var registrationRecipient: Data?
@@ -94,14 +97,21 @@ class XMPPDeviceManager: AbstractXMPPManager {
         sessionLock.lock()
         let context = context(on: stream, create: true)!
         context.attempt = advanceGeneration()
+        context.boundAuthenticationCompleted = false
         let previous = clearRegistration(context)
+        let replacedRequests = sessionContexts.values.filter { $0 !== context }.compactMap { other -> String? in
+            clearBinding(other)
+            other.boundAuthenticationCompleted = true
+            return clearRegistration(other)
+        }
         context.acceptedActive = false
-        let listIDs = listRequests.compactMap { $0.value.context === context ? $0.key : nil }
-        for id in listIDs { listRequests.removeValue(forKey: id) }
+        let listIDs = Array(listRequests.keys)
+        listRequests.removeAll()
         // The previous accepted session is retained only for genuine SM resume;
         // getters deny it while disconnected/unauthenticated.
         sessionLock.unlock()
         if let previous { queryIds.remove(previous) }
+        for id in replacedRequests { queryIds.remove(id) }
         for id in listIDs { queryIds.remove(id) }
     }
 
@@ -109,6 +119,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
         didResume: Bool, legacyHOTP: Bool = false) {
         sessionLock.lock()
         let context = context(on: stream, create: true)!
+        context.boundAuthenticationCompleted = true
         let previousRequest = clearRegistration(context)
         defer {
             sessionLock.unlock()
@@ -119,6 +130,14 @@ class XMPPDeviceManager: AbstractXMPPManager {
               jid.resource?.isEmpty == false else {
             clearBinding(context)
             return
+        }
+        // This manager represents one account's primary Devices session. A
+        // replacement connection cannot leave an old authenticated-looking
+        // stream eligible for publication or subsequent resume authority.
+        for other in sessionContexts.values where other !== context {
+            clearBinding(other)
+            other.boundAuthenticationCompleted = true
+            if let id = clearRegistration(other) { queryIds.remove(id) }
         }
         let fullJID = Data(jid.full.utf8)
         if didResume {
@@ -134,7 +153,7 @@ class XMPPDeviceManager: AbstractXMPPManager {
             return
         }
         clearBinding(context)
-        let strongID = deviceID.flatMap { $0.isEmpty ? nil : $0 }
+        let strongID = deviceID.flatMap { Self.isValidOpaqueDeviceID($0) ? $0 : nil }
         guard (strongID != nil && !legacyHOTP) || (strongID == nil && legacyHOTP) else { return }
         context.boundFullJID = fullJID
         context.acceptedDeviceID = strongID
@@ -174,11 +193,28 @@ class XMPPDeviceManager: AbstractXMPPManager {
         return authenticatedContext(on: stream)?.acceptedGeneration
     }
 
-    internal func beginDeviceRegistration(on stream: XMPPStream, requestID: String) {
+    internal func authenticationAttemptGeneration(on stream: XMPPStream) -> UInt64? {
+        sessionLock.lock(); defer { sessionLock.unlock() }
+        guard let context = context(on: stream, create: false), context.attempt != 0 else { return nil }
+        return context.attempt
+    }
+
+    private static func isValidOpaqueDeviceID(_ id: String) -> Bool {
+        !id.isEmpty && id.utf16.count <= 512 &&
+            id.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil
+    }
+
+    internal func beginDeviceRegistration(on stream: XMPPStream, requestID: String,
+        authenticationGeneration: UInt64? = nil) {
         guard !requestID.isEmpty, !stream.isDisconnected,
               stream.myJID?.bare == XMPPJID(string: owner)?.bare else { return }
         sessionLock.lock()
         let context = context(on: stream, create: true)!
+        guard !context.boundAuthenticationCompleted,
+              authenticationGeneration == nil || context.attempt == authenticationGeneration else {
+            sessionLock.unlock()
+            return
+        }
         let previous = clearRegistration(context)
         if context.attempt == 0 { context.attempt = advanceGeneration() }
         context.registrationRequestID = requestID
@@ -193,7 +229,8 @@ class XMPPDeviceManager: AbstractXMPPManager {
         sessionLock.lock(); defer { sessionLock.unlock() }
         guard !stream.isDisconnected, stream.myJID?.bare == XMPPJID(string: owner)?.bare,
               let context = context(on: stream, create: false),
-              context.registrationAttempt == context.attempt else { return nil }
+              context.registrationAttempt == context.attempt,
+              !context.boundAuthenticationCompleted else { return nil }
         return context.registeredDeviceID
     }
 
@@ -721,7 +758,24 @@ class XMPPDeviceManager: AbstractXMPPManager {
         return true
     }
     
-    private final func readRegisterDevice(_ iq: XMPPIQ, on incomingStream: XMPPStream? = nil) -> Bool {
+    private func registrationText(_ name: String, in device: DDXMLElement) -> String? {
+        let elements = (device.children ?? []).compactMap { $0 as? DDXMLElement }
+            .filter { $0.localName == name }
+        guard elements.count == 1, let element = elements.first,
+              element.uri == getPrimaryNamespace(),
+              !(element.children ?? []).contains(where: { $0 is DDXMLElement }),
+              let text = element.stringValue,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
+    internal func acceptDeviceRegistration(_ iq: XMPPIQ, on stream: XMPPStream,
+        authenticationGeneration: UInt64) -> Bool {
+        readRegisterDevice(iq, on: stream, authenticationGeneration: authenticationGeneration)
+    }
+
+    private final func readRegisterDevice(_ iq: XMPPIQ, on incomingStream: XMPPStream? = nil,
+        authenticationGeneration: UInt64? = nil) -> Bool {
         guard let elementId = iq.elementID, iq.iqType == .result || iq.iqType == .error,
               let ownerJID = XMPPJID(string: owner) else { return false }
         sessionLock.lock()
@@ -729,12 +783,15 @@ class XMPPDeviceManager: AbstractXMPPManager {
             $0.registrationRequestID == elementId && $0.registrationAttempt == $0.attempt
         }
         guard let context = matching, let stream = context.stream,
-              incomingStream == nil || incomingStream === stream,
+              incomingStream === stream, !context.boundAuthenticationCompleted,
+              authenticationGeneration == nil || context.attempt == authenticationGeneration,
               !stream.isDisconnected, stream.myJID?.bare == ownerJID.bare else {
             sessionLock.unlock()
             return false
         }
-        guard isOwnerServerReply(iq, recipient: context.registrationRecipient) else {
+        guard iq.localName == "iq", [nil, "", "jabber:client"].contains(iq.uri),
+              iq.from?.full == ownerJID.bare,
+              isOwnerServerReply(iq, recipient: context.registrationRecipient) else {
             sessionLock.unlock()
             return false
         }
@@ -744,10 +801,14 @@ class XMPPDeviceManager: AbstractXMPPManager {
             queryIds.remove(elementId)
             return true
         }
-        guard let device = iq.element(forName: "device", xmlns: getPrimaryNamespace()),
-              let deviceId = device.attributeStringValue(forName: "id"), !deviceId.isEmpty,
-              let secret = device.element(forName: "secret")?.stringValue,
-              let expire = device.element(forName: "expire")?.stringValueAsDouble(), expire.isFinite else {
+        let payloads = (iq.children ?? []).compactMap { $0 as? DDXMLElement }
+        guard payloads.count == 1, let device = payloads.first,
+              device.localName == "device", device.uri == getPrimaryNamespace(),
+              let deviceId = device.attributeStringValue(forName: "id"), Self.isValidOpaqueDeviceID(deviceId),
+              let secret = registrationText("secret", in: device),
+              let validationKey = registrationText("validation-key", in: device),
+              let rawExpire = registrationText("expire", in: device),
+              let expire = Double(rawExpire), expire.isFinite else {
             sessionLock.unlock()
             return false
         }
@@ -757,7 +818,6 @@ class XMPPDeviceManager: AbstractXMPPManager {
         queryIds.remove(elementId)
 //        print(self.deviceId, deviceId)
         self.deviceId = deviceId
-        let validationKey = device.element(forName: "validation-key")?.stringValue
         CredentialsManager.shared.setXabberDeviceId(for: owner, deviceId: deviceId)
         CredentialsManager.shared.setItem(for: owner, validationKey: validationKey, secret: secret)
         let deviceInfo = [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " ")

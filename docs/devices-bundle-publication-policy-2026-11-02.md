@@ -1,5 +1,7 @@
 # Devices-bound OMEMO bundle publication
 
+> Historical evidence for implementation `1027b67e`. The current [Devices publication contract](omemo2-devices-publication.md) supersedes its automatic SID-retraction migration and UUID-less HOTP publication. The earlier live pass does not verify the replacement implementation.
+
 Date: 2026-11-02. The client fix passed 293/293 isolated Simulator tests, including the affected application build. The subsequent [wired-iPhone live-account verification](devices-bundle-publication-live-iphone-2026-11-02.md) passed 3/3 actual publications without policy-violation. The implementation/source-review phase described below did not perform live account operations.
 
 The password-authentication branch previously enabled pre-bind device registration only for HOTP, so a DEVICES-OCRA-only server could bind a password session without a Devices identity. It now enables registration for either supported mechanism and records the actual accepted registration or OCRA identity before startup publication.
