@@ -10,12 +10,15 @@ The requested scenario completed on the wired **Alex’s iPhone (iPhone 12 Pro)*
 | Connection attempt → final sixth synchronization response | 7.074 s in the final run; 6.307 s in an earlier run |
 | Connection attempt → own available presence / background release | Background release at 7.127 s in the final run; 6.377 s in the earlier run |
 | Native chat-open event → verified live-edge archive commit | 2.169 s; successful commit with 80 message records |
-| Native chat-open event → content presentation event | 2.295 s |
+| Native chat-open event → fresh verified content receipt | 2.295 s; this does not measure earliest visible local content |
+| First visible navigation movement → first visible real history, from the original video | Approximately 100 ms; frame-bounded interval 67–133 ms, without direct alignment to the native clock |
 | Outgoing message → server reliable receipt | 0.237 s after the matching native `didSend` event |
 | Outgoing message → peer received marker | 1.180 s after the matching native `didSend` event |
 | Return to recent chats | Passed; the exact new message appears as the Alexey Boldin preview |
 
 Exactly one harmless QA message was sent at 15:23 local time. The composer cleared. A matching peer `received` marker and the green single delivery tick confirm delivery; no matching read/displayed marker was established. No send retry was performed.
+
+Follow-up video analysis corrected the original user-facing interpretation of 2.295 s as time until history first appeared. Real history is already visible during the navigation transition. The numeric receipt covers the fresh verified apply; presentation-only cache applies bypass that hook. See [the latency investigation](sync-latency-investigation-2026-11-06.md).
 
 ## Verification
 
@@ -31,6 +34,6 @@ The runner operated the already installed `xabber.ios` version 1.0 (build 1). Th
 
 Connection timings start at the native connection attempt, not process creation. The installed binary did not emit a dedicated `snapshotComplete` event: final matched synchronization response and the later startup background-release gate are separate measured boundaries. Response intervals include transport and client dispatch; they do not isolate server processing time. Chat content timing uses correlated numeric events from the same process and presentation context. No stable-frame or repeated-run distribution is claimed.
 
-The open performance findings are startup synchronization across six sequential pages and the approximately 2.3 s delay before chat content. This task records those findings without attributing a cause or changing startup ordering.
+The open performance findings are startup synchronization across six sequential pages and the approximately 2.3 s interval before the fresh verified content receipt. The latter is not the delay before first visible history. This task records those findings without attributing a cause or changing startup ordering.
 
 Private evidence and the standalone runner are retained in the project vault under `projects/xabber/debug/2026-11-06-iphone-basic-alexey/`. See the task `projects/xabber/tasks/done/xab-iphone-basic-alexey-2026-11-06.md`. Raw personal message data and wire XML are excluded from this report and commit.
