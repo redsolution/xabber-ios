@@ -421,6 +421,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     // Per authenticated session, including a stamped catch-up over cached rows.
     // Retry/reset of a failed request is not successful startup completion.
     private var startupSynchronizationPending = false
+    private enum StartupRecentsSyncActivity {
+        case idle, awaitingFirstPage, appliedFirstPage
+    }
+    private var startupRecentsSyncActivity: StartupRecentsSyncActivity = .idle
+    static let startupRecentsSyncActivityDidChange = Notification.Name(
+        "com.xabber.client-sync.startup-recents-sync-activity-did-change"
+    )
     internal var startupResponseTimeoutInterval: TimeInterval = 60
     private var startupResponseTimeouts: [String: DispatchWorkItem] = [:]
     private var phase: SyncPhase = .idle
@@ -756,26 +763,29 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         try realm.commitWrite()
     }
 
-    private func registerSyncQuery(_ elementId: String, request: SyncRequestDiagnostics) {
+    private func registerSyncQuery(_ elementId: String, request: SyncRequestDiagnostics) -> Bool {
         queryIds.insert(elementId)
-        let timeout = stateQueue.sync { () -> DispatchWorkItem? in
+        let (timeout, beganRecentsSync) = stateQueue.sync { () -> (DispatchWorkItem?, Bool) in
             syncRequestInfoById[elementId] = TrackedSyncRequest(
                 diagnostics: request,
                 generation: syncSessionGeneration
             )
-            guard startupSynchronizationPending else { return nil }
+            guard startupSynchronizationPending else { return (nil, false) }
+            let beganRecentsSync = request.after == nil && startupRecentsSyncActivity == .idle
+            if beganRecentsSync { startupRecentsSyncActivity = .awaitingFirstPage }
             let generation = syncSessionGeneration
             let item = DispatchWorkItem { [weak self] in
                 self?.startupResponseDidTimeOut(elementId, generation: generation)
             }
             startupResponseTimeouts[elementId] = item
-            return item
+            return (item, beganRecentsSync)
         }
         if let timeout {
             DispatchQueue.global(qos: .utility).asyncAfter(
                 deadline: .now() + max(0.01, startupResponseTimeoutInterval), execute: timeout
             )
         }
+        return beganRecentsSync
     }
 
     private func startupResponseDidTimeOut(_ elementId: String, generation: UInt64) {
@@ -816,11 +826,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     @discardableResult
     private func resetSyncStateAfterFailure(expectedGeneration: UInt64? = nil) -> Bool {
-        let didReset = stateQueue.sync {
+        let (didReset, endedRecentsSync) = stateQueue.sync { () -> (Bool, Bool) in
             if let expectedGeneration,
                syncSessionGeneration != expectedGeneration {
-                return false
+                return (false, false)
             }
+            let endedRecentsSync = startupRecentsSyncActivity == .awaitingFirstPage
+            if endedRecentsSync { startupRecentsSyncActivity = .idle }
             phase = .idle
             activeSnapshotStamp = nil
             activeSnapshotRequestedStampMode = nil
@@ -828,11 +840,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             seenSnapshotConversationKeys.removeAll()
             isApplyingPage = false
             needsCatchUpAfterSnapshot = false
-            return true
+            return (true, endedRecentsSync)
         }
         if didReset {
             temporaryVer = nil
             notifyInitialListSynchronizationTrafficGateDidChange()
+            if endedRecentsSync { notifyStartupRecentsSyncActivityDidChange() }
             AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
         }
         return didReset
@@ -1096,11 +1109,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
               Self.normalizedSyncString(lastCompletedSnapshotStamp) == nil else {
             return false
         }
-        return !acountSynced ||
+        return startupSynchronizationPending ||
             isApplyingPage ||
             phase == .snapshotInProgress ||
-            phase == .catchingUp ||
-            isPersistedSnapshotBootstrapInProgress
+            phase == .catchingUp
     }
 
     public final func isInitialChatListSynchronizationInProgress() -> Bool {
@@ -1111,6 +1123,24 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     final func isStartupSynchronizationPending() -> Bool {
         stateQueue.sync { isAvailable && startupSynchronizationPending }
+    }
+
+    final func isAwaitingStartupRecentsSyncResponse() -> Bool {
+        stateQueue.sync { startupRecentsSyncActivity == .awaitingFirstPage }
+    }
+
+    private func finishStartupRecentsSync(expectedGeneration: UInt64, appliedFirstPage: Bool) {
+        let changed = stateQueue.sync {
+            guard syncSessionGeneration == expectedGeneration,
+                  startupRecentsSyncActivity == .awaitingFirstPage else { return false }
+            startupRecentsSyncActivity = appliedFirstPage ? .appliedFirstPage : .idle
+            return true
+        }
+        if changed { notifyStartupRecentsSyncActivityDidChange() }
+    }
+
+    private func notifyStartupRecentsSyncActivityDidChange() {
+        NotificationCenter.default.post(name: Self.startupRecentsSyncActivityDidChange, object: owner)
     }
 
     final func canCheckpointForStreamManagement() -> Bool {
@@ -1395,7 +1425,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             before: nil,
             max: requestedPageSize
         )
-        registerSyncQuery(elementId, request: diagnostics)
+        let beganRecentsSync = registerSyncQuery(elementId, request: diagnostics)
         syncLifecycleLock.unlock()
         notifyInitialListSynchronizationTrafficGateDidChange()
         let sendStartedAt = Date()
@@ -1407,6 +1437,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ("max", requestedPageSize)
         ])
         xmppStream.send(iq)
+        if beganRecentsSync { notifyStartupRecentsSyncActivityDidChange() }
         logSyncTrace("requestSendFinish", [
             ("id", elementId),
             ("stamp", requestedStamp),
@@ -1822,7 +1853,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     internal func suspendInitialPresenceUntilAuthenticatedStream() {
-        stateQueue.sync {
+        let pausedRecentsSync = stateQueue.sync {
             let wasSent: Bool
             switch initialPresenceSessionState {
             case .sent:
@@ -1833,7 +1864,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 wasSent = false
             }
             initialPresenceSessionState = .awaitingAuthenticatedStream(wasSent: wasSent)
+            guard startupRecentsSyncActivity == .awaitingFirstPage else { return false }
+            startupRecentsSyncActivity = .idle
+            return true
         }
+        if pausedRecentsSync { notifyStartupRecentsSyncActivityDidChange() }
     }
 
     @discardableResult
@@ -1933,6 +1968,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 ("childNames", query.children?.compactMap { ($0 as? DDXMLElement)?.name }.joined(separator: ",")),
                 ("persistedSnapshotStamp", "withheld")
             ])
+            if request?.after == nil {
+                finishStartupRecentsSync(expectedGeneration: expectedGeneration, appliedFirstPage: false)
+            }
             AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
             return true
         }
@@ -1993,6 +2031,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     return
                 }
                 let applyFinishedAt = Date()
+                if request?.after == nil {
+                    self.finishStartupRecentsSync(
+                        expectedGeneration: expectedGeneration,
+                        appliedFirstPage: serverContext == .accountServer
+                    )
+                }
 
                 self.logSyncTrace("pageApplyFinish", [
                     ("snapshotStamp", page.stamp),
@@ -2133,6 +2177,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     ("dispatchGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
                 ])
             } catch SyncSessionApplyError.invalidated {
+                if request?.after == nil {
+                    self.finishStartupRecentsSync(expectedGeneration: expectedGeneration, appliedFirstPage: false)
+                }
                 self.logSyncTrace("staleSnapshotPageIgnoredDuringApply", [
                     ("id", elementId),
                     ("snapshotStamp", page.stamp)
@@ -2204,6 +2251,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 ("id", elementId),
                 ("persistedSnapshotStamp", "withheld")
             ])
+            if trackedRequest.diagnostics.after == nil {
+                finishStartupRecentsSync(expectedGeneration: trackedRequest.generation, appliedFirstPage: false)
+            }
             stateQueue.sync {
                 guard syncSessionGeneration == trackedRequest.generation else { return }
                 if phase == .idle || phase == .live {
@@ -2253,6 +2303,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 return false
             }
             self.syncSessionGeneration &+= 1
+            if self.startupRecentsSyncActivity == .awaitingFirstPage {
+                self.startupRecentsSyncActivity = .idle
+            }
             self.phase = .idle
             self.activeSnapshotStamp = nil
             self.activeSnapshotRequestedStampMode = nil
@@ -2274,6 +2327,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 for: owner
             )
             notifyInitialListSynchronizationTrafficGateDidChange()
+            notifyStartupRecentsSyncActivityDidChange()
         }
         return didReset
     }
@@ -2288,7 +2342,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         stateQueue.sync {
             if !didResume || restoredCheckpoint {
-                startupSynchronizationPending = isAvailable
+                startupSynchronizationPending = isAvailable && !restoredCheckpoint
             }
             if restoredCheckpoint { initialPresenceSessionState = .sent }
         }

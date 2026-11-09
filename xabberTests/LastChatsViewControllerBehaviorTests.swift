@@ -972,6 +972,53 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertNil(fixture.chat.lastMessage)
     }
 
+    func testConnectingWithoutStartupSyncShowsCachedRecents() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
+        let owner = fixture.chat.owner
+        let account = AccountStorageItem()
+        account.jid = owner
+        account.enabled = true
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(account) }
+        AccountManager.shared.connectingUsers.accept([owner])
+        let controller = LastChatsViewController()
+        defer { controller.unsubscribe() }
+
+        XCTAssertFalse(controller.showSkeleton.value)
+        controller.subscribe()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+    }
+
+    func testFallbackSyncCanShowSkeletonAfterCachedRecentsWereVisible() throws {
+        let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
+        let owner = fixture.chat.owner
+        let account = AccountStorageItem()
+        account.jid = owner
+        account.enabled = true
+        let realm = try WRealm.safe()
+        try realm.write { realm.add(account) }
+        let controller = LastChatsViewController()
+        defer { controller.unsubscribe() }
+        var isAwaitingStartupSync = false
+        controller.startupRecentsSyncPendingForTesting = { $0 == owner && isAwaitingStartupSync }
+        controller.subscribe()
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
+
+        isAwaitingStartupSync = true
+        NotificationCenter.default.post(name: ClientSynchronizationManager.startupRecentsSyncActivityDidChange, object: owner)
+
+        let skeleton = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.datasourceShowsSkeleton }, object: nil)
+        wait(for: [skeleton], timeout: 2)
+        XCTAssertFalse(controller.datasource.contains { $0.jid == fixture.chat.jid })
+
+        isAwaitingStartupSync = false
+        NotificationCenter.default.post(name: ClientSynchronizationManager.startupRecentsSyncActivityDidChange, object: owner)
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+    }
+
     func testStaleFreshEncryptedFlagCannotReplaceShareTargetMessage() throws {
         let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
         let controller = ShareDialogController()

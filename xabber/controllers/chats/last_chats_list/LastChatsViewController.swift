@@ -1867,11 +1867,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var archivedSectionSubtitleText: NSAttributedString = NSAttributedString()
     
     internal var editedIndexPath: IndexPath? = nil
-    internal var datasourceShowsSkeleton: Bool = true
+    internal var datasourceShowsSkeleton: Bool = false
 
     public var archivedMode: Bool = false
     
-    internal var showSkeleton: BehaviorRelay<Bool> = BehaviorRelay(value: true)
+    internal var showSkeleton: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
     internal var topAccountJid: String = ""
     
@@ -1880,7 +1880,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var needsDatasetRefresh: Bool = false
     internal var skeletonItemsCount: Int = 10
     
-    internal var isSkeletonShowed: Bool = false
+    #if DEBUG
+    internal var startupRecentsSyncPendingForTesting: ((String) -> Bool)?
+    #endif
     
     open var splitDelegate: SplitViewControllerDelegate? = nil
     
@@ -3203,7 +3205,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 .sorted(byKeyPath: "messageDate", ascending: false)
             
             datasetBag = DisposeBag()
-            
+            updateStartupRecentsSkeleton(for: value)
+
             self.showSkeleton
                 .asObservable()
 //                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
@@ -3213,7 +3216,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 //                    print(#function, "show skeleton")
                     self.runDatasetUpdateTask()
                 }
-                .disposed(by: self.bag)
+                .disposed(by: self.datasetBag)
             
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
@@ -3599,6 +3602,22 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     internal var hasConnectingEnabledAccounts: Bool {
         !AccountManager.shared.connectingUsers.value.isDisjoint(with: self.enabledAccounts.value)
+    }
+
+    @discardableResult
+    private func updateStartupRecentsSkeleton(for filter: Filter) -> Bool {
+        let isRecentsFilter = filter == .chats || filter == .unread
+        let shouldShowSkeleton = isRecentsFilter && enabledAccounts.value.contains { owner in
+            #if DEBUG
+            if let startupRecentsSyncPendingForTesting {
+                return startupRecentsSyncPendingForTesting(owner)
+            }
+            #endif
+            return AccountManager.shared.find(for: owner)?.syncManager.isAwaitingStartupRecentsSyncResponse() == true
+        }
+        guard showSkeleton.value != shouldShowSkeleton else { return false }
+        showSkeleton.accept(shouldShowSkeleton)
+        return true
     }
 
     internal struct UnreadChatReadCandidate: Equatable {
@@ -4883,6 +4902,16 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             .disposed(by: bag)
 
         NotificationCenter.default.rx
+            .notification(ClientSynchronizationManager.startupRecentsSyncActivityDidChange)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] notification in
+                guard let self, let owner = notification.object as? String,
+                      self.enabledAccounts.value.contains(owner) else { return }
+                self.updateStartupRecentsSkeleton(for: self.filter.value)
+            })
+            .disposed(by: bag)
+
+        NotificationCenter.default.rx
             .notification(VCardManager.didPersistVCardNotification)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { [weak self] notification in
@@ -4930,17 +4959,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                         isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
                     ) {
                         self.unreadAllMessagesButton.backgroundColor = filteredConnectingUsers.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
-                    }
-                    if self.isSkeletonShowed { return }
-                    if filteredConnectingUsers.isNotEmpty {
-                        if !self.showSkeleton.value {
-                            self.showSkeleton.accept(true)
-                        }
-                    } else {
-                        if self.showSkeleton.value {
-                            self.showSkeleton.accept(false)
-                            self.isSkeletonShowed = true
-                        }
                     }
                     self.updateUnreadChatsCounter()
                 } catch {

@@ -47,15 +47,14 @@ extension Account {
         self.configureBase()
         let didResume = self.sm.didResume
         if didResume && restoredSMCheckpoint {
-            // Only the server session survived. Rebuild local capabilities and
-            // obtain the current process's real Recents response without
-            // resending the already-confirmed initial available presence.
+            // Rebuild local capabilities while retaining the server session.
             self.push.awaitCustomPushSupport()
             self.disco.configure(self.xmppStream)
             if !self.syncManager.isAvailable {
-                self.roster.request(self.xmppStream)
+                self.updateExtensions()
             }
             self.sendCoordinator.streamManagementResumeSucceeded()
+            AccountManager.shared.markAsConnected(jid: self.jid)
         } else if didResume {
             // Rebind Groups before send readiness can start an archive-engine
             // group admission against this resumed stream generation.
@@ -69,7 +68,6 @@ extension Account {
             DispatchQueue.main.async {
                 ToastPresenter().presentSuccess(message: L10n.text("connection__stream_management__sm_did_resume", fallback: "Session resumed"))
             }
-            _ = self.syncManager.sync(self.xmppStream)
             self.cloudStorage.resumeAvailabilityWorkIfNeeded(
                 stream: self.xmppStream,
                 disco: self.disco
