@@ -38,12 +38,25 @@ extension Account {
         self.asyncConnect(trigger: .restore)
     }
     
-    func didAuthenticate() {
+    func didAuthenticate(restoredSMCheckpoint: Bool = false) {
+        if restoredSMCheckpoint {
+            self.recoverCanonicalGroupRuntimeAfterFullAuthentication()
+        }
         registerRegularPushForAccount()
         registerVoIPPushForAccount()
         self.configureBase()
         let didResume = self.sm.didResume
-        if didResume {
+        if didResume && restoredSMCheckpoint {
+            // Only the server session survived. Rebuild local capabilities and
+            // obtain the current process's real Recents response without
+            // resending the already-confirmed initial available presence.
+            self.push.awaitCustomPushSupport()
+            self.disco.configure(self.xmppStream)
+            if !self.syncManager.isAvailable {
+                self.roster.request(self.xmppStream)
+            }
+            self.sendCoordinator.streamManagementResumeSucceeded()
+        } else if didResume {
             // Rebind Groups before send readiness can start an archive-engine
             // group admission against this resumed stream generation.
             self.recoverCanonicalGroupRuntimeAfterStreamManagementResume()

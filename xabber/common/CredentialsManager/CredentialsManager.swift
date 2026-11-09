@@ -226,6 +226,22 @@ class CredentialsManager: NSObject {
 //        var callbacks: SynchronizedArray<SynchronizedArrayCallbackItem> = SynchronizedArray()
         var callbacks: Array<SynchronizedArrayCallbackItem> = Array()
         private let lock = NSRecursiveLock()
+        private var streamManagementEpochKey: String { [jid, "stream-management-credential-epoch"].prp() }
+
+        /// A device-local identifier for this set of credentials. Neither the
+        /// credentials nor a digest of a password enter the SM checkpoint.
+        func streamManagementCredentialContext() -> String? {
+            withLock {
+                guard !isInvalidate else { return nil }
+                let key = streamManagementEpochKey
+                if let epoch = retrieveCreditionals(for: key), UUID(uuidString: epoch) != nil {
+                    return kind.rawValue + ":" + epoch
+                }
+                let epoch = UUID().uuidString
+                guard storeCreditionals(for: key, value: epoch) else { return nil }
+                return kind.rawValue + ":" + epoch
+            }
+        }
         var isFirstTokenIssued: Bool = false {
             didSet {
                 credentialsDebugLog("CredentialsManager: credential first token state jidHash=\(credentialsDiagnosticHash(jid)) firstIssued=\(isFirstTokenIssued)")
@@ -321,6 +337,7 @@ class CredentialsManager: NSObject {
                     return nil
 
                 case .credentialRevoked:
+                    self.removeCreditionals(for: self.streamManagementEpochKey)
                     self.isInvalidate = true
                     self.isBlocked = false
                     self.callbacks = Array()
@@ -418,6 +435,7 @@ class CredentialsManager: NSObject {
         
         public func storeSecret(_ value: String, validationKey: String) {
             withLock {
+                self.removeCreditionals(for: self.streamManagementEpochKey)
                 self.credentialGeneration += 1
                 self.isInvalidate = false
                 self.isBlocked = false
@@ -436,6 +454,7 @@ class CredentialsManager: NSObject {
         
         public func storeToken(_ value: String) {
             withLock {
+                self.removeCreditionals(for: self.streamManagementEpochKey)
                 self.credentialGeneration += 1
                 self.isInvalidate = false
                 self.isBlocked = false
@@ -453,6 +472,7 @@ class CredentialsManager: NSObject {
         
         public func storePassword(_ value: String, keepSecret: Bool = false) {
             withLock {
+                self.removeCreditionals(for: self.streamManagementEpochKey)
                 self.credentialGeneration += 1
                 self.isInvalidate = false
                 self.isBlocked = false

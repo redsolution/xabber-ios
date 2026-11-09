@@ -21,7 +21,9 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         override func send(_ element: DDXMLElement) { packets.append(element.copy() as! DDXMLElement) }
     }
     private final class ResumedSM: XMPPStreamManagement {
+        var usedCheckpoint = false
         override var didResume: Bool { true }
+        override var didResumeFromCheckpoint: Bool { usedCheckpoint }
         override func didResume(withAckedStanzaIds stanzaIdsPtr: AutoreleasingUnsafeMutablePointer<NSArray?>?,
             serverResponse responsePtr: AutoreleasingUnsafeMutablePointer<DDXMLElement?>?) -> Bool {
             stanzaIdsPtr?.pointee = []
@@ -58,7 +60,8 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         guard previousRealm != nil else { return }
         for f in fixtures {
             f.account.syncManager.waitForPendingSnapshotApplies()
-            f.account.queue.sync {}; f.account.cancelStartupTrafficOrdering(); f.account.cancelDelayedConnectTimer()
+            waitForAccountQueue(f.account)
+            f.account.cancelStartupTrafficOrdering(); f.account.cancelDelayedConnectTimer()
             f.manager.omemo2MaintenanceWorkItem?.cancel(); f.manager.clearSession()
             f.account.xmppTaskScheduler.reset(); f.account.messages.updateSendingMessagesTimer?.invalidate()
             CredentialsManager.shared.getItem(for: f.owner).release(.authFailedRecoverable)
@@ -133,6 +136,12 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         f.account.sm = ResumedSM(storage: f.account.smStorage, dispatchQueue: f.account.queue)
         f.account.xmppStreamDidAuthenticate(f.wire)
     }
+    private func waitForAccountQueue(_ account: Account) {
+        let drained = expectation(description: "account queue fence")
+        account.queue.async { drained.fulfill() }
+        // A queued Realm write may wait for a writer on the main run loop.
+        wait(for: [drained], timeout: 5)
+    }
     func testActualSMResumeRepreparesManagedOMEMOAfterAccidentalReset() throws {
         let f = try fixture(); var handled = Set<String>()
         f.manager.beginOMEMO2Registration(f.wire)
@@ -167,14 +176,14 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         let emptyPage = try response(f, id: syncID, payload: "<query xmlns='https://xabber.com/protocol/synchronization' stamp='1793185595284531'><set xmlns='http://jabber.org/protocol/rsm'><first index='0'>empty</first><last>empty</last><count>0</count></set></query>")
         XCTAssertTrue(f.account.syncManager.read(withIQ: emptyPage))
         f.account.syncManager.waitForPendingSnapshotApplies()
-        f.account.queue.sync {}
+        waitForAccountQueue(f.account)
         f.account.sendStartupPresenceIfReady()
-        f.account.queue.sync {}
+        waitForAccountQueue(f.account)
         let presence = try XCTUnwrap(f.wire.packets.compactMap { $0 as? XMPPPresence }.last {
             $0.to == nil && [nil, "", "available"].contains($0.type)
         })
         f.account.xmppStream(f.wire, didSend: presence)
-        f.account.queue.sync {}
+        waitForAccountQueue(f.account)
         XCTAssertFalse(f.account.isStartupBackgroundTrafficBlocked,
             "Complete the real sync/presence release before testing a resumed completed startup")
         try driveToReady(f, handled: &handled)
@@ -222,6 +231,34 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         XCTAssertTrue(f.account.isStartupBackgroundTrafficBlocked)
         XCTAssertEqual(metadataCount(f), 0)
         XCTAssertEqual(publicationCount(f), 0)
+    }
+
+    func testColdSMResumeWaitsForFreshRecentsAndKeepsServerPresence() throws {
+        let f = try fixture()
+        f.account.devices.clearSession()
+        f.account.syncManager.isAvailable = true
+        let sm = ResumedSM(storage: f.account.smStorage, dispatchQueue: f.account.queue)
+        sm.usedCheckpoint = true
+        f.account.sm = sm
+
+        f.account.xmppStreamDidAuthenticate(f.wire)
+
+        XCTAssertTrue(f.account.isStartupBackgroundTrafficBlocked)
+        XCTAssertFalse(f.account.syncManager.hasReceivedStartupRecentsResponse())
+        XCTAssertNil(f.account.devices.authenticatedSessionGeneration(on: f.wire),
+                     "A cached device ID is not a live Devices authentication proof")
+        let sync = try XCTUnwrap(f.wire.packets.last {
+            $0.element(forName: "query", xmlns: "https://xabber.com/protocol/synchronization") != nil
+        })
+        let id = try XCTUnwrap(sync.attributeStringValue(forName: "id"))
+        let result = try response(f, id: id, payload: "<query xmlns='https://xabber.com/protocol/synchronization' stamp='1793185595284531'><set xmlns='http://jabber.org/protocol/rsm'><first index='0'>empty</first><last>empty</last><count>0</count></set></query>")
+        XCTAssertTrue(f.account.syncManager.read(withIQ: result))
+        f.account.syncManager.waitForPendingSnapshotApplies()
+        waitForAccountQueue(f.account)
+
+        XCTAssertTrue(f.account.syncManager.hasReceivedStartupRecentsResponse())
+        XCTAssertFalse(f.account.isStartupBackgroundTrafficBlocked)
+        XCTAssertFalse(f.wire.packets.contains { $0.name == "presence" && $0.attributeStringValue(forName: "to") == nil })
     }
     private func driveUntilPublication(_ f: Fixture, handled: inout Set<String>) throws {
         for _ in 0..<30 {

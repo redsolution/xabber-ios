@@ -3477,6 +3477,7 @@ final class Account: NSObject {
     private var startupBackgroundTrafficPending = false
     private var startupPresenceSubmissionInProgress = false
     private var startupPresenceTransmitted = false
+    private var primaryStreamHasAvailablePresence = false
     private var startupBackgroundReleased = false
     private var startupRosterWasReady = false
     private var startupSyncRetryAttempt = 0
@@ -3674,6 +3675,15 @@ final class Account: NSObject {
     
     var smStorage: XMPPStreamManagementMemoryStorage
     var sm: XMPPStreamManagement
+    private struct PendingBackgroundSMCheckpoint {
+        let stream: XMPPStream
+        let identity: PrimaryStreamManagementCheckpointIdentity
+        let generation: UUID
+    }
+    private let smCheckpointLock = NSLock()
+    private var pendingBackgroundSMCheckpoint: PendingBackgroundSMCheckpoint?
+    private weak var streamThatSealedSMCheckpoint: XMPPStream?
+    private var resumeFromCurrentStreamCheckpoint = false
     
     
     var carbonsEnabled: Bool = false
@@ -3860,10 +3870,10 @@ final class Account: NSObject {
             (startupBackgroundTrafficPending || syncManager.isStartupSynchronizationPending())
     }
 
-    func prepareStartupTrafficOrdering(didResume: Bool) {
+    func prepareStartupTrafficOrdering(didResume: Bool, restoredCheckpoint: Bool = false) {
         startupWorkLock.lock()
         var cancelled: [() -> Void] = []
-        if !didResume {
+        if !didResume || restoredCheckpoint {
             startupWorkGeneration &+= 1
             startupStanzaQueue.removeAll()
             startupWorkOrder.removeAll()
@@ -3872,9 +3882,10 @@ final class Account: NSObject {
             startupWorkCancellation.removeAll()
             startupBackgroundTrafficPending = syncManager.isAvailable
             startupPresenceSubmissionInProgress = false
-            startupPresenceTransmitted = false
+            startupPresenceTransmitted = restoredCheckpoint
+            primaryStreamHasAvailablePresence = restoredCheckpoint
             startupBackgroundReleased = false
-            startupRosterWasReady = false
+            startupRosterWasReady = restoredCheckpoint
             startupSyncRetryAttempt = 0
             startupSyncRetryScheduled = false
         } else if syncManager.isAvailable && !startupBackgroundReleased {
@@ -3959,13 +3970,14 @@ final class Account: NSObject {
                   self.syncManager.isCurrentStartupSynchronizationGeneration(generation),
                   !self.syncManager.isStartupSynchronizationPending() else { return }
             self.sendStartupPresenceIfReady()
+            self.releaseStartupBackgroundIfReady()
         }
     }
 
     func sendStartupPresenceIfReady() {
         startupWorkLock.lock()
         if roster.isInitialRosterReceived { startupRosterWasReady = true }
-        guard startupRosterWasReady, !startupPresenceSubmissionInProgress,
+        guard startupRosterWasReady, !startupPresenceSubmissionInProgress, !startupPresenceTransmitted,
               !syncManager.isStartupSynchronizationPending(),
               sendReadiness.snapshot.canFlushApplicationStanzas,
               xmppStream.isAuthenticated else {
@@ -3986,11 +3998,14 @@ final class Account: NSObject {
 
     /// The did-send boundary establishes presence-before-background on the wire.
     func startupPresenceDidSend(_ presence: XMPPPresence) {
-        guard presence.to == nil,
-              [nil, "", "available"].contains(presence.type),
-              !syncManager.isStartupSynchronizationPending() else { return }
+        guard presence.to == nil else { return }
+        let isAvailable = [nil, "", "available"].contains(presence.type)
         startupWorkLock.lock()
-        guard startupBackgroundTrafficPending, startupPresenceSubmissionInProgress else {
+        if isAvailable || presence.type == "unavailable" {
+            primaryStreamHasAvailablePresence = isAvailable
+        }
+        guard isAvailable, !syncManager.isStartupSynchronizationPending(),
+              startupBackgroundTrafficPending, startupPresenceSubmissionInProgress else {
             startupWorkLock.unlock()
             return
         }
@@ -4332,6 +4347,115 @@ final class Account: NSObject {
                 "canResume": self.sm.canResumeStream()
             ]
         )
+    }
+
+    private func smCheckpointIdentity() -> PrimaryStreamManagementCheckpointIdentity? {
+        let credentials = CredentialsManager.shared.getItem(for: jid)
+        guard let authenticationContext = credentials.streamManagementCredentialContext() else { return nil }
+        return PrimaryStreamManagementCheckpointIdentity(
+            owner: jid,
+            configuredResource: resource.isEmpty ? AccountManager.defaultResource : resource,
+            host: manuallySetHost ? host : nil,
+            port: manuallySetHost ? UInt16(exactly: port) : nil,
+            authenticationContext: authenticationContext + "|" + (devices.deviceId ?? "")
+        )
+    }
+
+    private func restorePrimarySMCheckpointBeforeConnect() {
+        let store = PrimaryStreamManagementCheckpointStore.shared
+        smCheckpointLock.lock()
+        pendingBackgroundSMCheckpoint = nil
+        guard let identity = smCheckpointIdentity() else {
+            resumeFromCurrentStreamCheckpoint = false
+            smCheckpointLock.unlock()
+            sm.unstageResumeCheckpoint()
+            return
+        }
+        let generation = store.begin(for: identity)
+        let checkpoint = store.load(for: identity, generation: generation)
+        resumeFromCurrentStreamCheckpoint = checkpoint != nil && streamThatSealedSMCheckpoint === xmppStream
+        smCheckpointLock.unlock()
+        guard let checkpoint else {
+            sm.unstageResumeCheckpoint()
+            return
+        }
+        let candidate = XMPPStreamManagementResumeCheckpoint(
+            resumptionID: checkpoint.resumptionID,
+            timeout: checkpoint.timeout,
+            lastDisconnect: checkpoint.disconnectedAt,
+            lastHandledByClient: checkpoint.lastHandledByClient,
+            lastHandledByServer: checkpoint.lastHandledByServer,
+            boundJID: checkpoint.boundFullJID
+        )
+        if sm.restoreResumeCheckpoint(candidate, consume: { [weak self] in
+            guard self?.smCheckpointIdentity() == identity else { return false }
+            return store.consume(checkpoint, for: identity, generation: generation)
+        }) {
+            logConnectionDiagnostics(event: "stream_management_checkpoint_loaded")
+        } else {
+            sm.unstageResumeCheckpoint()
+            _ = store.consume(checkpoint, for: identity, generation: generation)
+        }
+    }
+
+    func consumeSameProcessSMCheckpointMarker() -> Bool {
+        smCheckpointLock.lock()
+        defer { smCheckpointLock.unlock() }
+        let isSameProcess = resumeFromCurrentStreamCheckpoint
+        resumeFromCurrentStreamCheckpoint = false
+        streamThatSealedSMCheckpoint = nil
+        return isSameProcess
+    }
+
+    private func armPrimarySMCheckpointForBackground() {
+        guard xmppStream.isAuthenticated, xmppStream.isSecure,
+              syncManager.canCheckpointForStreamManagement() else { return }
+        startupWorkLock.lock()
+        let canRetainPresence = primaryStreamHasAvailablePresence && !isStartupBackgroundTrafficBlocked
+        startupWorkLock.unlock()
+        guard canRetainPresence, let identity = smCheckpointIdentity() else { return }
+        smCheckpointLock.lock()
+        defer { smCheckpointLock.unlock() }
+        guard pendingBackgroundSMCheckpoint == nil else { return }
+        pendingBackgroundSMCheckpoint = PendingBackgroundSMCheckpoint(
+            stream: xmppStream, identity: identity,
+            generation: PrimaryStreamManagementCheckpointStore.shared.begin(for: identity)
+        )
+    }
+
+    func savePrimarySMCheckpoint(_ snapshot: XMPPStreamManagementResumeCheckpoint) {
+        // A terminal stream callback is queued after the inbound delegates.
+        // The message queue fence checks for work not yet committed by them.
+        guard xmppStream.isDisconnected,
+              messages.performMessageQueueSync({ messages.queuedMessages.isEmpty }),
+              syncManager.canCheckpointForStreamManagement() else { return }
+        smCheckpointLock.lock()
+        defer { smCheckpointLock.unlock() }
+        guard let pending = pendingBackgroundSMCheckpoint, pending.stream === xmppStream else { return }
+        pendingBackgroundSMCheckpoint = nil
+        let checkpoint = PrimaryStreamManagementCheckpoint(
+            boundFullJID: snapshot.boundJID,
+            resumptionID: snapshot.resumptionID,
+            timeout: snapshot.timeout,
+            disconnectedAt: snapshot.lastDisconnect,
+            lastHandledByClient: snapshot.lastHandledByClient,
+            lastHandledByServer: snapshot.lastHandledByServer
+        )
+        if PrimaryStreamManagementCheckpointStore.shared.save(checkpoint, for: pending.identity,
+                                                               generation: pending.generation) {
+            streamThatSealedSMCheckpoint = pending.stream
+            logConnectionDiagnostics(event: "stream_management_checkpoint_saved")
+        }
+    }
+
+    private func invalidatePrimarySMCheckpoint() {
+        smCheckpointLock.lock()
+        pendingBackgroundSMCheckpoint = nil
+        streamThatSealedSMCheckpoint = nil
+        resumeFromCurrentStreamCheckpoint = false
+        PrimaryStreamManagementCheckpointStore.shared.invalidate(forOwner: jid)
+        smCheckpointLock.unlock()
+        sm.discardResumeCheckpoint()
     }
 
     func configureStream() {
@@ -4791,6 +4915,7 @@ final class Account: NSObject {
             self.xmppStream.myJID = XMPPJID(string: self.jid, resource: AccountManager.defaultResource)
         }
         self.configureEndpointResolutionForConnect()
+        self.restorePrimarySMCheckpointBeforeConnect()
         if self.push.node != "" && self.push.service != "" {
             self.pushStatusMessage.accept(true)
 //            Account§Manager.shared.markAsConnecting(jid: self.jid)
@@ -5160,6 +5285,7 @@ final class Account: NSObject {
         )
         if shouldReregisterDevice {
             if let deviceId = self.devices.deviceId {
+                self.invalidatePrimarySMCheckpoint()
                 self.logConnectionDiagnostics(
                     event: "device_reregister_reset_stream",
                     trigger: connectTrigger,
@@ -5187,6 +5313,11 @@ final class Account: NSObject {
         let gracefulRequestID = self.cancelPendingGracefulDisconnect()
         let wasDisconnected = self.xmppStream.isDisconnected
         let resolvedCause = cause ?? .intentionalShutdown
+        if hard && !wasDisconnected && resolvedCause == .backgroundSuspension {
+            self.armPrimarySMCheckpointForBackground()
+        } else if resolvedCause.isIntentional && resolvedCause != .backgroundSuspension {
+            self.invalidatePrimarySMCheckpoint()
+        }
         self.pendingDisconnectContext.set(
             cause: resolvedCause,
             reconnectAlreadyScheduled: false
@@ -5234,7 +5365,7 @@ final class Account: NSObject {
         }
         self.statusState.accept(.offline)
         self.statusMessage.accept(RosterUtils.shared.convertStatus(.offline))
-        self.resetModules()
+        self.resetModules(preservingDeviceBindingForResume: resolvedCause == .backgroundSuspension)
         XMPPUIActionManager.shared.close(disconnect: true)
         if hard {
             guard !wasDisconnected else { return }
@@ -5765,6 +5896,7 @@ final class Account: NSObject {
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {
+        PrimaryStreamManagementCheckpointStore.shared.invalidate(forOwner: owner)
         APNSManager.shared.sendDeleteRequest(jid: owner, voip: true)
         APNSManager.shared.sendDeleteRequest(jid: owner, voip: false)
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),

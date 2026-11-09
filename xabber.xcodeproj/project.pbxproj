@@ -487,6 +487,7 @@
 		66159E00201EDC7D00B1CF92 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 66159DFE201EDC7D00B1CF92 /* LaunchScreen.storyboard */; };
 		66159E28201EE44D00B1CF92 /* Podfile in Resources */ = {isa = PBXBuildFile; fileRef = 66159E27201EE44D00B1CF92 /* Podfile */; };
 		66159E36201F550A00B1CF92 /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66159E35201F550A00B1CF92 /* Account.swift */; };
+		C018CAFE1109000000000002 /* PrimaryStreamManagementCheckpointStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C018CAFE1109000000000001 /* PrimaryStreamManagementCheckpointStore.swift */; };
 		6619536522A6729300BE7190 /* SettingsitemDetailViewController+SelectorCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6619536422A6729300BE7190 /* SettingsitemDetailViewController+SelectorCell.swift */; };
 		6619536722A6745100BE7190 /* SettingsitemDetailViewController+SwitchCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6619536622A6745100BE7190 /* SettingsitemDetailViewController+SwitchCell.swift */; };
 		6619536922A6763B00BE7190 /* SettingsItemDetailViewController+TableViewDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6619536822A6763B00BE7190 /* SettingsItemDetailViewController+TableViewDelegate.swift */; };
@@ -1210,6 +1211,8 @@
 		DD710C4D2D561258ECAFBFC4 /* DevicesAuthenticationPublicationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */; };
 		533F627A053EEC926FE7080D /* DevicesPendingRegistrationStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */; };
 		8CB7FD1FA0142ACB86681490 /* DevicesSessionResumePublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */; };
+		C018CAFE1109000000000006 /* ColdStreamManagementWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C018CAFE1109000000000005 /* ColdStreamManagementWireTests.swift */; };
+		C018CAFE1109000000000004 /* PrimaryStreamManagementCheckpointStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C018CAFE1109000000000003 /* PrimaryStreamManagementCheckpointStoreTests.swift */; };
 		60DD5EEB8EC00F87A47D7D33 /* DevicesGuardedKeyMaintenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */; };
 		EF396B7B2266463AB1964A36 /* VerificationActionVisibilityAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EAECFB0EA694B8093DC989B /* VerificationActionVisibilityAccessibilityTests.swift */; };
 /* End PBXBuildFile section */
@@ -1709,6 +1712,7 @@
 		66159E01201EDC7D00B1CF92 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		66159E27201EE44D00B1CF92 /* Podfile */ = {isa = PBXFileReference; lastKnownFileType = text; path = Podfile; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.ruby; };
 		66159E35201F550A00B1CF92 /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
+		C018CAFE1109000000000001 /* PrimaryStreamManagementCheckpointStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimaryStreamManagementCheckpointStore.swift; sourceTree = "<group>"; };
 		6619536422A6729300BE7190 /* SettingsitemDetailViewController+SelectorCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsitemDetailViewController+SelectorCell.swift"; sourceTree = "<group>"; };
 		6619536622A6745100BE7190 /* SettingsitemDetailViewController+SwitchCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsitemDetailViewController+SwitchCell.swift"; sourceTree = "<group>"; };
 		6619536822A6763B00BE7190 /* SettingsItemDetailViewController+TableViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsItemDetailViewController+TableViewDelegate.swift"; sourceTree = "<group>"; };
@@ -2452,6 +2456,8 @@
 		5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesAuthenticationPublicationContractTests.swift; sourceTree = "<group>"; };
 		D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesPendingRegistrationStorageTests.swift; sourceTree = "<group>"; };
 		DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesSessionResumePublicationTests.swift; sourceTree = "<group>"; };
+		C018CAFE1109000000000005 /* ColdStreamManagementWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStreamManagementWireTests.swift; sourceTree = "<group>"; };
+		C018CAFE1109000000000003 /* PrimaryStreamManagementCheckpointStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimaryStreamManagementCheckpointStoreTests.swift; sourceTree = "<group>"; };
 		07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesGuardedKeyMaintenanceTests.swift; sourceTree = "<group>"; };
 		9EAECFB0EA694B8093DC989B /* VerificationActionVisibilityAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationActionVisibilityAccessibilityTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -3891,6 +3897,7 @@
 				6608562E2071FC92003E0122 /* extensions */,
 				66802904205A58A2005F0C9A /* delegates */,
 				66159E35201F550A00B1CF92 /* Account.swift */,
+				C018CAFE1109000000000001 /* PrimaryStreamManagementCheckpointStore.swift */,
 				4E5200012F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift */,
 				66BA99BF2420BE3B00D20CE2 /* AccountStorageItem.swift */,
 				1A93993127D9DAC700CEEBF6 /* AccountQuotaStorageItem.swift */,
@@ -4476,6 +4483,8 @@
 				D988E1B6628A4BC7B6E53689 /* DevicesAuthenticationBindingTests.swift */,
 				07EE6FE7A83241AA50369CEA /* DevicesGuardedKeyMaintenanceTests.swift */,
 				DDA3E773FD96B0A1F11377CB /* DevicesSessionResumePublicationTests.swift */,
+				C018CAFE1109000000000005 /* ColdStreamManagementWireTests.swift */,
+				C018CAFE1109000000000003 /* PrimaryStreamManagementCheckpointStoreTests.swift */,
 				D0EBFAA2C843906AE265E690 /* DevicesPendingRegistrationStorageTests.swift */,
 				5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */,
 				8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */,
@@ -6623,6 +6632,7 @@
 				6643F31C21C2650E00333229 /* MessageContainerView.swift in Sources */,
 				4D63943C28607A2F0063A07E /* AccountInfoViewController+Flow.swift in Sources */,
 				66159E36201F550A00B1CF92 /* Account.swift in Sources */,
+				C018CAFE1109000000000002 /* PrimaryStreamManagementCheckpointStore.swift in Sources */,
 				4E5200022F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift in Sources */,
 				669BAF0D2DE8672A0072B1F4 /* UIButton+Extension.swift in Sources */,
 				66E9219226F4C4B5006B8E40 /* Base64Extras.swift in Sources */,
@@ -6893,6 +6903,8 @@
 				724188EB8F864E6181254167 /* DevicesAuthenticationBindingTests.swift in Sources */,
 				60DD5EEB8EC00F87A47D7D33 /* DevicesGuardedKeyMaintenanceTests.swift in Sources */,
 				8CB7FD1FA0142ACB86681490 /* DevicesSessionResumePublicationTests.swift in Sources */,
+				C018CAFE1109000000000006 /* ColdStreamManagementWireTests.swift in Sources */,
+				C018CAFE1109000000000004 /* PrimaryStreamManagementCheckpointStoreTests.swift in Sources */,
 				533F627A053EEC926FE7080D /* DevicesPendingRegistrationStorageTests.swift in Sources */,
 				DD710C4D2D561258ECAFBFC4 /* DevicesAuthenticationPublicationContractTests.swift in Sources */,
 				12EE3B6FA6F19743DFD5C54C /* DevicesServerIDPublicationTests.swift in Sources */,

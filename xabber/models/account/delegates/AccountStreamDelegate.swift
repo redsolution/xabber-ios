@@ -337,13 +337,21 @@ extension Account: XMPPStreamDelegate {
         var resumedStanzaIds: NSArray?
         var resumeResponse: DDXMLElement?
         let didResume = self.sm.didResume(withAckedStanzaIds: &resumedStanzaIds, serverResponse: &resumeResponse)
+        let usedCheckpoint = didResume && self.sm.didResumeFromCheckpoint
+        let resumedCurrentStream = self.consumeSameProcessSMCheckpointMarker()
+        let restoredSMCheckpoint = usedCheckpoint && !resumedCurrentStream
+        if !didResume {
+            // Also retire the old record when the server skipped custom binding.
+            PrimaryStreamManagementCheckpointStore.shared.invalidate(forOwner: jid)
+        }
         self.logConnectionDiagnostics(
             event: didResume ? "stream_management_resume_succeeded" : "stream_management_resume_not_used",
             details: [
                 "ackedCount": resumedStanzaIds?.count ?? 0,
-                "response": resumeResponse?.name ?? "none"
-            ],
-            rawXML: resumeResponse?.prettyXMLString ?? resumeResponse?.xmlString
+                "response": resumeResponse?.name ?? "none",
+                "restoredCheckpoint": usedCheckpoint,
+                "coldResume": restoredSMCheckpoint
+            ]
         )
         // Capture the UUID actually used by this successful OCRA attempt, or
         // the exact acknowledged pre-bind registration, before clearing the
@@ -351,8 +359,9 @@ extension Account: XMPPStreamDelegate {
         let authenticatedDeviceID = self.authenticationCounterTracker.pendingDevicesDeviceID
             ?? self.devices.registeredDeviceID(on: sender)
         self.devices.recordAuthenticatedSession(on: sender, deviceID: authenticatedDeviceID,
-            didResume: didResume, legacyHOTP: self.authenticationCounterTracker.pendingUsesLegacyHOTP)
-        self.syncManager.prepareForAuthenticatedStream(didResume: didResume)
+            didResume: didResume && !restoredSMCheckpoint,
+            legacyHOTP: self.authenticationCounterTracker.pendingUsesLegacyHOTP)
+        self.syncManager.prepareForAuthenticatedStream(didResume: didResume, restoredCheckpoint: restoredSMCheckpoint)
         self.primaryStreamAckRequestCoordinator.reset()
         let ackedIds = (resumedStanzaIds as? [Any])?.compactMap { $0 as? String } ?? []
         if didResume {
@@ -366,7 +375,7 @@ extension Account: XMPPStreamDelegate {
         self.connectionGate.markPostAuthSetup()
         self.connectionResilience.streamDidLeaveBinding(reason: "authenticated")
         self.logConnectionDiagnostics(event: "post_auth_setup_started")
-        self.didAuthenticate()
+        self.didAuthenticate(restoredSMCheckpoint: restoredSMCheckpoint)
         if let resource = sender.myJID?.resource {
             self.devices.updateMyDevice(resource: resource)
         }
@@ -1195,6 +1204,11 @@ extension Account: XMPPStreamDelegate {
 
 
 extension Account: XMPPStreamManagementDelegate {
+
+    func xmppStreamManagement(_ sender: XMPPStreamManagement, didPrepare checkpoint: XMPPStreamManagementResumeCheckpoint) {
+        guard sender === sm else { return }
+        savePrimarySMCheckpoint(checkpoint)
+    }
     
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasEnabled enabled: DDXMLElement) {
         self.primaryStreamAckRequestCoordinator.reset()

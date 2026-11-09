@@ -1126,6 +1126,7 @@ public class AccountManager: NSObject {
     }
     
     func disable(jid: String) {
+        PrimaryStreamManagementCheckpointStore.shared.invalidate(forOwner: jid)
         self.find(for: jid)?.disable()
         NotifyManager.shared.clearNotificationsFor(account: jid)
         do {

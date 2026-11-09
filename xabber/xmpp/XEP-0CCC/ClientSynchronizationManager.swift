@@ -1113,6 +1113,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         stateQueue.sync { isAvailable && startupSynchronizationPending }
     }
 
+    final func canCheckpointForStreamManagement() -> Bool {
+        stateQueue.sync {
+            !isApplyingPage && pendingSnapshotPageCount == 0 &&
+            pendingSnapshotContinuation == nil && syncRequestInfoById.isEmpty
+        }
+    }
+
     final func isCurrentStartupSynchronizationGeneration(_ generation: UInt64) -> Bool {
         isCurrentSyncSessionGeneration(generation)
     }
@@ -2275,17 +2282,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         _ = resetSyncSession()
     }
 
-    final func prepareForAuthenticatedStream(didResume: Bool) {
-        if !didResume {
+    final func prepareForAuthenticatedStream(didResume: Bool, restoredCheckpoint: Bool = false) {
+        if !didResume || restoredCheckpoint {
             reset()
         }
         stateQueue.sync {
-            if !didResume {
+            if !didResume || restoredCheckpoint {
                 startupSynchronizationPending = isAvailable
             }
+            if restoredCheckpoint { initialPresenceSessionState = .sent }
         }
         AccountManager.shared.find(for: owner)?
-            .prepareStartupTrafficOrdering(didResume: didResume)
+            .prepareStartupTrafficOrdering(didResume: didResume, restoredCheckpoint: restoredCheckpoint)
         prepareInitialPresenceForAuthenticatedStream(didResume: didResume)
     }
     
