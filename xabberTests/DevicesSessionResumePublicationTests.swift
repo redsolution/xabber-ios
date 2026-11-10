@@ -259,6 +259,8 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
 
         XCTAssertTrue(f.account.isStartupBackgroundTrafficBlocked)
         XCTAssertTrue(f.account.syncManager.isAwaitingStartupRecentsSyncResponse())
+        XCTAssertFalse(f.account.syncManager.isStartupRecentsReady(),
+                       "Resuming an interrupted fallback sync still requires its first page")
         let syncs = syncQueries(f)
         XCTAssertEqual(syncs.count, 2)
         XCTAssertNotEqual(syncs.last?.attributeStringValue(forName: "id"), interruptedID)
@@ -273,8 +275,11 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         let sm = AuthenticationSM(storage: f.account.smStorage, dispatchQueue: f.account.queue)
         sm.usedCheckpoint = true
         f.account.sm = sm
+        XCTAssertFalse(f.account.syncManager.isStartupRecentsReady())
 
         f.account.xmppStreamDidAuthenticate(f.wire)
+        XCTAssertTrue(f.account.syncManager.isStartupRecentsReady(),
+                      "The accepted resume releases Recents without a sync response")
         waitForAccountQueue(f.account)
 
         XCTAssertFalse(f.account.isStartupBackgroundTrafficBlocked)
@@ -297,6 +302,7 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         f.account.xmppStreamDidAuthenticate(f.wire)
 
         XCTAssertTrue(f.account.syncManager.isStartupSynchronizationPending())
+        XCTAssertFalse(f.account.syncManager.isStartupRecentsReady())
         XCTAssertFalse(f.account.syncManager.isAwaitingStartupRecentsSyncResponse())
         XCTAssertTrue(syncQueries(f).isEmpty)
 
@@ -306,12 +312,14 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         XCTAssertEqual(syncQueries(f).count, 1)
         XCTAssertTrue(f.account.isStartupBackgroundTrafficBlocked)
         XCTAssertTrue(f.account.syncManager.isAwaitingStartupRecentsSyncResponse())
+        XCTAssertFalse(f.account.syncManager.isStartupRecentsReady())
 
         let syncID = try XCTUnwrap(syncQueries(f).first?.attributeStringValue(forName: "id"))
         XCTAssertTrue(f.account.syncManager.read(withIQ: try emptySyncPage(f, id: syncID)))
         f.account.syncManager.waitForPendingSnapshotApplies()
 
         XCTAssertFalse(f.account.syncManager.isAwaitingStartupRecentsSyncResponse())
+        XCTAssertTrue(f.account.syncManager.isStartupRecentsReady())
     }
 
     func testLegacyRosterRequestDoesNotMarkRecentsAsWaitingForSync() throws {

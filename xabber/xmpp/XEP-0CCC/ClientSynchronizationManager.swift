@@ -538,9 +538,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     static let startupRecentsSyncActivityDidChange = Notification.Name(
         "com.xabber.client-sync.startup-recents-sync-activity-did-change"
     )
-    // Presentation readiness belongs to this account instance. Transport
-    // retries and reconnects cannot take away its first committed response.
+    // Presentation readiness belongs to this account instance. Either an
+    // accepted cold checkpoint or a committed startup response is sufficient.
     private var startupRecentsResponseReceived = false
+    private var startupRecentsResumeAccepted = false
     static let startupRecentsReadinessDidChange = Notification.Name(
         "com.xabber.client-sync.startup-recents-readiness-did-change"
     )
@@ -1179,15 +1180,15 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         appliedFingerprints.merge(committedFingerprints
             .filter { !encryptedPrimaries.contains($0.key) }
             .mapValues { AppliedFingerprint(generation: expectedGeneration, digest: $0) }) { _, new in new }
-        let didReceiveStartupResponse = isInitialServerSnapshot && stateQueue.sync {
+        let didBecomeRecentsReady = isInitialServerSnapshot && stateQueue.sync {
             guard syncSessionGeneration == expectedGeneration,
                   !startupRecentsResponseReceived else { return false }
             startupRecentsResponseReceived = true
-            return true
+            return !startupRecentsResumeAccepted
         }
         ClientSyncPageBatch.shared.commit(batch, changedConversationPrimaries: result.changedConversationPrimaries)
         completedBatch = true
-        if didReceiveStartupResponse { notifyStartupRecentsReadinessDidChange() }
+        if didBecomeRecentsReady { notifyStartupRecentsReadinessDidChange() }
         return SyncPayloadApplyResult(
             applySummary: result.summary
         )
@@ -1334,16 +1335,20 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         stateQueue.sync { startupRecentsResponseReceived }
     }
 
+    final func isStartupRecentsReady() -> Bool {
+        stateQueue.sync { startupRecentsResponseReceived || startupRecentsResumeAccepted }
+    }
+
     /// The roster coordinator calls this only for a successfully applied or
     /// empty result it correlated with its current initial roster request.
     final func noteLegacyStartupRosterResponse(_ iq: XMPPIQ) {
         guard iq.iqType == .result, syncServerContext(for: iq) == .accountServer else { return }
-        let didReceive = stateQueue.sync {
+        let didBecomeRecentsReady = stateQueue.sync {
             guard !isAvailable, !startupRecentsResponseReceived else { return false }
             startupRecentsResponseReceived = true
-            return true
+            return !startupRecentsResumeAccepted
         }
-        if didReceive { notifyStartupRecentsReadinessDidChange() }
+        if didBecomeRecentsReady { notifyStartupRecentsReadinessDidChange() }
     }
 
     private func notifyStartupRecentsReadinessDidChange() {
@@ -2607,12 +2612,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         if !didResume || restoredCheckpoint {
             reset()
         }
-        stateQueue.sync {
+        let didBecomeRecentsReady = stateQueue.sync {
             if !didResume || restoredCheckpoint {
                 startupSynchronizationPending = isAvailable && !restoredCheckpoint
             }
             if restoredCheckpoint { initialPresenceSessionState = .sent }
+            // An in-process resume can continue an interrupted fallback sync.
+            // Only a restored cold checkpoint replaces the first-page witness.
+            guard didResume, restoredCheckpoint, !startupRecentsResumeAccepted else { return false }
+            startupRecentsResumeAccepted = true
+            return !startupRecentsResponseReceived
         }
+        if didBecomeRecentsReady { notifyStartupRecentsReadinessDidChange() }
         AccountManager.shared.find(for: owner)?
             .prepareStartupTrafficOrdering(didResume: didResume, restoredCheckpoint: restoredCheckpoint)
         prepareInitialPresenceForAuthenticatedStream(didResume: didResume)

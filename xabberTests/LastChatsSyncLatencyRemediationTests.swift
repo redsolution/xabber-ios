@@ -339,15 +339,19 @@ final class LastChatsSyncLatencyRemediationTests: XCTestCase {
         let realm = try WRealm.safe()
         try realm.write { fixture.chat.unread = 1 }
         AccountManager.shared.connectingUsers.accept([fixture.owner])
-        let controller = LastChatsViewController()
         var isAwaitingStartupSync = true
+        let presentation = LastChatsStartupPresentation()
+        presentation.begin(owners: [fixture.owner])
+        let controller = LastChatsViewController()
+        controller.startupRecentsPresentation = presentation
         controller.startupRecentsSyncPendingForTesting = { owner in
             owner == fixture.owner && isAwaitingStartupSync
         }
         controllers.append(controller)
-        controller.enabledAccounts.accept([fixture.owner])
-        controller.tableView = DatasetApplyTableView(frame: .zero, style: .plain)
 
+        controller.loadViewIfNeeded()
+        XCTAssertTrue(controller.datasourceShowsSkeleton, "The first frame is ready before list subscriptions run.")
+        XCTAssertGreaterThan(controller.datasource.count, 0)
         controller.subscribe()
         pumpMainRunLoop(for: 0.5)
 
@@ -375,7 +379,7 @@ final class LastChatsSyncLatencyRemediationTests: XCTestCase {
         let startupBatch = ClientSyncPageBatch.shared.begin(owner: fixture.owner, generation: 1)
         defer { ClientSyncPageBatch.shared.cancel(startupBatch) }
         isAwaitingStartupSync = false
-        NotificationCenter.default.post(name: ClientSynchronizationManager.startupRecentsSyncActivityDidChange,
+        NotificationCenter.default.post(name: ClientSynchronizationManager.startupRecentsReadinessDidChange,
             object: fixture.owner)
         pumpMainRunLoop(for: 0.3)
         XCTAssertTrue(controller.datasourceShowsSkeleton, "An active batch still owns publication.")
@@ -388,6 +392,42 @@ final class LastChatsSyncLatencyRemediationTests: XCTestCase {
         AccountManager.shared.connectingUsers.accept([fixture.owner])
         pumpMainRunLoop(for: 0.3)
         XCTAssertFalse(controller.datasourceShowsSkeleton, "A warm reconnect must preserve the released list.")
+    }
+
+    func testBackgroundRetiresPendingColdSkeletonForVisibleAndRecreatedRecents() throws {
+        let fixture = try makeFixture()
+        let presentation = LastChatsStartupPresentation()
+        presentation.begin(owners: [fixture.owner])
+        let controller = LastChatsViewController()
+        controller.startupRecentsPresentation = presentation
+        controller.startupRecentsSyncPendingForTesting = { $0 == fixture.owner }
+        controllers.append(controller)
+        let activePage = ClientSyncPageBatch.shared.begin(owner: fixture.owner, generation: 1)
+        defer { ClientSyncPageBatch.shared.cancel(activePage) }
+        controller.loadViewIfNeeded()
+        controller.subscribe()
+        XCTAssertTrue(controller.datasourceShowsSkeleton)
+
+        presentation.end()
+
+        XCTAssertFalse(controller.datasourceShowsSkeleton, "The pending first page cannot keep a skeleton on return.")
+        ClientSyncPageBatch.shared.commit(activePage, changedConversationPrimaries: [])
+        controller.unsubscribe()
+        controller.subscribe()
+        pumpMainRunLoop(for: 0.5)
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+        XCTAssertEqual(controller.datasource.first?.message, fixture.message.body)
+
+        let recreated = LastChatsViewController()
+        recreated.startupRecentsPresentation = presentation
+        recreated.startupRecentsSyncPendingForTesting = { $0 == fixture.owner }
+        controllers.append(recreated)
+        recreated.loadViewIfNeeded()
+        XCTAssertFalse(recreated.datasourceShowsSkeleton)
+        recreated.subscribe()
+        pumpMainRunLoop(for: 0.5)
+        XCTAssertFalse(recreated.datasourceShowsSkeleton)
+        XCTAssertEqual(recreated.datasource.first?.message, fixture.message.body)
     }
 
     func testNoActiveStartupSyncShowsCachedRecentsWhenTheListSubscribes() throws {

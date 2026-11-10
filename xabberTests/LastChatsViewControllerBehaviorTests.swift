@@ -991,7 +991,7 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertFalse(controller.datasourceShowsSkeleton)
     }
 
-    func testFallbackSyncCanShowSkeletonAfterCachedRecentsWereVisible() throws {
+    func testCompletedColdResumeShowsCachedRecentsWhenTheViewLoadsLater() throws {
         let fixture = try makeStaleFreshEncryptedPreviewFixture(linkMessage: true)
         let owner = fixture.chat.owner
         let account = AccountStorageItem()
@@ -999,22 +999,16 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         account.enabled = true
         let realm = try WRealm.safe()
         try realm.write { realm.add(account) }
+        let presentation = LastChatsStartupPresentation()
+        presentation.begin(owners: [owner])
         let controller = LastChatsViewController()
         defer { controller.unsubscribe() }
-        var isAwaitingStartupSync = false
-        controller.startupRecentsSyncPendingForTesting = { $0 == owner && isAwaitingStartupSync }
+        controller.startupRecentsPresentation = presentation
+        controller.startupRecentsSyncPendingForTesting = { _ in false }
+
+        controller.loadViewIfNeeded()
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
         controller.subscribe()
-        XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
-
-        isAwaitingStartupSync = true
-        NotificationCenter.default.post(name: ClientSynchronizationManager.startupRecentsSyncActivityDidChange, object: owner)
-
-        let skeleton = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.datasourceShowsSkeleton }, object: nil)
-        wait(for: [skeleton], timeout: 2)
-        XCTAssertFalse(controller.datasource.contains { $0.jid == fixture.chat.jid })
-
-        isAwaitingStartupSync = false
-        NotificationCenter.default.post(name: ClientSynchronizationManager.startupRecentsSyncActivityDidChange, object: owner)
         XCTAssertTrue(waitForLastChatsDataset(controller, containing: fixture.chat.jid))
         XCTAssertFalse(controller.datasourceShowsSkeleton)
     }

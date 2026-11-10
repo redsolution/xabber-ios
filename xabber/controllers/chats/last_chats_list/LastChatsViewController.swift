@@ -30,6 +30,30 @@ import MaterialComponents.MDCPalettes
 import XMPPFramework.XMPPJID
 import AVFoundation
 
+/// Shared by Recents controllers for the first foreground of this process.
+/// App and scene lifecycle callbacks update it on the main thread.
+final class LastChatsStartupPresentation {
+    static let shared = LastChatsStartupPresentation()
+
+    private let startupOwners = BehaviorRelay<Set<String>>(value: [])
+    private var hasBegun = false
+    private(set) var hasEnded = false
+    var owners: Set<String> { startupOwners.value }
+    var ownersDidChange: Observable<Set<String>> { startupOwners.skip(1) }
+
+    func begin(owners: Set<String>) {
+        guard !hasBegun, !hasEnded else { return }
+        hasBegun = true
+        startupOwners.accept(owners)
+    }
+
+    func end() {
+        guard !hasEnded else { return }
+        hasEnded = true
+        startupOwners.accept([])
+    }
+}
+
 enum LastChatsNotificationAuthorizationPromptPolicy {
     static func shouldRequest(
         isLastChatsVisible: Bool,
@@ -1971,6 +1995,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var isDatasetUpdateInFlight: Bool = false
     internal var needsDatasetRefresh: Bool = false
     internal var skeletonItemsCount: Int = 10
+    internal var startupRecentsPresentation = LastChatsStartupPresentation.shared
     
     #if DEBUG
     internal var startupRecentsSyncPendingForTesting: ((String) -> Bool)?
@@ -3683,17 +3708,74 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     @discardableResult
     private func updateStartupRecentsSkeleton(for filter: Filter) -> Bool {
         let isRecentsFilter = filter == .chats || filter == .unread
-        let shouldShowSkeleton = isRecentsFilter && enabledAccounts.value.contains { owner in
+        let shouldShowSkeleton = isRecentsFilter && enabledAccounts.value
+            .intersection(startupRecentsPresentation.owners).contains { owner in
             #if DEBUG
             if let startupRecentsSyncPendingForTesting {
                 return startupRecentsSyncPendingForTesting(owner)
             }
             #endif
-            return AccountManager.shared.find(for: owner)?.syncManager.isAwaitingStartupRecentsSyncResponse() == true
+            return AccountManager.shared.find(for: owner)?.syncManager.isStartupRecentsReady() == false
+        }
+        if startupRecentsPresentation.hasEnded, datasourceShowsSkeleton {
+            // A backgrounded launch may still be waiting on a page. Remove its
+            // placeholders before foregrounding, even if list mapping is blocked.
+            installStartupRecentsRows([], showsSkeleton: false)
         }
         guard showSkeleton.value != shouldShowSkeleton else { return false }
         showSkeleton.accept(shouldShowSkeleton)
         return true
+    }
+
+    private func prepareStartupRecentsFirstFrame() {
+        updateStartupRecentsSkeleton(for: filter.value)
+        guard showSkeleton.value, datasource.isEmpty, !datasourceShowsSkeleton,
+              !isDatasetUpdateInFlight else { return }
+        installStartupRecentsRows(makeSkeletonRows(), showsSkeleton: true)
+    }
+
+    private func makeSkeletonRows() -> [Datasource] {
+        (0..<skeletonItemsCount).map {
+            Datasource(
+                jid: "\($0)",
+                owner: "",
+                username: "",
+                attributedUsername: nil,
+                message: "",
+                date: .distantPast,
+                state: nil,
+                isMute: false,
+                isSynced: false,
+                status: .away,
+                entity: .bot,
+                conversationType: .axolotl,
+                unread: 0,
+                unreadString: nil,
+                hasUnreadMention: false,
+                color: .white,
+                isDraft: false,
+                hasAttachment: false,
+                userNickname: nil,
+                isSystemMessage: false,
+                isPinned: false,
+                subRequest: false,
+                isEncrypted: false,
+                avatarUrl: nil,
+                hasErrorInChat: false,
+                updateTS: 0,
+                isVerificationActionRequired: false,
+                specialMessageKind: .none,
+                avatars: []
+            )
+        }
+    }
+
+    private func installStartupRecentsRows(_ rows: [Datasource], showsSkeleton: Bool) {
+        UIView.performWithoutAnimation {
+            setDatasource(rows, sections: Self.makeDatasourceSections(from: rows, showsSkeleton: showsSkeleton),
+                          showsSkeleton: showsSkeleton)
+            tableView.reloadData()
+        }
     }
 
     internal struct UnreadChatReadCandidate: Equatable {
@@ -4174,40 +4256,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         if showsSkeleton ?? self.showSkeleton.value {
             syncLatencyWorkCounter.record(.fullDatasetBuild)
-            let skeletonItemsCount = self.skeletonItemsCount
-            return (0..<skeletonItemsCount).compactMap {
-                return Datasource(
-                    jid: "\($0)",
-                    owner: "",
-                    username: "",
-                    attributedUsername: nil,
-                    message: "",
-                    date: Date(),
-                    state: nil,
-                    isMute: false,
-                    isSynced: false,
-                    status: .away,
-                    entity: .bot,
-                    conversationType: .axolotl,
-                    unread: 0,
-                    unreadString: nil,
-                    hasUnreadMention: false,
-                    color: .white,
-                    isDraft: false,
-                    hasAttachment: false,
-                    userNickname: nil,
-                    isSystemMessage: false,
-                    isPinned: false,
-                    subRequest: false,
-                    isEncrypted: false,
-                    avatarUrl: nil,
-                    hasErrorInChat: false,
-                    updateTS: 0,
-                    isVerificationActionRequired: false,
-                    specialMessageKind: .none,
-                    avatars: []
-                )
-            }
+            return makeSkeletonRows()
         }
         do {
             let realm = Self.makeDatasetReadSnapshot(from: try readRealm ?? WRealm.safe())
@@ -5082,7 +5131,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
                 guard let readRevision, self.projectionReadIsCurrent(readRevision),
                       interfaceStyle == self.traitCollection.userInterfaceStyle,
-                      newShowsSkeleton == self.showSkeleton.value else {
+                      newShowsSkeleton == self.showSkeleton.value,
+                      oldShowsSkeleton == self.datasourceShowsSkeleton else {
                     self.deferredSyncPageRefresh = true
                     self.needsDatasetRefresh = true
                     self.finishDatasetUpdateCycle(didCommitDatasetApply: false)
@@ -5410,11 +5460,18 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             .disposed(by: bag)
 
         NotificationCenter.default.rx
-            .notification(ClientSynchronizationManager.startupRecentsSyncActivityDidChange)
+            .notification(ClientSynchronizationManager.startupRecentsReadinessDidChange)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe(onNext: { [weak self] notification in
                 guard let self, let owner = notification.object as? String,
                       self.enabledAccounts.value.contains(owner) else { return }
+                self.updateStartupRecentsSkeleton(for: self.filter.value)
+            })
+            .disposed(by: bag)
+
+        startupRecentsPresentation.ownersDidChange
+            .subscribe(onNext: { [weak self] _ in
+                guard let self else { return }
                 self.updateStartupRecentsSkeleton(for: self.filter.value)
             })
             .disposed(by: bag)
@@ -5485,6 +5542,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             })
             .disposed(by: bag)
         
+        prepareStartupRecentsFirstFrame()
+
         enabledAccounts
             .asObservable()
             .subscribe(onNext: { _ in
@@ -5836,6 +5895,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private func willEnterForeground() {
 //        print(#function)
         NotifyManager.shared.clearAllNotifications()
+        updateStartupRecentsSkeleton(for: filter.value)
         guard isAppeared else { return }
         canUpdateDataset = true
         runDatasetUpdateTask()
@@ -6330,6 +6390,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         NotifyManager.shared.setLastChats(displayed: true)
         configure()
+        prepareStartupRecentsFirstFrame()
         UIView.performWithoutAnimation {
             configureBars(updateNavigationItems: true)
         }
@@ -6342,6 +6403,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        prepareStartupRecentsFirstFrame()
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         configureChatBackground()
         NavigationLargeTitlePolicy.apply(to: self)

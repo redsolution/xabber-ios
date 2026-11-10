@@ -895,6 +895,7 @@ final class AppRootCoordinator: NSObject {
         #if DEBUG || CHAT_PERFORMANCE_LAB
         guard !isDebugFixtureActive else { return }
         #endif
+        LastChatsStartupPresentation.shared.end()
         ApplicationStateManager.shared.sceneDidEnterBackground(mainWindow: window)
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_did_enter_background",

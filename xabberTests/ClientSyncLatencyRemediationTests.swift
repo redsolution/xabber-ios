@@ -178,12 +178,14 @@ final class ClientSyncLatencyRemediationTests: XCTestCase {
             index: 0, count: 2, cursor: "next")))
         wait(for: [commitEntered], timeout: 1)
         XCTAssertFalse(manager.hasReceivedStartupRecentsResponse())
+        XCTAssertFalse(manager.isStartupRecentsReady())
         XCTAssertEqual(notices.count, 0)
 
         release.signal()
         manager.waitForPendingSnapshotApplies()
 
         XCTAssertTrue(manager.hasReceivedStartupRecentsResponse())
+        XCTAssertTrue(manager.isStartupRecentsReady())
         XCTAssertEqual(notices.count, 1)
         XCTAssertEqual(try chat(jid)?.lastMessageId, "first")
         XCTAssertTrue(manager.isStartupSynchronizationPending(), "First-page presentation cannot release the full startup barrier")

@@ -259,6 +259,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let shouldAutoconnectAccounts = AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(isPushKit: self.isPushKit)
         DDLogDebug("app didFinishLaunching accountAutoConnect=\(shouldAutoconnectAccounts) pushKit=\(self.isPushKit)")
         AccountManager.shared.load(shouldAutoconnectAccounts)
+        LastChatsStartupPresentation.shared.begin(owners: Set(AccountManager.shared.users.map(\.jid)))
         if PushExtensionDiagnostics.isOfflineHostRun() {
             let streams = AccountManager.shared.users.map {
                 "\($0.jid):connected=\($0.xmppStream.isConnected),disconnected=\($0.xmppStream.isDisconnected)"
@@ -293,6 +294,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             isPushKit: isPushKit
         )
         AccountManager.shared.load(shouldAutoconnect)
+        LastChatsStartupPresentation.shared.begin(owners: Set(AccountManager.shared.users.map(\.jid)))
         ApplicationStateManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
     }
@@ -325,6 +327,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
      
     func applicationDidEnterBackground(_ application: UIApplication) {
         DDLogError("enter background")
+        LastChatsStartupPresentation.shared.end()
         ConnectionDiagnosticsLogger.log(
             event: "app_lifecycle_did_enter_background",
             stream: .primary,
