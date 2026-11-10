@@ -288,6 +288,10 @@ final class XabberOMEMO2Storage {
         try synchronized { try bundle(requireState()) }
     }
 
+    func validatedLocalDeviceID() throws -> Int {
+        try synchronized { try requireState().deviceID }
+    }
+
     /// Loading registration authority never allocates an identity or rotates
     /// keys. Missing prepared secrets remain a recovery condition, not absence.
     func registrationSnapshot() throws -> OMEMO2RegistrationSnapshot? {

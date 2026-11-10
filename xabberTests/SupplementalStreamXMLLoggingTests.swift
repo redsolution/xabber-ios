@@ -36,19 +36,19 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
         override func disconnectAfterSending() {}
     }
 
-    func testUIActionFinalIQLogsOnceAcrossWillReceiveAndDidReceive() throws {
+    func testUIActionFinalIQDoesNotDuplicateFrameworkAcrossBothCallbacks() throws {
         try assertUIActionFinalLogging(willReceive: true, didReceive: true)
     }
 
-    func testUIActionFinalIQStillLogsWhenDidReceiveIsBypassed() throws {
+    func testUIActionFinalIQDoesNotDuplicateFrameworkWhenDidReceiveIsBypassed() throws {
         try assertUIActionFinalLogging(willReceive: true, didReceive: false)
     }
 
-    func testUIActionFinalIQStillLogsWhenOnlyDidReceiveIsCalled() throws {
+    func testUIActionFinalIQDoesNotDuplicateFrameworkWhenOnlyDidReceiveIsCalled() throws {
         try assertUIActionFinalLogging(willReceive: false, didReceive: true)
     }
 
-    func testOneShotQueueLogsEachStandardStanzaOnceAndRetainsCustomXML() throws {
+    func testOneShotQueueLeavesEveryWirePayloadToFramework() throws {
         let manager = OneShotManager()
         let stream = OneShotStream()
         stream.myJID = XMPPJID(string: owner)
@@ -73,11 +73,11 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
                                   (presence, "one-shot-presence-payload"),
                                   (custom, "one-shot-custom-payload"),
                                   (prefixedCustom, "one-shot-prefixed-custom-payload")] {
-            assertOneOriginalXML(element, marker: marker, in: captured)
+            assertNoAppWireXMLDuplicate(element, marker: marker, in: captured)
         }
     }
 
-    func testOneShotFailedIQOmitsSecretAndRetainsErrorMetadata() throws {
+    func testOneShotFailedIQLeavesWireToFrameworkAndRetainsErrorMetadata() throws {
         let manager = OneShotManager()
         let iq = try XMPPIQ(xmlString: "<iq type='set' id='failed-iq'><secret>failed-iq-payload</secret></iq>")
         let error = NSError(domain: "stream-log-test", code: 17)
@@ -87,11 +87,11 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
         }
 
         XCTAssertFalse(captured.messages.contains { $0.contains("failed-iq-payload") })
-        XCTAssertTrue(captured.messages.contains { $0.contains("private XMPP payload omitted") })
+        XCTAssertFalse(captured.messages.contains { $0.contains("private XMPP payload omitted") })
         XCTAssertTrue(captured.messages.contains { $0.contains("errorDomain=stream-log-test") && $0.contains("errorCode=17") })
     }
 
-    func testVoIPCallbacksLogEachPayloadOnceWithoutSupplementalStdoutXML() throws {
+    func testVoIPCallbacksLeaveEveryWirePayloadToFramework() throws {
         let call = VoIPCall(owner: owner, fullJid: "peer@example.invalid/device",
                             callId: "logging-call", callUUID: UUID(), outgoing: true)
         let sentIQ = try XMPPIQ(xmlString: "<iq type='result' id='voip-sent-iq'><trace>voip-sent-iq-payload</trace></iq>")
@@ -110,7 +110,7 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
                                   (sentMessage, "voip-sent-message-payload"),
                                   (receivedIQ, "voip-received-iq-payload"),
                                   (receivedMessage, "voip-received-message-payload")] {
-            assertOneOriginalXML(element, marker: marker, in: captured)
+            assertNoAppWireXMLDuplicate(element, marker: marker, in: captured)
         }
     }
 
@@ -135,15 +135,14 @@ final class SupplementalStreamXMLLoggingTests: XCTestCase {
         }
 
         XCTAssertEqual(completionCount, 1)
-        assertOneOriginalXML(iq, marker: "ui-action-final-payload", in: captured)
+        assertNoAppWireXMLDuplicate(iq, marker: "ui-action-final-payload", in: captured)
     }
 
-    private func assertOneOriginalXML(_ element: DDXMLElement, marker: String,
+    private func assertNoAppWireXMLDuplicate(_ element: DDXMLElement, marker: String,
                                       in captured: (messages: [String], standardOutput: String),
                                       file: StaticString = #filePath, line: UInt = #line) {
         let matching = captured.messages.filter { $0.contains(marker) }
-        XCTAssertEqual(matching.count, 1, "Supplemental diagnostics must not print another XML copy", file: file, line: line)
-        XCTAssertTrue(matching.first?.hasSuffix("\n" + (element.prettyXMLString ?? element.xmlString)) == true, file: file, line: line)
+        XCTAssertEqual(matching.count, 0, "XMPPFramework owns wire output; supplemental diagnostics must not duplicate it", file: file, line: line)
         XCTAssertFalse(captured.standardOutput.contains(marker), file: file, line: line)
     }
 

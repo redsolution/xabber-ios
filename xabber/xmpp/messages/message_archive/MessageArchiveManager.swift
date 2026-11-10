@@ -3710,7 +3710,12 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard let cleanup = omemo2PreKeyCleanup else { return nil }
         // A reused legacy query ID needs a fresh MessageManager batch, not the
         // completed summary of its preceding page.
-        omemo2CleanupMessages?.beginArchiveQueryBatch(queryId: queryId)
+        // Adapter-owned requests already registered priority/reset metadata and
+        // queued their effects hold before sending. Repeating the legacy sync
+        // registration would put wire preparation behind an older Realm chunk.
+        if !retainedByAdapter {
+            omemo2CleanupMessages?.beginArchiveQueryBatch(queryId: queryId)
+        }
         let dispatcher = pendingArchiveFailureFinalizationDispatcher
         let lease = OMEMO2CleanupQueryLease(id: queryId, chainID: chainID,
             cleanup: cleanup, messages: omemo2CleanupMessages,

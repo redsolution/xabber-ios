@@ -7,6 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		92927A599156946F6D34160E /* ArchiveWirePreparationLatencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A253CB3E4C3E95418D64062 /* ArchiveWirePreparationLatencyTests.swift */; };
+		3388AD178554837328A2E960 /* ChatOpenLatencyRemediationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F6E896138102DF4D2DEBA3B /* ChatOpenLatencyRemediationTests.swift */; };
+		F5E5D7098CAA7577582FA992 /* LastChatsSyncLatencyRemediationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900D51AF37E7C3F3C80039EE /* LastChatsSyncLatencyRemediationTests.swift */; };
+		A9D53F7B8EF346979DBB0901 /* StartupRealmWorkRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D53F7B8EF346979DBB0902 /* StartupRealmWorkRegressionTests.swift */; };
+		920A58B5F60BD74BC7D6D701 /* ClientSyncLatencyRemediationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F1F032487AEFF315892BBB /* ClientSyncLatencyRemediationTests.swift */; };
+		2940E5CD7417AB61447E168C /* XMPPWireLoggingOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 379D8D0A103E41FD46D61E6E /* XMPPWireLoggingOwnershipTests.swift */; };
+		A0C258A03E69646BF3C96B7A /* AccountInteractiveArchivePriorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B53B552F5F85063962F19CB /* AccountInteractiveArchivePriorityTests.swift */; };
+		A531894A0F94416FA5115035 /* DeviceQADiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A3FE71A6614A519B228707 /* DeviceQADiagnostics.swift */; };
+		BBD539AC5FCF44B3B50DE173 /* DeviceQADiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4C44294B28422E9BDC67F4 /* DeviceQADiagnosticsTests.swift */; };
+		DBA201D0B24F4FCDA1592AFE /* ChatViewController+SavedPositionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 908304DA0ACE4105B1775A16 /* ChatViewController+SavedPositionCache.swift */; };
+		9CD01C73D94E4DD5965931BE /* ChatSavedPositionCachePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C5826233614D0494867CC5 /* ChatSavedPositionCachePresentationTests.swift */; };
+		8A4BF1A33B624C8E9FE2DF3F /* ChatSavedPositionPresentationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82EAB5DC7FF14434ABC85B73 /* ChatSavedPositionPresentationCache.swift */; };
+		FB4C9409C1384DE788CC761B /* ChatSavedPositionPresentationCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1571C349B297411CA6535DF2 /* ChatSavedPositionPresentationCacheTests.swift */; };
+		0B8F18FF29924340A566CE3D /* ArchiveRewriteRecordIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5BAF0C02AF8465B9526A3C9 /* ArchiveRewriteRecordIdentityTests.swift */; };
+		021CFD8730E94A5EBC3EA1A6 /* ChatArchiveTerminalFailureRecoveryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0221145638EA48A8AE99DD64 /* ChatArchiveTerminalFailureRecoveryRegressionTests.swift */; };
+		C6A1590493E74166ADC0E73A /* QRContactAddCompletionRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 430D614D25BA48CBA30C8573 /* QRContactAddCompletionRegressionTests.swift */; };
 		45C5B466412648B1B808DB7B /* ChatOpeningSavedPositionRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB8788C865BC47ABA7B3A1A0 /* ChatOpeningSavedPositionRegressionTests.swift */; };
 		DA071E8167BF410BA8B4C951 /* LastChatsSkeletonReplacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */; };
 		E399C7099F5E42DCA86BA2AB /* LeftMenuGlassTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */; };
@@ -1206,6 +1222,7 @@
 		A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */; };
 		A32010200000000000000003 /* TrustSharingProtocolProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */; };
 		B3AD03000000000000000001 /* VerificationSessionBannerSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */; };
+		8B7D1300FAE3444CA130CBA0 /* ContactInfoSecretChatNavigationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB511E94D0AE4EF7A273DA5B /* ContactInfoSecretChatNavigationRegressionTests.swift */; };
 		A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000006 /* TrustVerificationInteropTests.swift */; };
 		12EE3B6FA6F19743DFD5C54C /* DevicesServerIDPublicationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */; };
 		DD710C4D2D561258ECAFBFC4 /* DevicesAuthenticationPublicationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */; };
@@ -1263,6 +1280,22 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1A253CB3E4C3E95418D64062 /* ArchiveWirePreparationLatencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveWirePreparationLatencyTests.swift; sourceTree = "<group>"; };
+		6F6E896138102DF4D2DEBA3B /* ChatOpenLatencyRemediationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatOpenLatencyRemediationTests.swift; sourceTree = "<group>"; };
+		900D51AF37E7C3F3C80039EE /* LastChatsSyncLatencyRemediationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSyncLatencyRemediationTests.swift; sourceTree = "<group>"; };
+		A9D53F7B8EF346979DBB0902 /* StartupRealmWorkRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupRealmWorkRegressionTests.swift; sourceTree = "<group>"; };
+		F5F1F032487AEFF315892BBB /* ClientSyncLatencyRemediationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientSyncLatencyRemediationTests.swift; sourceTree = "<group>"; };
+		379D8D0A103E41FD46D61E6E /* XMPPWireLoggingOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPWireLoggingOwnershipTests.swift; sourceTree = "<group>"; };
+		9B53B552F5F85063962F19CB /* AccountInteractiveArchivePriorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountInteractiveArchivePriorityTests.swift; sourceTree = "<group>"; };
+		C9A3FE71A6614A519B228707 /* DeviceQADiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceQADiagnostics.swift; sourceTree = "<group>"; };
+		CE4C44294B28422E9BDC67F4 /* DeviceQADiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceQADiagnosticsTests.swift; sourceTree = "<group>"; };
+		908304DA0ACE4105B1775A16 /* ChatViewController+SavedPositionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+SavedPositionCache.swift"; sourceTree = "<group>"; };
+		25C5826233614D0494867CC5 /* ChatSavedPositionCachePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatSavedPositionCachePresentationTests.swift"; sourceTree = "<group>"; };
+		82EAB5DC7FF14434ABC85B73 /* ChatSavedPositionPresentationCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSavedPositionPresentationCache.swift; sourceTree = "<group>"; };
+		1571C349B297411CA6535DF2 /* ChatSavedPositionPresentationCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSavedPositionPresentationCacheTests.swift; sourceTree = "<group>"; };
+		B5BAF0C02AF8465B9526A3C9 /* ArchiveRewriteRecordIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveRewriteRecordIdentityTests.swift; sourceTree = "<group>"; };
+		0221145638EA48A8AE99DD64 /* ChatArchiveTerminalFailureRecoveryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatArchiveTerminalFailureRecoveryRegressionTests.swift; sourceTree = "<group>"; };
+		430D614D25BA48CBA30C8573 /* QRContactAddCompletionRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRContactAddCompletionRegressionTests.swift; sourceTree = "<group>"; };
 		AB8788C865BC47ABA7B3A1A0 /* ChatOpeningSavedPositionRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatOpeningSavedPositionRegressionTests.swift; sourceTree = "<group>"; };
 		325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSkeletonReplacementTests.swift; sourceTree = "<group>"; };
 		4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassTableViewCell.swift; sourceTree = "<group>"; };
@@ -2451,6 +2484,7 @@
 		A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingTimestampAdmissionTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000004 /* TrustSharingProtocolProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustSharingProtocolProfileTests.swift; sourceTree = "<group>"; };
 		B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationSessionBannerSelectionTests.swift; sourceTree = "<group>"; };
+		CB511E94D0AE4EF7A273DA5B /* ContactInfoSecretChatNavigationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactInfoSecretChatNavigationRegressionTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000006 /* TrustVerificationInteropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustVerificationInteropTests.swift; sourceTree = "<group>"; };
 		8D156F271C1C1D630D4409F8 /* DevicesServerIDPublicationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesServerIDPublicationTests.swift; sourceTree = "<group>"; };
 		5851790A71317520AF50B9E8 /* DevicesAuthenticationPublicationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesAuthenticationPublicationContractTests.swift; sourceTree = "<group>"; };
@@ -2537,6 +2571,7 @@
 			isa = PBXGroup;
 			children = (
 				CA180011CA180011CA180011 /* ArchiveDomain.swift */,
+				C9A3FE71A6614A519B228707 /* DeviceQADiagnostics.swift */,
 				CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */,
 				CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */,
 				CA180032CA180032CA180032 /* AccountArchiveEngine.swift */,
@@ -3757,6 +3792,7 @@
 				599EE5C8840DAA37D64335AA /* ChatViewController+ForwardCards.swift */,
 				668409E226035C15001BB80B /* ChatViewController+Dataset.swift */,
 				CA180060CA180060CA180060 /* ChatViewController+ArchiveEngine.swift */,
+				908304DA0ACE4105B1775A16 /* ChatViewController+SavedPositionCache.swift */,
 				6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */,
 				663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */,
 				66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */,
@@ -4478,6 +4514,13 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				1A253CB3E4C3E95418D64062 /* ArchiveWirePreparationLatencyTests.swift */,
+				6F6E896138102DF4D2DEBA3B /* ChatOpenLatencyRemediationTests.swift */,
+				900D51AF37E7C3F3C80039EE /* LastChatsSyncLatencyRemediationTests.swift */,
+				A9D53F7B8EF346979DBB0902 /* StartupRealmWorkRegressionTests.swift */,
+				F5F1F032487AEFF315892BBB /* ClientSyncLatencyRemediationTests.swift */,
+				379D8D0A103E41FD46D61E6E /* XMPPWireLoggingOwnershipTests.swift */,
+				9B53B552F5F85063962F19CB /* AccountInteractiveArchivePriorityTests.swift */,
 				A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */,
 				3214A7C7A2AA418BAFD5B570 /* OMEMO2NativePayloadBoundaryTests.swift */,
 				D988E1B6628A4BC7B6E53689 /* DevicesAuthenticationBindingTests.swift */,
@@ -4501,6 +4544,7 @@
 				C0140000000000000000000A /* OMEMO2XabberCryptoIntegrationTests.swift */,
 				B3AD03000000000000000002 /* VerificationSessionBannerSelectionTests.swift */,
 				9EAECFB0EA694B8093DC989B /* VerificationActionVisibilityAccessibilityTests.swift */,
+				CB511E94D0AE4EF7A273DA5B /* ContactInfoSecretChatNavigationRegressionTests.swift */,
 				A32010200000000000000006 /* TrustVerificationInteropTests.swift */,
 				A32010200000000000000002 /* TrustSharingTimestampAdmissionTests.swift */,
 				A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */,
@@ -4569,6 +4613,12 @@
 				B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */,
 				4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */,
 				4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */,
+				CE4C44294B28422E9BDC67F4 /* DeviceQADiagnosticsTests.swift */,
+				25C5826233614D0494867CC5 /* ChatSavedPositionCachePresentationTests.swift */,
+				1571C349B297411CA6535DF2 /* ChatSavedPositionPresentationCacheTests.swift */,
+				B5BAF0C02AF8465B9526A3C9 /* ArchiveRewriteRecordIdentityTests.swift */,
+				0221145638EA48A8AE99DD64 /* ChatArchiveTerminalFailureRecoveryRegressionTests.swift */,
+				430D614D25BA48CBA30C8573 /* QRContactAddCompletionRegressionTests.swift */,
 				A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */,
 				325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */,
 				EE7A5D9E6DA74AEA9A8FEC36 /* LastChatsNavigationTitleBackdropTests.swift */,
@@ -5216,6 +5266,7 @@
 				666E1F462204201500172F55 /* delegate */,
 				66CB16C221F9C9D100CB03C2 /* ChatViewController.swift */,
 				4E6900032FA800000ABC001 /* ChatPerformanceSignposts.swift */,
+				82EAB5DC7FF14434ABC85B73 /* ChatSavedPositionPresentationCache.swift */,
 				4E69B0032FA800000ABC001 /* ChatPerformanceArtifactExporter.swift */,
 				4E9000052FF000000ABC001 /* ChatRenderOperationCounter.swift */,
 				4E9000072FF000000ABC001 /* ChatPerformanceFixtures.swift */,
@@ -6279,6 +6330,7 @@
 				660F55FC239A750800252608 /* GroupchatInviteListViewController.swift in Sources */,
 				6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */,
 				CA180012CA180012CA180012 /* ArchiveDomain.swift in Sources */,
+				A531894A0F94416FA5115035 /* DeviceQADiagnostics.swift in Sources */,
 				CA180014CA180014CA180014 /* ArchiveCoverageStorage.swift in Sources */,
 				CA180031CA180031CA180031 /* ArchiveTransportTypes.swift in Sources */,
 				CA180033CA180033CA180033 /* AccountArchiveEngine.swift in Sources */,
@@ -6516,6 +6568,7 @@
 				4E9600022FE900000ABC001 /* ChatSearchNavigationButtonsView.swift in Sources */,
 				4E9200022FE700000ABC001 /* ChatSearchNavigationView.swift in Sources */,
 				4E6900042FA800000ABC001 /* ChatPerformanceSignposts.swift in Sources */,
+				8A4BF1A33B624C8E9FE2DF3F /* ChatSavedPositionPresentationCache.swift in Sources */,
 				4E69B0042FA800000ABC001 /* ChatPerformanceArtifactExporter.swift in Sources */,
 				4E9000062FF000000ABC001 /* ChatRenderOperationCounter.swift in Sources */,
 				4E9000082FF000000ABC001 /* ChatPerformanceFixtures.swift in Sources */,
@@ -6541,6 +6594,7 @@
 				4E9400042FF400000ABC001 /* ChatTimelineSession.swift in Sources */,
 				A8210002A8210002A8210002 /* ChatVirtualTimelineEngine.swift in Sources */,
 				CA180061CA180061CA180061 /* ChatViewController+ArchiveEngine.swift in Sources */,
+				DBA201D0B24F4FCDA1592AFE /* ChatViewController+SavedPositionCache.swift in Sources */,
 				66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */,
 				669F92EE27FC40C00035658C /* CommonConfigManager.swift in Sources */,
@@ -6899,6 +6953,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				92927A599156946F6D34160E /* ArchiveWirePreparationLatencyTests.swift in Sources */,
+				3388AD178554837328A2E960 /* ChatOpenLatencyRemediationTests.swift in Sources */,
+				F5E5D7098CAA7577582FA992 /* LastChatsSyncLatencyRemediationTests.swift in Sources */,
+				A9D53F7B8EF346979DBB0901 /* StartupRealmWorkRegressionTests.swift in Sources */,
+				920A58B5F60BD74BC7D6D701 /* ClientSyncLatencyRemediationTests.swift in Sources */,
+				2940E5CD7417AB61447E168C /* XMPPWireLoggingOwnershipTests.swift in Sources */,
+				A0C258A03E69646BF3C96B7A /* AccountInteractiveArchivePriorityTests.swift in Sources */,
 				E6A2D882A4E24EE1AEEC5A2A /* OMEMO2NativePayloadBoundaryTests.swift in Sources */,
 				724188EB8F864E6181254167 /* DevicesAuthenticationBindingTests.swift in Sources */,
 				60DD5EEB8EC00F87A47D7D33 /* DevicesGuardedKeyMaintenanceTests.swift in Sources */,
@@ -6921,6 +6982,7 @@
 				C01400000000000000000009 /* OMEMO2XabberCryptoIntegrationTests.swift in Sources */,
 				B3AD03000000000000000001 /* VerificationSessionBannerSelectionTests.swift in Sources */,
 				EF396B7B2266463AB1964A36 /* VerificationActionVisibilityAccessibilityTests.swift in Sources */,
+				8B7D1300FAE3444CA130CBA0 /* ContactInfoSecretChatNavigationRegressionTests.swift in Sources */,
 				A32010200000000000000005 /* TrustVerificationInteropTests.swift in Sources */,
 				A32010200000000000000001 /* TrustSharingTimestampAdmissionTests.swift in Sources */,
 				A32010200000000000000013 /* XENTrustTransportInteroperabilityTests.swift in Sources */,
@@ -7007,6 +7069,12 @@
 				B8A300023C22000000ABC001 /* AccountBlockListPresentationTests.swift in Sources */,
 				4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */,
 				4E5A00043B4100000ABC001 /* QRCodeScannerPresentationTests.swift in Sources */,
+				BBD539AC5FCF44B3B50DE173 /* DeviceQADiagnosticsTests.swift in Sources */,
+				9CD01C73D94E4DD5965931BE /* ChatSavedPositionCachePresentationTests.swift in Sources */,
+				FB4C9409C1384DE788CC761B /* ChatSavedPositionPresentationCacheTests.swift in Sources */,
+				0B8F18FF29924340A566CE3D /* ArchiveRewriteRecordIdentityTests.swift in Sources */,
+				021CFD8730E94A5EBC3EA1A6 /* ChatArchiveTerminalFailureRecoveryRegressionTests.swift in Sources */,
+				C6A1590493E74166ADC0E73A /* QRContactAddCompletionRegressionTests.swift in Sources */,
 				4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */,
 				BC214AC29B28B9C7BBC2F79B /* PushPayloadPreferencesTests.swift in Sources */,
 				329CD6BB9E526930B08898FE /* PushPayloadModeRegistrationTests.swift in Sources */,

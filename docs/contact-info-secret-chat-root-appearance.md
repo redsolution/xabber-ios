@@ -1,0 +1,13 @@
+# ContactInfo chat routing across a compact root change
+
+A contact's More → Secret chat action must open that exact owner, JID and OMEMO conversation after closing the profile. On a compact split, installing the Chats root does not immediately make that controller an attached, appeared presenter. A destination with an immediately available first frame previously reached the normal presentation guard before that boundary; the guard correctly rejected it, leaving only the Chats list.
+
+The root request now retains one generation and exact target until Chats has completed its real appearance. Existing native transition deferral handles any remaining UIKit transition. The continuation rechecks the original installed navigation controller and root selection, then enters the unchanged `stackNewChat` path. A newer target, another root selection, Settings or a reset invalidates the old continuation. No timer or navigation/foreground/account/trust check is relaxed.
+
+This changes only root-to-conversation presentation ownership. OMEMO initialization, keys, sessions, trust, archive target resolution and first-frame positioning keep their existing owners.
+
+`ContactInfoSecretChatNavigationRegressionTests` covers an actual modal profile route with immediate versus delayed first-frame readiness, replacement root selection, latest exact owner/JID/type with once-only preparation/configuration, and cancellation of a captured root operation without later replay. It uses the installed root's real selected key and completed appearance. Before the production repair, the valid four-case run had ten assertion failures; the delayed control passed. The final five regressions plus five existing `ContactInfoNavigationTests` passed (10/10, zero failures) and built the app and push extension. The cancellation case confirms the existing native-transition policy discards captured work; it adds no production cancellation rule.
+
+The affected run executed 191 methods in nine actual classes: 13 assertion failures in five existing single-flight navigation methods, zero unexpected failures; all four then-current task cases passed. A controlled unchanged-base versus repaired-code comparison of those same five existing methods produced identical seven assertion sites in three failing methods; the other two passed in both bounded runs. Six additional assertions in the broader run remain order-sensitive and are not claimed resolved. The existing assertions and timeouts were preserved. Main-worktree integration with retained unrelated changes remains separate.
+
+Physical acceptance after installing this repair remains pending. The earlier wired observation established the original Chats-only failure, not post-fix latency or encrypted-message success.

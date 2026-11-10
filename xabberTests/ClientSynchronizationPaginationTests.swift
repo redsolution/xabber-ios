@@ -672,7 +672,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         XCTAssertEqual(request.max, 40)
     }
 
-    func testColdRelaunchRecoversMissingListPreviewWithFreshFortyItemPage() throws {
+    func testColdRelaunchKeepsEventStampWhenListPreviewIsMissing() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -705,12 +705,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
         XCTAssertTrue(manager.sync(XMPPStream()))
         let request = try XCTUnwrap(requests.last)
-        XCTAssertNil(request.stamp)
+        XCTAssertEqual(request.stamp, completedStamp)
         XCTAssertNil(request.after)
         XCTAssertEqual(request.max, 40)
     }
 
-    func testColdRelaunchRecoveryChecksEveryRowWhenOneProjectionAlreadyExists() throws {
+    func testMissingPreviewAlongsideExistingProjectionDoesNotResetCursor() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -766,12 +766,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
         XCTAssertTrue(manager.sync(XMPPStream()))
         let request = try XCTUnwrap(requests.last)
-        XCTAssertNil(request.stamp)
+        XCTAssertEqual(request.stamp, completedStamp)
         XCTAssertNil(request.after)
         XCTAssertEqual(request.max, 40)
     }
 
-    func testInterruptedFreshPreviewRecoveryDoesNotResumeFromOldCompletedStamp() throws {
+    func testInterruptedPreviewPreparationResumesFromCompletedEventStamp() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -803,7 +803,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let firstManager = makeManager(recording: firstRequests)
         XCTAssertTrue(firstManager.sync(XMPPStream()))
         let firstRequest = try XCTUnwrap(firstRequests.last)
-        XCTAssertNil(firstRequest.stamp)
+        XCTAssertEqual(firstRequest.stamp, completedStamp)
         XCTAssertTrue(firstManager.read(withIQ: try snapshotIQ(
             id: firstRequest.id,
             conversations: [
@@ -835,7 +835,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let relaunchedManager = makeManager(recording: relaunchedRequests)
         XCTAssertTrue(relaunchedManager.sync(XMPPStream()))
         let relaunchedRequest = try XCTUnwrap(relaunchedRequests.last)
-        XCTAssertNil(relaunchedRequest.stamp)
+        XCTAssertEqual(relaunchedRequest.stamp, completedStamp)
         XCTAssertNil(relaunchedRequest.after)
         XCTAssertEqual(relaunchedRequest.max, 40)
     }
@@ -1439,6 +1439,8 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             owner: owner,
             conversationType: .regular
         )
+        // The page's Realm commit and pipelined continuation can precede preview publication.
+        manager.waitForPendingSnapshotApplies()
         XCTAssertEqual(
             LastChatListSyncPreviewStore.shared.projection(
                 owner: owner,
@@ -2122,6 +2124,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 jid: jid,
                 messageId: "preview-lifecycle-2",
                 archiveId: "9200002",
+                stamp: "1776840442469442",
                 body: "Reset preview"
             )
         )))
@@ -2178,6 +2181,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 jid: jid,
                 messageId: "preview-lifecycle-3",
                 archiveId: "9200003",
+                stamp: "1776840442469443",
                 body: "Teardown preview"
             )
         )))
@@ -2885,6 +2889,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         </iq>
         """)))
 
+        manager.waitForPendingSnapshotApplies()
         XCTAssertTrue(storedClientSyncBool("snapshot_bootstrap_in_progress"))
         XCTAssertTrue(manager.sync(XMPPStream()))
         XCTAssertEqual(requests.count, 2)

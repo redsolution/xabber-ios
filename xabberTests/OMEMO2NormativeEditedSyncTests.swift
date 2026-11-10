@@ -187,6 +187,30 @@ final class OMEMO2NormativeEditedSyncTests: XCTestCase {
         }
     }
 
+    func testSyncManagerRepeatedEncryptedPreparationKeepsNativeDuplicateAdmission() throws {
+        let f = try fixture()
+        let wire = try editedWire(f)
+        let query = try DDXMLElement(xmlString: "<query xmlns='\(syncNamespace)'>\(try conversation(f, wire: wire).xmlString)</query>")
+        try withSync(f) { manager in
+            let first = try XCTUnwrap(manager.prepareSyncConversations(query, serverContext: .accountServer).first)
+            XCTAssertEqual(first.lastMessageEncryption, .authenticatedSCE(profile: .omemo2))
+            XCTAssertFalse(first.lastMessageWasConsumed)
+            XCTAssertEqual(try lastMessage(first).body, "verified sync edit")
+            let authenticatedState = f.memory.records[f.receiver.owner]
+
+            let replay = try XCTUnwrap(manager.prepareSyncConversations(query, serverContext: .accountServer).first)
+
+            XCTAssertTrue(replay.lastMessageWasConsumed,
+                "An XML preparation cache cannot reissue authentication already consumed by native replay protection")
+            XCTAssertEqual(replay.lastMessageEncryption, .unverifiedOMEMO)
+            XCTAssertNil(replay.lastMessageAuthenticatedSender)
+            XCTAssertNil(replay.materializedElement()?.element(forName: "metadata")?
+                .element(forName: "last-message"))
+            XCTAssertEqual(f.memory.records[f.receiver.owner], authenticatedState,
+                "The duplicate must not advance or rewrite the authenticated ratchet state")
+        }
+    }
+
     private func fixture() throws -> Fixture {
         let sender = OmemoManager(withOwner: "sync-sender-\(UUID().uuidString.lowercased())@example.test")
         let receiver = OmemoManager(withOwner: "sync-receiver-\(UUID().uuidString.lowercased())@example.test")

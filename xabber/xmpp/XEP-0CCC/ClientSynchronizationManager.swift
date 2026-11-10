@@ -21,6 +21,19 @@
 import Foundation
 import XMPPFramework
 import RealmSwift
+import CryptoKit
+
+private enum ClientSyncEventVersion {
+    static func number(_ value: String?) -> UInt64? {
+        guard let value else { return nil }
+        return UInt64(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    static func newest(_ lhs: String?, _ rhs: String) -> String {
+        guard let lhs, let old = number(lhs), let new = number(rhs) else { return rhs }
+        return old > new ? lhs : rhs
+    }
+}
 
 /// Immutable transport between the XMPP parser and the serial Realm applier.
 ///
@@ -34,6 +47,7 @@ struct ClientSyncConversationValue: Sendable {
     let lastMessageEncryption: MessageEncryptionProvenance
     let lastMessageAuthenticatedSender: OMEMOAuthenticatedSender?
     let lastMessageWasConsumed: Bool
+    var containsEncryptedWire = false
 
     init(
         _ element: DDXMLElement,
@@ -60,10 +74,13 @@ struct ClientSyncConversationValue: Sendable {
     }
 }
 
-/// Durable, schema-neutral guard against an in-flight archive page restoring
-/// a regular conversation after XEP-SYNC authoritatively deleted it.
+/// Durable, schema-neutral deletion watermarks for synchronization ordering.
+/// The legacy presence marker remains regular-only for archive admission.
 enum ClientSyncRegularConversationDeletionStore {
     private static let lock = NSLock()
+    private static var decodedIdentities: [String: (raw: String?, values: Set<String>)] = [:]
+    private static var decodedStamps: [String: (raw: String?, values: [String: String])] = [:]
+    private static let stampsKey = "regular_conversation_deletion_stamps_v1"
 
     static func contains(owner: String, jid: String) -> Bool {
         lock.lock()
@@ -71,14 +88,26 @@ enum ClientSyncRegularConversationDeletionStore {
         return identities(for: owner).contains(identity(owner: owner, jid: jid))
     }
 
-    static func markDeleted(owner: String, jid: String) {
+    static func markDeleted(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular,
+        stamp: String? = nil
+    ) {
         lock.lock()
         defer { lock.unlock() }
-        var values = identities(for: owner)
-        guard values.insert(identity(owner: owner, jid: jid)).inserted else {
-            return
+        let primary = identity(owner: owner, jid: jid, conversationType: conversationType)
+        if conversationType == .regular {
+            var values = identities(for: owner)
+            if values.insert(primary).inserted {
+                persist(values, for: owner)
+            }
         }
-        persist(values, for: owner)
+        if let stamp, ClientSyncEventVersion.number(stamp) != nil {
+            var stamps = deletionStamps(for: owner)
+            stamps[primary] = ClientSyncEventVersion.newest(stamps[primary], stamp)
+            persistStamps(stamps, owner: owner)
+        }
     }
 
     static func clear(owner: String, jid: String) {
@@ -89,27 +118,79 @@ enum ClientSyncRegularConversationDeletionStore {
             return
         }
         persist(values, for: owner)
+        var stamps = deletionStamps(for: owner)
+        if stamps.removeValue(forKey: identity(owner: owner, jid: jid)) != nil {
+            persistStamps(stamps, owner: owner)
+        }
     }
 
-    private static func identity(owner: String, jid: String) -> String {
+    static func latestDeletionStamp(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> UInt64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return ClientSyncEventVersion.number(deletionStamps(for: owner)[
+            identity(owner: owner, jid: jid, conversationType: conversationType)
+        ])
+    }
+
+    private static func deletionStamps(for owner: String) -> [String: String] {
+        let raw = SettingManager.shared.getKey(for: owner, scope: .clientSynchronization, key: stampsKey)
+        if let cached = decodedStamps[owner], cached.raw == raw { return cached.values }
+        guard let raw, let data = raw.data(using: .utf8),
+              let result = try? JSONDecoder().decode([String: String].self, from: data) else {
+            decodedStamps[owner] = (raw, [:])
+            return [:]
+        }
+        decodedStamps[owner] = (raw, result)
+        return result
+    }
+
+    private static func persistStamps(_ stamps: [String: String], owner: String) {
+        guard let data = try? JSONEncoder().encode(stamps), let raw = String(data: data, encoding: .utf8) else { return }
+        SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: stampsKey, value: raw)
+        decodedStamps[owner] = (raw, stamps)
+    }
+
+    static func removeAll(for owner: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        decodedIdentities.removeValue(forKey: owner)
+        decodedStamps.removeValue(forKey: owner)
+        SettingManager.shared.removeItem(for: owner, scope: .clientSynchronization,
+            key: SettingManager.clientSynchronizationRegularDeletionTombstonesKey)
+        SettingManager.shared.removeItem(for: owner, scope: .clientSynchronization, key: stampsKey)
+    }
+
+    private static func identity(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> String {
         LastChatsStorageItem.genPrimary(
             jid: jid,
             owner: owner,
-            conversationType: .regular
+            conversationType: conversationType
         )
     }
 
     private static func identities(for owner: String) -> Set<String> {
-        guard let raw = SettingManager.shared.getKey(
+        let raw = SettingManager.shared.getKey(
             for: owner,
             scope: .clientSynchronization,
             key: SettingManager.clientSynchronizationRegularDeletionTombstonesKey
-        ),
-        let data = raw.data(using: .utf8),
+        )
+        if let cached = decodedIdentities[owner], cached.raw == raw { return cached.values }
+        guard let raw, let data = raw.data(using: .utf8),
         let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            decodedIdentities[owner] = (raw, [])
             return []
         }
-        return Set(decoded)
+        let values = Set(decoded)
+        decodedIdentities[owner] = (raw, values)
+        return values
     }
 
     private static func persist(_ identities: Set<String>, for owner: String) {
@@ -119,6 +200,7 @@ enum ClientSyncRegularConversationDeletionStore {
                 scope: .clientSynchronization,
                 key: SettingManager.clientSynchronizationRegularDeletionTombstonesKey
             )
+            decodedIdentities[owner] = (nil, [])
             return
         }
         guard let data = try? JSONEncoder().encode(identities.sorted()),
@@ -131,6 +213,7 @@ enum ClientSyncRegularConversationDeletionStore {
             key: SettingManager.clientSynchronizationRegularDeletionTombstonesKey,
             value: raw
         )
+        decodedIdentities[owner] = (raw, identities)
     }
 }
 
@@ -166,10 +249,22 @@ struct ClientSyncPageParser {
 
     static func parseSnapshotPage(from iq: XMPPIQ, pageSize: Int, namespace: String, prepareConversations: (DDXMLElement) -> [ClientSyncConversationValue]) -> SnapshotPage? {
         guard let query = iq.element(forName: "query", xmlns: namespace),
-              let stamp = query.attributeStringValue(forName: "stamp") else {
-            return nil
-        }
-        let conversations = prepareConversations(query)
+              let envelope = snapshotEnvelope(from: iq, pageSize: pageSize, namespace: namespace) else { return nil }
+        return SnapshotPage(stamp: envelope.stamp, isFinalPage: envelope.isFinalPage,
+            nextPageToken: envelope.nextPageToken, conversations: prepareConversations(query), rsm: envelope.rsm)
+    }
+
+    struct Envelope {
+        let stamp: String
+        let isFinalPage: Bool
+        let nextPageToken: String?
+        let rsm: RSMPage
+    }
+
+    static func snapshotEnvelope(from iq: XMPPIQ, pageSize: Int, namespace: String) -> Envelope? {
+        guard let query = iq.element(forName: "query", xmlns: namespace),
+              let stamp = query.attributeStringValue(forName: "stamp") else { return nil }
+        let conversationCount = query.elements(forName: "conversation").count
         let set = query.element(forName: "set")
         let firstElement = set?.element(forName: "first")
         let first = firstElement?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -188,8 +283,8 @@ struct ClientSyncPageParser {
         let hasNextPageToken = nextPageToken?.isNotEmpty == true
         let isFinalPage: Bool
         if let rsmCount, let firstIndex {
-            isFinalPage = firstIndex + conversations.count >= rsmCount
-        } else if let rsmCount, rsmCount <= conversations.count {
+            isFinalPage = firstIndex + conversationCount >= rsmCount
+        } else if let rsmCount, rsmCount <= conversationCount {
             isFinalPage = true
         } else if !hasNextPageToken {
             isFinalPage = true
@@ -198,20 +293,12 @@ struct ClientSyncPageParser {
             // cursor on the terminal page. In that shape only a short page
             // proves exhaustion, and it must be compared with the maximum of
             // the matching request.
-            isFinalPage = conversations.count < max(pageSize, 1)
+            isFinalPage = conversationCount < max(pageSize, 1)
         }
-        return SnapshotPage(
-            stamp: stamp,
-            isFinalPage: isFinalPage,
+        return Envelope(stamp: stamp, isFinalPage: isFinalPage,
             nextPageToken: hasNextPageToken ? nextPageToken : nil,
-            conversations: conversations,
-            rsm: RSMPage(
-                first: first?.isNotEmpty == true ? first : nil,
-                firstIndex: firstIndex,
-                last: hasNextPageToken ? nextPageToken : nil,
-                count: rsmCount
-            )
-        )
+            rsm: RSMPage(first: first?.isNotEmpty == true ? first : nil,
+                firstIndex: firstIndex, last: hasNextPageToken ? nextPageToken : nil, count: rsmCount))
     }
 }
 
@@ -226,6 +313,7 @@ struct ClientSyncPageApplier {
 
     struct ApplyResult {
         let appliedConversationPrimaries: Set<String>
+        let changedConversationPrimaries: Set<String>
         let summary: ApplySummary
     }
 
@@ -255,6 +343,7 @@ struct ClientSyncPageApplier {
         realm: Realm,
         conversations: [DDXMLElement],
         activeCanonicalGroupPrimaries: Set<String> = [],
+        shouldApplyConversation: (DDXMLElement, Realm) -> Bool = { _, _ in true },
         applyConversationState: (DDXMLElement, Realm) -> Bool,
         commitTransaction: (Realm) throws -> Void = { realm in
             try realm.commitWrite()
@@ -264,10 +353,16 @@ struct ClientSyncPageApplier {
         var updatedChatCount = 0
         var skippedConversationCount = 0
         var appliedConversationPrimaries = Set<String>()
+        var changedConversationPrimaries = Set<String>()
+        var acceptedCount = 0
 
         realm.beginWrite()
         do {
             conversations.forEach { sourceConversation in
+                guard shouldApplyConversation(sourceConversation, realm) else {
+                    skippedConversationCount += 1
+                    return
+                }
                 let conversation =
                     (sourceConversation.copy() as? DDXMLElement) ??
                     sourceConversation
@@ -275,6 +370,7 @@ struct ClientSyncPageApplier {
                     from: conversation,
                     owner: owner
                 )
+                acceptedCount += 1
                 if let identity,
                    CanonicalGroupRegularShadowPolicy.shouldSuppress(
                         owner: owner,
@@ -294,7 +390,13 @@ struct ClientSyncPageApplier {
                     )
                 } != nil
 
-                guard applyConversationState(conversation, realm),
+                let applied = applyConversationState(conversation, realm)
+                if let identity, existedBefore || realm.object(
+                    ofType: LastChatsStorageItem.self, forPrimaryKey: identity.primary
+                ) != nil {
+                    changedConversationPrimaries.insert(identity.primary)
+                }
+                guard applied,
                       let identity else {
                     skippedConversationCount += 1
                     return
@@ -314,7 +416,11 @@ struct ClientSyncPageApplier {
                     skippedConversationCount += 1
                 }
             }
-            try commitTransaction(realm)
+            if acceptedCount > 0 || conversations.isEmpty {
+                try commitTransaction(realm)
+            } else {
+                realm.cancelWrite()
+            }
         } catch {
             if realm.isInWriteTransaction {
                 realm.cancelWrite()
@@ -324,6 +430,7 @@ struct ClientSyncPageApplier {
 
         return ApplyResult(
             appliedConversationPrimaries: appliedConversationPrimaries,
+            changedConversationPrimaries: changedConversationPrimaries,
             summary: ApplySummary(
                 receivedCount: conversations.count,
                 createdChatCount: createdChatCount,
@@ -365,6 +472,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     private struct SnapshotCompletionActions {
         let needsCatchUpSync: Bool
+        var recognizedEventStamp: String? = nil
 
         static let none = SnapshotCompletionActions(
             needsCatchUpSync: false
@@ -414,6 +522,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     open var version: String = ""
     private var temporaryVer: String? = nil
     private let applyQueue = DispatchQueue(label: "com.xabber.client-sync.apply")
+    private let preparationQueue = DispatchQueue(label: "com.xabber.client-sync.prepare", qos: .userInitiated)
+    private let applicationLock = NSRecursiveLock()
     private let stateQueue = DispatchQueue(label: "com.xabber.client-sync.state")
     private let syncLifecycleLock = NSLock()
     private var syncRequestInfoById: [String: TrackedSyncRequest] = [:]
@@ -428,6 +538,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     static let startupRecentsSyncActivityDidChange = Notification.Name(
         "com.xabber.client-sync.startup-recents-sync-activity-did-change"
     )
+    // Presentation readiness belongs to this account instance. Transport
+    // retries and reconnects cannot take away its first committed response.
+    private var startupRecentsResponseReceived = false
+    static let startupRecentsReadinessDidChange = Notification.Name(
+        "com.xabber.client-sync.startup-recents-readiness-did-change"
+    )
     internal var startupResponseTimeoutInterval: TimeInterval = 60
     private var startupResponseTimeouts: [String: DispatchWorkItem] = [:]
     private var phase: SyncPhase = .idle
@@ -437,6 +553,20 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private var seenSnapshotConversationKeys = Set<String>()
     private var isApplyingPage: Bool = false
     private var needsCatchUpAfterSnapshot = false
+    private var pendingSnapshotPageCount = 0
+    private var pendingSnapshotContinuation: (token: String, generation: UInt64)?
+    private var pendingRecognizedEventStamp: String?
+    private struct AppliedFingerprint {
+        let generation: UInt64
+        let digest: String
+    }
+    // Accessed under applicationLock; reset need not acquire that lock while
+    // holding the lifecycle lock because eligibility includes the generation.
+    private var appliedFingerprints: [String: AppliedFingerprint] = [:]
+    private var preparedValues: [String: ClientSyncConversationValue] = [:]
+    private var preparedValueOrder: [String] = []
+    private var preparedValueByteCount = 0
+    private let maximumPendingSnapshotPages = 2
     
     private enum InitialPresenceSessionState {
         case awaitingAuthenticatedStream(wasSent: Bool)
@@ -451,6 +581,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     
     internal var firstSync: Bool = true
     internal var beforeApplyingSyncPayload: (() throws -> Void)?
+    internal var beforePreparingSyncPage: (() -> Void)?
+    internal var beforeRecordingSnapshotPush: (() -> Void)?
     internal var beforeCommittingSyncPage: (() -> Void)?
     internal var syncRequestObserver: ((SyncRequestDiagnostics) -> Void)?
     internal var initialPresenceSendAttemptObserver: (() -> Void)?
@@ -555,8 +687,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     private func markLastRecognizedEventStamp(_ stamp: String) {
-        lastRecognizedEventStamp = stamp
-        updateStoredVersion(stamp)
+        let newest = ClientSyncEventVersion.newest(lastRecognizedEventStamp, stamp)
+        guard newest != lastRecognizedEventStamp else { return }
+        lastRecognizedEventStamp = newest
+        updateStoredVersion(newest)
     }
 
     private var isPersistedSnapshotBootstrapInProgress: Bool {
@@ -641,16 +775,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 return persistedSnapshotBootstrapRequestedStampMode
             }
         }
-        // The synchronized preview cache is intentionally process-resident.
-        // A stamped cold-start delta cannot restore unchanged rows after a
-        // relaunch, so recover only when durable Last Chats rows prove that a
-        // server preview exists but neither a materialized message nor a
-        // process projection can render it. This remains list-only and uses
-        // the bounded 20-row first page.
-        if needsColdListPreviewRecoverySnapshot() {
-            return .absent
-        }
+        // Presentation-cache misses never invalidate a processed sync cursor.
+        // A first synchronization is full; completed state always catches up
+        // from its latest event, including after a process restart.
         if isPersistedSnapshotBootstrapInProgress {
+            if let recognized = Self.normalizedSyncString(lastRecognizedEventStamp) {
+                return .value(recognized)
+            }
             if let lastCompletedSnapshotStamp = Self.normalizedSyncString(lastCompletedSnapshotStamp) {
                 return .value(lastCompletedSnapshotStamp)
             }
@@ -664,30 +795,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return .value(version)
         }
         return nil
-    }
-
-    private func needsColdListPreviewRecoverySnapshot() -> Bool {
-        do {
-            let realm = try WRealm.safe()
-            let unresolvedRows = realm
-                .objects(LastChatsStorageItem.self)
-                .filter(
-                    "owner == %@ AND lastMessage == nil AND lastMessageId != ''",
-                    owner
-                )
-            return unresolvedRows.contains { row in
-                LastChatListSyncPreviewStore.shared.projection(
-                    owner: owner,
-                    conversationPrimary: row.primary,
-                    expectedLastMessageID: row.lastMessageId
-                ) == nil
-            }
-        } catch {
-            DDLogDebug(
-                "ClientSynchronizationManager: \(#function). \(error.localizedDescription)"
-            )
-            return false
-        }
     }
 
     private func canStartSync(after: String?) -> Bool {
@@ -722,7 +829,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return false
         }
         let canRecover = stateQueue.sync {
-            !isApplyingPage && (phase == .snapshotInProgress || phase == .catchingUp)
+            !isApplyingPage && pendingSnapshotPageCount == 0 &&
+                (phase == .snapshotInProgress || phase == .catchingUp)
         }
         guard canRecover else {
             return false
@@ -730,7 +838,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         logSyncTrace("staleSnapshotPhaseRecoveredForRetry", [
             ("persistedSnapshotStamp", "withheld")
         ])
-        resetSyncStateAfterFailure()
+        // performSync already owns the lifecycle lock. Do not recursively
+        // acquire it while recovering a response-less pagination phase.
+        if resetSyncSessionWhileLifecycleLocked() {
+            temporaryVer = nil
+            completeSyncSessionReset()
+            AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
+        }
         return canStartSync(after: after)
     }
 
@@ -826,26 +940,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     @discardableResult
     private func resetSyncStateAfterFailure(expectedGeneration: UInt64? = nil) -> Bool {
-        let (didReset, endedRecentsSync) = stateQueue.sync { () -> (Bool, Bool) in
-            if let expectedGeneration,
-               syncSessionGeneration != expectedGeneration {
-                return (false, false)
-            }
-            let endedRecentsSync = startupRecentsSyncActivity == .awaitingFirstPage
-            if endedRecentsSync { startupRecentsSyncActivity = .idle }
-            phase = .idle
-            activeSnapshotStamp = nil
-            activeSnapshotRequestedStampMode = nil
-            requestedSnapshotAfterTokens.removeAll()
-            seenSnapshotConversationKeys.removeAll()
-            isApplyingPage = false
-            needsCatchUpAfterSnapshot = false
-            return (true, endedRecentsSync)
-        }
+        // A pipelined successor must not survive failure of an earlier page.
+        let didReset = resetSyncSession(expectedGeneration: expectedGeneration)
         if didReset {
             temporaryVer = nil
             notifyInitialListSynchronizationTrafficGateDidChange()
-            if endedRecentsSync { notifyStartupRecentsSyncActivityDidChange() }
             AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
         }
         return didReset
@@ -947,9 +1046,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     private func applySyncPayload(
         conversations: [ClientSyncConversationValue],
-        expectedGeneration: UInt64
+        expectedGeneration: UInt64,
+        isInitialServerSnapshot: Bool = false
     ) throws -> SyncPayloadApplyResult {
         try beforeApplyingSyncPayload?()
+        applicationLock.lock()
+        defer { applicationLock.unlock() }
         guard isCurrentSyncSessionGeneration(expectedGeneration) else {
             throw SyncSessionApplyError.invalidated
         }
@@ -959,16 +1061,47 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         guard materializedConversations.count == conversations.count else {
             throw SyncSessionApplyError.invalidated
         }
+        let fingerprints = Dictionary(uniqueKeysWithValues: materializedConversations.map {
+            (ObjectIdentifier($0), Self.syncFingerprint($0.xmlString))
+        })
+        let encryptedPrimaries = Set(zip(materializedConversations, conversations).compactMap { element, value -> String? in
+            guard value.containsEncryptedWire || Self.isEncryptedSyncConversation(element) || value.lastMessageEncryption != .plaintext else { return nil }
+            return syncConversationPrimary(element)
+        })
         let previewPreparationEpoch =
             LastChatListSyncPreviewStore.shared.preparationEpoch(for: owner)
         let realm = try WRealm.safe()
-        let activeGroupPrimaries = CanonicalGroupRegularShadowPolicy
-            .activeGroupPrimaries(in: realm, owners: [self.owner])
+        let relevantRegularJIDs = Set(materializedConversations.compactMap { element -> String? in
+            guard Self.effectiveConversationType(from: element) == .regular,
+                  let jid = element.attributeStringValue(forName: "jid") else { return nil }
+            return GroupStorageKey.bareJID(jid)
+        })
+        let activeGroupPrimaries = CanonicalGroupRegularShadowPolicy.activeGroupPrimaries(
+            in: realm, owners: [owner], restrictedToGroupJIDs: relevantRegularJIDs
+        )
+        let batch = ClientSyncPageBatch.shared.begin(owner: owner, generation: expectedGeneration)
+        var completedBatch = false
+        defer { if !completedBatch { ClientSyncPageBatch.shared.cancel(batch) } }
+        var committedFingerprints: [String: String] = [:]
         let result = try ClientSyncPageApplier.apply(
             owner: owner,
             realm: realm,
             conversations: materializedConversations,
             activeCanonicalGroupPrimaries: activeGroupPrimaries,
+            shouldApplyConversation: { conversation, realm in
+                guard self.shouldApplyConversationVersion(conversation, realm: realm) else { return false }
+                guard let primary = self.syncConversationPrimary(conversation),
+                      let fingerprint = fingerprints[ObjectIdentifier(conversation)] else { return true }
+                if !encryptedPrimaries.contains(primary),
+                   let applied = self.appliedFingerprints[primary],
+                   applied.generation == expectedGeneration,
+                   applied.digest == fingerprint,
+                   realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) != nil {
+                    return false
+                }
+                committedFingerprints[primary] = fingerprint
+                return true
+            },
             applyConversationState: self.applyListConversationState(_:realm:),
             commitTransaction: { realm in
                 try self.commitSyncPageTransaction(
@@ -977,8 +1110,13 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 )
             }
         )
+        let acceptedCurrentConversations = materializedConversations.filter { element in
+            guard let primary = syncConversationPrimary(element),
+                  let fingerprint = fingerprints[ObjectIdentifier(element)] else { return false }
+            return committedFingerprints[primary] == fingerprint
+        }
         clearCommittedRegularConversationDeletionMarkers(
-            from: materializedConversations,
+            from: acceptedCurrentConversations,
             appliedConversationPrimaries: result.appliedConversationPrimaries,
             realm: realm
         )
@@ -1001,6 +1139,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 owner: owner,
                 conversationType: conversationType
             )
+            guard let fingerprint = fingerprints[ObjectIdentifier(conversation)],
+                  committedFingerprints[primary] == fingerprint else { return nil }
             let isDeleted = conversation.element(forName: "deleted") != nil ||
                 conversation.attributeStringValue(forName: "status") ==
                     ConversationStatus.deleted.rawValue
@@ -1033,10 +1173,53 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         guard isCurrentSyncSessionGeneration(expectedGeneration) else {
             throw SyncSessionApplyError.invalidated
         }
-        routeCanonicalGroupSynchronization(from: materializedConversations)
+        routeCanonicalGroupSynchronization(from: acceptedCurrentConversations)
+        if appliedFingerprints.count > 4096 { appliedFingerprints.removeAll(keepingCapacity: true) }
+        encryptedPrimaries.forEach { appliedFingerprints.removeValue(forKey: $0) }
+        appliedFingerprints.merge(committedFingerprints
+            .filter { !encryptedPrimaries.contains($0.key) }
+            .mapValues { AppliedFingerprint(generation: expectedGeneration, digest: $0) }) { _, new in new }
+        let didReceiveStartupResponse = isInitialServerSnapshot && stateQueue.sync {
+            guard syncSessionGeneration == expectedGeneration,
+                  !startupRecentsResponseReceived else { return false }
+            startupRecentsResponseReceived = true
+            return true
+        }
+        ClientSyncPageBatch.shared.commit(batch, changedConversationPrimaries: result.changedConversationPrimaries)
+        completedBatch = true
+        if didReceiveStartupResponse { notifyStartupRecentsReadinessDidChange() }
         return SyncPayloadApplyResult(
             applySummary: result.summary
         )
+    }
+
+    private static func syncFingerprint(_ xml: String) -> String {
+        SHA256.hash(data: Data(xml.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func isEncryptedSyncConversation(_ conversation: DDXMLElement) -> Bool {
+        effectiveConversationType(from: conversation).isEncrypted || SCEReceivePolicy.containsOMEMO2(conversation)
+    }
+
+    private func syncConversationPrimary(_ conversation: DDXMLElement) -> String? {
+        guard let jid = conversation.attributeStringValue(forName: "jid"), !jid.isEmpty else { return nil }
+        return LastChatsStorageItem.genPrimary(jid: jid, owner: owner,
+            conversationType: Self.effectiveConversationType(from: conversation))
+    }
+
+    /// Runs inside the Realm write transaction after its automatic refresh, so
+    /// a newer push that committed while this page waited cannot be rolled back.
+    private func shouldApplyConversationVersion(_ conversation: DDXMLElement, realm: Realm) -> Bool {
+        guard let stamp = ClientSyncEventVersion.number(conversation.attributeStringValue(forName: "stamp")),
+              let primary = syncConversationPrimary(conversation) else { return true }
+        if let existing = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary),
+           existing.updateTS > Double(stamp) { return false }
+        if let jid = conversation.attributeStringValue(forName: "jid"),
+           let deleted = ClientSyncRegularConversationDeletionStore.latestDeletionStamp(
+                owner: owner, jid: jid, conversationType: Self.effectiveConversationType(from: conversation)
+           ),
+           stamp <= deleted { return false }
+        return true
     }
 
     @discardableResult
@@ -1077,10 +1260,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             guard syncSessionGeneration == expectedGeneration else {
                 return nil
             }
-            isApplyingPage = false
+            pendingSnapshotPageCount = max(0, pendingSnapshotPageCount - 1)
+            isApplyingPage = pendingSnapshotPageCount > 0
             if isFinalPage {
                 let actions = SnapshotCompletionActions(
-                    needsCatchUpSync: needsCatchUpAfterSnapshot
+                    needsCatchUpSync: needsCatchUpAfterSnapshot,
+                    recognizedEventStamp: pendingRecognizedEventStamp
                 )
                 activeSnapshotStamp = nil
                 activeSnapshotRequestedStampMode = nil
@@ -1088,17 +1273,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 seenSnapshotConversationKeys.removeAll()
                 phase = .live
                 needsCatchUpAfterSnapshot = false
+                pendingRecognizedEventStamp = nil
                 return actions
             } else {
                 phase = .catchingUp
                 return SnapshotCompletionActions.none
             }
-        }
-    }
-
-    private func noteCatchUpNeededAfterSnapshot() {
-        stateQueue.sync {
-            needsCatchUpAfterSnapshot = true
         }
     }
 
@@ -1148,6 +1328,26 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             !isApplyingPage && pendingSnapshotPageCount == 0 &&
             pendingSnapshotContinuation == nil && syncRequestInfoById.isEmpty
         }
+    }
+
+    final func hasReceivedStartupRecentsResponse() -> Bool {
+        stateQueue.sync { startupRecentsResponseReceived }
+    }
+
+    /// The roster coordinator calls this only for a successfully applied or
+    /// empty result it correlated with its current initial roster request.
+    final func noteLegacyStartupRosterResponse(_ iq: XMPPIQ) {
+        guard iq.iqType == .result, syncServerContext(for: iq) == .accountServer else { return }
+        let didReceive = stateQueue.sync {
+            guard !isAvailable, !startupRecentsResponseReceived else { return false }
+            startupRecentsResponseReceived = true
+            return true
+        }
+        if didReceive { notifyStartupRecentsReadinessDidChange() }
+    }
+
+    private func notifyStartupRecentsReadinessDidChange() {
+        NotificationCenter.default.post(name: Self.startupRecentsReadinessDidChange, object: owner)
     }
 
     final func isCurrentStartupSynchronizationGeneration(_ generation: UInt64) -> Bool {
@@ -1634,14 +1834,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 ("skipped", applyResult.applySummary.skippedConversationCount),
                 ("failed", applyResult.applySummary.failedConversationCount)
             ])
-            if isInitialChatListSynchronizationInProgress() {
-                noteCatchUpNeededAfterSnapshot()
-            } else {
-                syncLifecycleLock.lock()
-                if isCurrentSyncSessionGeneration(expectedGeneration) {
+            beforeRecordingSnapshotPush?()
+            stateQueue.sync {
+                guard syncSessionGeneration == expectedGeneration else { return }
+                // Choose the disposition and record it together. Final-page
+                // completion must not fall between an active-snapshot check
+                // and recording this successfully committed push's cursor.
+                if phase == .snapshotInProgress || phase == .catchingUp || pendingSnapshotPageCount > 0 {
+                    needsCatchUpAfterSnapshot = true
+                    pendingRecognizedEventStamp = ClientSyncEventVersion.newest(pendingRecognizedEventStamp, stamp)
+                } else {
                     markLastRecognizedEventStamp(stamp)
                 }
-                syncLifecycleLock.unlock()
             }
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
@@ -1678,12 +1882,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let isDeleted = conversation.element(forName: "deleted") != nil ||
             status == ConversationStatus.deleted.rawValue
         if isDeleted {
-            if conversationType == .regular {
-                ClientSyncRegularConversationDeletionStore.markDeleted(
-                    owner: owner,
-                    jid: jid
-                )
-            }
+            ClientSyncRegularConversationDeletionStore.markDeleted(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                stamp: conversation.attributeStringValue(forName: "stamp")
+            )
             if let existing {
                 realm.delete(existing)
             }
@@ -1904,10 +2108,44 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     internal func waitForPendingSnapshotApplies() {
-        applyQueue.sync {}
+        let finished = DispatchGroup()
+        finished.enter()
+        preparationQueue.async {
+            self.applyQueue.async { finished.leave() }
+        }
+        if Thread.isMainThread {
+            // Test barrier only: Realm's pending asynchronous main-thread
+            // transactions may already hold the writer lock needed by apply.
+            // Keep their source runloop alive while the queue markers drain.
+            while finished.wait(timeout: .now()) == .timedOut {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+        } else {
+            finished.wait()
+        }
     }
-    
+
     internal func readSnapshot(_ iq: XMPPIQ) -> Bool {
+        guard iq.iqType == .result, let elementID = iq.elementID,
+              syncQueryElement(in: iq) != nil else { return false }
+        guard let request = consumeTrackedSyncRequest(elementID) else { return true }
+        let admitted = stateQueue.sync { () -> Bool in
+            guard syncSessionGeneration == request.generation else { return false }
+            pendingSnapshotPageCount += 1
+            isApplyingPage = true
+            return true
+        }
+        guard admitted else { return true }
+        // The detached immutable ownership handoff leaves parsing, decryption
+        // and persistence off the account's XMPP delegate queue.
+        let detached = XMPPIQ(from: iq.copy() as! DDXMLElement)
+        preparationQueue.async { [weak self] in
+            _ = self?.processSnapshot(detached, trackedRequest: request)
+        }
+        return true
+    }
+
+    private func processSnapshot(_ iq: XMPPIQ, trackedRequest: TrackedSyncRequest) -> Bool {
         guard iq.iqType == .result else {
             return false
         }
@@ -1915,8 +2153,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
               let query = syncQueryElement(in: iq) else {
             return false
         }
-        let trackedRequest = consumeTrackedSyncRequest(elementId)
-        let isTrackedSyncQuery = trackedRequest != nil
+        let isTrackedSyncQuery = true
         logSyncTrace("responseReceivedBeforeParse", [
             ("id", elementId),
             ("isTracked", isTrackedSyncQuery),
@@ -1925,8 +2162,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ("queryStamp", query.attributeStringValue(forName: "stamp")),
             ("childCount", query.children?.count)
         ])
-        guard let trackedRequest,
-              isCurrentSyncSessionGeneration(trackedRequest.generation) else {
+        guard isCurrentSyncSessionGeneration(trackedRequest.generation) else {
             logSyncTrace("staleSnapshotResponseIgnored", [
                 ("id", elementId),
                 ("isTracked", isTrackedSyncQuery)
@@ -1936,6 +2172,30 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let expectedGeneration = trackedRequest.generation
         let request: SyncRequestDiagnostics? = trackedRequest.diagnostics
         let serverContext = syncServerContext(for: iq)
+        var rejectsContinuation = false
+        if let envelope = ClientSyncPageParser.snapshotEnvelope(
+            from: iq, pageSize: trackedRequest.diagnostics.max, namespace: Self.primaryNamespace
+        ) {
+            guard beginApplyingPage(snapshotStamp: envelope.stamp, request: request,
+                                    expectedGeneration: expectedGeneration) else { return true }
+            if !envelope.isFinalPage {
+                if let token = envelope.nextPageToken,
+                   shouldRequestNextSnapshotPage(after: token, currentAfter: request?.after,
+                                                 expectedGeneration: expectedGeneration) {
+                    stateQueue.sync {
+                        guard syncSessionGeneration == expectedGeneration else { return }
+                        pendingSnapshotContinuation = (token, expectedGeneration)
+                    }
+                    drainSnapshotContinuation()
+                } else {
+                    // Valid records from an accepted page still commit in
+                    // order; only its non-advancing continuation is rejected.
+                    rejectsContinuation = true
+                }
+            }
+        }
+        beforePreparingSyncPage?()
+        guard isCurrentSyncSessionGeneration(expectedGeneration) else { return true }
         guard let page = ClientSyncPageParser.parseSnapshotPage(
             from: iq,
             pageSize: trackedRequest.diagnostics.max,
@@ -1968,17 +2228,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 ("childNames", query.children?.compactMap { ($0 as? DDXMLElement)?.name }.joined(separator: ",")),
                 ("persistedSnapshotStamp", "withheld")
             ])
-            if request?.after == nil {
-                finishStartupRecentsSync(expectedGeneration: expectedGeneration, appliedFirstPage: false)
-            }
-            AccountManager.shared.find(for: owner)?.scheduleStartupSynchronizationRetry()
+            _ = resetSyncStateAfterFailure(expectedGeneration: expectedGeneration)
             return true
         }
-        guard beginApplyingPage(
-            snapshotStamp: page.stamp,
-            request: request,
-            expectedGeneration: expectedGeneration
-        ), let duplicateConversationCount = noteReceivedConversationKeys(
+        guard let duplicateConversationCount = noteReceivedConversationKeys(
             conversationKeys(from: page.conversations),
             expectedGeneration: expectedGeneration
         ) else {
@@ -2004,6 +2257,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ("isFinalByParser", page.isFinalPage)
         ])
 
+        let continuationWasRejected = rejectsContinuation
         applyQueue.async {
             guard self.isCurrentSyncSessionGeneration(expectedGeneration) else {
                 self.logSyncTrace("staleSnapshotPageIgnoredBeforeApply", [
@@ -2021,7 +2275,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             do {
                 let applyResult = try self.applySyncPayload(
                     conversations: page.conversations,
-                    expectedGeneration: expectedGeneration
+                    expectedGeneration: expectedGeneration,
+                    isInitialServerSnapshot: trackedRequest.diagnostics.after == nil && serverContext == .accountServer
                 )
                 guard self.isCurrentSyncSessionGeneration(expectedGeneration) else {
                     self.logSyncTrace("staleSnapshotPageIgnoredAfterApply", [
@@ -2069,7 +2324,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         }
                         self.clearSnapshotBootstrapInProgress()
                         self.lastCompletedSnapshotStamp = page.stamp
-                        self.markLastRecognizedEventStamp(page.stamp)
+                        self.markLastRecognizedEventStamp(
+                            ClientSyncEventVersion.newest(actions.recognizedEventStamp, page.stamp)
+                        )
                         self.firstSync = false
                         self.acountSynced = true
                         self.temporaryVer = nil
@@ -2117,69 +2374,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     return
                 }
 
-                guard let nextPageToken = page.nextPageToken,
-                      self.shouldRequestNextSnapshotPage(
-                        after: nextPageToken,
-                        currentAfter: request?.after,
-                        expectedGeneration: expectedGeneration
-                      ) else {
-                    guard self.finishApplyingPage(
-                        snapshotStamp: page.stamp,
-                        isFinalPage: false,
-                        expectedGeneration: expectedGeneration
-                    ) != nil else {
-                        self.logSyncTrace("staleSnapshotPaginationFailureIgnored", [
-                            ("id", elementId),
-                            ("snapshotStamp", page.stamp)
-                        ])
-                        return
-                    }
-                    self.logSyncTrace("paginationStalled", [
-                        ("snapshotStamp", page.stamp),
-                        ("requestedAfter", request?.after),
-                        ("nextPageToken", page.nextPageToken),
-                        ("persistedSnapshotStamp", "withheld")
-                    ])
-                    self.beforeResettingSnapshotFailure?()
-                    _ = self.resetSyncStateAfterFailure(expectedGeneration: expectedGeneration)
-                    return
-                }
-
                 guard self.finishApplyingPage(
                     snapshotStamp: page.stamp,
                     isFinalPage: false,
                     expectedGeneration: expectedGeneration
-                ) != nil else {
-                    self.logSyncTrace("staleSnapshotContinuationIgnored", [
-                        ("id", elementId),
-                        ("snapshotStamp", page.stamp)
-                    ])
+                ) != nil else { return }
+                if continuationWasRejected {
+                    self.beforeResettingSnapshotFailure?()
+                    _ = self.resetSyncStateAfterFailure(expectedGeneration: expectedGeneration)
                     return
                 }
-                self.logSyncTrace("pageContinuation", [
-                    ("snapshotStamp", page.stamp),
-                    ("after", nextPageToken),
-                    ("persistedSnapshotStamp", "withheld"),
-                    ("schedulingGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
-                ])
-                self.beforeDispatchingSnapshotContinuation?()
-                AccountManager.shared.find(for: self.owner)?.unsafeAction { _, stream in
-                    _ = self.performSync(
-                        stream,
-                        customVer: nil,
-                        after: nextPageToken,
-                        expectedGeneration: expectedGeneration
-                    )
-                }
-                self.logSyncTrace("pageContinuationDispatched", [
-                    ("snapshotStamp", page.stamp),
-                    ("after", nextPageToken),
-                    ("dispatchGapMs", Int(Date().timeIntervalSince(applyFinishedAt) * 1000))
-                ])
+                self.drainSnapshotContinuation()
             } catch SyncSessionApplyError.invalidated {
-                if request?.after == nil {
-                    self.finishStartupRecentsSync(expectedGeneration: expectedGeneration, appliedFirstPage: false)
-                }
                 self.logSyncTrace("staleSnapshotPageIgnoredDuringApply", [
                     ("id", elementId),
                     ("snapshotStamp", page.stamp)
@@ -2209,6 +2415,22 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return true
     }
     
+    private func drainSnapshotContinuation() {
+        let continuation = stateQueue.sync { () -> (token: String, generation: UInt64)? in
+            guard pendingSnapshotPageCount < maximumPendingSnapshotPages,
+                  let pending = pendingSnapshotContinuation,
+                  pending.generation == syncSessionGeneration else { return nil }
+            pendingSnapshotContinuation = nil
+            return pending
+        }
+        guard let continuation else { return }
+        beforeDispatchingSnapshotContinuation?()
+        AccountManager.shared.find(for: owner)?.unsafeAction { _, stream in
+            _ = self.performSync(stream, customVer: nil, after: continuation.token,
+                                 expectedGeneration: continuation.generation)
+        }
+    }
+
     /// Sync metadata may describe a replaced archived version only when the IQ
     /// belongs to this account's server. It never supplies decryption provenance.
     private func syncServerContext(for iq: XMPPIQ) -> OMEMOReceiveServerContext {
@@ -2232,13 +2454,43 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         _ query: DDXMLElement,
         serverContext: OMEMOReceiveServerContext = .unverified
     ) -> [ClientSyncConversationValue] {
-        if let omemo = AccountManager.shared.find(for: owner)?.omemo {
-            return omemo.prepareSyncConversations(query, serverContext: serverContext)
+        let source = query.elements(forName: "conversation")
+        let generation = currentSyncSessionGeneration()
+        let context = serverContext == .accountServer ? "server:" : "unverified:"
+        let keys = source.map { context + Self.syncFingerprint($0.xmlString) }
+        let cache = stateQueue.sync { preparedValues }
+        let missing = source.indices.filter { Self.isEncryptedSyncConversation(source[$0]) || cache[keys[$0]] == nil }
+        var prepared = cache
+        if !missing.isEmpty {
+            let subset = DDXMLElement(name: "query", xmlns: Self.primaryNamespace)
+            missing.forEach { subset.addChild(source[$0].copy() as! DDXMLElement) }
+            let normalized = AccountManager.shared.find(for: owner)?.omemo
+                .prepareSyncConversations(subset, serverContext: serverContext)
+                ?? missing.map { ClientSyncConversationValue(source[$0]) }
+            for (index, preparedValue) in zip(missing, normalized) {
+                var value = preparedValue
+                value.containsEncryptedWire = Self.isEncryptedSyncConversation(source[index])
+                prepared[keys[index]] = value
+                // Failed/unverified preparation may become usable after a
+                // later bundle/trust event; never cache that failure.
+                guard !Self.isEncryptedSyncConversation(source[index]),
+                      value.lastMessageEncryption == .plaintext,
+                      value.xmlString.utf8.count <= 65_536 else { continue }
+                stateQueue.sync {
+                    guard syncSessionGeneration == generation else { return }
+                    if preparedValues[keys[index]] == nil { preparedValueOrder.append(keys[index]) }
+                    preparedValueByteCount -= preparedValues[keys[index]]?.xmlString.utf8.count ?? 0
+                    preparedValues[keys[index]] = value
+                    preparedValueByteCount += value.xmlString.utf8.count
+                    while preparedValueOrder.count > 512 || preparedValueByteCount > 2 * 1024 * 1024 {
+                        if let removed = preparedValues.removeValue(forKey: preparedValueOrder.removeFirst()) {
+                            preparedValueByteCount -= removed.xmlString.utf8.count
+                        }
+                    }
+                }
+            }
         }
-        // Before the account is available the preview parser treats retained
-        // OMEMO ciphertext as unresolved, regardless of any wire marker.
-        return query.elements(forName: "conversation")
-            .map { ClientSyncConversationValue($0) }
+        return keys.compactMap { prepared[$0] }
     }
     
     internal func readError(_ iq: XMPPIQ) -> Bool {
@@ -2297,6 +2549,18 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     @discardableResult
     private func resetSyncSession(expectedGeneration: UInt64? = nil) -> Bool {
         syncLifecycleLock.lock()
+        let didReset = resetSyncSessionWhileLifecycleLocked(expectedGeneration: expectedGeneration)
+        syncLifecycleLock.unlock()
+        if didReset {
+            completeSyncSessionReset()
+            notifyStartupRecentsSyncActivityDidChange()
+        }
+        return didReset
+    }
+
+    /// Caller owns syncLifecycleLock; keeps stale-session cancellation and
+    /// request registration atomic without recursively acquiring an NSLock.
+    private func resetSyncSessionWhileLifecycleLocked(expectedGeneration: UInt64? = nil) -> Bool {
         let didReset = stateQueue.sync {
             if let expectedGeneration,
                self.syncSessionGeneration != expectedGeneration {
@@ -2313,6 +2577,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             self.seenSnapshotConversationKeys.removeAll()
             self.isApplyingPage = false
             self.needsCatchUpAfterSnapshot = false
+            self.pendingSnapshotPageCount = 0
+            self.pendingSnapshotContinuation = nil
+            self.pendingRecognizedEventStamp = nil
+            self.preparedValues.removeAll()
+            self.preparedValueOrder.removeAll()
+            self.preparedValueByteCount = 0
             self.syncRequestInfoById.removeAll()
             self.startupResponseTimeouts.values.forEach { $0.cancel() }
             self.startupResponseTimeouts.removeAll()
@@ -2321,15 +2591,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         if didReset {
             self.queryIds.removeAll()
         }
-        syncLifecycleLock.unlock()
-        if didReset {
-            LastChatListSyncPreviewStore.shared.invalidatePreparations(
-                for: owner
-            )
-            notifyInitialListSynchronizationTrafficGateDidChange()
-            notifyStartupRecentsSyncActivityDidChange()
-        }
         return didReset
+    }
+
+    private func completeSyncSessionReset() {
+        LastChatListSyncPreviewStore.shared.invalidatePreparations(for: owner)
+        notifyInitialListSynchronizationTrafficGateDidChange()
     }
 
     public final func reset() {
@@ -2352,6 +2619,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {
+        ClientSyncRegularConversationDeletionStore.removeAll(for: owner)
         LastChatListSyncPreviewStore.shared.removeAll(for: owner)
         SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: "version", value: "")
         SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: ClientSynchronizationManager.lastRecognizedEventStampKey, value: "")

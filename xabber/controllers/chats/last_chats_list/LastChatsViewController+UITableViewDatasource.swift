@@ -41,7 +41,7 @@ extension LastChatsViewController: UITableViewDataSource {
             fatalError()
         }
 
-        if showSkeleton.value {
+        if datasourceShowsSkeleton {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SkeletonCell.cellName, for: indexPath) as? SkeletonCell else {
                 fatalError()
             }
@@ -233,7 +233,7 @@ extension LastChatsViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if self.showSkeleton.value {
+        if self.datasourceShowsSkeleton {
             (cell as? SkeletonCell)?.animate()
             return
         }

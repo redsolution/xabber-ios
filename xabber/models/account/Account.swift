@@ -169,6 +169,7 @@ final class AccountXMPPTaskScheduler {
         let maxConcurrentByResource: [Resource: Int]
         let defaultCooldown: TimeInterval
         let cooldownByResource: [Resource: TimeInterval]
+        let reservedInteractiveArchiveSlots: Int
 
         static let production = Configuration(
             defaultMaxConcurrent: 1,
@@ -182,20 +183,23 @@ final class AccountXMPPTaskScheduler {
                 .mamArchive: 0.35,
                 .vcard: 0.15,
                 .avatar: 0.15,
-            ]
+            ],
+            reservedInteractiveArchiveSlots: 1
         )
 
         static func test(
             defaultMaxConcurrent: Int = 1,
             maxConcurrentByResource: [Resource: Int] = [:],
             defaultCooldown: TimeInterval = 0,
-            cooldowns: [Resource: TimeInterval] = [:]
+            cooldowns: [Resource: TimeInterval] = [:],
+            reservedInteractiveArchiveSlots: Int = 0
         ) -> Configuration {
             Configuration(
                 defaultMaxConcurrent: defaultMaxConcurrent,
                 maxConcurrentByResource: maxConcurrentByResource,
                 defaultCooldown: defaultCooldown,
-                cooldownByResource: cooldowns
+                cooldownByResource: cooldowns,
+                reservedInteractiveArchiveSlots: max(0, reservedInteractiveArchiveSlots)
             )
         }
 
@@ -438,8 +442,8 @@ final class AccountXMPPTaskScheduler {
         return pendingTasks
             .enumerated()
             .filter { _, task in
-                !delayedResources.contains(task.resource)
-                    && runningCountByResource[task.resource, default: 0] < configuration.maxConcurrent(for: task.resource)
+                (!delayedResources.contains(task.resource) || isInteractiveArchive(task))
+                    && hasCapacity(for: task)
                     && (!onlyInteractiveWorkMayStart || task.priority == .interactive)
                     // MAM transactions arm their timeout when admitted. Keep
                     // restored visible intents here, before request creation.
@@ -457,6 +461,23 @@ final class AccountXMPPTaskScheduler {
                 return lhs.element.priority < rhs.element.priority
             }?
             .offset
+    }
+
+    private func isInteractiveArchive(_ task: ScheduledTask) -> Bool {
+        task.resource == .mamArchive && task.priority == .interactive
+    }
+
+    private func hasCapacity(for task: ScheduledTask) -> Bool {
+        let running = runningCountByResource[task.resource, default: 0]
+        let ordinaryLimit = configuration.maxConcurrent(for: task.resource)
+        guard isInteractiveArchive(task), configuration.reservedInteractiveArchiveSlots > 0 else {
+            return running < ordinaryLimit
+        }
+        // Reserve bounded wire capacity for an actual user opening a chat.
+        // Background/ordinary foreground work cannot consume this reservation.
+        let interactiveRunning = runningTasksByID.values.filter { isInteractiveArchive($0) }.count
+        return interactiveRunning < configuration.reservedInteractiveArchiveSlots &&
+            running < ordinaryLimit + configuration.reservedInteractiveArchiveSlots
     }
 
     private func makeCompletion(for task: ScheduledTask) -> () -> Void {
@@ -487,7 +508,8 @@ final class AccountXMPPTaskScheduler {
                 self.runningCountByResource.removeValue(forKey: task.resource)
             }
 
-            let cooldown = self.configuration.cooldown(for: task.resource)
+            let cooldown = self.isInteractiveArchive(runningTask)
+                ? 0 : self.configuration.cooldown(for: task.resource)
             if cooldown > 0 {
                 let generation = self.generation
                 self.delayedResources.insert(task.resource)
@@ -2297,24 +2319,27 @@ final class AccountSendCoordinator {
                     MessageStorageItem.MessageDisplayType.text.rawValue,
                     MessageStorageItem.MessageSendingState.sending.rawValue
                 )
-            guard !messages.isEmpty else { return }
-            try realm.write {
-                messages.forEach { message in
-                    guard let storedStanza = realm.object(
+            func unqueuedStanza(for message: MessageStorageItem) -> String? {
+                let primary = OutgoingMessageQueueItem.genPrimary(
+                    owner: message.owner,
+                    conversationJid: message.opponent,
+                    conversationType: message.conversationType,
+                    messagePrimary: message.primary
+                )
+                guard realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: primary) == nil,
+                      let storedStanza = realm.object(
                         ofType: MessageStanzaStorageItem.self,
                         forPrimaryKey: [message.primary, "_stanza"].joined()
-                    ), storedStanza.stanza.isNotEmpty else {
-                        return
-                    }
-                    let primary = OutgoingMessageQueueItem.genPrimary(
-                        owner: message.owner,
-                        conversationJid: message.opponent,
-                        conversationType: message.conversationType,
-                        messagePrimary: message.primary
-                    )
-                    guard realm.object(ofType: OutgoingMessageQueueItem.self, forPrimaryKey: primary) == nil else {
-                        return
-                    }
+                      ), storedStanza.stanza.isNotEmpty else { return nil }
+                return storedStanza.stanza
+            }
+
+            guard messages.contains(where: { unqueuedStanza(for: $0) != nil }) else { return }
+            try realm.write {
+                messages.forEach { message in
+                    // The live results and queue lookup reflect Realm's
+                    // refresh at the write boundary.
+                    guard let stanzaXML = unqueuedStanza(for: message) else { return }
                     let item = OutgoingMessageQueueItem()
                     item.configure(
                         owner: message.owner,
@@ -2322,7 +2347,7 @@ final class AccountSendCoordinator {
                         conversationType: message.conversationType,
                         messagePrimary: message.primary,
                         originId: message.messageId,
-                        stanzaXML: storedStanza.stanza,
+                        stanzaXML: stanzaXML,
                         createdAt: message.date,
                         replayRequired: false
                     )
@@ -3130,65 +3155,15 @@ final class ConnectionDiagnosticsTimeline {
     }
 }
 
-/// Applied to both OS and file loggers so XMPPFramework's own wire logger
-/// cannot bypass the app-level credential-frame policy. Wrapping the existing
-/// file formatter retains its timestamp and other public diagnostic formatting.
-final class XMPPPrivatePayloadLogFormatter: NSObject, DDLogFormatter {
-    private let wrapped: DDLogFormatter?
-    private let lock = NSLock()
-    private var privateRegistrationIDs: [String] = []
-
-    init(wrapping wrapped: DDLogFormatter? = nil) {
-        self.wrapped = wrapped
-        super.init()
-    }
-
-    func format(message logMessage: DDLogMessage) -> String? {
-        let value: String
-        if let wrapped {
-            guard let formatted = wrapped.format(message: logMessage) else { return nil }
-            value = formatted
-        } else { value = logMessage.message }
-        // Remember a bounded history so raw registration errors and duplicate
-        // responses are omitted even when they contain no credential child.
-        // Framework wire records are post-parser complete frames and each sink
-        // receives the outgoing registration before its incoming response.
-        let probe = value.replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-        let idPattern = #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?iq\b[^>]*\bid\s*=\s*(?:"([^"]+)"|'([^']+)')"#
-        if let regex = try? NSRegularExpression(pattern: idPattern),
-           let match = regex.firstMatch(in: probe, range: NSRange(probe.startIndex..., in: probe)) {
-            let capture = match.range(at: 1).location == NSNotFound ? match.range(at: 2) : match.range(at: 1)
-            if let range = Range(capture, in: probe) {
-                let id = String(probe[range])
-                lock.lock()
-                if probe.range(of: #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?register(?=[\s/>])"#, options: .regularExpression) != nil,
-                   !privateRegistrationIDs.contains(id) {
-                    privateRegistrationIDs.append(id)
-                    if privateRegistrationIDs.count > 256 { privateRegistrationIDs.removeFirst() }
-                }
-                let isPrivate = privateRegistrationIDs.contains(id)
-                lock.unlock()
-                if isPrivate {
-                    let start = value.range(of: "<")?.lowerBound ?? value.range(of: "&lt;")?.lowerBound ?? value.startIndex
-                    return String(value[..<start]) + "[private XMPP payload omitted]"
-                }
-            }
-        }
-        return ConnectionDiagnosticsLogger.sanitizedXMLPayload(in: value)
-    }
-}
-
+/// App-level connection lifecycle metadata. Wire XML is logged by XMPPFramework.
 struct ConnectionDiagnosticsLogger {
     static let prefix = "CONNECTION_DIAGNOSTICS"
 
-    // Public protocol XML remains available; credential-bearing frames and
-    // private verification material are omitted before reaching any sink.
-    static let rawXMLLoggingEnabled = true
+    // XMPPFramework owns wire XML. App diagnostics record connection metadata only.
+    static let rawXMLLoggingEnabled = false
 
     // These observations repeat information already present in each wire stanza.
-    // Keep lifecycle/failure events, and never filter a record carrying actual XML.
+    // Keep lifecycle and failure events without duplicating framework wire frames.
     private static let routineEvents: Set<String> = [
         "resilience_activity_observed",
         "resilience_outbound_stanza_observed",
@@ -3210,7 +3185,7 @@ struct ConnectionDiagnosticsLogger {
         rawXML: String?,
         error: Error?
     ) -> Bool {
-        if rawXML != nil || error != nil { return true }
+        if error != nil { return true }
         if event == "connection_health_snapshot" {
             return details["isSuspectedStale"] as? Bool == true
         }
@@ -3317,47 +3292,7 @@ struct ConnectionDiagnosticsLogger {
             parts.append("\(key)=\(format(unwrapped))")
         }
 
-        let header = parts.joined(separator: " ")
-        if includeRawXML, let rawXML {
-            return sanitizedXMLPayload(in: header + "\n" + rawXML)
-        }
-        return sanitizedXMLPayload(in: header)
-    }
-
-    /// Registration replies are omitted as a whole frame, not serialized with
-    /// individual fields replaced. This also protects the framework's separate
-    /// raw SEND/RECV logger and escaped/partial XML in failure diagnostics.
-    static func sanitizedXMLPayload(in message: String) -> String {
-        var probe = message
-        for _ in 0..<2 {
-            probe = probe.replacingOccurrences(of: "&lt;", with: "<")
-                .replacingOccurrences(of: "&gt;", with: ">")
-                .replacingOccurrences(of: "&quot;", with: "\"")
-                .replacingOccurrences(of: "&#39;", with: "'")
-                .replacingOccurrences(of: "&amp;", with: "&")
-        }
-        let secretTag = #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?(?:auth|register|secret|validation[-_]?key|password|token|private[-_]?key|verification[-_]?code|encryption[-_]?key)(?=[\s/>])"#
-        let secretAttribute = #"(?i)\b(?:device[-_]?secret|validation[-_]?key|encryption[-_]?key|private[-_]?key|verification[-_]?code|access[-_]?token|refresh[-_]?token|password|jwt|authorization)\s*[:=]"#
-        let directDeviceReply = #"(?is)<(?:[a-z_][a-z0-9_.-]*:)?iq\b[^>]*>\s*<(?:[a-z_][a-z0-9_.-]*:)?device\b[^>]*https://xabber\.com/protocol/devices"#
-        let containsPrivateMaterial = probe.contains("urn:ietf:params:xml:ns:xmpp-sasl")
-            || probe.range(of: secretTag, options: .regularExpression) != nil
-            || probe.range(of: secretAttribute, options: .regularExpression) != nil
-            || probe.range(of: directDeviceReply, options: .regularExpression) != nil
-            || (probe.contains("https://xabber.com/protocol/push")
-                && probe.range(of: #"(?i)<(?:[a-z_][a-z0-9_.-]*:)?key(?=[\s/>])"#, options: .regularExpression) != nil)
-            || probe.contains("PRIVATE KEY-----")
-        guard containsPrivateMaterial else { return message }
-        let xmlStart = [message.range(of: "<")?.lowerBound,
-                        message.range(of: "&lt;")?.lowerBound].compactMap { $0 }.min()
-        // Preserve only safe connection metadata preceding the XML. Plain-text
-        // credential/PEM records have no safe payload prefix to retain.
-        if let xmlStart, probe.range(of: secretAttribute, options: .regularExpression) == nil {
-            return String(message[..<xmlStart]) + "[private XMPP payload omitted]"
-        }
-        if let xmlStart, let newline = message[..<xmlStart].lastIndex(of: "\n") {
-            return String(message[...newline]) + "[private XMPP payload omitted]"
-        }
-        return "[private XMPP payload omitted]"
+        return parts.joined(separator: " ")
     }
 
     static func stateDescription(for stream: XMPPStream) -> String {
@@ -3816,7 +3751,6 @@ final class Account: NSObject {
         self.messages.archiveQueryIdPersistenceResolver = { [weak self] queryId in
             self?.mam.shouldPersistArchiveQueryId(queryId) ?? false
         }
-        AccountSendCoordinator.restoreRecoverableRegularMessages(owner: self.jid)
         self.registerModules()
         self.startConnectionResilienceMonitoring()
         self.lastChats.resetSyncedStatus()
@@ -4303,8 +4237,7 @@ final class Account: NSObject {
                 "id": stanza.elementID ?? "none",
                 "kind": primaryStreamStanzaKind(for: stanza).rawValue,
                 "violation": String(describing: violation)
-            ],
-            rawXML: stanza.prettyXMLString ?? stanza.xmlString
+            ]
         )
     }
 

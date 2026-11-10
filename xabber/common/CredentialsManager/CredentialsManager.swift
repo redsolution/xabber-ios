@@ -105,13 +105,19 @@ class CredentialsManager: NSObject {
         )
     }
 
-    private static func bundledCredentialsStore() -> CredentialsStore? {
+    // Bundle resources cannot change during this process. Cache only public
+    // service/access-group metadata, never values read from the Keychain.
+    private static let cachedBundledCredentialsStore: CredentialsStore? = {
         guard let path = Bundle.main.path(forResource: "credential_store", ofType: "plist"),
               let xml = FileManager.default.contents(atPath: path),
               let value = try? PropertyListDecoder().decode(CredentialsStore.self, from: xml) else {
             return nil
         }
         return value
+    }()
+
+    private static func bundledCredentialsStore() -> CredentialsStore? {
+        cachedBundledCredentialsStore
     }
 
     static func uniqueServiceName() -> String {

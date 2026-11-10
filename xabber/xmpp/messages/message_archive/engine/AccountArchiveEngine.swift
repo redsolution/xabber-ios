@@ -692,6 +692,29 @@ actor AccountArchiveEngine {
         _ = conversation
     }
 
+    func retryAfterUserRequest(_ intent: ArchiveWindowIntent) -> Bool {
+        let descriptor = intent.semanticDescriptor
+        let budgetKey = ArchiveRetryBudgetKey(descriptor)
+        guard intent.conversation.owner == owner,
+              let connection,
+              hasPresentationDemand(for: intent.conversation),
+              let current = latestIntentByConversation[intent.conversation],
+              current.id == intent.id,
+              current.semanticDescriptor == descriptor,
+              activeByDescriptor[descriptor] == nil,
+              let budget = retryBudgets[budgetKey],
+              budget.connectionGeneration == connection.generation,
+              budget.terminalFailure != nil else {
+            return false
+        }
+        // This API belongs only to an explicit user action. Reopening, pulls,
+        // presentation deadlines and the legacy retry callback keep their
+        // retained budgets. A new failure receives a new bounded actor budget.
+        retryBudgets.removeValue(forKey: budgetKey)
+        submit(current)
+        return true
+    }
+
     func liveMessageDidPersist(
         conversation: ArchiveConversationKey,
         primaryID: String
@@ -1093,15 +1116,25 @@ actor AccountArchiveEngine {
                     freshnessToken: freshnessToken
                 )
                 let commitCode: Int
+                let committedEdges: (start: Int?, live: Int?)
                 switch commit {
-                case .verified: commitCode = 1
-                case .authoritativeEmpty: commitCode = 2
-                case .noProgress: commitCode = 3
-                case .materializedWithoutCoverage: commitCode = 4
-                case .coverageAdvanced: commitCode = 5
+                case .verified(let snapshot):
+                    commitCode = 1
+                    committedEdges = (snapshot.verifiedSegment.reachesArchiveStart ? 1 : 0,
+                        snapshot.verifiedSegment.reachesLiveEdge ? 1 : 0)
+                case .authoritativeEmpty:
+                    commitCode = 2
+                    if case .latest = request.locator, page.isAuthoritativeEmpty {
+                        committedEdges = (1, 1)
+                    } else { committedEdges = (nil, nil) }
+                case .noProgress: commitCode = 3; committedEdges = (nil, nil)
+                case .materializedWithoutCoverage: commitCode = 4; committedEdges = (nil, nil)
+                case .coverageAdvanced: commitCode = 5; committedEdges = (nil, nil)
                 }
                 diagnose(.repositoryCommitted, intent: intent,
-                    executionCode: execution.diagnosticCode, resultCode: commitCode)
+                    executionCode: execution.diagnosticCode, resultCode: commitCode,
+                    proofMessageCount: page.messagePrimaryIDs.count,
+                    archiveStart: committedEdges.start, liveEdge: committedEdges.live)
                 ArchiveEngineObservability.event(
                     .proof,
                     value: page.messagePrimaryIDs.count
@@ -2030,13 +2063,23 @@ actor AccountArchiveEngine {
         executionCode: UInt64,
         resultCode: Int = 0,
         failureDomainCode: Int = 0,
-        failureReasonCode: Int = 0
+        failureReasonCode: Int = 0,
+        proofMessageCount: Int? = nil,
+        archiveStart: Int? = nil,
+        liveEdge: Int? = nil
     ) {
+        #if DEBUG
+        let code = DeviceQADiagnostics.shared.conversationCode(for: intent.conversation)
+        let conversationCode: UInt64? = code == 0 ? nil : code
+        #else
+        let conversationCode: UInt64? = nil
+        #endif
         diagnosticSink(ArchiveEngineDiagnosticEvent(
             branch: branch, executionCode: executionCode,
             locator: ArchiveEngineDiagnosticLocator(intent.locator),
             resultCode: resultCode, failureDomainCode: failureDomainCode,
-            failureReasonCode: failureReasonCode))
+            failureReasonCode: failureReasonCode, conversationCode: conversationCode,
+            proofMessageCount: proofMessageCount, archiveStart: archiveStart, liveEdge: liveEdge))
     }
 
     private func finish(

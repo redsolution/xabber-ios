@@ -1367,8 +1367,9 @@ final class SavedMessagesEntryPointTests: XCTestCase {
             "first@example.com",
             "second@example.com"
         ])
-        savedController.updateDatasource(.saved)
-        let rows = try XCTUnwrap(savedController.chatsObserver?.toArray())
+        let rows = savedController.mapDataset(
+            showsSpecialMessageBanners: false, dismissedInvitePrimaries: [], showsSkeleton: false
+        )
         XCTAssertEqual(rows.map { "\($0.owner)|\($0.jid)" }, [
             "second@example.com|favorites.second.example.com",
             "first@example.com|favorites.first.example.com"
@@ -1641,9 +1642,10 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
         let controller = LastChatsViewController()
         controller.enabledAccounts.accept(["owner@example.com"])
-        controller.updateDatasource(.saved)
-
-        let rows = try XCTUnwrap(controller.chatsObserver?.toArray())
+        controller.filter.accept(.saved)
+        let rows = controller.mapDataset(
+            showsSpecialMessageBanners: false, dismissedInvitePrimaries: [], showsSkeleton: false
+        )
         XCTAssertEqual(rows.map(\.jid), ["favorites.example.com"])
         XCTAssertTrue(rows.allSatisfy { $0.conversationType == .saved })
     }
@@ -1677,9 +1679,10 @@ final class SavedMessagesEntryPointTests: XCTestCase {
             "first@example.com",
             "second@example.com"
         ])
-        controller.updateDatasource(.saved)
-
-        let rows = try XCTUnwrap(controller.chatsObserver?.toArray())
+        controller.filter.accept(.saved)
+        let rows = controller.mapDataset(
+            showsSpecialMessageBanners: false, dismissedInvitePrimaries: [], showsSkeleton: false
+        )
         XCTAssertEqual(rows.map { "\($0.owner)|\($0.jid)" }, [
             "second@example.com|favorites.second.example.com",
             "first@example.com|favorites.first.example.com"

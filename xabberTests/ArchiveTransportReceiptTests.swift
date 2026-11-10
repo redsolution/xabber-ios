@@ -2606,7 +2606,7 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         )
         XCTAssertEqual(
             source.components(
-                separatedBy: "holdPostPersistenceEffectsUntilArchiveTransportTerminal("
+                separatedBy: "prepareArchiveTransportQueryBatch("
             ).count - 1,
             2,
             "Timeline and engine-search transactions must both own the effects barrier"

@@ -298,7 +298,7 @@ extension LastChatsViewController: UITableViewDelegate {
             openSearchResult(item)
             return
         }
-        if self.showSkeleton.value {
+        if self.showSkeleton.value || tableView.cellForRow(at: indexPath) is SkeletonCell {
             return
         }
         guard let item = self.item(at: indexPath) else {

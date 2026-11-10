@@ -1347,79 +1347,136 @@ enum LastChatMessagePreviewPolicy {
     }
 }
 
-/// Resolves an already-persisted message for a list row whose Realm link was
-/// not materialized. XEP-SYNC remains list-only: this performs one indexed,
-/// read-only lookup and never creates or mutates a message or chat row.
+/// Resolves a locally stored preview for an unlinked recents row without
+/// materializing a message or granting history authority.
 enum LastChatMaterializedPreviewResolver {
-    private struct IdentityKey: Hashable {
+    private struct ConversationKey: Hashable {
         let owner: String
-        let messageID: String
+        let jid: String
+        let type: ClientSynchronizationManager.ConversationType
     }
 
     static func resolve(
         in realm: Realm,
         for chats: [LastChatsStorageItem]
     ) -> [String: MessageStorageItem] {
-        let unresolvedChats = chats.filter {
-            $0.lastMessage == nil && $0.lastMessageId.isNotEmpty
-        }
-        guard unresolvedChats.isNotEmpty else { return [:] }
+        let unresolved = chats.filter { $0.lastMessage == nil && $0.lastMessageId.isNotEmpty }
+        let chatsByID = Dictionary(grouping: unresolved, by: \.lastMessageId)
+        let messages = realm.objects(MessageStorageItem.self)
+        var resolved: [String: MessageStorageItem] = [:]
 
-        let owners = Array(Set(unresolvedChats.map(\.owner)))
-        let messageIDs = Array(Set(unresolvedChats.map(\.lastMessageId)))
-        guard owners.isNotEmpty, messageIDs.isNotEmpty else { return [:] }
+        for (id, matchingChats) in chatsByID {
+            let keys = Set(matchingChats.map {
+                ConversationKey(owner: $0.owner, jid: $0.jid, type: $0.conversationType)
+            })
+            // A single indexed equality avoids the broad mixed-column OR query.
+            // Exact message IDs always outrank archive IDs for the same route.
+            let exact = preferredMessages(messages.filter("messageId == %@", id), in: keys)
+            let missing = keys.subtracting(exact.keys)
+            let archived = missing.isEmpty
+                ? [:]
+                : preferredMessages(messages.filter("archivedId == %@", id), in: missing)
 
-        let candidates = realm.objects(MessageStorageItem.self).filter(
-            "owner IN %@ AND isDeleted == false AND (messageId IN %@ OR archivedId IN %@)",
-            owners,
-            messageIDs,
-            messageIDs
-        )
-        var candidatesByIdentity: [IdentityKey: [MessageStorageItem]] = [:]
-        candidates.forEach { message in
-            if message.messageId.isNotEmpty {
-                candidatesByIdentity[
-                    IdentityKey(owner: message.owner, messageID: message.messageId),
-                    default: []
-                ].append(message)
-            }
-            if message.archivedId.isNotEmpty,
-               message.archivedId != message.messageId {
-                candidatesByIdentity[
-                    IdentityKey(owner: message.owner, messageID: message.archivedId),
-                    default: []
-                ].append(message)
+            for chat in matchingChats {
+                let key = ConversationKey(owner: chat.owner, jid: chat.jid, type: chat.conversationType)
+                resolved[chat.primary] = exact[key] ?? archived[key]
             }
         }
-
-        return unresolvedChats.reduce(into: [:]) { resolved, chat in
-            let key = IdentityKey(
-                owner: chat.owner,
-                messageID: chat.lastMessageId
-            )
-            let exactConversationCandidates = candidatesByIdentity[key]?
-                .filter {
-                    $0.opponent == chat.jid &&
-                        $0.conversationType == chat.conversationType
-                } ?? []
-            guard let message = exactConversationCandidates.max(by: {
-                preference(of: $0, expectedID: chat.lastMessageId) <
-                    preference(of: $1, expectedID: chat.lastMessageId)
-            }) else {
-                return
-            }
-            resolved[chat.primary] = message
-        }
+        return resolved
     }
 
-    private static func preference(
-        of message: MessageStorageItem,
-        expectedID: String
-    ) -> (Int, MessageHistoryOrderKey) {
-        (
-            message.messageId == expectedID ? 1 : 0,
-            MessageHistoryOrderKey(message: message)
-        )
+    private static func preferredMessages(
+        _ candidates: Results<MessageStorageItem>,
+        in keys: Set<ConversationKey>
+    ) -> [ConversationKey: MessageStorageItem] {
+        var preferred: [ConversationKey: MessageStorageItem] = [:]
+        for message in candidates where !message.isDeleted {
+            let key = ConversationKey(owner: message.owner, jid: message.opponent, type: message.conversationType)
+            guard keys.contains(key) else { continue }
+            if let existing = preferred[key],
+               MessageHistoryOrderKey(message: existing) >= MessageHistoryOrderKey(message: message) {
+                continue
+            }
+            preferred[key] = message
+        }
+        return preferred
+    }
+}
+
+/// Numeric-only work evidence for deterministic projection regressions. No logging.
+final class LastChatsProjectionWorkCounter {
+    enum Operation { case fullDatasetBuild, rowBuild, candidateQuery, candidateHit, datasetHit, rowHit, resourceQuery }
+    struct Snapshot {
+        var fullDatasetBuilds = 0, rowBuilds = 0, candidateQueries = 0
+        var candidateHits = 0, datasetHits = 0, rowHits = 0, resourceQueries = 0
+    }
+    private let lock = NSLock()
+    private var value = Snapshot()
+    func record(_ operation: Operation, count: Int = 1) {
+        #if DEBUG
+        lock.lock(); defer { lock.unlock() }
+        switch operation {
+        case .fullDatasetBuild: value.fullDatasetBuilds += count
+        case .rowBuild: value.rowBuilds += count
+        case .candidateQuery: value.candidateQueries += count
+        case .candidateHit: value.candidateHits += count
+        case .datasetHit: value.datasetHits += count
+        case .rowHit: value.rowHits += count
+        case .resourceQuery: value.resourceQueries += count
+        }
+        #endif
+    }
+    var snapshot: Snapshot { lock.lock(); defer { lock.unlock() }; return value }
+    func reset() { lock.lock(); value = Snapshot(); lock.unlock() }
+}
+
+/// Retains identities, never live/frozen message objects. One immutable Realm
+/// version scopes positive and negative results; a different file/version drops
+/// them before lookup. This also covers new candidates and same-ID edits.
+final class LastChatsMaterializedPreviewCache {
+    private struct Key: Hashable {
+        let owner: String, jid: String, type: String, primary: String, lastMessageID: String
+        init(_ chat: LastChatsStorageItem) {
+            owner = chat.owner; jid = chat.jid; type = chat.conversationType_
+            primary = chat.primary; lastMessageID = chat.lastMessageId
+        }
+    }
+    private struct Entry { let messagePrimary: String? }
+    private let capacity: Int
+    private var snapshot: Realm?
+    private var entries: [Key: Entry] = [:]
+    private var order: [Key] = []
+    init(capacity: Int = 512) { self.capacity = min(512, max(1, capacity)) }
+    var entryCount: Int { entries.count }
+    var retainedSnapshotCount: Int { snapshot == nil ? 0 : 1 }
+    func removeAll() { snapshot = nil; entries.removeAll(); order.removeAll() }
+    func resolve(in realm: Realm, for chats: [LastChatsStorageItem],
+        counter: LastChatsProjectionWorkCounter) -> [String: MessageStorageItem] {
+        if snapshot != realm { removeAll(); snapshot = realm }
+        let unresolved = chats.filter { $0.lastMessage == nil && $0.lastMessageId.isNotEmpty }
+        let misses = unresolved.filter { entries[Key($0)] == nil }
+        var out: [String: MessageStorageItem] = [:]
+        for chat in unresolved where entries[Key(chat)] != nil {
+            counter.record(.candidateHit)
+            if let primary = entries[Key(chat)]?.messagePrimary,
+               let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                out[chat.primary] = message
+            }
+        }
+        if misses.isNotEmpty {
+            counter.record(.candidateQuery)
+            let found = LastChatMaterializedPreviewResolver.resolve(in: realm, for: misses)
+            for chat in misses {
+                if entries.count >= capacity, let first = order.first {
+                    entries.removeValue(forKey: first); order.removeFirst()
+                }
+                let key = Key(chat)
+                entries[key] = Entry(messagePrimary: found[chat.primary]?.primary)
+                order.append(key)
+            }
+            out.merge(found, uniquingKeysWith: { _, new in new })
+        }
+        return out
     }
 }
 
@@ -1820,6 +1877,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var isFirstLayout: Bool = false
     
     internal var isAppeared: Bool = false
+    private var rootChatActivationGeneration: UInt = 0
+    private var rootChatActivationTarget: LastChatsNavigationSingleFlightCoordinator.Target?
+    private var pendingRootChatActivation: (
+        generation: UInt,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        activate: () -> Void
+    )?
     private var hasCompletedCurrentAppearance: Bool = false
     internal var isNavigationTransitionActive: Bool = false
     private var pendingNavigationTransitionWork: [() -> Void] = []
@@ -1845,6 +1909,38 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private var projectionRefreshDeadlineGeneration: UInt64 = 0
     private let visibleVCardRetryScheduler = VCardVisibleRetryScheduler()
     
+    #if DEBUG
+    /// Deterministic test barrier only; nil in ordinary execution.
+    internal var projectionMappingDidPrepareForTesting: (() -> Void)?
+    #endif
+    internal let syncLatencyWorkCounter = LastChatsProjectionWorkCounter()
+    private let projectionCacheLock = NSRecursiveLock()
+    private let materializedPreviewCache = LastChatsMaterializedPreviewCache()
+    private var cachedDatasetRealm: Realm?
+    private var cachedDatasetContext = ""
+    private var mappingDeferredForSyncPage = false
+    private struct ProjectionReadRevision {
+        let owners: Set<String>
+        let filter: Int
+        let batches: [String: UInt64]
+        let previews: [String: UInt64]
+    }
+    private var mappingReadRevision: ProjectionReadRevision?
+    private var projectionCacheEvictionWorkItem: DispatchWorkItem?
+    private var projectionCacheEvictionGeneration: UInt64 = 0
+    private var projectionCacheRetentionDeadline = Date.distantPast
+    private var projectionLifecycleEpoch = UUID()
+    private var cachedDataset: [Datasource] = []
+    private var cachedDatasetExpiry = Date.distantPast
+    private var rowRenderCache: [String: (fingerprint: Int, row: Datasource, bytes: Int)] = [:]
+    private var rowRenderOrder: [String] = []
+    private var rowRenderBytes = 0
+    private var rowRenderOwners: Set<String>?
+    private var observedTypingStates: [String: Int] = [:]
+    private var deferredSyncPageRefresh = false
+    private var previewMessageObservationBag = DisposeBag()
+    private var previewMessageObservationKeys = Set<PreviewMessageKey>()
+
     internal var datasource: [Datasource] = []
     internal var datasourceIndexByKey: [String: Int] = [:]
     internal var datasourceSections: [DatasourceSection] = [DatasourceSection(kind: .chats, rows: [])]
@@ -1853,18 +1949,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var bag: DisposeBag = DisposeBag()
     internal var datasetBag: DisposeBag = DisposeBag()
     internal var dismissedCanonicalInviteBannerPrimaries: Set<String> = []
-    internal var chatsObserver: Results<LastChatsStorageItem>? = nil
     internal var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .chats)
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
-    internal var archivedChats: Results<LastChatsStorageItem>? = nil
     
     internal var enabledAccounts: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set<String>())
     
 //    internal var showArchivedSection: BehaviorRelay<Bool> = BehaviorRelay<Bool>(value: false)
     internal var isArchivedSectionShowed: Bool = false
-    internal var unreadArchivedChatsCount: Int = 0
-    internal var archivedSectionSubtitleText: NSAttributedString = NSAttributedString()
     
     internal var editedIndexPath: IndexPath? = nil
     internal var datasourceShowsSkeleton: Bool = false
@@ -2944,6 +3036,48 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         )
     }
 
+    internal func cancelPendingRootChatActivation() {
+        rootChatActivationGeneration &+= 1
+        rootChatActivationTarget = nil
+        pendingRootChatActivation = nil
+    }
+
+    /// A newly installed compact list is not yet a valid chat presenter. Keep
+    /// its exact root intent until UIKit attaches and finishes its appearance;
+    /// the ordinary stackNewChat admission guards still own the eventual push.
+    @discardableResult
+    internal func deferRootChatActivationIfNeeded(
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        activate: @escaping () -> Void
+    ) -> Bool {
+        cancelPendingRootChatActivation()
+        guard !hasCompletedCurrentAppearance || !isAppeared ||
+                viewIfLoaded?.window == nil || isNavigationTransitionActive else {
+            return false
+        }
+        rootChatActivationTarget = target
+        pendingRootChatActivation = (rootChatActivationGeneration, target, activate)
+        flushPendingRootChatActivationAfterAppearance()
+        return true
+    }
+
+    private func flushPendingRootChatActivationAfterAppearance() {
+        guard hasCompletedCurrentAppearance, isAppeared,
+              viewIfLoaded?.window != nil,
+              let pending = pendingRootChatActivation else { return }
+        pendingRootChatActivation = nil
+        let activate = { [weak self] in
+            guard let self,
+                  self.rootChatActivationGeneration == pending.generation,
+                  self.rootChatActivationTarget == pending.target else { return }
+            self.rootChatActivationTarget = nil
+            pending.activate()
+        }
+        if !deferUntilNavigationTransitionCompletesIfNeeded(activate) {
+            activate()
+        }
+    }
+
     @discardableResult
     internal func deferUntilNavigationTransitionCompletesIfNeeded(_ work: @escaping () -> Void) -> Bool {
         guard LastChatsNavigationTransitionMutationPolicy.shouldDeferMutation(
@@ -2989,6 +3123,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     override func resetState() {
+        cancelPendingRootChatActivation()
         super.resetState()
         self.resetExpandedSplitChatNavigationTransaction(
             restorePreviousDetail: false
@@ -3154,15 +3289,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal func updateDatasource(_ value: Filter) {
         do {
             let realm = try  WRealm.safe()
-
+            let jids = Array(realm.objects(AccountStorageItem.self).filter("enabled == true").map(\.jid))
             let predicate: NSPredicate
-            
-            var pinnedChatsSorting: Bool = false
-            
             switch value {
             case .chats:
-                predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@", argumentArray: [false, Array(enabledAccounts.value)])
-                pinnedChatsSorting = true
+                predicate = NSPredicate(
+                    format: "isArchived == false AND owner IN %@",
+                    argumentArray: [Array(enabledAccounts.value)]
+                )
             case .unread:
 //                showArchivedSection.accept(false)
                 predicate = NSPredicate(format: "isArchived == %@ AND unread > %@ AND owner IN %@",
@@ -3182,27 +3316,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     )
                 )
             }
-            chatsObserver = realm
+            let chats = realm
                 .objects(LastChatsStorageItem.self)
                 .filter(predicate)
-            
-            if pinnedChatsSorting {
-                chatsObserver = chatsObserver?.sorted(by: [
-                    SortDescriptor(keyPath: "isPinned", ascending: false),
-                    SortDescriptor(keyPath: "pinnedPosition", ascending: true),
-                    SortDescriptor(keyPath: "messageDate", ascending: false)
-                ])
-            } else {
-                chatsObserver = chatsObserver?.sorted(by: [
-                    SortDescriptor(keyPath: "messageDate", ascending: false)
-                ])
-            }
-            self.skeletonItemsCount = max(self.chatsObserver?.count ?? 0, 10)
-            
-            archivedChats = realm
-                .objects(LastChatsStorageItem.self)
-                .filter( "isArchived == %@ AND owner IN %@", true, Array(enabledAccounts.value))
-                .sorted(byKeyPath: "messageDate", ascending: false)
             
             datasetBag = DisposeBag()
             updateStartupRecentsSkeleton(for: value)
@@ -3219,14 +3335,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 .disposed(by: self.datasetBag)
             
             
-            let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
-            
             let requests = realm
                 .objects(UINotificationStorageItem.self)
                 .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.contactRequest.rawValue)
             
             Observable
                 .collection(from: requests)
+                .skip(1)
                 .debounce(.milliseconds(800), scheduler: MainScheduler.asyncInstance)
                 .subscribe { _ in
                     self.runDatasetUpdateTask()
@@ -3235,6 +3350,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
             let incomingInvites = PublishSubject<[GroupInviteRecord]>()
             incomingInvites
+                .skip(1)
                 .debounce(.milliseconds(900), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { [weak self] _ in
                     self?.runDatasetUpdateTask()
@@ -3248,21 +3364,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             Disposables.create { inviteObservation.invalidate() }
                 .disposed(by: datasetBag)
             
-            Observable
-                .collection(from: chatsObserver!)
-                .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
-                .skip(1)
-                .subscribe { (results) in
-//                    print(#function, "show skeleton")
-                    self.runDatasetUpdateTask()
-                } onError: { (error) in
-                    DDLogDebug("LastChatsViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("LastChatsViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("LastChatsViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: datasetBag)
+            observeChats(chats, in: realm, function: #function)
 
             let enabledOwners = Array(enabledAccounts.value)
             Observable
@@ -3283,22 +3385,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 })
                 .disposed(by: datasetBag)
 
-            Observable
-                .collection(from: realm.objects(MessageStorageItem.self).filter("owner IN %@ AND outgoing == true", enabledOwners))
-                .debounce(.milliseconds(120), scheduler: MainScheduler.asyncInstance)
-                .skip(1)
-                .subscribe(onNext: { _ in
-                    self.runDatasetUpdateTask()
-                })
-                .disposed(by: datasetBag)
-
             canUpdateDataset = true
             runDatasetUpdateTask()
             
             Observable
-                .collection(from: chatsObserver!)
+                .collection(from: chats)
                 .subscribe(onNext: { (results) in
-                    self.skeletonItemsCount = max(results.count, 10)
                     if self.filter.value == .unread {
                         LeftMenuFirstPresentationPolicy.animate(
                             withDuration: 0.1,
@@ -3315,22 +3407,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     self.updateBottomTitle()
                 })
                 .disposed(by: datasetBag)
-            
-            if archivedChats != nil {
-                Observable
-                    .collection(from: archivedChats!)
-                    .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { (results) in
-                        self.archivedSectionSubtitleText = self.updateArchivedSectionTitle()
-                        self.unreadArchivedChatsCount = results.toArray().filter({ $0.unread > 0 }).compactMap{ return $0.unread }.reduce(0, +)
-//                        if self.showArchivedSection.value {
-//                            UIView.performWithoutAnimation {
-//                                self.tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
-//                            }
-//                        }
-                    })
-                    .disposed(by: datasetBag)
-            }
             
         } catch {
             DDLogDebug("cant change filter for last chats")
@@ -3760,7 +3836,312 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private final func excludedDomains(from accounts: Set<String>) -> [String] {
         accounts.compactMap { XMPPJID(string: $0)?.domain }
     }
+
+    private func recentChatsPredicate(ignoredJids: [String]) -> NSPredicate {
+        let owners = Array(enabledAccounts.value)
+        let config = CommonConfigManager.shared.config
+        if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: config.locked_conversation_type) {
+            let allowedJids = excludedDomains(from: enabledAccounts.value) + [config.support_jid]
+            return NSPredicate(
+                format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND NOT (jid IN %@)",
+                argumentArray: [false, owners, lockedType.rawValue, allowedJids, ignoredJids]
+            )
+        }
+        return NSPredicate(
+            format: "isArchived == %@ AND owner IN %@ AND NOT (jid IN %@)",
+            argumentArray: [false, owners, ignoredJids]
+        )
+    }
     
+    private struct PreviewMessageKey: Hashable {
+        let owner: String, jid: String, type: String, id: String
+    }
+
+    private static func previewMessageKey(for chat: LastChatsStorageItem) -> PreviewMessageKey? {
+        let id = chat.lastMessageId
+        guard id.isNotEmpty else { return nil }
+        return PreviewMessageKey(owner: chat.owner, jid: chat.jid, type: chat.conversationType_, id: id)
+    }
+
+    private func observeChats(_ chats: Results<LastChatsStorageItem>, in realm: Realm, function: String) {
+        let changes = PublishSubject<Void>()
+        changes
+            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] _ in self?.runDatasetUpdateTask() })
+            .disposed(by: datasetBag)
+
+        var previous = Array(chats.map(Self.previewMessageKey(for:)))
+        configurePreviewMessageObservation(in: realm, keys: previous)
+        Observable.changeset(from: chats, synchronousStart: false)
+            .subscribe(onNext: { [weak self] results, delta in
+                guard let self else { return }
+                var scopeChanged = false
+                if let delta, delta.deleted.isEmpty, delta.inserted.isEmpty {
+                    for index in delta.updated {
+                        let key = Self.previewMessageKey(for: results[index])
+                        if previous[index] != key {
+                            previous[index] = key
+                            scopeChanged = true
+                        }
+                    }
+                } else {
+                    // Modification indices use the previous order when the
+                    // same notification also inserts or removes rows.
+                    let current = Array(results.map(Self.previewMessageKey(for:)))
+                    scopeChanged = current != previous
+                    previous = current
+                }
+                if scopeChanged {
+                    self.configurePreviewMessageObservation(in: realm, keys: previous)
+                }
+                if delta != nil || scopeChanged { changes.onNext(()) }
+            }, onError: { error in
+                DDLogDebug("LastChatsViewController: \(function). RX error: \(error.localizedDescription)")
+            }, onCompleted: {
+                DDLogDebug("LastChatsViewController: \(function). RX state: completed")
+            }, onDisposed: {
+                DDLogDebug("LastChatsViewController: \(function). RX state: disposed")
+            })
+            .disposed(by: datasetBag)
+    }
+
+    private func configurePreviewMessageObservation(in realm: Realm, keys scopeKeys: [PreviewMessageKey?]) {
+        let visibleKeys = Set(scopeKeys.compactMap { $0 })
+        guard visibleKeys != previewMessageObservationKeys else { return }
+        previewMessageObservationKeys = visibleKeys
+        previewMessageObservationBag = DisposeBag()
+        guard !visibleKeys.isEmpty else { return }
+        let owners = Array(Set(visibleKeys.map(\.owner)))
+        let ids = Array(Set(visibleKeys.map(\.id)))
+        let messages = realm.objects(MessageStorageItem.self).filter(
+            "owner IN %@ AND (messageId IN %@ OR archivedId IN %@)", owners, ids, ids)
+        func keys(_ message: MessageStorageItem) -> Set<PreviewMessageKey> {
+            Set([message.messageId, message.archivedId].filter(\.isNotEmpty).map {
+                PreviewMessageKey(owner: message.owner, jid: message.opponent,
+                    type: message.conversationType_, id: $0)
+            })
+        }
+        var previousKeys: [Set<PreviewMessageKey>] = []
+        Observable.changeset(from: messages)
+            .subscribe(onNext: { [weak self] event in
+                let (results, changes) = event
+                guard let changes else { previousKeys = results.map(keys); return }
+                var affected = Set<PreviewMessageKey>()
+                for index in changes.deleted.sorted(by: >) where previousKeys.indices.contains(index) {
+                    affected.formUnion(previousKeys.remove(at: index))
+                }
+                for index in changes.inserted.sorted() where results.indices.contains(index) {
+                    let value = keys(results[index])
+                    affected.formUnion(value)
+                    if index <= previousKeys.count { previousKeys.insert(value, at: index) }
+                }
+                for index in changes.updated where results.indices.contains(index) {
+                    let value = keys(results[index])
+                    affected.formUnion(value)
+                    if previousKeys.indices.contains(index) {
+                        affected.formUnion(previousKeys[index])
+                        previousKeys[index] = value
+                    }
+                }
+                // Only changed records and exact scoped set lookups participate;
+                // no owner-history materialization or chats × candidates scan.
+                guard !affected.isDisjoint(with: visibleKeys) else { return }
+                self?.runDatasetUpdateTask()
+            })
+            .disposed(by: previewMessageObservationBag)
+    }
+
+    private func captureProjectionReadRevision() -> ProjectionReadRevision {
+        let owners = enabledAccounts.value
+        return ProjectionReadRevision(owners: owners, filter: filter.value.rawValue,
+            batches: Dictionary(uniqueKeysWithValues: owners.map { ($0, ClientSyncPageBatch.shared.revision(for: $0)) }),
+            previews: Dictionary(uniqueKeysWithValues: owners.map { ($0, LastChatListSyncPreviewStore.shared.revision(for: $0)) }))
+    }
+
+    private func projectionReadIsCurrent(_ revision: ProjectionReadRevision) -> Bool {
+        revision.owners == enabledAccounts.value && revision.filter == filter.value.rawValue &&
+            revision.owners.allSatisfy {
+                !ClientSyncPageBatch.shared.isBatchActive(owner: $0) &&
+                    ClientSyncPageBatch.shared.revision(for: $0) == revision.batches[$0] &&
+                    LastChatListSyncPreviewStore.shared.revision(for: $0) == revision.previews[$0]
+            }
+    }
+
+    private static func sameRows(_ lhs: [Datasource], _ rhs: [Datasource]) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { Datasource.compareContent($0, $1) }
+    }
+
+    private func typingStateSnapshot() -> [String: Int] {
+        Dictionary(CommonChatStatesManager.shared.observed.value.map {
+            ([$0.owner, $0.jid].prp(), $0.state.rawValue)
+        }, uniquingKeysWith: { _, new in new })
+    }
+
+    private func changedPrimariesAffectCurrentFilter(_ primaries: Set<String>) -> Bool {
+        guard primaries.isNotEmpty else { return false }
+        if datasource.contains(where: {
+            primaries.contains(LastChatsStorageItem.genPrimary(jid: $0.jid,
+                owner: $0.owner, conversationType: $0.conversationType))
+        }) { return true }
+        guard let realm = try? WRealm.safe() else { return true }
+        return primaries.contains { primary in
+            guard let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary),
+                  enabledAccounts.value.contains(chat.owner) else { return false }
+            switch filter.value {
+            case .chats: return !chat.isArchived && chat.conversationType != .saved
+            case .unread: return !chat.isArchived && chat.unread > 0
+            case .archived: return chat.isArchived
+            case .saved: return chat.conversationType == .saved
+            }
+        }
+    }
+
+    private func projectionContext(showsSpecialMessageBanners: Bool,
+        dismissedInvitePrimaries: Set<String>, interfaceStyle: UIUserInterfaceStyle) -> String {
+        let owners = enabledAccounts.value.sorted()
+        let previews = owners.map { "\($0):\(LastChatListSyncPreviewStore.shared.revision(for: $0))" }
+        let typing = CommonChatStatesManager.shared.observed.value
+            .filter { enabledAccounts.value.contains($0.owner) }
+            .map { [ $0.owner, $0.jid, String($0.state.rawValue) ].prp() }.sorted()
+        return Self.framed([String(filter.value.rawValue), Self.framed(owners),
+            Self.framed(previews), Self.framed(typing),
+            String(showsSpecialMessageBanners), Self.framed(dismissedInvitePrimaries.sorted()),
+            String(AccountManager.shared.users.count), CommonConfigManager.shared.config.locked_conversation_type,
+            CommonConfigManager.shared.config.support_jid, String(describing: LocalizationRuntime.shared.context),
+            String(interfaceStyle.rawValue)])
+    }
+
+    private static func framed(_ values: [String]) -> String {
+        values.map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
+    private static func rowFingerprint(chat: LastChatsStorageItem, message: MessageStorageItem?,
+        projection: LastChatListSyncPreviewProjection?, resource: ResourceStorageItem?,
+        devices: [SignalDeviceStorageItem], requiresVerification: Bool, context: String) -> Int {
+        var h = Hasher()
+        h.combine(context); h.combine(chat.primary); h.combine(chat.lastMessageId)
+        h.combine(chat.messageDate); h.combine(chat.isSynced); h.combine(chat.isMuted)
+        h.combine(chat.unread); h.combine(chat.hasUnreadMention); h.combine(chat.draftMessage)
+        h.combine(chat.isPinned); h.combine(chat.pinnedPosition); h.combine(chat.hasErrorInChat)
+        h.combine(chat.updateTS); h.combine(chat.isFreshNotEmptyEncryptedChat)
+        h.combine(chat.conversationType_); h.combine(requiresVerification)
+        h.combine(CommonChatStatesManager.shared.actionText(for: chat.jid, owner: chat.owner))
+        if AccountManager.shared.users.count > 1 {
+            let color = AccountColorManager.shared.primaryColor(for: chat.owner)
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            if color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) {
+                h.combine(red); h.combine(green); h.combine(blue); h.combine(alpha)
+            } else { h.combine(color.cgColor.components ?? []) }
+        }
+        if let roster = chat.rosterItem {
+            h.combine(roster.primary); h.combine(roster.username); h.combine(roster.customUsername)
+            h.combine(roster.subscription_); h.combine(roster.ask_); h.combine(roster.removed)
+            h.combine(roster.avatarMinUrl); h.combine(roster.avatarMaxUrl); h.combine(roster.oldschoolAvatarKey)
+        }
+        h.combine(resource?.primary); h.combine(resource?.status_); h.combine(resource?.statusExt)
+        h.combine(projection?.text); h.combine(projection?.isAttachment)
+        h.combine(projection?.isSystemMessage); h.combine(projection?.groupchatNickname)
+        h.combine(projection?.groupchatAuthorColorKey)
+        devices.forEach { h.combine($0.primary); h.combine($0.state_); h.combine($0.isTrustedByCertificate) }
+        if let message {
+            h.combine(message.primary); h.combine(message.owner); h.combine(message.opponent)
+            h.combine(message.conversationType_); h.combine(message.messageId); h.combine(message.archivedId)
+            h.combine(message.body); h.combine(message.legacyBody); h.combine(message.date)
+            h.combine(message.editDate); h.combine(message.outgoing); h.combine(message.state_)
+            h.combine(message.messageType); h.combine(message.isDeleted); h.combine(message.deleteState_)
+            h.combine(message.isLocallyHiddenByReport); h.combine(message.localReportState)
+            h.combine(message.systemMetadata_); h.combine(message.isSavedForward); h.combine(message.savedForwardAuthorJid)
+            hashReferences(message.references, into: &h)
+            message.inlineForwards.forEach { hashForward($0, into: &h) }
+        }
+        return h.finalize()
+    }
+
+    private static func hashReferences(_ references: List<MessageReferenceStorageItem>, into h: inout Hasher) {
+        h.combine(references.count)
+        references.forEach {
+            h.combine($0.primary); h.combine($0.kind_); h.combine($0.mimeType)
+            h.combine($0.url); h.combine($0.metadata_); h.combine($0.begin); h.combine($0.end)
+            h.combine($0.isLocallyHiddenByReport)
+        }
+    }
+
+    private static func hashForward(_ forward: MessageForwardsInlineStorageItem, into h: inout Hasher) {
+        h.combine(forward.primary); h.combine(forward.body); h.combine(forward.forwardNickname)
+        h.combine(forward.forwardJid); h.combine(forward.opponent); h.combine(forward.isOutgoing)
+        h.combine(forward.rosterItem?.displayName)
+        hashReferences(forward.references, into: &h)
+        // The existing preview only uses the immediate forward's content and
+        // attachment references; nested forward identities still invalidate it.
+        forward.subforwards.forEach { h.combine($0.primary); h.combine($0.body); h.combine($0.forwardNickname) }
+    }
+
+    private func cacheRender(_ row: Datasource, primary: String, fingerprint: Int) {
+        let bytes = row.message.utf8.count + row.username.utf8.count + 256
+        guard bytes <= 16 * 1024 else { return }
+        if let old = rowRenderCache.removeValue(forKey: primary) {
+            rowRenderBytes -= old.bytes
+            rowRenderOrder.removeAll { $0 == primary }
+        }
+        while (rowRenderCache.count >= 512 || rowRenderBytes + bytes > 2 * 1024 * 1024),
+              let first = rowRenderOrder.first {
+            rowRenderOrder.removeFirst()
+            if let old = rowRenderCache.removeValue(forKey: first) { rowRenderBytes -= old.bytes }
+        }
+        rowRenderCache[primary] = (fingerprint, row, bytes)
+        rowRenderOrder.append(primary)
+        rowRenderBytes += bytes
+    }
+
+    private func clearProjectionCaches() {
+        updateQueue.async { [weak self] in self?.clearProjectionCachesImmediately() }
+    }
+
+    private func clearProjectionCachesImmediately() {
+        projectionCacheLock.lock(); defer { projectionCacheLock.unlock() }
+        projectionCacheEvictionGeneration &+= 1
+        projectionCacheEvictionWorkItem?.cancel()
+        projectionCacheEvictionWorkItem = nil
+        expireProjectionReadCaches()
+        clearImmutableRowCache()
+        rowRenderOwners = nil
+    }
+
+    /// Caller owns projectionCacheLock. Expiring read proofs releases pinned
+    /// Realm versions; immutable bounded DTOs carry no database authority.
+    private func expireProjectionReadCaches() {
+        projectionCacheRetentionDeadline = .distantPast
+        cachedDatasetRealm = nil; cachedDataset.removeAll(); cachedDatasetContext = ""
+        materializedPreviewCache.removeAll()
+    }
+
+    private func clearImmutableRowCache() {
+        rowRenderCache.removeAll(); rowRenderOrder.removeAll(); rowRenderBytes = 0
+    }
+
+    private func scheduleProjectionCacheEviction() {
+        projectionCacheEvictionWorkItem?.cancel()
+        projectionCacheEvictionGeneration &+= 1
+        let generation = projectionCacheEvictionGeneration
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.projectionCacheLock.lock(); defer { self.projectionCacheLock.unlock() }
+            guard generation == self.projectionCacheEvictionGeneration else { return }
+            self.projectionCacheEvictionWorkItem = nil
+            self.expireProjectionReadCaches()
+        }
+        projectionCacheEvictionWorkItem = work
+        // Serial with projection work, and never schedules a UI refresh.
+        updateQueue.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    #if DEBUG
+    internal var retainedProjectionSnapshotCountForTesting: Int {
+        projectionCacheLock.lock(); defer { projectionCacheLock.unlock() }
+        return (cachedDatasetRealm == nil ? 0 : 1) + materializedPreviewCache.retainedSnapshotCount
+    }
+    #endif
+
     internal static func makeDatasetReadSnapshot(from realm: Realm) -> Realm {
         // Account cleanup can commit while the dataset is being materialized,
         // so every row and linked object must share one immutable read version.
@@ -3773,9 +4154,26 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal final func mapDataset(
         in readRealm: Realm? = nil,
         showsSpecialMessageBanners: Bool,
-        dismissedInvitePrimaries: Set<String>
+        dismissedInvitePrimaries: Set<String>,
+        interfaceStyle suppliedInterfaceStyle: UIUserInterfaceStyle? = nil,
+        showsSkeleton: Bool? = nil
     ) -> [Datasource] {
-        if self.showSkeleton.value {
+        let interfaceStyle = suppliedInterfaceStyle ?? (Thread.isMainThread ? traitCollection.userInterfaceStyle : .unspecified)
+        projectionCacheLock.lock()
+        defer { projectionCacheLock.unlock() }
+        mappingDeferredForSyncPage = false
+        let readRevision = captureProjectionReadRevision()
+        mappingReadRevision = readRevision
+        guard projectionReadIsCurrent(readRevision) else {
+            mappingDeferredForSyncPage = true
+            return []
+        }
+        if rowRenderOwners != readRevision.owners {
+            clearImmutableRowCache()
+            rowRenderOwners = readRevision.owners
+        }
+        if showsSkeleton ?? self.showSkeleton.value {
+            syncLatencyWorkCounter.record(.fullDatasetBuild)
             let skeletonItemsCount = self.skeletonItemsCount
             return (0..<skeletonItemsCount).compactMap {
                 return Datasource(
@@ -3813,30 +4211,26 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         do {
             let realm = Self.makeDatasetReadSnapshot(from: try readRealm ?? WRealm.safe())
+            let context = projectionContext(showsSpecialMessageBanners: showsSpecialMessageBanners,
+                dismissedInvitePrimaries: dismissedInvitePrimaries, interfaceStyle: interfaceStyle)
+            if !projectionReadIsCurrent(readRevision) {
+                mappingDeferredForSyncPage = true
+                return []
+            }
+            if cachedDatasetRealm == realm && cachedDatasetContext == context &&
+                Date() < cachedDatasetExpiry && Date() < projectionCacheRetentionDeadline {
+                syncLatencyWorkCounter.record(.datasetHit)
+                return cachedDataset
+            }
+            syncLatencyWorkCounter.record(.fullDatasetBuild)
             let predicate: NSPredicate
             var pinnedChatsSorting: Bool = false
-            let ignoredAccounts = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
-            let ignoredJids = XMPPServiceJidsSupport.ignoredServiceJids(in: realm, accountJids: ignoredAccounts)
+            let jids = Array(realm.objects(AccountStorageItem.self).filter("enabled == true").map(\.jid))
+            let ignoredJids = XMPPServiceJidsSupport.ignoredServiceJids(in: realm, accountJids: jids)
             switch self.filter.value {
             case .chats:
                 self.unreadedJids = []
-                if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
-                    var excludedJids = self.excludedDomains(from: enabledAccounts.value)
-                    excludedJids.append(CommonConfigManager.shared.config.support_jid)
-                    
-                    predicate = NSPredicate(
-                        format: "isArchived == %@ AND owner IN %@ AND (conversationType_ == %@ OR jid IN %@) AND NOT (jid IN %@)",
-                        argumentArray: [
-                            false,
-                            Array(enabledAccounts.value),
-                            lockedType.rawValue,
-                            excludedJids,
-                            ignoredJids
-                        ]
-                    )
-                } else {
-                    predicate = NSPredicate(format: "isArchived == %@ AND owner IN %@ AND NOT (jid IN %@)", argumentArray: [false, Array(enabledAccounts.value), ignoredJids])
-                }
+                predicate = recentChatsPredicate(ignoredJids: ignoredJids)
                 pinnedChatsSorting = true
             case .unread:
                 if let lockedType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) {
@@ -3956,10 +4350,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 )
             }
             let materializedPreviewMessagesByChatPrimary =
-                LastChatMaterializedPreviewResolver.resolve(
-                    in: realm,
-                    for: collectionItems
-                )
+                materializedPreviewCache.resolve(in: realm, for: collectionItems,
+                    counter: syncLatencyWorkCounter)
             let syncOnlyIdentityItems = collectionItems.filter {
                 $0.rosterItem == nil && $0.conversationType != .saved
             }
@@ -4002,9 +4394,20 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                         synchronizedVCardTitlesByIdentity[presentationKey] = title
                     }
             }
+            let rosterJIDs = Array(Set(collectionItems.compactMap { $0.rosterItem?.jid }))
+            var resourcesByIdentity: [String: ResourceStorageItem] = [:]
+            if collectionOwners.isNotEmpty && rosterJIDs.isNotEmpty {
+                syncLatencyWorkCounter.record(.resourceQuery)
+                realm.objects(ResourceStorageItem.self)
+                    .filter("owner IN %@ AND jid IN %@", collectionOwners, rosterJIDs)
+                    .sorted(by: [SortDescriptor(keyPath: "timestamp", ascending: false),
+                        SortDescriptor(keyPath: "priority", ascending: false)])
+                    .forEach { resource in
+                        let key = [resource.owner, resource.jid].prp()
+                        if resourcesByIdentity[key] == nil { resourcesByIdentity[key] = resource }
+                    }
+            }
             let enabledAccountCount = max(enabledAccounts.value.count, AccountManager.shared.users.count)
-            
-            let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             
             let invites = showsSpecialMessageBanners
                 ? ((try? CanonicalGroupInviteUIQuery.incoming(
@@ -4128,6 +4531,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
             )
             
+            let realmConfiguration = realm.configuration
+            let realmIdentity = realmConfiguration.inMemoryIdentifier ?? realmConfiguration.fileURL?.absoluteString ?? ""
+            let rowContext = [String(describing: LocalizationRuntime.shared.context),
+                String(interfaceStyle.rawValue), String(enabledAccountCount), realmIdentity].joined(separator: "|")
             out.append(contentsOf: collectionItems.compactMap {
                 item in
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
@@ -4144,15 +4551,19 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 
-                let primaryResource = item.rosterItem.flatMap { roster in
-                    realm.objects(ResourceStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", roster.owner, roster.jid)
-                        .sorted(by: [
-                            SortDescriptor(keyPath: "timestamp", ascending: false),
-                            SortDescriptor(keyPath: "priority", ascending: false)
-                        ]).first
+                let primaryResource = item.rosterItem.flatMap {
+                    resourcesByIdentity[[$0.owner, $0.jid].prp()]
                 }
-                
+                let fingerprint = Self.rowFingerprint(chat: item, message: presentationLastMessage,
+                    projection: synchronizedPreview, resource: primaryResource,
+                    devices: signalDeviceStateByKey[self.datasourceKey(jid: item.jid, owner: item.owner)] ?? [],
+                    requiresVerification: verificationRequiredKeys.contains(self.datasourceKey(jid: item.jid, owner: item.owner)),
+                    context: rowContext + "|" + (synchronizedVCardTitlesByIdentity[[item.jid, item.owner].prp()] ?? ""))
+                if let cached = self.rowRenderCache[item.primary], cached.fingerprint == fingerprint {
+                    self.syncLatencyWorkCounter.record(.rowHit)
+                    return cached.row
+                }
+                self.syncLatencyWorkCounter.record(.rowBuild)
                 let date = item.messageDate == Date(timeIntervalSince1970: 0) ? nil : item.messageDate
                 
                 var message: String
@@ -4334,7 +4745,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     ]))
                     attributedUsername = attributedTitle as NSAttributedString
                 }
-                return Datasource(
+                let row = Datasource(
                     jid: item.jid,
                     owner: item.owner,
                     username: username,
@@ -4370,7 +4781,32 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     specialMessageKind: .none,
                     avatars: []
                 )
+                self.cacheRender(row, primary: item.primary, fingerprint: fingerprint)
+                return row
             })
+            #if DEBUG
+            projectionMappingDidPrepareForTesting?()
+            #endif
+            guard projectionReadIsCurrent(readRevision) else {
+                mappingDeferredForSyncPage = true
+                cachedDatasetRealm = nil
+                return []
+            }
+            let bytes = out.reduce(0) { $0 + $1.message.utf8.count + $1.username.utf8.count + 256 }
+            if bytes <= 4 * 1024 * 1024 && out.count <= 512 {
+                cachedDatasetRealm = realm
+                cachedDatasetContext = context
+                cachedDataset = out
+                projectionCacheRetentionDeadline = Date().addingTimeInterval(2)
+                scheduleProjectionCacheEviction()
+                cachedDatasetExpiry = collectionItems.compactMap { item -> Date? in
+                    let date = Date(timeIntervalSince1970: item.muteExpired)
+                    return date > Date() ? date : nil
+                }.min() ?? .distantFuture
+            } else {
+                cachedDatasetRealm = nil
+                cachedDataset.removeAll()
+            }
             return out
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
@@ -4471,6 +4907,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             }
             return
         }
+        if enabledAccounts.value.contains(where: { ClientSyncPageBatch.shared.isBatchActive(owner: $0) }) {
+            deferredSyncPageRefresh = true
+            return
+        }
         let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         if LastChatsBootstrapDatasetUpdatePolicy.shouldDeferDatasetUpdateForNavigationTransition(
             isBootstrapActive: pressureActive,
@@ -4556,11 +4996,16 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     private final func preprocessDataset() {
+        if enabledAccounts.value.contains(where: { ClientSyncPageBatch.shared.isBatchActive(owner: $0) }) {
+            deferredSyncPageRefresh = true
+            return
+        }
         if !canUpdateDataset { return }
         self.needsDatasetRefresh = true
         guard !self.isDatasetUpdateInFlight else { return }
         self.needsDatasetRefresh = false
         self.isDatasetUpdateInFlight = true
+        let oldDataset = self.datasource
         let oldSections = self.datasourceSections
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
@@ -4582,11 +5027,45 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let navigationMutationGeneration = self.navigationDatasetMutationGeneration
         self.shouldSuppressNextDatasetAnimation = false
         let renderStartedAt = Date()
+        let interfaceStyle = traitCollection.userInterfaceStyle
+        let lifecycleEpoch = projectionLifecycleEpoch
         self.updateQueue.async {
+            self.projectionCacheLock.lock()
             let newDataset = self.mapDataset(
                 showsSpecialMessageBanners: showsSpecialMessageBanners,
-                dismissedInvitePrimaries: dismissedInvitePrimaries
+                dismissedInvitePrimaries: dismissedInvitePrimaries,
+                interfaceStyle: interfaceStyle,
+                showsSkeleton: newShowsSkeleton
             )
+            let readRevision = self.mappingReadRevision
+            let deferredForSyncPage = self.mappingDeferredForSyncPage
+            self.projectionCacheLock.unlock()
+            if deferredForSyncPage {
+                DispatchQueue.main.async {
+                    guard lifecycleEpoch == self.projectionLifecycleEpoch else {
+                        self.isDatasetUpdateInFlight = false; self.needsDatasetRefresh = false
+                        return
+                    }
+                    self.deferredSyncPageRefresh = true
+                    self.needsDatasetRefresh = true
+                    self.finishDatasetUpdateCycle(didCommitDatasetApply: false)
+                }
+                return
+            }
+            if oldShowsSkeleton == newShowsSkeleton && Self.sameRows(oldDataset, newDataset) {
+                DispatchQueue.main.async {
+                    guard lifecycleEpoch == self.projectionLifecycleEpoch else {
+                        self.isDatasetUpdateInFlight = false; self.needsDatasetRefresh = false
+                        return
+                    }
+                    if let readRevision, !self.projectionReadIsCurrent(readRevision) {
+                        self.deferredSyncPageRefresh = true
+                        self.needsDatasetRefresh = true
+                    }
+                    self.finishDatasetUpdateCycle(didCommitDatasetApply: false)
+                }
+                return
+            }
             let newSections = Self.makeDatasourceSections(
                 from: newDataset,
                 showsSkeleton: newShowsSkeleton
@@ -4596,6 +5075,19 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 newSections: newSections
             )
             DispatchQueue.main.async {
+                guard lifecycleEpoch == self.projectionLifecycleEpoch else {
+                    self.isDatasetUpdateInFlight = false
+                    self.needsDatasetRefresh = false
+                    return
+                }
+                guard let readRevision, self.projectionReadIsCurrent(readRevision),
+                      interfaceStyle == self.traitCollection.userInterfaceStyle,
+                      newShowsSkeleton == self.showSkeleton.value else {
+                    self.deferredSyncPageRefresh = true
+                    self.needsDatasetRefresh = true
+                    self.finishDatasetUpdateCycle(didCommitDatasetApply: false)
+                    return
+                }
                 guard navigationMutationGeneration == self.navigationDatasetMutationGeneration else {
                     DDLogDebug(
                         "LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateDropped reason=staleNavigationGeneration"
@@ -4895,9 +5387,25 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
                 return self?.enabledAccounts.value.contains(owner) == true
             }
-            .debounce(.milliseconds(120), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { [weak self] _ in
-                self?.runDatasetUpdateTask()
+            .subscribe(onNext: { [weak self] notification in
+                guard let self else { return }
+                let primaries = Set(notification.userInfo?[LastChatListSyncPreviewStore.changedConversationPrimariesUserInfoKey] as? [String] ?? [])
+                guard self.changedPrimariesAffectCurrentFilter(primaries) else { return }
+                self.runDatasetUpdateTask()
+            })
+            .disposed(by: bag)
+
+        NotificationCenter.default.rx
+            .notification(ClientSyncPageBatch.didCommitNotification)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] notification in
+                guard let self, let receipt = notification.object as? ClientSyncPageBatch.Receipt,
+                      self.enabledAccounts.value.contains(receipt.owner) else { return }
+                let needsRefresh = self.deferredSyncPageRefresh ||
+                    self.changedPrimariesAffectCurrentFilter(receipt.changedConversationPrimaries)
+                self.deferredSyncPageRefresh = false
+                let didChangeSkeleton = self.updateStartupRecentsSkeleton(for: self.filter.value)
+                if needsRefresh && !didChangeSkeleton { self.runDatasetUpdateTask() }
             })
             .disposed(by: bag)
 
@@ -4908,6 +5416,17 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 guard let self, let owner = notification.object as? String,
                       self.enabledAccounts.value.contains(owner) else { return }
                 self.updateStartupRecentsSkeleton(for: self.filter.value)
+            })
+            .disposed(by: bag)
+
+        NotificationCenter.default.rx
+            .notification(ClientSyncPageBatch.didCancelNotification)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] notification in
+                guard let self, let token = notification.object as? ClientSyncPageBatch.Token,
+                      self.enabledAccounts.value.contains(token.owner), self.deferredSyncPageRefresh else { return }
+                self.deferredSyncPageRefresh = false
+                self.runDatasetUpdateTask()
             })
             .disposed(by: bag)
 
@@ -4932,9 +5451,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             Observable
                 .collection(from: realm.objects(AccountStorageItem.self).filter("enabled == %@", true))
                 .subscribe(onNext: { (results) in
-                    let jids: [String] = results.compactMap{ return $0.jid }
-                    if jids.count != self.enabledAccounts.value.count {
-                        self.enabledAccounts.accept(Set(jids))
+                    let jids = Set(results.map(\.jid))
+                    if jids != self.enabledAccounts.value {
+                        self.enabledAccounts.accept(jids)
                     }
                 })
                 .disposed(by: bag)
@@ -4946,12 +5465,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             .shared
             .connectingUsers
             .asObservable()
-//            .debounce(.milliseconds(70), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (results) in
+            .subscribe(onNext: { results in
                 do {
                     let realm = try WRealm.safe()
-                    let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap { return $0.jid })
-                    let filteredConnectingUsers = results.filter({ accounts.contains($0) })
+                    let accounts = Set(realm.objects(AccountStorageItem.self).toArray().compactMap(\.jid))
+                    let filteredConnectingUsers = results.filter { accounts.contains($0) }
                     self.updateTitle(self.filter.value)
                     self.unreadAllMessagesButton.isEnabled = filteredConnectingUsers.isEmpty
                     LeftMenuFirstPresentationPolicy.animate(
@@ -4962,27 +5480,16 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     }
                     self.updateUnreadChatsCounter()
                 } catch {
-                    
+                    DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
                 }
-                
-                
             })
             .disposed(by: bag)
         
         enabledAccounts
             .asObservable()
-            .subscribe(onNext: { (values) in
+            .subscribe(onNext: { _ in
                 self.filter.accept(self.filter.value)
                 self.subscribeUnreadChatsCounter()
-                do {
-                    let realm = try  WRealm.safe()
-                    self.archivedChats = realm
-                        .objects(LastChatsStorageItem.self)
-                        .filter("isArchived == true AND owner IN %@", Array(values))
-                        .sorted(byKeyPath: "messageDate", ascending: false)
-                } catch {
-                    DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
-                }
             })
             .disposed(by: bag)
         
@@ -5007,12 +5514,20 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             })
             .disposed(by: bag)
 
-        CommonChatStatesManager
-            .shared
-            .observed
-            .asObservable()
+        observedTypingStates = typingStateSnapshot()
+        CommonChatStatesManager.shared.observed.asObservable()
             .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { _ in
+            .subscribe(onNext: { [weak self] _ in
+                guard let self else { return }
+                let next = self.typingStateSnapshot()
+                let changed = Set(self.observedTypingStates.keys).union(next.keys).filter {
+                    self.observedTypingStates[$0] != next[$0]
+                }
+                self.observedTypingStates = next
+                guard self.datasource.contains(where: {
+                    $0.conversationType != .group && $0.conversationType != .saved &&
+                        changed.contains([$0.owner, $0.jid].prp())
+                }) else { return }
                 self.runDatasetUpdateTask()
             })
             .disposed(by: bag)
@@ -5043,7 +5558,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
     }
     
-    internal func unsubscribe() {
+    internal func unsubscribe(clearCaches: Bool = true) {
+        projectionLifecycleEpoch = UUID()
+        if clearCaches { clearProjectionCaches() }
+        deferredSyncPageRefresh = false
+        observedTypingStates.removeAll()
+        previewMessageObservationBag = DisposeBag()
+        previewMessageObservationKeys.removeAll()
         bag = DisposeBag()
         datasetBag = DisposeBag()
         unreadCounterBag = DisposeBag()
@@ -5134,6 +5655,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         DDLogDebug(
             "LAST_CHATS_PROJECTION_TRACE event=batchFlush invalidations=\(invalidations.count)"
         )
+        updateQueue.async { [weak self] in
+            guard let self else { return }
+            self.projectionCacheLock.lock(); defer { self.projectionCacheLock.unlock() }
+            self.cachedDatasetRealm = nil
+        }
         runDatasetUpdateTask()
     }
 
@@ -5879,6 +6405,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             }
         }
         completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
+        flushPendingRootChatActivationAfterAppearance()
     }
 
     private var shouldRequestNotificationAuthorizationPrompt: Bool {
@@ -5919,12 +6446,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
+        clearProjectionCaches()
     }
     
     deinit {
         NotificationCenter.default.removeObserver(chatBackgroundBackdropView)
         stopExpandedSplitAccountRegistryMutationObservation()
-        unsubscribe()
+        unsubscribe(clearCaches: false)
+        clearProjectionCachesImmediately()
     }
 }
 

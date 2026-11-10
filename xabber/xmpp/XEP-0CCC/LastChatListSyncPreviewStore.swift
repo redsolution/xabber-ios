@@ -13,6 +13,7 @@
 
 import Foundation
 import XMPPFramework
+import CryptoKit
 
 /// Detached presentation data from XEP-SYNC's embedded `last-message`.
 ///
@@ -20,7 +21,7 @@ import XMPPFramework
 /// timeline identity, archive coverage, unread accounting, search, or MAM
 /// freshness. The `lastMessageID` check prevents a delayed projection from
 /// describing a different Last Chats row revision.
-struct LastChatListSyncPreviewProjection: Equatable, Sendable {
+struct LastChatListSyncPreviewProjection: Equatable, Sendable, Codable {
     let owner: String
     let conversationPrimary: String
     let lastMessageID: String
@@ -175,7 +176,70 @@ enum LastChatListSyncPreviewMutation: Equatable, Sendable {
     case remove(conversationPrimary: String)
 }
 
-/// Account-scoped, process-resident projection store for chat-list rendering.
+/// A sync page becomes one UI invalidation only after both its Realm state
+/// and detached preview projections have committed.
+final class ClientSyncPageBatch: @unchecked Sendable {
+    static let shared = ClientSyncPageBatch()
+    static let didCommitNotification = Notification.Name("com.xabber.client-sync.page-committed")
+    static let didCancelNotification = Notification.Name("com.xabber.client-sync.page-cancelled")
+
+    struct Token: Sendable {
+        fileprivate let id: UUID
+        let owner: String
+        let generation: UInt64
+    }
+
+    struct Receipt: Sendable {
+        let owner: String
+        let generation: UInt64
+        let revision: UInt64
+        let changedConversationPrimaries: Set<String>
+    }
+
+    private let lock = NSLock()
+    private var active: [UUID: Token] = [:]
+    private var revisions: [String: UInt64] = [:]
+
+    func begin(owner: String, generation: UInt64) -> Token {
+        let token = Token(id: UUID(), owner: owner, generation: generation)
+        lock.lock()
+        active[token.id] = token
+        lock.unlock()
+        return token
+    }
+
+    func isBatchActive(owner: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return active.values.contains { $0.owner == owner }
+    }
+
+    func revision(for owner: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return revisions[owner, default: 0]
+    }
+
+    func commit(_ token: Token, changedConversationPrimaries: Set<String>) {
+        lock.lock()
+        guard active.removeValue(forKey: token.id) != nil else { lock.unlock(); return }
+        revisions[token.owner, default: 0] &+= 1
+        let receipt = Receipt(owner: token.owner, generation: token.generation,
+            revision: revisions[token.owner, default: 0], changedConversationPrimaries: changedConversationPrimaries)
+        lock.unlock()
+        NotificationCenter.default.post(name: Self.didCommitNotification, object: receipt)
+    }
+
+    func cancel(_ token: Token) {
+        lock.lock()
+        let removed = active.removeValue(forKey: token.id)
+        lock.unlock()
+        if removed != nil { NotificationCenter.default.post(name: Self.didCancelNotification, object: token) }
+    }
+}
+
+/// Account-scoped render-only projections. The bounded DTO cache never grants
+/// message identity, archive coverage, unread/read or synchronization authority.
 /// Mutations are applied in page-sized batches and produce at most one change
 /// notification per owner and batch.
 final class LastChatListSyncPreviewStore: @unchecked Sendable {
@@ -191,8 +255,27 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
         String: [String: LastChatListSyncPreviewProjection]
     ] = [:]
     private var epochsByOwner: [String: UInt64] = [:]
+    private var revisionsByOwner: [String: UInt64] = [:]
+    private var loadedOwners = Set<String>()
+    private var loadingOwners = Set<String>()
+    private var removedWhileLoading: [String: Set<String>] = [:]
+    private let persistenceQueue = DispatchQueue(label: "com.xabber.sync-preview.persistence", qos: .utility)
+    private let directory: URL?
+    private let beforeLoading: (() -> Void)?
+    private static let maximumEntries = 1024
+    private static let maximumBytes = 4 * 1024 * 1024
 
-    private init() {}
+    private struct Snapshot: Codable {
+        let version: Int
+        let owner: String
+        let projections: [LastChatListSyncPreviewProjection]
+    }
+
+    init(directory: URL? = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("xabber-sync-preview-v1", isDirectory: true), beforeLoading: (() -> Void)? = nil) {
+        self.directory = directory
+        self.beforeLoading = beforeLoading
+    }
 
     func projection(
         owner: String,
@@ -200,6 +283,7 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
         expectedLastMessageID: String
     ) -> LastChatListSyncPreviewProjection? {
         lock.lock()
+        requestLoadLocked(for: owner)
         let projection = projectionsByOwner[owner]?[conversationPrimary]
         lock.unlock()
         guard projection?.owner == owner,
@@ -212,9 +296,21 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
 
     func projectionCount(for owner: String) -> Int {
         lock.lock()
+        requestLoadLocked(for: owner)
         let count = projectionsByOwner[owner]?.count ?? 0
         lock.unlock()
         return count
+    }
+
+    func revision(for owner: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        requestLoadLocked(for: owner)
+        return revisionsByOwner[owner, default: 0]
+    }
+
+    internal func waitForPendingPersistence() {
+        persistenceQueue.sync {}
     }
 
     func preparationEpoch(for owner: String) -> UInt64 {
@@ -238,6 +334,7 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
             lock.unlock()
             return
         }
+        requestLoadLocked(for: owner)
         var ownerProjections = projectionsByOwner[owner] ?? [:]
         mutations.forEach { mutation in
             switch mutation {
@@ -245,7 +342,9 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
                 guard projection.owner == owner,
                       projection.conversationPrimary.isNotEmpty,
                       projection.lastMessageID.isNotEmpty,
-                      projection.text.isNotEmpty else {
+                      projection.text.isNotEmpty,
+                      projection.text.count <= 4096,
+                      (projection.groupchatNickname?.count ?? 0) <= 1024 else {
                     return
                 }
                 if ownerProjections[projection.conversationPrimary] !=
@@ -255,11 +354,27 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
                     changedPrimaries.insert(projection.conversationPrimary)
                 }
             case let .remove(conversationPrimary):
-                if ownerProjections.removeValue(
-                    forKey: conversationPrimary
-                ) != nil {
-                    changedPrimaries.insert(conversationPrimary)
+                if loadingOwners.contains(owner) {
+                    removedWhileLoading[owner, default: []].insert(conversationPrimary)
                 }
+                ownerProjections.removeValue(forKey: conversationPrimary)
+                changedPrimaries.insert(conversationPrimary)
+            }
+        }
+        if ownerProjections.count > Self.maximumEntries {
+            let current = Set(mutations.compactMap { mutation -> String? in
+                if case .upsert(let projection) = mutation { return projection.conversationPrimary }
+                return nil
+            })
+            for key in ownerProjections.keys.sorted() where !current.contains(key) {
+                guard ownerProjections.count > Self.maximumEntries else { break }
+                ownerProjections.removeValue(forKey: key)
+                changedPrimaries.insert(key)
+            }
+            for key in ownerProjections.keys.sorted() {
+                guard ownerProjections.count > Self.maximumEntries else { break }
+                ownerProjections.removeValue(forKey: key)
+                changedPrimaries.insert(key)
             }
         }
         if ownerProjections.isEmpty {
@@ -267,9 +382,12 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
         } else {
             projectionsByOwner[owner] = ownerProjections
         }
+        if !changedPrimaries.isEmpty { revisionsByOwner[owner, default: 0] &+= 1 }
+        let epoch = epochsByOwner[owner, default: 0]
         lock.unlock()
 
         postChange(owner: owner, changedPrimaries: changedPrimaries)
+        if !changedPrimaries.isEmpty { schedulePersistence(owner: owner, epoch: epoch) }
     }
 
     func removeAll(for owner: String) {
@@ -277,7 +395,14 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
         epochsByOwner[owner, default: 0] &+= 1
         let removed = projectionsByOwner.removeValue(forKey: owner)
         let changedPrimaries = Set(removed?.keys.map { $0 } ?? [])
+        loadedOwners.insert(owner)
+        loadingOwners.remove(owner)
+        removedWhileLoading.removeValue(forKey: owner)
+        revisionsByOwner[owner, default: 0] &+= 1
         lock.unlock()
+        if let file = fileURL(for: owner) {
+            persistenceQueue.async { try? FileManager.default.removeItem(at: file) }
+        }
         postChange(owner: owner, changedPrimaries: changedPrimaries)
     }
 
@@ -287,7 +412,71 @@ final class LastChatListSyncPreviewStore: @unchecked Sendable {
     func invalidatePreparations(for owner: String) {
         lock.lock()
         epochsByOwner[owner, default: 0] &+= 1
+        loadingOwners.remove(owner)
         lock.unlock()
+    }
+
+    private func fileURL(for owner: String) -> URL? {
+        let key = SHA256.hash(data: Data(owner.utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory?.appendingPathComponent(key + ".json")
+    }
+
+    /// Called under lock; disk access is always deferred off the caller queue.
+    private func requestLoadLocked(for owner: String) {
+        guard !owner.isEmpty, !loadedOwners.contains(owner), !loadingOwners.contains(owner),
+              let file = fileURL(for: owner) else { return }
+        loadingOwners.insert(owner)
+        let epoch = epochsByOwner[owner, default: 0]
+        persistenceQueue.async { [self] in
+            beforeLoading?()
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            let data = size <= Self.maximumBytes ? try? Data(contentsOf: file) : nil
+            let snapshot = data.flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
+            let values: [LastChatListSyncPreviewProjection]
+            if let snapshot, snapshot.version == 1, snapshot.owner == owner,
+               snapshot.projections.count <= Self.maximumEntries {
+                values = snapshot.projections.filter {
+                    $0.owner == owner && !$0.conversationPrimary.isEmpty && !$0.lastMessageID.isEmpty &&
+                        !$0.text.isEmpty && $0.text.count <= 4096 && ($0.groupchatNickname?.count ?? 0) <= 1024
+                }
+            } else { values = [] }
+            lock.lock()
+            guard epochsByOwner[owner, default: 0] == epoch else { lock.unlock(); return }
+            loadingOwners.remove(owner)
+            loadedOwners.insert(owner)
+            var projections = projectionsByOwner[owner] ?? [:]
+            let removed = removedWhileLoading.removeValue(forKey: owner) ?? []
+            var changed = Set<String>()
+            for value in values where projections[value.conversationPrimary] == nil && !removed.contains(value.conversationPrimary) {
+                guard projections.count < Self.maximumEntries else { break }
+                projections[value.conversationPrimary] = value
+                changed.insert(value.conversationPrimary)
+            }
+            if !projections.isEmpty { projectionsByOwner[owner] = projections }
+            if !changed.isEmpty { revisionsByOwner[owner, default: 0] &+= 1 }
+            lock.unlock()
+            postChange(owner: owner, changedPrimaries: changed)
+        }
+    }
+
+    private func schedulePersistence(owner: String, epoch: UInt64) {
+        guard let directory, let file = fileURL(for: owner) else { return }
+        persistenceQueue.async { [self] in
+            lock.lock()
+            guard epochsByOwner[owner, default: 0] == epoch else { lock.unlock(); return }
+            let values = Array((projectionsByOwner[owner] ?? [:]).values)
+                .sorted { $0.conversationPrimary < $1.conversationPrimary }.prefix(Self.maximumEntries)
+            lock.unlock()
+            guard let data = try? JSONEncoder().encode(Snapshot(version: 1, owner: owner, projections: Array(values))),
+                  data.count <= Self.maximumBytes else { return }
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            } catch {
+                // A missing/evicted/corrupt presentation cache has only the
+                // existing neutral/local rendering fallback, never a sync reset.
+            }
+        }
     }
 
     private func postChange(

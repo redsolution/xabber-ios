@@ -2633,6 +2633,7 @@ extension LeftMenuViewController: UITableViewDelegate {
             return
         }
         if key == "settings" {
+            chatsVc?.cancelPendingRootChatActivation()
             let vc = SettingsViewController()
             vc.jid = AccountManager.shared.users.first?.jid ?? ""
             vc.owner = AccountManager.shared.users.first?.jid ?? ""
@@ -2649,6 +2650,7 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     
     @discardableResult
     func didSelectRootScreenBy(key: String, category: String? = nil) -> Bool {
+        chatsVc?.cancelPendingRootChatActivation()
         if key != "saved" {
             cancelPendingSavedMessagesDirectActivation()
         }
@@ -3068,6 +3070,7 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
             jid: jid,
             conversationType: conversationType
         )
+        chatsVc?.cancelPendingRootChatActivation()
         invalidateSavedMessagesDirectActivationForReplacementOpen(
             target: target
         )
@@ -3115,6 +3118,29 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
             self.previousSelectedKey = "chat"
         } else {
             return false
+        }
+        let expectedNavigationController = vc.navigationController
+        if vc.deferRootChatActivationIfNeeded(target: target, activate: {
+            [weak self, weak vc, weak expectedNavigationController] in
+            guard let self, let vc, let expectedNavigationController,
+                  self.previousSelectedKey == "chat",
+                  self.isInstalledChatListController(vc),
+                  vc.navigationController === expectedNavigationController else { return }
+            _ = vc.stackNewChat(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                navigationSource: navigationSource,
+                configure: configure
+            )
+        }) {
+            return LastChatsChatOpenAcknowledgementPolicy.shouldAcknowledge(
+                navigationSource: navigationSource,
+                request: openMessageRequest,
+                isStableVisibleDestination: false,
+                hasStableTargetAcknowledgement: false
+            )
         }
         return vc.stackNewChat(
             owner: owner,

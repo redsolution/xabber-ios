@@ -30,7 +30,7 @@ var _DEBUG: Bool = true
 
 enum AppLoggingPolicy {
     static func osLogLevel(isRelease: Bool) -> DDLogLevel {
-        isRelease ? .info : .debug
+        isRelease ? .info : .all
     }
 
     static func shouldEnablePersistentLogging(
@@ -163,10 +163,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let isReleaseBuild = false
         #endif
 
-        // The framework also emits wire XML, so protect both logger sinks.
-        DDOSLogger.sharedInstance.logFormatter = XMPPPrivatePayloadLogFormatter(
-            wrapping: DDOSLogger.sharedInstance.logFormatter
-        )
         DDLog.add(
             DDOSLogger.sharedInstance,
             with: AppLoggingPolicy.osLogLevel(isRelease: isReleaseBuild)
@@ -178,7 +174,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         if shouldEnableFileLogging {
             let fileLogger = DDFileLogger()
-            fileLogger.logFormatter = XMPPPrivatePayloadLogFormatter(wrapping: fileLogger.logFormatter)
             fileLogger.doNotReuseLogFiles = true
             fileLogger.rollingFrequency = 60 * 60 * 24
             fileLogger.logFileManager.maximumNumberOfLogFiles = 12
@@ -209,6 +204,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        #if DEBUG
+        DeviceQADiagnostics.shared.recordLaunch()
+        #endif
         #if DEBUG || CHAT_PERFORMANCE_LAB
         if AvatarPickerUITestLaunchPolicy.isEnabled() {
             return true

@@ -110,15 +110,18 @@ class LastChats: AbstractXMPPManager {
         RunLoop.main.perform {
             do {
                 let realm = try WRealm.safe()
+                let idleState = ChatStatesManager.ComposingType.none.rawValue
+                let sessionPredicate = "isHistoryGapFixedForSession == true OR chatState_ != %d"
+                let resetPredicate = hard ? "isPrereaded == true OR \(sessionPredicate)" : sessionPredicate
+                let staleChats = realm.objects(LastChatsStorageItem.self)
+                    .filter("owner == %@", self.owner)
+                    .filter(resetPredicate, idleState)
+                guard !staleChats.isEmpty else { return }
                 realm.writeAsync {
-                    realm.objects(LastChatsStorageItem.self).filter("owner == %@", self.owner).forEach {
-                        chat in
-//                        chat.isSynced = false
-                        if hard {
-                            chat.isPrereaded = false
-                        }
-                        chat.isHistoryGapFixedForSession = false
-                        chat.chatState = .none
+                    staleChats.forEach { chat in
+                        if hard && chat.isPrereaded { chat.isPrereaded = false }
+                        if chat.isHistoryGapFixedForSession { chat.isHistoryGapFixedForSession = false }
+                        if chat.chatState_ != idleState { chat.chatState = .none }
                     }
                 }
             } catch {

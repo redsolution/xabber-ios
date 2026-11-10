@@ -44,6 +44,20 @@ final class DevicesPendingRegistrationStorageTests: XCTestCase {
         XCTAssertTrue(bytes(f) == before)
     }
 
+    func testValidatedLocalDeviceIDRequiresReadableValidProtectedState() throws {
+        let f = try fixture()
+        let writes = f.memory.writes
+        XCTAssertEqual(try f.alice.validatedLocalDeviceID(), f.aliceBundle.deviceID)
+
+        f.memory.unavailable = true
+        XCTAssertThrowsError(try f.alice.validatedLocalDeviceID())
+
+        f.memory.unavailable = false
+        f.memory.values[f.alice.owner] = Data([0])
+        XCTAssertThrowsError(try f.alice.validatedLocalDeviceID())
+        XCTAssertEqual(f.memory.writes, writes)
+    }
+
     func testMissingPreparedSecretsRequireRecoveryInsteadOfFreshIdentity() throws {
         let memory = Memory(); memory.preparedMarker = true
         let storage = try XabberOMEMO2Storage(owner: "prepared-\(UUID())@example.test", persistence: memory)

@@ -638,6 +638,136 @@ final class RosterCircleManagementTests: XCTestCase {
         XCTAssertTrue(manager.queueItems.isEmpty)
     }
 
+    func testNonemptyRosterResultPreservesWireOrderAndScopedChatLinks() throws {
+        let realm = try WRealm.safe()
+        let owner = "roster-batch-\(UUID().uuidString)@example.test"
+        let foreignOwner = "other-\(UUID().uuidString)@example.test"
+        let alice = "alice@example.test"
+        let bob = "bob@example.test"
+        let initialAlice = try storeRosterItem(jid: alice, owner: owner, nickname: "Alice", groups: ["work"])
+        let foreignAlice = try storeRosterItem(jid: alice, owner: foreignOwner, nickname: "Other Alice", groups: ["WORK"])
+        XCTAssertEqual(initialAlice.ask_, "", "Legacy stubs can store an empty raw ask value.")
+        let oldGroupPrimary = RosterGroupStorageItem.genPrimary(name: "work", owner: owner)
+        let oldGroup = try XCTUnwrap(realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: oldGroupPrimary))
+        let plain = LastChatsStorageItem()
+        let encrypted = LastChatsStorageItem()
+        let foreign = LastChatsStorageItem()
+        try realm.write {
+            oldGroup.order = 9
+            oldGroup.isCollapsed = true
+            for (chat, chatOwner, type) in [(plain, owner, .regular), (encrypted, owner, .omemo), (foreign, foreignOwner, .regular)] as [(LastChatsStorageItem, String, ClientSynchronizationManager.ConversationType)] {
+                chat.jid = alice
+                chat.conversationType = type
+                chat.setPrimary(withOwner: chatOwner)
+                realm.add(chat)
+            }
+            foreign.rosterItem = foreignAlice
+        }
+
+        let manager = try applyRosterResult(owner: owner, items: [
+            (alice, "Alice General", []),
+            (bob, "Bob", ["WORK"]),
+            (alice, "Alice Final", ["Work"])
+        ])
+
+        XCTAssertTrue(manager.isInitialRosterReceived)
+        XCTAssertEqual(manager.version, "batch-version")
+        XCTAssertNil(realm.object(ofType: RosterGroupStorageItem.self, forPrimaryKey: oldGroupPrimary))
+        let group = try XCTUnwrap(realm.object(
+            ofType: RosterGroupStorageItem.self,
+            forPrimaryKey: RosterGroupStorageItem.genPrimary(name: "WORK", owner: owner)
+        ))
+        XCTAssertEqual(group.contacts.map(\.jid), [bob, alice])
+        XCTAssertEqual(group.order, 0)
+        XCTAssertFalse(group.isCollapsed)
+        XCTAssertEqual(initialAlice.customUsername, "Alice Final")
+        XCTAssertEqual(initialAlice.ask_, RosterStorageItem.Ask.none.rawValue)
+        XCTAssertEqual(initialAlice.groups.toArray(), ["Work"])
+        XCTAssertEqual(plain.rosterItem?.primary, initialAlice.primary)
+        XCTAssertEqual(encrypted.rosterItem?.primary, initialAlice.primary)
+        XCTAssertEqual(foreign.rosterItem?.primary, foreignAlice.primary)
+        XCTAssertEqual(foreignAlice.groups.toArray(), ["WORK"])
+    }
+
+    func testUnchangedRosterResultDoesNotRewriteStoredMembershipList() throws {
+        let realm = try WRealm.safe()
+        let owner = "roster-idempotent-\(UUID().uuidString)@example.test"
+        let alice = "alice@example.test"
+        let roster = try storeRosterItem(jid: alice, owner: owner, nickname: "Alice", groups: ["Friends", "Work"])
+        let initial = expectation(description: "Realm group list observation started")
+        let mutation = expectation(description: "Unchanged raw roster groups were rewritten")
+        mutation.isInverted = true
+        let token = roster.groups.observe { event in
+            switch event {
+            case .initial: initial.fulfill()
+            case .update: mutation.fulfill()
+            case let .error(error): XCTFail("\(error)")
+            }
+        }
+        defer { token.invalidate() }
+        wait(for: [initial], timeout: 2)
+
+        _ = try applyRosterResult(owner: owner, items: [(alice, "Alice", ["Friends", "Work"])])
+
+        wait(for: [mutation], timeout: 0.25)
+        XCTAssertEqual(roster.groups.toArray(), ["Friends", "Work"])
+        XCTAssertEqual(realm.objects(RosterGroupStorageItem.self).filter("owner == %@", owner).count, 2)
+    }
+
+    func testNonemptyRosterResultAppendsReaddedMemberAfterExistingMembers() throws {
+        let realm = try WRealm.safe()
+        let owner = "roster-readd-\(UUID().uuidString)@example.test"
+        let alice = "alice@example.test"
+        let bob = "bob@example.test"
+        _ = try storeRosterItem(jid: alice, owner: owner, nickname: "Alice", groups: ["Work"])
+        _ = try storeRosterItem(jid: bob, owner: owner, nickname: "Bob", groups: ["Work"])
+        let group = try XCTUnwrap(realm.object(
+            ofType: RosterGroupStorageItem.self,
+            forPrimaryKey: RosterGroupStorageItem.genPrimary(name: "Work", owner: owner)
+        ))
+        try realm.write { group.order = 3 }
+
+        _ = try applyRosterResult(owner: owner, items: [
+            (alice, "Alice", []),
+            (alice, "Alice", ["work"])
+        ])
+
+        XCTAssertFalse(group.isInvalidated)
+        XCTAssertEqual(group.order, 3)
+        XCTAssertEqual(group.contacts.map(\.jid), [bob, alice])
+    }
+
+    @discardableResult
+    private func applyRosterResult(
+        owner: String,
+        items: [(jid: String, name: String, groups: [String])]
+    ) throws -> RosterManager {
+        let manager = RosterManager(withOwner: owner, initialRosterScheduler: RosterCircleTestScheduler())
+        let stream = RosterCircleCapturingXMPPStream()
+        let query = DDXMLElement(name: "query", xmlns: "jabber:iq:roster")
+        query.addAttribute(withName: "ver", stringValue: "batch-version")
+        for item in items {
+            let element = DDXMLElement(name: "item")
+            element.addAttribute(withName: "jid", stringValue: item.jid)
+            element.addAttribute(withName: "name", stringValue: item.name)
+            element.addAttribute(withName: "subscription", stringValue: "both")
+            item.groups.forEach { element.addChild(DDXMLElement(name: "group", stringValue: $0)) }
+            query.addChild(element)
+        }
+        defer {
+            SettingManager.shared.removeItem(for: owner, scope: .roster, key: "version")
+            let metadata = CommonContactsMetadataManager.shared
+            let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup())
+            for jid in Set(items.map(\.jid)) {
+                defaults?.removeObject(forKey: [metadata.key, owner, jid].prp())
+            }
+        }
+        manager.request(stream)
+        let requestID = try XCTUnwrap(stream.sentIQs.first?.elementID)
+        XCTAssertTrue(manager.read(withIQ: XMPPIQ(iqType: .result, elementID: requestID, child: query)))
+        return manager
+    }
+
     private func member(
         _ jid: String,
         name: String,

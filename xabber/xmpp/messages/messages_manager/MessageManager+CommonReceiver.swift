@@ -426,6 +426,40 @@ extension MessageManager {
         }
     }
 
+    /// Transport preparation cannot wait for an older Realm chunk. Publish
+    /// lock-owned admission metadata before wire send, then enqueue queue-owned
+    /// bookkeeping ahead of every result ingress and persistence pump turn.
+    internal func prepareArchiveTransportQueryBatch(
+        queryId: String,
+        priority: ArchivePersistencePriority
+    ) {
+        guard queryId.isNotEmpty else { return }
+        archivePersistenceSchedulingLock.lock()
+        let isNewBatch = archivePersistencePriorityByQueryId[queryId] == nil &&
+            sealedArchivePersistenceRequestsByQueryId[queryId] == nil
+        let currentPriority = archivePersistencePriorityByQueryId[queryId] ?? .background
+        archivePersistencePriorityByQueryId[queryId] = max(currentPriority, priority)
+        if isNewBatch {
+            reconciledArchiveIngressExpectationsByQueryId.removeValue(forKey: queryId)
+            completedArchiveQueryBatchSummariesByQueryId.removeValue(forKey: queryId)
+            completedArchiveQueryBatchSummaryOrder.removeAll { $0 == queryId }
+        }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.archivePersistenceSchedulingLock.lock()
+            defer { self.archivePersistenceSchedulingLock.unlock() }
+            // Lifecycle flush may have run on the message queue between the
+            // immediate registration and this queued bookkeeping operation.
+            guard self.archivePersistencePriorityByQueryId[queryId] != nil,
+                  self.completedArchiveQueryBatchSummariesByQueryId[queryId] == nil else { return }
+            if self.archiveQueryBatchIds.insert(queryId).inserted {
+                self.pendingPostPersistenceEffectsByQueryId.removeValue(forKey: queryId)
+            }
+            self.postPersistenceEffectsHeldForTransportQueryIds.insert(queryId)
+        }
+        archivePersistenceSchedulingLock.unlock()
+    }
+
     internal func beginArchiveQueryBatch(
         queryId: String,
         priority: ArchivePersistencePriority = .background
@@ -1722,12 +1756,11 @@ extension MessageManager {
             self.isReceiverActive = false
             self.isQueuedMessagesDrainScheduled = false
             self.archivePersistenceSchedulingLock.lock()
-            let sealedQueryIds = Set(
-                self.sealedArchivePersistenceRequestsByQueryId.keys
-            )
+            let registeredQueryIds = Set(self.sealedArchivePersistenceRequestsByQueryId.keys)
+                .union(self.archivePersistencePriorityByQueryId.keys)
             self.archivePersistenceSchedulingLock.unlock()
             let terminalQueryIds = self.archiveQueryBatchIds
-                .union(sealedQueryIds)
+                .union(registeredQueryIds)
                 .sorted()
             var persistedRows = 0
             var terminalCallbacks: [(
@@ -1916,9 +1949,11 @@ extension MessageManager {
             let differentRecordSource = incoming.transportTransparentFingerprint != nil &&
                 previous.transportTransparentFingerprint != nil &&
                 incoming.transportTransparentFingerprint != previous.transportTransparentFingerprint
-            guard incoming.hasDistinctAuthoredContent(from: previous) || differentRecordSource,
-                  !Self.hasRewrite(message),
-                  base.message.map({ !Self.hasRewrite($0) }) == true else {
+            // A rewrite child forbids duplicate consumption above, but does
+            // not let two positively distinct original MAM records overwrite
+            // one scalar cursor. Preserve storage identity without interpreting
+            // correction/retraction semantics or discarding either source.
+            guard incoming.hasDistinctAuthoredContent(from: previous) || differentRecordSource else {
                 report(sourceCode: 2, selectedFork: false)
                 return Decision()
             }

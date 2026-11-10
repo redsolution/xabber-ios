@@ -326,8 +326,8 @@ struct ArchiveSearchTransportRowAccumulator {
 }
 
 /// Bridges the callback-based MAM implementation to the archive engine's
-/// immutable async receipt. The scheduler slot remains owned until both raw
-/// `<fin/>` and query-scoped Realm persistence have reached a terminal.
+/// immutable async receipt. A matched raw `<fin/>` releases the scheduler's
+/// wire slot; the receipt remains owned through query-scoped persistence.
 final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendable {
     private weak var account: Account?
     private let materializationResolver: ArchiveMessageMaterializationResolving
@@ -436,7 +436,7 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                 deduplicationKey: referenceResolution.map { "archive-reference.\($0.queryID)" }
                     ?? Self.deduplicationKey(for: request),
                 unavailable: {
-                    continuationBox.resume(throwing: ArchiveTransportError.disconnected)
+                    continuationBox.schedulerDidBecomeUnavailable()
                 }
             ) { [weak self] user, stream, finishSchedulerSlot in
                 guard let self else {
@@ -461,7 +461,10 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                 // explicit owner until the async continuation reaches exactly one
                 // terminal; otherwise the local transaction is released as soon
                 // as this scheduler closure returns and `<fin/>` becomes a no-op.
-                continuationBox.retainUntilTerminal(transaction)
+                guard continuationBox.retainUntilTerminal(transaction) else {
+                    finishSchedulerSlot()
+                    return
+                }
                 transaction.start(on: stream)
             }
         }
@@ -482,9 +485,7 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                 resource: .mamArchive,
                 deduplicationKey: Self.searchDeduplicationKey(for: request),
                 unavailable: {
-                    continuationBox.resume(
-                        throwing: ArchiveTransportError.disconnected
-                    )
+                    continuationBox.schedulerDidBecomeUnavailable()
                 }
             ) { user, stream, finishSchedulerSlot in
                 let transaction = ArchiveSearchTransportTransaction(
@@ -495,7 +496,10 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                     persistenceTerminalTimeout: self.persistenceTerminalTimeout,
                     finishSchedulerSlot: finishSchedulerSlot
                 )
-                continuationBox.retainUntilTerminal(transaction)
+                guard continuationBox.retainUntilTerminal(transaction) else {
+                    finishSchedulerSlot()
+                    return
+                }
                 transaction.start(on: stream)
             }
         }
@@ -579,11 +583,23 @@ final class ArchiveSearchTransportContinuationBox: @unchecked Sendable {
         CheckedContinuation<ArchiveSearchTransportReceipt, Error>?
     private var pendingResult: Result<ArchiveSearchTransportReceipt, Error>?
     private var terminalRetention: AnyObject?
+    private var didResume = false
 
-    func retainUntilTerminal(_ object: AnyObject) {
+    @discardableResult
+    func retainUntilTerminal(_ object: AnyObject) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        guard !didResume else { return false }
         terminalRetention = object
+        return true
+    }
+
+    func schedulerDidBecomeUnavailable() {
+        lock.lock()
+        let transaction = terminalRetention as? ArchiveSearchTransportTransaction
         lock.unlock()
+        if let transaction { transaction.schedulerDidBecomeUnavailable() }
+        else { resume(throwing: ArchiveTransportError.disconnected) }
     }
 
     func install(
@@ -612,6 +628,8 @@ final class ArchiveSearchTransportContinuationBox: @unchecked Sendable {
         with result: Result<ArchiveSearchTransportReceipt, Error>
     ) {
         lock.lock()
+        guard !didResume else { lock.unlock(); return }
+        didResume = true
         terminalRetention = nil
         guard let continuation else {
             guard pendingResult == nil else {
@@ -633,11 +651,23 @@ final class ArchiveTransportContinuationBox: @unchecked Sendable {
     private var continuation: CheckedContinuation<ArchiveTransportReceipt, Error>?
     private var pendingResult: Result<ArchiveTransportReceipt, Error>?
     private var terminalRetention: AnyObject?
+    private var didResume = false
 
-    func retainUntilTerminal(_ object: AnyObject) {
+    @discardableResult
+    func retainUntilTerminal(_ object: AnyObject) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        guard !didResume else { return false }
         terminalRetention = object
+        return true
+    }
+
+    func schedulerDidBecomeUnavailable() {
+        lock.lock()
+        let transaction = terminalRetention as? ArchiveTransportTransaction
         lock.unlock()
+        if let transaction { transaction.schedulerDidBecomeUnavailable() }
+        else { resume(throwing: ArchiveTransportError.disconnected) }
     }
 
     func install(_ continuation: CheckedContinuation<ArchiveTransportReceipt, Error>) {
@@ -662,6 +692,8 @@ final class ArchiveTransportContinuationBox: @unchecked Sendable {
 
     private func resume(with result: Result<ArchiveTransportReceipt, Error>) {
         lock.lock()
+        guard !didResume else { lock.unlock(); return }
+        didResume = true
         terminalRetention = nil
         guard let continuation else {
             guard pendingResult == nil else {
@@ -759,12 +791,9 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             return
         }
 
-        account.messages.beginArchiveQueryBatch(
+        account.messages.prepareArchiveTransportQueryBatch(
             queryId: request.queryID,
             priority: Self.persistencePriority(request)
-        )
-        account.messages.holdPostPersistenceEffectsUntilArchiveTransportTerminal(
-            queryId: request.queryID
         )
         ArchiveEngineObservability.event(
             .transport,
@@ -864,6 +893,10 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             )
             return
         }
+        // A matched final closes this query's wire phase. Persistence and
+        // materialization retain their own terminal barrier and may continue
+        // without occupying the account's archive network lane.
+        finishSchedulerSlot()
         guard let initialAccounting = account.mam.archiveTransportAccountingSnapshot(
             queryId: request.queryID
         ) else {
@@ -1017,6 +1050,18 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         }
     }
 
+    func schedulerDidBecomeUnavailable() {
+        // start() runs on this account queue. Ordering failure behind it closes
+        // the retain-before-start gap without racing callback registration.
+        // A raw fin that already claimed the terminal keeps its persistence
+        // owner; handleFailure then acknowledges the redundant reset only.
+        account.queue.async { [self] in
+            handleFailure(.init(owner: request.conversation.owner, queryId: request.queryID,
+                streamKind: .primary, reason: .uiActionDisconnect,
+                errorDescription: nil, pendingQueryCount: 1), acknowledgement: nil)
+        }
+    }
+
     private func handleFailure(
         _ event: MessageArchiveRequestFailureEvent,
         acknowledgement: (() -> Void)?
@@ -1140,9 +1185,9 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
         case .failure(let error):
             continuationBox.resume(throwing: error)
         }
-        account.messages.releasePostPersistenceEffectsAfterArchiveTransportTerminal(
-            queryId: request.queryID
-        )
+        account.messages.queue.async { [messages = account.messages, queryID = request.queryID] in
+            messages.releasePostPersistenceEffectsAfterArchiveTransportTerminal(queryId: queryID)
+        }
     }
 
     private var purpose: MessageArchiveManager.RequestPurpose {
@@ -1239,6 +1284,13 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
 }
 
 private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
+    private struct RawFinal {
+        let state: MessageArchivePageEndState
+        let first: String
+        let last: String
+        let accounting: MessageArchiveManager.ArchiveTransportAccountingSnapshot?
+        let expectedPersistenceCount: Int?
+    }
     private let request: ArchiveSearchTransportRequest
     private let account: Account
     private let continuationBox: ArchiveSearchTransportContinuationBox
@@ -1249,6 +1301,8 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
     private var searchRows = ArchiveSearchTransportRowAccumulator()
     private var didStartTerminal = false
     private var didFinish = false
+    private var rawFinal: RawFinal?
+    private var endPageToken: MessageArchiveEndPageDispatcher.Token?
     private var failureToken: MessageArchiveRequestFailureDispatcher.Token?
     private var preparationToken:
         MessageArchiveRequestFailurePreparationDispatcher.Token?
@@ -1280,17 +1334,20 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
             return
         }
 
-        account.messages.beginArchiveQueryBatch(
+        account.messages.prepareArchiveTransportQueryBatch(
             queryId: request.queryID,
             priority: .interactive
-        )
-        account.messages.holdPostPersistenceEffectsUntilArchiveTransportTerminal(
-            queryId: request.queryID
         )
         ArchiveEngineObservability.event(
             .transport,
             value: request.pageSize
         )
+        endPageToken = MessageArchiveEndPageDispatcher.register(
+            owner: request.scope.owner, queryId: request.queryID, delivery: .synchronous
+        ) { [weak self] event in
+            self?.captureRawFinal(queryID: event.queryId, state: event.state,
+                first: event.first, last: event.last)
+        }
         preparationToken = MessageArchiveRequestFailurePreparationDispatcher.register(
             owner: request.scope.owner,
             queryId: request.queryID
@@ -1380,7 +1437,7 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
             groupAuthorAvatarURL: item.groupchatAuthorAvatarURL
         )
         lock.lock()
-        guard !didStartTerminal else {
+        guard !didStartTerminal, !didFinish else {
             lock.unlock()
             return
         }
@@ -1395,38 +1452,28 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
         }
     }
 
-    private func handleFinal(
+    /// Claim the wire terminal before a reset can overtake the main-queue
+    /// search callbacks. Keep their original row-before-final ordering: raw
+    /// ownership alone does not close the search-row accumulator.
+    private func captureRawFinal(
         queryID: String,
         state: MessageArchivePageEndState,
         first: String,
         last: String
     ) {
-        guard queryID == request.queryID else { return }
-        guard requestTerminalGate.claimPersistenceTerminal() else {
-            ChatArchiveDebugTrace.log(
-                "archiveSearchTransportDuplicateFinalIgnored",
-                [("persistenceTerminalAlreadyClaimed", true)]
-            )
-            return
-        }
-        guard beginTerminal() else {
-            ChatArchiveDebugTrace.log(
-                "archiveSearchTransportDuplicateFinalIgnored",
-                [("transactionTerminalAlreadyStarted", true)]
-            )
-            return
-        }
-        guard let accounting = account.mam.archiveTransportAccountingSnapshot(
-            queryId: request.queryID
-        ) else {
-            finish(.failure(ArchiveTransportError.protocolViolation))
-            return
-        }
-        ArchiveEngineObservability.event(
-            .final,
-            value: accounting.deliveredResultCount,
-            auxiliary: state.rawComplete ? 1 : 0
-        )
+        guard queryID == request.queryID,
+              requestTerminalGate.claimPersistenceTerminal() else { return }
+        // Search storage has an independent barrier after the wire final too.
+        finishSchedulerSlot()
+        // Another stream manager can route the owned fallback final before
+        // this primary manager seals its ledger. Claiming the wire terminal
+        // does not invent that proof; the ordered callback must still obtain it.
+        let accounting = account.mam.archiveTransportAccountingSnapshot(queryId: request.queryID)
+        let captured = RawFinal(state: state, first: first, last: last, accounting: accounting,
+            expectedPersistenceCount: account.mam.expectedPersistenceResultCount(queryId: request.queryID))
+        lock.lock()
+        rawFinal = captured
+        lock.unlock()
         guard persistenceGate.arm(onTimeout: { [weak self] in
             guard let self else { return }
             self.account.messages.releaseArchiveQueryBatchIngressExpectation(
@@ -1436,13 +1483,39 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
         }) else {
             return
         }
-        let expected = account.mam.expectedPersistenceResultCount(
-            queryId: request.queryID
+    }
+
+    private func handleFinal(
+        queryID: String,
+        state: MessageArchivePageEndState,
+        first: String,
+        last: String
+    ) {
+        guard queryID == request.queryID else { return }
+        captureRawFinal(queryID: queryID, state: state, first: first, last: last)
+        guard beginTerminal() else { return }
+        lock.lock()
+        let captured = rawFinal
+        lock.unlock()
+        guard let captured, captured.state == state,
+              captured.first == first, captured.last == last else {
+            finish(.failure(ArchiveTransportError.protocolViolation))
+            return
+        }
+        guard let accounting = captured.accounting ??
+                account.mam.archiveTransportAccountingSnapshot(queryId: request.queryID) else {
+            finish(.failure(ArchiveTransportError.protocolViolation))
+            return
+        }
+        ArchiveEngineObservability.event(
+            .final, value: accounting.deliveredResultCount,
+            auxiliary: state.rawComplete ? 1 : 0
         )
         account.messages.finishArchiveQueryBatchAsync(
             queryId: request.queryID,
             priority: .interactive,
-            expectedReceivedCount: expected
+            expectedReceivedCount: captured.expectedPersistenceCount ??
+                account.mam.expectedPersistenceResultCount(queryId: request.queryID)
         ) { [weak self] summary in
             guard let self,
                   self.persistenceGate.claimPersistenceTerminal() else {
@@ -1486,6 +1559,14 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
                     )
                 )
             )
+        }
+    }
+
+    func schedulerDidBecomeUnavailable() {
+        account.queue.async { [self] in
+            handleFailure(.init(owner: request.scope.owner, queryId: request.queryID,
+                streamKind: .primary, reason: .uiActionDisconnect,
+                errorDescription: nil, pendingQueryCount: 1), acknowledgement: nil)
         }
     }
 
@@ -1558,7 +1639,7 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
     private func beginTerminal() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !didStartTerminal else { return false }
+        guard !didStartTerminal, !didFinish else { return false }
         didStartTerminal = true
         return true
     }
@@ -1567,6 +1648,7 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
         _ result: Result<ArchiveSearchTransportReceipt, Error>
     ) {
         let tokens: (
+            MessageArchiveEndPageDispatcher.Token?,
             MessageArchiveRequestFailureDispatcher.Token?,
             MessageArchiveRequestFailurePreparationDispatcher.Token?
         )
@@ -1576,7 +1658,9 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
             return
         }
         didFinish = true
-        tokens = (failureToken, preparationToken)
+        tokens = (endPageToken, failureToken, preparationToken)
+        endPageToken = nil
+        rawFinal = nil
         failureToken = nil
         preparationToken = nil
         lock.unlock()
@@ -1586,9 +1670,12 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
             )
         }
         if let token = tokens.0 {
-            MessageArchiveRequestFailureDispatcher.unregister(token)
+            MessageArchiveEndPageDispatcher.unregister(token)
         }
         if let token = tokens.1 {
+            MessageArchiveRequestFailureDispatcher.unregister(token)
+        }
+        if let token = tokens.2 {
             MessageArchiveRequestFailurePreparationDispatcher.unregister(token)
         }
         account.mam.finishOMEMO2CleanupQuery(queryId: request.queryID)
@@ -1601,9 +1688,9 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
         case .failure(let error):
             continuationBox.resume(throwing: error)
         }
-        account.messages.releasePostPersistenceEffectsAfterArchiveTransportTerminal(
-            queryId: request.queryID
-        )
+        account.messages.queue.async { [messages = account.messages, queryID = request.queryID] in
+            messages.releasePostPersistenceEffectsAfterArchiveTransportTerminal(queryId: queryID)
+        }
     }
 
     private static func transportError(

@@ -794,6 +794,8 @@ extension ChatViewController {
         setDatasourceLoadingEnabled(false)
         _ = commitArchiveEngineOpeningSkeletonSynchronously()
         endArchiveInteractiveCriticalSection()
+        showNeutralArchivePendingStateIfNeeded()
+        refreshArchiveHistoryRecoveryPresentation()
         return true
     }
 
@@ -1326,18 +1328,20 @@ extension ChatViewController {
                 )
                 self.archiveHistoryFailureFallbackIsVisible = true
                 self.showSkeletonObserver.accept(false)
-                self.applyChatDatasource(
-                    mapped.datasource,
-                    mode: .fullReload(keepOffset: false),
-                    animated: false,
-                    preparedLayouts: mapped.layoutSnapshot,
-                    suppressDefaultBottomScroll: true,
-                    // A cold latest window has no reading offset to restore.
-                    // Align it in this apply before its first real frame.
-                    forceBottomAlignmentTarget: alignsColdLatestToBottom ? .newestRealMessage : nil,
-                    presentationOwner: .archiveEngine,
-                    completion: { [weak self] in self?.finishArchiveFailureVisiblePreparationIfNeeded() }
-                )
+                self.performCachedChatOpenPresentationTransaction {
+                    self.applyChatDatasource(
+                        mapped.datasource,
+                        mode: .fullReload(keepOffset: false),
+                        animated: false,
+                        preparedLayouts: mapped.layoutSnapshot,
+                        suppressDefaultBottomScroll: true,
+                        // A cold latest window has no reading offset to restore.
+                        // Align it in this apply before its first real frame.
+                        forceBottomAlignmentTarget: alignsColdLatestToBottom ? .newestRealMessage : nil,
+                        presentationOwner: .archiveEngine,
+                        completion: { [weak self] in self?.finishArchiveFailureVisiblePreparationIfNeeded() }
+                    )
+                }
                 self.refreshArchiveHistoryRecoveryPresentation()
             }
         }
@@ -1531,10 +1535,37 @@ extension ChatViewController {
         archiveWindowAtomicApplyRetryCount = 0
     }
 
+    /// A cold route already owns its exact/unread/saved request at this point.
+    /// Dispatch the immutable request off main before UIKit constructs/layouts
+    /// the view. Actor states still enter UIKit through the normal subscription.
+    internal func prepareArchiveEngineRequestBeforeLoadingViewIfNeeded() {
+        assert(Thread.isMainThread)
+        guard !isViewLoaded,
+              archivePreparedOpenIntent == nil,
+              archiveEnginePresentationDemandID == nil,
+              !owner.isEmpty, !jid.isEmpty,
+              let account = AccountManager.shared.find(for: owner),
+              unresolvedArchiveReferenceRequest() == nil else { return }
+        let intent = makeInitialArchiveWindowIntent()
+        archivePreparedOpenIntent = intent
+        archivePreparedOpenRequest = pendingOpenMessageRequest
+        beginArchiveInteractiveCriticalSection()
+        attachArchiveEnginePresentationDemand(intent: intent, account: account,
+            referenceRequest: nil, referenceResolutionID: nil)
+    }
+
     internal func startArchiveEnginePresentationIfNeeded() {
         assert(Thread.isMainThread)
         retainArchiveHistoryVisibleMessages()
-        let intent = makeInitialArchiveWindowIntent()
+        let selectedIntent = makeInitialArchiveWindowIntent()
+        let preparedIntent = archivePreparedOpenIntent.flatMap { prepared in
+            prepared.semanticDescriptor == selectedIntent.semanticDescriptor &&
+                archivePreparedOpenRequest == pendingOpenMessageRequest ? prepared : nil
+        }
+        if archivePreparedOpenIntent != nil, preparedIntent == nil {
+            detachArchiveEnginePresentationDemand()
+        }
+        let intent = preparedIntent ?? selectedIntent
         let shouldResetPresentation =
             ChatArchiveWindowPresentationPolicy.shouldResetForStart(
                 isPresentationActive:
@@ -1543,6 +1574,8 @@ extension ChatViewController {
                 incomingIntent: intent
         )
         guard shouldResetPresentation else { return }
+        archivePreparedOpenIntent = nil
+        archivePreparedOpenRequest = nil
         cancelArchiveReferenceResolution()
         let referenceRequest = unresolvedArchiveReferenceRequest()
         invalidateArchiveEngineVerifiedScope()
@@ -1572,6 +1605,7 @@ extension ChatViewController {
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
         guard commitArchiveEngineOpeningSkeletonSynchronously() else {
+            if preparedIntent != nil { detachArchiveEnginePresentationDemand() }
             endArchiveInteractiveCriticalSection()
             return
         }
@@ -1667,32 +1701,55 @@ extension ChatViewController {
             }
         }
 
+        if let request = pendingOpenMessageRequest {
+            _ = loadSavedPositionCachePresentationIfEligible(request: request,
+                expectedIntentID: intent.id,
+                expectedApplyGeneration: archiveWindowApplyGeneration)
+        }
+
+        // The early request and loaded presentation share one intent/demand.
+        guard preparedIntent == nil else { return }
+        attachArchiveEnginePresentationDemand(intent: intent, account: account,
+            referenceRequest: referenceRequest, referenceResolutionID: referenceResolutionID)
+    }
+
+    private func attachArchiveEnginePresentationDemand(
+        intent: ArchiveWindowIntent, account: Account,
+        referenceRequest: ChatOpenMessageRequest?, referenceResolutionID: UUID?
+    ) {
         let demandID = UUID()
         let demandConversation = intent.conversation
         let demandEngine = account.archiveEngine
         archiveEnginePresentationDemandID = demandID
         archiveEnginePresentationDemandConversation = demandConversation
         archiveEnginePresentationDemandEngine = demandEngine
-        let demandTask = Task { @MainActor [weak self] in
+        if let request = referenceRequest, let resolutionID = referenceResolutionID {
+            archiveEnginePresentationDemandTask = Task { @MainActor [weak self] in
+                await demandEngine.attachPresentationDemand(for: demandConversation, demandID: demandID)
+                guard !Task.isCancelled, let self,
+                      self.archiveEnginePresentationDemandID == demandID,
+                      self.archiveEngineConversationKey == demandConversation,
+                      self.archiveWindowIntent?.id == intent.id else { return }
+                await self.resolveArchiveReference(request, resolutionID: resolutionID,
+                    expectedIntentID: intent.id, engine: demandEngine)
+            }
+            return
+        }
+        // Capture only Sendable engine/request values. A Task inheriting the
+        // main actor would wait for the same view/layout work it must overlap.
+        archiveEnginePresentationDemandTask = Task.detached(priority: .userInitiated) {
             await demandEngine.attachPresentationDemand(
                 for: demandConversation,
                 demandID: demandID
             )
-            guard !Task.isCancelled, let self,
-                  self.archiveEnginePresentationDemandID == demandID,
-                  self.archiveEngineConversationKey == demandConversation,
-                  self.archiveWindowIntent?.id == intent.id else { return }
-            if let request = referenceRequest, let resolutionID = referenceResolutionID {
-                await self.resolveArchiveReference(request, resolutionID: resolutionID,
-                    expectedIntentID: intent.id, engine: demandEngine)
-            } else {
-                await demandEngine.submit(intent)
-            }
+            guard !Task.isCancelled else { return }
+            await demandEngine.submit(intent)
         }
-        archiveEnginePresentationDemandTask = demandTask
     }
 
     internal func detachArchiveEnginePresentationDemand() {
+        archivePreparedOpenIntent = nil
+        archivePreparedOpenRequest = nil
         let demandID = archiveEnginePresentationDemandID
         let demandTask = archiveEnginePresentationDemandTask
         let demandConversation = archiveEnginePresentationDemandConversation
@@ -1717,6 +1774,8 @@ extension ChatViewController {
         cancelArchiveOpeningWait()
         cancelArchiveReferenceResolution()
         archiveWindowTargetOpenRequest = nil
+        savedPositionCachePresentationContext = nil
+        archiveTerminalBoundaryFailure = nil
         archiveUnavailableTargetFirstFrameContext?.releasePreparationCompletion()
         archiveUnavailableTargetFirstFrameContext = nil
         if isViewLoaded {
@@ -1750,6 +1809,7 @@ extension ChatViewController {
         archiveWindowAtomicApplyRetryWorkItem = nil
         archiveWindowAtomicApplyRetryCount = 0
         archiveWindowApplyGeneration &+= 1
+        archiveHistoryFailureFallbackRequestID = nil
         endArchiveInteractiveCriticalSection()
         endArchiveSearchInteractiveCriticalSection()
         cancelDatasetMappingJobs()
@@ -1760,6 +1820,7 @@ extension ChatViewController {
         retainArchiveHistoryVisibleMessages()
         cancelArchiveReferenceResolution()
         archiveWindowTargetOpenRequest = nil
+        savedPositionCachePresentationContext = nil
         let intent = ChatArchiveWindowPresentationPolicy.latestTargetIntent(
             conversation: archiveEngineConversationKey
         )
@@ -1864,6 +1925,8 @@ extension ChatViewController {
             priority: .target
         )
         guard prepareArchiveEngineTargetIntent(intent) else { return false }
+        _ = loadSavedPositionCachePresentationIfEligible(request: request,
+            expectedIntentID: intent.id, expectedApplyGeneration: archiveWindowApplyGeneration)
         Task { await account.archiveEngine.submit(intent) }
         return true
     }
@@ -1909,6 +1972,7 @@ extension ChatViewController {
     @discardableResult
     private func prepareArchiveEngineTargetIntent(_ intent: ArchiveWindowIntent) -> Bool {
         retainArchiveHistoryVisibleMessages()
+        savedPositionCachePresentationContext = nil
         invalidateArchiveEngineVerifiedScope()
         invalidateArchiveWindowAuthoritativeEmptyApply()
         timelineBoundaryRequest = nil
@@ -3452,8 +3516,18 @@ extension ChatViewController {
         archiveWindowAuthoritativeEmptyApplyGeneration = nil
         archiveWindowAuthoritativeEmptyMappingGeneration = nil
         archiveWindowState = state
+        if case .retryableFailure = state {
+            // The terminal presentation remains until a new owned operation
+            // or verified result replaces it, or the user explicitly retries.
+        } else {
+            archiveTerminalBoundaryFailure = nil
+        }
         refreshArchiveHistoryRecoveryPresentation()
         archiveWindowApplyGeneration &+= 1
+        // This accepted actor generation revokes the old mapping. Let its
+        // skeleton queue a replacement immediately; the stale callback cannot
+        // clear the replacement's request ID when it eventually returns.
+        archiveHistoryFailureFallbackRequestID = nil
         archiveWindowLiveEdgeApplyGeneration = nil
         let applyGeneration = archiveWindowApplyGeneration
         switch state {
@@ -3470,6 +3544,14 @@ extension ChatViewController {
             let didCommitSkeleton =
                 commitArchiveEngineOpeningSkeletonSynchronously()
             refreshArchiveBoundaryLoadingIndicator()
+            if didCommitSkeleton, let request = pendingOpenMessageRequest,
+               let intent = archiveWindowIntent {
+                // The actor's accepted loading state revoked older mapping.
+                // Re-read the same exact saved target for this new generation.
+                _ = loadSavedPositionCachePresentationIfEligible(request: request,
+                    expectedIntentID: intent.id,
+                    expectedApplyGeneration: applyGeneration)
+            }
             if !didCommitSkeleton || reason == .offline {
                 endArchiveInteractiveCriticalSection()
                 if reason == .offline { showNeutralArchivePendingStateIfNeeded() }
@@ -3492,6 +3574,7 @@ extension ChatViewController {
             }
             endArchiveInteractiveCriticalSection()
             showNeutralArchivePendingStateIfNeeded()
+            refreshArchiveHistoryRecoveryPresentation()
             switch failure.recoveryAction {
             case .showLatest:
                 _ = showLatestAfterUnavailableUnreadTarget()
@@ -3539,7 +3622,7 @@ extension ChatViewController {
         }
     }
 
-    private func receiveArchiveBoundaryTerminal(
+    internal func receiveArchiveBoundaryTerminal(
         _ outcome: ArchiveBoundaryTerminalOutcome
     ) {
         assert(Thread.isMainThread)
@@ -3563,7 +3646,10 @@ extension ChatViewController {
             case .retry:
                 endArchiveInteractiveCriticalSection()
                 timelineBoundaryRequest = nil
+                archiveWindowBoundaryPresentationAnchor = nil
                 completeArchiveBoundaryLoadingIndicator(for: request.locator)
+                archiveTerminalBoundaryFailure = request.isVisible ? outcome : nil
+                refreshArchiveHistoryRecoveryPresentation()
             case .recoverAccount:
                 timelineBoundaryRequest = nil
                 archiveWindowBoundaryPresentationAnchor = nil
@@ -3642,23 +3728,151 @@ extension ChatViewController {
         refreshArchiveBoundaryLoadingIndicator()
     }
 
-    /// Archive availability is not a second conversation status surface.
-    /// Cached content stays readable; account connectivity remains in native chrome.
+    /// Pending/offline availability is represented by native account chrome.
+    /// A real terminal failure has its own explicit, user-owned recovery action.
     internal func refreshArchiveHistoryRecoveryPresentation() {
         guard isViewLoaded else { return }
         archiveHistoryRecoveryStatusView.isHidden = true
         archiveHistoryRecoveryStatusView.removeFromSuperview()
         NSLayoutConstraint.deactivate(archiveHistoryRecoveryStatusConstraints)
         archiveHistoryRecoveryStatusConstraints.removeAll()
-        reconcileArchiveHistoryRecoveryViewport()
         let hasContent = datasource.contains { !$0.isFakeMessage }
         updateArchiveOpeningWait(hasContent: hasContent)
+        let recovery = currentArchiveTerminalRecovery()
+        if let recovery, !showSkeletonObserver.value {
+            let status = archiveHistoryRecoveryStatusView
+            let label = status.arrangedSubviews.compactMap { $0 as? UILabel }.first
+            label?.text = L10n.text("chat__history__load_failed", fallback: "Messages couldn’t be loaded.")
+            status.spacing = 8
+            status.isUserInteractionEnabled = true
+            let retry: UIButton
+            if let existing = status.arrangedSubviews.compactMap({ $0 as? UIButton }).first {
+                retry = existing
+            } else {
+                retry = UIButton(type: .system)
+                retry.accessibilityIdentifier = "chat.archiveHistory.retry"
+                retry.titleLabel?.font = .preferredFont(forTextStyle: .body)
+                retry.titleLabel?.adjustsFontForContentSizeCategory = true
+                retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+                retry.addTarget(self, action: #selector(retryArchiveTerminalFailureAfterUserRequest), for: .touchUpInside)
+                status.addArrangedSubview(retry)
+            }
+            retry.setTitle(L10n.text("common__action__retry", fallback: "Retry"), for: .normal)
+            retry.isHidden = recovery.failure.recoveryAction != .retry
+            retry.isEnabled = true
+            view.addSubview(status)
+            archiveHistoryRecoveryStatusConstraints = [
+                status.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+                status.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+                status.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+                status.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+            ]
+            if hasContent {
+                archiveHistoryRecoveryStatusConstraints.append(status.topAnchor.constraint(
+                    equalTo: view.safeAreaLayoutGuide.topAnchor, constant: floatingBubblesHeight + 8))
+            } else {
+                archiveHistoryRecoveryStatusConstraints.append(status.centerYAnchor.constraint(
+                    equalTo: view.safeAreaLayoutGuide.centerYAnchor))
+            }
+            NSLayoutConstraint.activate(archiveHistoryRecoveryStatusConstraints)
+            status.isHidden = false
+        }
+        reconcileArchiveHistoryRecoveryViewport()
         let isTerminal: Bool
         switch archiveWindowState {
         case .retryableFailure?, .skeleton(reason: .offline, target: _)?: isTerminal = true
         default: isTerminal = false
         }
-        archiveHistoryPendingLabel.isHidden = hasContent || !(isTerminal || archiveOpeningWaitExpired) || showSkeletonObserver.value
+        archiveHistoryPendingLabel.isHidden = recovery != nil || hasContent ||
+            !(isTerminal || archiveOpeningWaitExpired) || showSkeletonObserver.value
+    }
+
+    internal func archiveReferenceFailureRetryRequest() -> ChatOpenMessageRequest? {
+        guard let request = pendingOpenMessageRequest,
+              let resolutionID = archiveReferenceResolutionID,
+              let intent = archiveWindowIntent,
+              case .retryableFailure(let failure, let target)? = archiveWindowState,
+              failure.recoveryAction == .retry,
+              target == intent.locator,
+              ownsArchiveReferenceResolution(request: request, resolutionID: resolutionID,
+                  expectedIntentID: intent.id) else { return nil }
+        return request
+    }
+
+    private func currentArchiveTerminalRecovery() -> (
+        failure: ArchiveRetryableFailure,
+        intent: ArchiveWindowIntent,
+        boundary: ArchiveBoundaryTerminalOutcome?
+    )? {
+        guard let intent = archiveWindowIntent else { return nil }
+        if let outcome = archiveTerminalBoundaryFailure,
+           outcome.requestID == intent.id,
+           outcome.descriptor == intent.semanticDescriptor,
+           case .failed(let failure) = outcome.result {
+            return (failure, intent, outcome)
+        }
+        if case .retryableFailure(let failure, let target)? = archiveWindowState,
+           target == intent.locator {
+            return (failure, intent, nil)
+        }
+        return nil
+    }
+
+    @objc private func retryArchiveTerminalFailureAfterUserRequest() {
+        guard let recovery = currentArchiveTerminalRecovery(),
+              recovery.failure.recoveryAction == .retry,
+              let account = AccountManager.shared.find(for: owner) else { return }
+        if let referenceRequest = archiveReferenceFailureRetryRequest(),
+           let resolutionID = archiveReferenceResolutionID,
+           ownsArchiveReferenceResolution(request: referenceRequest, resolutionID: resolutionID,
+               expectedIntentID: recovery.intent.id) {
+            // This failure precedes window submission and therefore owns no
+            // actor retry budget. Restart only the exact failed reference;
+            // an unrelated rejected actor retry never takes this route.
+            cancelArchiveReferenceResolution()
+            _ = submitArchiveEngineTarget(referenceRequest)
+            return
+        }
+        if recovery.boundary != nil {
+            guard let session = timelineSession,
+                  let scope = committedTimelineScope(),
+                  let direction = ChatArchiveWindowPresentationPolicy.boundaryDirection(for: recovery.intent.locator) else { return }
+            archiveWindowApplyGeneration &+= 1
+            let anchor = captureArchiveEngineBoundaryAnchor(direction: direction)
+            timelineBoundaryRequest = ChatTimelineBoundaryRequestContext(
+                id: recovery.intent.id, direction: direction, scope: scope,
+                locator: recovery.intent.locator, baseGeneration: session.snapshot.generation,
+                applyGeneration: archiveWindowApplyGeneration, anchor: anchor,
+                owningPresentationIntentID: recovery.intent.id, isVisible: true,
+                phase: .waitingRemote, remoteIntentID: recovery.intent.id)
+            archiveWindowBoundaryPresentationAnchor = anchor.map {
+                ChatArchiveBoundaryPresentationAnchor(locator: recovery.intent.locator,
+                    direction: direction, anchor: $0)
+            }
+            archiveTerminalBoundaryFailure = nil
+            beginArchiveBoundaryLoadingIndicator(for: recovery.intent.locator)
+            beginArchiveInteractiveCriticalSection()
+            refreshArchiveHistoryRecoveryPresentation()
+        } else {
+            archiveHistoryRecoveryStatusView.arrangedSubviews.compactMap { $0 as? UIButton }
+                .forEach { $0.isEnabled = false }
+        }
+        Task { @MainActor [weak self, weak account] in
+            guard let account else { return }
+            let accepted = await account.archiveEngine.retryAfterUserRequest(recovery.intent)
+            guard let self, !accepted,
+                  self.archiveWindowIntent?.id == recovery.intent.id,
+                  self.archiveWindowIntent?.semanticDescriptor == recovery.intent.semanticDescriptor else { return }
+            if let boundary = recovery.boundary,
+               self.timelineBoundaryRequest?.remoteIntentID == recovery.intent.id {
+                self.timelineBoundaryRequest = nil
+                self.archiveWindowBoundaryPresentationAnchor = nil
+                self.archiveTerminalBoundaryFailure = boundary
+                self.completeArchiveBoundaryLoadingIndicator(for: recovery.intent.locator)
+                self.endArchiveInteractiveCriticalSection()
+            }
+            self.refreshArchiveHistoryRecoveryPresentation()
+        }
     }
 
     private func updateArchiveOpeningWait(hasContent: Bool) {
@@ -3739,7 +3953,10 @@ extension ChatViewController {
                 archiveHistoryRecoveryCollectionTopConstraint != nil ||
                 isArchiveHistoryUnavailable else { return }
         let status = archiveHistoryRecoveryStatusView
-        let reservesBand = !status.isHidden && !showSkeletonObserver.value
+        // Terminal recovery overlays the current window. It must not move a
+        // committed message or change the viewport merely to offer Retry.
+        let reservesBand = !status.isHidden && !showSkeletonObserver.value &&
+            currentArchiveTerminalRecovery() == nil
         let statusTop = archiveHistoryRecoveryStatusConstraints.first {
             ($0.firstItem as? UIView) === status && $0.firstAttribute == .top
         }
@@ -4219,12 +4436,20 @@ extension ChatViewController {
                 let retainedAnchor = retainedAnchorCandidate.flatMap {
                     mappedPrimaryIDs.contains($0.primary) ? $0 : nil
                 }
+                let refreshesSavedCache = self.isRefreshingSavedPositionCache(snapshot)
+                let savedCacheAnchor = refreshesSavedCache
+                    ? self.savedPositionCacheRefreshAnchor(mappedPrimaries: mappedPrimaryIDs)
+                    : nil
+                // Fresh proof may replace cached rendering only while retaining
+                // a currently visible common row. No common row is not license
+                // to reset the reader to an unrelated position or grant proof.
+                if refreshesSavedCache, savedCacheAnchor == nil { return }
                 let restoreAnchor =
                     ChatArchiveWindowPresentationPolicy.resolveBoundaryAnchor(
                         for: snapshot.target,
                         live: liveAnchor,
                         retained: retainedAnchor
-                    )
+                    ) ?? savedCacheAnchor
                 let currentOwnedPendingRequest =
                     self.pendingOpenMessageRequest.flatMap { request in
                         ChatInitialTargetFirstFramePolicy.owns(
@@ -4427,6 +4652,7 @@ extension ChatViewController {
                             }
                             self.archiveWindowCommittedCoverageGeneration =
                                 snapshot.coverageGeneration
+                            self.savedPositionCachePresentationContext = nil
                             self.syncCurrentPage(
                                 with: ChatDatasetWindow(
                                     minIndex: 0,
@@ -5044,7 +5270,7 @@ extension ChatViewController {
         )
     }
 
-    private func performArchiveEngineInitialPresentationTransactionIfNeeded(
+    internal func performArchiveEngineInitialPresentationTransactionIfNeeded(
         for target: ArchiveWindowLocator,
         receipt: ChatOpenPerformancePresentationReceipt,
         onCommitted: (() -> Void)? = nil,
@@ -5071,7 +5297,7 @@ extension ChatViewController {
         )
     }
 
-    private func recordArchiveSkeletonTerminalIfNeeded() {
+    internal func recordArchiveSkeletonTerminalIfNeeded() {
         guard let beganAt = archiveSkeletonBeganAt else { return }
         archiveSkeletonBeganAt = nil
         ArchiveEngineObservability.event(

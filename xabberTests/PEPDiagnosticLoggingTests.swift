@@ -77,7 +77,7 @@ final class PEPDiagnosticLoggingTests: XCTestCase {
         }
     }
 
-    func testEveryStreamKeepsCompleteOriginalXMLIncludingRepeatedWireFrames() throws {
+    func testEveryStreamLeavesOriginalWireXMLToFramework() throws {
         let xml = "<message id='same-id'><body>" + String(repeating: "original &amp; text\n", count: 2_000)
             + "</body><key>full-key-sentinel</key><unknown original='preserve'/></message>"
         let streams: [ConnectionDiagnosticsStreamKind] = [
@@ -94,18 +94,18 @@ final class PEPDiagnosticLoggingTests: XCTestCase {
             DDLog.flushLog()
             let messages = sink.snapshot().filter { $0.contains(owner) }
             XCTAssertEqual(messages.count, streams.count * 2)
-            XCTAssertTrue(messages.allSatisfy { $0.hasSuffix("\n" + xml) })
+            XCTAssertTrue(messages.allSatisfy { !$0.contains(xml) })
         }
     }
 
-    func testXMLAlwaysSurvivesEvenForAnOtherwiseQuietEvent() throws {
+    func testWireXMLDoesNotForceOtherwiseQuietAppMetadata() throws {
         let xml = "<a xmlns='urn:xmpp:sm:3' h='123' original='keep'/>"
         try capture { sink in
             ConnectionDiagnosticsLogger.log(
                 event: "stream_management_ack_received", stream: .primary, jid: owner, rawXML: xml
             )
             DDLog.flushLog()
-            XCTAssertEqual(sink.snapshot().filter { $0.hasSuffix("\n" + xml) }.count, 1)
+            XCTAssertEqual(sink.snapshot().filter { $0.hasSuffix("\n" + xml) }.count, 0)
         }
     }
 
@@ -119,12 +119,12 @@ final class PEPDiagnosticLoggingTests: XCTestCase {
             )
             XCTAssertTrue(manager.onContactDeviceReceiveHeadline(message))
             DDLog.flushLog()
-            XCTAssertEqual(sink.snapshot().filter { $0.contains("original-bundle-sentinel") }.count, 1)
+            XCTAssertEqual(sink.snapshot().filter { $0.contains("original-bundle-sentinel") }.count, 0)
             XCTAssertFalse(sink.snapshot().contains { $0.hasPrefix("OMEMO_BUNDLE") })
         }
     }
 
-    func testStreamManagementWireFramesRetainFullXMLAfterQuietingAckMetadata() throws {
+    func testStreamManagementCallbacksDoNotDuplicateFrameworkWireFrames() throws {
         let previousRealm = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: UUID().uuidString)
         defer { Realm.Configuration.defaultConfiguration = previousRealm }
@@ -140,11 +140,7 @@ final class PEPDiagnosticLoggingTests: XCTestCase {
             account.xmppStream(stream, didReceiveCustomElement: ack)
             DDLog.flushLog()
             let frames = sink.snapshot().filter { $0.contains("sm-request-sentinel") || $0.contains("sm-ack-sentinel") }
-            XCTAssertEqual(frames.count, 4)
-            for frame in frames {
-                XCTAssertTrue(frame.hasSuffix("\n" + (request.prettyXMLString ?? request.xmlString))
-                    || frame.hasSuffix("\n" + (ack.prettyXMLString ?? ack.xmlString)))
-            }
+            XCTAssertEqual(frames.count, 0)
         }
         account.queue.sync {}
     }

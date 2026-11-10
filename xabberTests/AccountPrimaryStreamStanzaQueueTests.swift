@@ -516,6 +516,23 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         XCTAssertEqual(timedOutIds, ["roster-current"])
     }
 
+    func testLateRosterResponseRetainsExactCorrelationAfterTimeoutFallback() {
+        let scheduler = AccountPrimaryStreamTestScheduler()
+        var timedOutIds: [String] = []
+        let coordinator = AccountInitialRosterRequestCoordinator(
+            configuration: .init(responseTimeout: 5), scheduler: scheduler,
+            onTimeout: { timedOutIds.append($0) }
+        )
+        coordinator.begin(id: "superseded")
+        coordinator.begin(id: "current")
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(timedOutIds, ["current"])
+        XCTAssertEqual(coordinator.completeWithOutcome(id: "superseded"), .unmatched)
+        XCTAssertEqual(coordinator.completeWithOutcome(id: "current"), .matchedAfterFallback)
+        XCTAssertEqual(coordinator.completeWithOutcome(id: "current"), .unmatched)
+    }
+
     func testInitialRosterRequestCoordinatorResetCancelsOldSessionTimeout() {
         let scheduler = AccountPrimaryStreamTestScheduler()
         var timedOutIds: [String] = []

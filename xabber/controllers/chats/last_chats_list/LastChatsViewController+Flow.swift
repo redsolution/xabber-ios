@@ -250,49 +250,6 @@ extension LastChatsViewController {
             }
     }
 
-    internal func updateArchivedSectionTitle() -> NSAttributedString {
-        let out = NSMutableAttributedString()
-        let inactiveColor: UIColor
-        if #available(iOS 13.0, *) {
-            inactiveColor = .secondaryLabel
-        } else {
-            inactiveColor = UIColor(red:0.56, green:0.56, blue:0.58, alpha:1)
-        }
-        let activeColor: UIColor
-        if #available(iOS 13.0, *) {
-            activeColor = .label
-        } else {
-            activeColor = .darkText
-        }
-
-        archivedChats?.enumerated().forEach {
-            (offset, item) in
-            let text: String
-            if offset == (archivedChats?.count ?? 0) - 1 {
-                text = (item.rosterItem?.displayName ?? item.jid)
-            } else {
-                text = (item.rosterItem?.displayName ?? item.jid) + ", "
-            }
-            out.append(NSAttributedString(
-                string: text,
-                attributes: [
-                    NSAttributedString.Key.foregroundColor: item.unread == 0 ? inactiveColor: activeColor,
-                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14)
-                ]
-            ))
-        }
-
-        let textRange = NSRange(location: 0, length: (out.string as NSString).length)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 1.43
-        paragraphStyle.lineBreakMode = .byWordWrapping
-//        paragraphStyle.
-        out.addAttribute(NSAttributedString.Key.paragraphStyle, value:paragraphStyle, range: textRange)
-        out.addAttribute(NSAttributedString.Key.kern, value: -0.22, range: textRange)
-
-        return out
-    }
-
     internal func onChangeNotifications(jid: String, owner: String, isMuted: Bool, conversationType: ClientSynchronizationManager.ConversationType) {
         XMPPUIActionManager.shared.open(owner: owner)
         if isMuted {

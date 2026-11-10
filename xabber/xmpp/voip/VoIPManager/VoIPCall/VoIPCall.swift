@@ -1317,8 +1317,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "callId": self.callId,
                 "startTLS": hasStartTLS,
                 "bind": hasBind
-            ],
-            rawXML: features.prettyXMLString ?? features.xmlString
+            ]
         )
         if hasStartTLS {
             self.logConnectionDiagnostics(event: "tls_negotiation_required", details: ["callId": self.callId])
@@ -1334,8 +1333,7 @@ extension VoIPCall: XMPPStreamDelegate {
 	        DDLogDebug("VoIPCall: stream didNotAuthenticate owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none") queued=\(stanzaQueue.count)")
             self.logConnectionDiagnostics(
                 event: "authentication_failed",
-                details: ["callId": self.callId],
-                rawXML: error.prettyXMLString ?? error.xmlString
+                details: ["callId": self.callId]
             )
 	        credentialsItem.release(.authFailedRecoverable)
 	        self.stream.disconnect()
@@ -1375,8 +1373,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
     }
     
@@ -1391,8 +1388,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
         if isMatchingProposeMessage(message) {
             DDLogDebug("VoIPCall: sent propose owner=\(owner) callId=\(callId) resource=\(sender.myJID?.resource ?? "none")")
@@ -1418,8 +1414,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
     }
     
@@ -1432,8 +1427,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         print("state", self.state)
         if self.state == .ended {
@@ -1474,8 +1468,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
         guard let payload = Self.unwrapIncomingMessage(message, owner: owner) else {
             DDLogWarn(
@@ -1504,8 +1497,7 @@ extension VoIPCall: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
     }
     
@@ -1518,7 +1510,6 @@ extension VoIPCall: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
         self.enqueue(stanza: iq)
@@ -1534,7 +1525,6 @@ extension VoIPCall: XMPPStreamDelegate {
                 "id": message.elementID ?? "none",
                 "type": message.type ?? "chat"
             ],
-            rawXML: message.prettyXMLString ?? message.xmlString,
             error: error
         )
         
@@ -1550,7 +1540,6 @@ extension VoIPCall: XMPPStreamDelegate {
                 "id": presence.elementID ?? "none",
                 "type": presence.type ?? "available"
             ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString,
             error: error
         )
         self.enqueue(stanza: presence)
@@ -1596,8 +1585,7 @@ extension VoIPCall: XMPPStreamDelegate {
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
         self.logConnectionDiagnostics(
             event: "xmpp_stream_error",
-            details: ["callId": self.callId],
-            rawXML: error.prettyXMLString ?? error.xmlString
+            details: ["callId": self.callId]
         )
     }
 

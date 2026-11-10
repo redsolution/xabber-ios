@@ -404,8 +404,7 @@ extension Account: XMPPStreamDelegate {
                 "startTLS": hasStartTLS,
                 "bind": hasBind,
                 "devices": hasDevices
-            ],
-            rawXML: features.prettyXMLString ?? features.xmlString
+            ]
         )
         if hasStartTLS {
             self.connectionGate.markTLSNegotiating()
@@ -444,8 +443,7 @@ extension Account: XMPPStreamDelegate {
         self.devices.clearSession()
         self.logConnectionDiagnostics(
             event: "authentication_failed",
-            details: ["streamError": self.streamErrorName(error)],
-            rawXML: error.prettyXMLString ?? error.xmlString
+            details: ["streamError": self.streamErrorName(error)]
         )
         self.didReceiveError(error)
         self.connectionResilience.streamDidLeaveBinding(reason: "authentication-failed")
@@ -483,8 +481,7 @@ extension Account: XMPPStreamDelegate {
         DDLogDebug("primary stream received error jid=\(self.jid) error=\(self.streamErrorName(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.logConnectionDiagnostics(
             event: "xmpp_stream_error",
-            details: ["streamError": self.streamErrorName(error)],
-            rawXML: error.prettyXMLString ?? error.xmlString
+            details: ["streamError": self.streamErrorName(error)]
         )
         self.didReceiveError(error)
         self.connectionResilience.streamDidLeaveBinding(reason: "stream-error")
@@ -495,8 +492,7 @@ extension Account: XMPPStreamDelegate {
         guard sender === self.xmppStream else { return }
         self.logConnectionDiagnostics(
             event: "stanza_send_custom",
-            details: ["element": element.localName ?? "unknown"],
-            rawXML: element.prettyXMLString ?? element.xmlString
+            details: ["element": element.localName ?? "unknown"]
         )
     }
 
@@ -509,8 +505,7 @@ extension Account: XMPPStreamDelegate {
         }
         self.logConnectionDiagnostics(
             event: "stanza_receive_custom",
-            details: ["element": element.localName ?? "unknown"],
-            rawXML: element.prettyXMLString ?? element.xmlString
+            details: ["element": element.localName ?? "unknown"]
         )
         if element.localName == "a" {
             self.primaryStreamAckRequestCoordinator.noteRawAck()
@@ -594,8 +589,7 @@ extension Account: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         if SettingManager.logEnabled {
             DDLogInfo("S. IQ: to \(iq.to?.bare ?? "none"), from \(iq.from?.bare ?? "none"), type \(iq.element(forName: "query")?.xmlns() ?? iq.children?.first?.name ?? "none")")
@@ -623,8 +617,7 @@ extension Account: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         let isTrackedPingResult = self.ping.isTrackedResult(iq)
         if !isTrackedPingResult {
@@ -688,8 +681,7 @@ extension Account: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
         self.connectionResilience.noteInboundActivity("presence")
         if presence.from?.bare == sender.myJID?.bare {
@@ -728,8 +720,7 @@ extension Account: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
         //self.presences.read(outgoingPresence: presence)
         if SettingManager.logEnabled {
@@ -757,8 +748,7 @@ extension Account: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
         self.connectionResilience.noteInboundActivity("message")
         if SettingManager.logEnabled {
@@ -1044,8 +1034,7 @@ extension Account: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
         if SettingManager.logEnabled {
             DDLogInfo("S. message: to \(message.to?.bare ?? "none"), from \(message.from?.bare ?? "none"), id \(message.elementID ?? "none")")
@@ -1060,7 +1049,6 @@ extension Account: XMPPStreamDelegate {
                 "id": message.elementID ?? "none",
                 "type": message.type ?? "chat"
             ],
-            rawXML: message.prettyXMLString ?? message.xmlString,
             error: error
         )
 //        self.messages.changeMessageState(message, to: .error)
@@ -1078,7 +1066,6 @@ extension Account: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
     }
@@ -1092,7 +1079,6 @@ extension Account: XMPPStreamDelegate {
                 "id": presence.elementID ?? "none",
                 "type": presence.type ?? "available"
             ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString,
             error: error
         )
         self.gracefulDisconnectPresenceCompleted(presence, stream: sender, sent: false)
@@ -1179,8 +1165,7 @@ extension Account: XMPPStreamDelegate {
     func xmppStreamResponseXToken(_ iq: XMPPIQ) {
         self.logConnectionDiagnostics(
             event: "xtoken_response",
-            details: ["id": iq.elementID ?? "none"],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            details: ["id": iq.elementID ?? "none"]
         )
         _ = self.xTokens.read(withIQ: iq)
     }
@@ -1213,8 +1198,7 @@ extension Account: XMPPStreamManagementDelegate {
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasEnabled enabled: DDXMLElement) {
         self.primaryStreamAckRequestCoordinator.reset()
         self.logConnectionDiagnostics(
-            event: "stream_management_enabled",
-            rawXML: enabled.prettyXMLString ?? enabled.xmlString
+            event: "stream_management_enabled"
         )
         self.sendReadiness.markStreamManagementEnabled()
         self.connectionResilience.noteInboundActivity("stream-management-enabled")
@@ -1223,8 +1207,7 @@ extension Account: XMPPStreamManagementDelegate {
     func xmppStreamManagement(_ sender: XMPPStreamManagement, wasNotEnabled failed: DDXMLElement) {
         self.primaryStreamAckRequestCoordinator.reset()
         self.logConnectionDiagnostics(
-            event: "stream_management_not_enabled",
-            rawXML: failed.prettyXMLString ?? failed.xmlString
+            event: "stream_management_not_enabled"
         )
         self.sendReadiness.markStreamManagementEnableFailed(reason: failed.name)
 //        AccountManager.shared.markAsConnecting(jid: self.jid)

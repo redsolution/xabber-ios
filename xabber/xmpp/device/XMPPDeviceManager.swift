@@ -310,12 +310,10 @@ class XMPPDeviceManager: AbstractXMPPManager {
                myDeviceId.isNotEmpty {
                 self.isAvailable = true
             }
-            try realm.write {
-                realm
-                    .objects(DeviceStorageItem.self)
-                    .filter("owner == %@", self.owner)
-                    .forEach { $0.resource = nil }
-            }
+            let staleDevices = realm.objects(DeviceStorageItem.self)
+                .filter("owner == %@ AND resource != nil", owner)
+            guard !staleDevices.isEmpty else { return }
+            try realm.write { staleDevices.forEach { $0.resource = nil } }
         } catch {
             DDLogDebug("XMPPDeviceManager: \(#function). \(error.localizedDescription)")
         }

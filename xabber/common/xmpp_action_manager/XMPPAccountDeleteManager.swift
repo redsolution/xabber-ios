@@ -213,16 +213,14 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         sender.send(iq)
     }
     
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
         self.logConnectionDiagnostics(
-            event: "authentication_failed",
-            rawXML: error.prettyXMLString ?? error.xmlString
+            event: "authentication_failed"
         )
         close(sender)
         guard let text = error.elements(forName: "text").first?.stringValue else {
@@ -240,8 +238,7 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         
         switch iq.iqType {
@@ -286,15 +283,13 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
     }
 
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
         self.logConnectionDiagnostics(
-            event: "xmpp_stream_error",
-            rawXML: error.prettyXMLString ?? error.xmlString
+            event: "xmpp_stream_error"
         )
     }
 
@@ -306,8 +301,7 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
             details: [
                 "startTLS": hasStartTLS,
                 "bind": hasBind
-            ],
-            rawXML: features.prettyXMLString ?? features.xmlString
+            ]
         )
     }
 

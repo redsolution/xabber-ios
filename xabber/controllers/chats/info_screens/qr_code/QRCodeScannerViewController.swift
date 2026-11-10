@@ -181,12 +181,14 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     var previewLayer: AVCaptureVideoPreviewLayer?
 
     open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate?
+    var accountJid: String?
 
     private let sessionQueue = DispatchQueue(label: "com.xabber.qr-scanner.capture")
     private var metadataOutput: AVCaptureMetadataOutput?
     private var captureDevice: AVCaptureDevice?
     private var previousNavigationBarHidden: Bool?
     private weak var invalidAlertBackdropView: UIView?
+    private var didRouteToContact = false
 
     private let cameraView: UIView = {
         let view = UIView()
@@ -381,7 +383,7 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
-        guard
+        guard !didRouteToContact,
             let readableObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
             let stringValue = readableObject.stringValue
         else {
@@ -393,6 +395,9 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     }
 
     func found(code: String) {
+        guard !didRouteToContact,
+              let navigationController,
+              navigationController.topViewController === self else { return }
         guard
             let url = URL(string: code),
             let components = NSURLComponents(url: url, resolvingAgainstBaseURL: true),
@@ -403,12 +408,15 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
             return
         }
 
+        didRouteToContact = true
         let controller = AddNewContactViewController()
+        controller.leftMenuSelectRootCategoryDelegate = leftMenuSelectRootCategoryDelegate
+        if let accountJid { controller.accountJid = accountJid }
         controller.contactJid.accept(formattedJid)
-        if let rootController = navigationController?.viewControllers.first {
-            navigationController?.setViewControllers([rootController, controller], animated: true)
+        if let rootController = navigationController.viewControllers.first {
+            navigationController.setViewControllers([rootController, controller], animated: true)
         } else {
-            navigationController?.pushViewController(controller, animated: true)
+            navigationController.pushViewController(controller, animated: true)
         }
     }
 
@@ -532,7 +540,7 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
     }
 
     private func startCaptureSession() {
-        guard let captureSession else { return }
+        guard !didRouteToContact, let captureSession else { return }
         sessionQueue.async {
             guard !captureSession.isRunning else { return }
             captureSession.startRunning()

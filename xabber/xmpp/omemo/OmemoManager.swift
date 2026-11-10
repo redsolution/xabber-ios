@@ -143,7 +143,7 @@ open class OmemoManager: AbstractXMPPManager {
     override init(withOwner owner: String) {
         self.omemo2Storage = try? XabberOMEMO2Storage(owner: owner)
         self.localStore = XabberAxolotlStorage(withOwner: owner)
-        self.localOMEMO2Prepared = (try? self.omemo2Storage?.localBundle()) != nil
+        self.localOMEMO2Prepared = (try? self.omemo2Storage?.validatedLocalDeviceID()) != nil
         super.init(withOwner: owner)
     }
     
@@ -288,7 +288,7 @@ open class OmemoManager: AbstractXMPPManager {
     /// regenerated as part of registration or a PEP collision check.
     private func existingOMEMO2DeviceID() throws -> Int? {
         guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
-        do { return try storage.localBundle().deviceID }
+        do { return try storage.validatedLocalDeviceID() }
         catch OMEMO2StorageError.stateUnavailable {
             let realm = try WRealm.safe()
             guard realm.objects(SignalIdentityStorageItem.self)

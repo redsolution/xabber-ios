@@ -123,8 +123,10 @@ enum SettingsAccountQRCodeThemeCatalog {
 
 enum SettingsAccountQRCodeRoute {
     @MainActor
-    static func makeScanner() -> UIViewController {
-        QRCodeScannerViewController()
+    static func makeScanner(accountJid: String? = nil) -> UIViewController {
+        let scanner = QRCodeScannerViewController()
+        scanner.accountJid = accountJid
+        return scanner
     }
 }
 
@@ -1047,7 +1049,7 @@ class QRCodeViewController: UIViewController {
 
     @objc
     private func scanSettingsQRCode() {
-        let scanner = SettingsAccountQRCodeRoute.makeScanner()
+        let scanner = SettingsAccountQRCodeRoute.makeScanner(accountJid: jid)
         scanner.title = "Scan QR Code".localizeString(id: "scan_qr_code", arguments: [])
         navigationController?.setNavigationBarHidden(false, animated: true)
         navigationController?.pushViewController(scanner, animated: true)

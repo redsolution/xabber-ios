@@ -10670,8 +10670,8 @@ final class AccountManagerConnectingStateTests: XCTestCase {
 
 final class ConnectionDiagnosticsLoggerTests: XCTestCase {
 
-    func testRawXMLLoggingIsEnabledByDefault() {
-        XCTAssertTrue(ConnectionDiagnosticsLogger.rawXMLLoggingEnabled)
+    func testWireXMLIsOwnedByFramework() {
+        XCTAssertFalse(ConnectionDiagnosticsLogger.rawXMLLoggingEnabled)
     }
 
     func testLineContainsCoreConnectionFieldsInStableOrder() {
@@ -10874,7 +10874,7 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
 
         XCTAssertTrue(lifecycle.contains("event=xmpp_stream_features"))
         XCTAssertTrue(lifecycle.contains("phase=tlsNegotiating"))
-        XCTAssertTrue(lifecycle.hasSuffix("\n<features><starttls /></features>"))
+        XCTAssertFalse(lifecycle.contains("<features>"))
         XCTAssertTrue(tcp.contains("event=tcp_socket_connected"))
         XCTAssertTrue(tcp.contains("connectedHost=xmpp.example.com"))
         XCTAssertTrue(tcp.contains("connectedPort=5222"))
@@ -10888,15 +10888,15 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
         XCTAssertTrue(resilience.contains("missedPings=2"))
     }
 
-    func testRawXMLLinePreservesPayloadWithoutEscapingWhenEnabled() {
+    func testAppDiagnosticLineDoesNotDuplicateFrameworkPayload() {
         let xml = "<message id=\"fixture\"><body>Hello &amp; goodbye</body><trace>public-trace-value</trace></message>"
         let line = ConnectionDiagnosticsLogger.line(
             event: "stanza_receive", stream: .uiAction,
             jid: "owner@example.invalid", rawXML: xml, includeRawXML: true
         )
 
-        XCTAssertTrue(line.hasSuffix("\n" + xml))
-        XCTAssertTrue(line.contains("public-trace-value"))
+        XCTAssertFalse(line.contains(xml))
+        XCTAssertFalse(line.contains("public-trace-value"))
     }
 
     func testRawXMLLineOmitsPayloadWhenDisabled() {
@@ -10914,8 +10914,8 @@ final class ConnectionDiagnosticsLoggerTests: XCTestCase {
 
 final class AppLoggingPolicyTests: XCTestCase {
 
-    func testDefaultDebugLoggingExcludesVerboseXMLAndDoesNotForceDiskLogging() {
-        XCTAssertEqual(AppLoggingPolicy.osLogLevel(isRelease: false), .debug)
+    func testDefaultDebugLoggingAdmitsFrameworkWireFlagsWithoutForcingDiskLogging() {
+        XCTAssertEqual(AppLoggingPolicy.osLogLevel(isRelease: false), .all)
         XCTAssertFalse(
             AppLoggingPolicy.shouldEnablePersistentLogging(
                 developerSettingEnabled: false

@@ -100,6 +100,38 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(wireCount, 1)
     }
 
+    func testCommitDiagnosticCarriesActualTransportProofCountAndVerifiedEdges() async throws {
+        let recorder = ArchiveActorDiagnosticRecorder()
+        let transport = ArchiveEngineTransportSpy()
+        await transport.setImmediateReceipt(ArchiveTransportReceipt(
+            queryID: "replaced-by-transport", connectionGeneration: 936,
+            resultArchiveIDs: ["first-proof", "second-proof"],
+            messagePrimaryIDs: ["first-primary", "second-primary"],
+            first: "first-proof", last: "second-proof", complete: true,
+            cheapPageCount: 2, deliveredResultCount: 2, persistedResultCount: 2,
+            intentionallyConsumedResultCount: 0, failedPersistenceCount: 0, finalReceived: true))
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport,
+            admissionProvider: ArchiveEngineAdmissionSpy(), retryClock: .immediate,
+            diagnosticSink: recorder.record)
+        await engine.connectionDidBecomeReady(generation: 936)
+
+        await submit(engine, latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+
+        let events = recorder.snapshot()
+        let commit = try XCTUnwrap(events.first { $0.branch == .repositoryCommitted })
+        XCTAssertEqual(commit.resultCode, 1)
+        XCTAssertEqual(commit.proofMessageCount, 2,
+            "The actual committed page supplies its transported primary count, not a guessed page size")
+        XCTAssertEqual(commit.archiveStart, 1)
+        XCTAssertEqual(commit.liveEdge, 1)
+        XCTAssertTrue(events.filter { $0.branch != .repositoryCommitted }.allSatisfy {
+            $0.proofMessageCount == nil && $0.archiveStart == nil && $0.liveEdge == nil
+        })
+        XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
+    }
+
     func testActorDiagnosticsIdentifyOfflineSubmitWithoutCreatingExecution() async {
         let recorder = ArchiveActorDiagnosticRecorder()
         let engine = AccountArchiveEngine(owner: conversation.owner,
@@ -113,6 +145,103 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(events.map(\.branch), [.submitted, .offline])
         XCTAssertEqual(Set(events.map(\.executionCode)).count, 1)
         XCTAssertNotEqual(events.first?.executionCode, 0)
+    }
+
+    func testExplicitUserRetryRearmsCurrentTerminalIntentOnce() async throws {
+        let transport = FailingArchiveEngineTransport(error: .protocolViolation)
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport, retryClock: .immediate)
+        await engine.connectionDidBecomeReady(generation: 931)
+        let intent = latestIntent(priority: .visibleIntegrity)
+        await submit(engine, intent)
+        await engine.waitUntilIdleForTesting()
+        let initialCount = await transport.requestCount
+        XCTAssertEqual(initialCount, 1)
+
+        let accepted = await engine.retryAfterUserRequest(intent)
+        await engine.waitUntilIdleForTesting()
+
+        XCTAssertTrue(accepted)
+        let retriedCount = await transport.requestCount
+        XCTAssertEqual(retriedCount, 2,
+            "An explicit Retry may make one fresh attempt after a real terminal, unlike ordinary reopening/pulls")
+        await engine.submit(intent)
+        await engine.waitUntilIdleForTesting()
+        let afterOrdinarySubmit = await transport.requestCount
+        XCTAssertEqual(afterOrdinarySubmit, 2,
+            "The failed explicit attempt must retain a new terminal budget rather than permit automatic loops")
+    }
+
+    func testExplicitUserRetryRejectsStaleDescriptorAndPreservesOtherTerminalBudgets() async throws {
+        let transport = FailingArchiveEngineTransport(error: .protocolViolation)
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport, retryClock: .immediate)
+        await engine.connectionDidBecomeReady(generation: 932)
+        let latest = latestIntent(priority: .visibleIntegrity)
+        await submit(engine, latest)
+        await engine.waitUntilIdleForTesting()
+        let older = ArchiveWindowIntent(conversation: conversation,
+            locator: .older(before: try XCTUnwrap(ArchiveCursor(rawValue: "boundary"))),
+            contextBefore: 100, contextAfter: 80, priority: .visibleIntegrity)
+        await engine.submit(older)
+        await engine.waitUntilIdleForTesting()
+
+        let staleAccepted = await engine.retryAfterUserRequest(latest)
+        XCTAssertFalse(staleAccepted)
+        let currentAccepted = await engine.retryAfterUserRequest(older)
+        await engine.waitUntilIdleForTesting()
+        XCTAssertTrue(currentAccepted)
+        let afterRetry = await transport.requestCount
+        XCTAssertEqual(afterRetry, 3)
+
+        await engine.submit(latest)
+        await engine.waitUntilIdleForTesting()
+        let afterUnrelatedReopen = await transport.requestCount
+        XCTAssertEqual(afterUnrelatedReopen, 3,
+            "Retrying one current boundary must not replenish another descriptor's retained terminal budget")
+    }
+
+    func testExplicitUserRetryCannotInterruptPendingTransport() async throws {
+        let transport = ArchiveEngineTransportSpy()
+        await transport.suspendRequests()
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport, retryClock: .immediate)
+        await engine.connectionDidBecomeReady(generation: 933)
+        let intent = latestIntent(priority: .visibleIntegrity)
+        await submit(engine, intent)
+        for _ in 0..<2_000 {
+            if await transport.requestCount == 1 { break }
+            await Task.yield()
+        }
+
+        let accepted = await engine.retryAfterUserRequest(intent)
+
+        XCTAssertFalse(accepted, "A presentation deadline cannot turn active transport into a user retry")
+        let count = await transport.requestCount
+        XCTAssertEqual(count, 1)
+        await transport.resumeRequests(with: .emptyLatest(generation: 933))
+        await engine.waitUntilIdleForTesting()
+    }
+
+    func testExplicitUserRetryCannotReusePreviousConnectionTerminalBudget() async throws {
+        let transport = FailingArchiveEngineTransport(error: .protocolViolation)
+        let engine = AccountArchiveEngine(owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(), transport: transport, retryClock: .immediate)
+        await engine.connectionDidBecomeReady(generation: 934)
+        let intent = latestIntent(priority: .visibleIntegrity)
+        let demandID = UUID()
+        await engine.attachPresentationDemand(for: conversation, demandID: demandID)
+        await engine.submit(intent)
+        await engine.waitUntilIdleForTesting()
+        await engine.detachPresentationDemand(for: conversation, demandID: demandID)
+        await engine.connectionDidDisconnect()
+        await engine.connectionDidBecomeReady(generation: 935)
+
+        let accepted = await engine.retryAfterUserRequest(intent)
+
+        XCTAssertFalse(accepted)
+        let count = await transport.requestCount
+        XCTAssertEqual(count, 1)
     }
 
     func testExhaustedRetryBudgetSurvivesPresentationReopen() async throws {

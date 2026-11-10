@@ -72,6 +72,7 @@ class AddNewContactViewController: UIViewController {
     
     var accountJid: String = AccountManager.shared.users.first?.jid ?? ""
     var contactJid: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    private var didCompleteContactAddition = false
     
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -199,18 +200,32 @@ class AddNewContactViewController: UIViewController {
     
     func closeAndDisplayContact(jid: String, owner: String) {
         DispatchQueue.main.async {
+            guard !self.didCompleteContactAddition else { return }
+            self.didCompleteContactAddition = true
+
+            // UIKit detaches the modal's presentation controller before its
+            // dismissal completion. Keep the surviving host, not the dismissed
+            // child's subsequently manufactured presentation controller.
+            let presenter = self.navigationController?.presentingViewController
+                ?? self.presentingViewController
+            let delegate = self.leftMenuSelectRootCategoryDelegate
+            let conversationType = ClientSynchronizationManager.ConversationType(
+                rawValue: CommonConfigManager.shared.config.locked_conversation_type
+            ) ?? .regular
             self.dismiss(animated: true) {
-                if self.leftMenuSelectRootCategoryDelegate != nil {
-                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular, configure: nil)
+                if let delegate {
+                    delegate.openChatlistWithChat(
+                        owner: owner, jid: jid,
+                        conversationType: conversationType, configure: nil
+                    )
                 } else {
+                    guard let presenter,
+                          presenter.viewIfLoaded?.window != nil else { return }
                     let vc = ChatViewController()
                     vc.jid = jid
                     vc.owner = owner
-                    vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-                    
-                    if let presenterVc = self.presentationController {
-                        showStacked(vc, in: presenterVc.presentingViewController)
-                    }
+                    vc.conversationType = conversationType
+                    showStacked(vc, in: presenter)
                 }
             }
         }

@@ -34,81 +34,9 @@ enum RosterGroupProjectionSynchronizer {
         owner: String,
         realm: Realm
     ) {
-        precondition(realm.isInWriteTransaction)
-        let desiredGroups = RosterCircleGroups.normalized(groups)
-        let desiredKeys = Set(desiredGroups.map(RosterCircleName.key))
-        let allGroups = realm.objects(RosterGroupStorageItem.self)
-            .filter("owner == %@", owner)
-            .toArray()
-        var selectedProjectionByKey: [String: RosterGroupStorageItem] = [:]
-        desiredGroups.forEach { name in
-            let key = RosterCircleName.key(name)
-            let candidates = allGroups.filter {
-                $0.isSystemGroup == false && RosterCircleName.key($0.name) == key
-            }
-            let selected = candidates.first(where: { $0.name == name })
-                ?? candidates.sorted(by: { $0.primary < $1.primary }).first
-            guard let selected else {
-                return
-            }
-            selectedProjectionByKey[key] = selected
-        }
-
-        allGroups.forEach { group in
-            let shouldContain: Bool
-            if group.name == RosterGroupStorageItem.systemGroupName {
-                shouldContain = desiredGroups.isEmpty
-            } else if group.name == RosterGroupStorageItem.notInRosterGroupName {
-                shouldContain = false
-            } else {
-                let key = RosterCircleName.key(group.name)
-                shouldContain = desiredKeys.contains(key)
-                    && selectedProjectionByKey[key]?.primary == group.primary
-            }
-
-            while let index = group.contacts.firstIndex(where: { $0.primary == instance.primary }),
-                  shouldContain == false {
-                group.contacts.remove(at: index)
-            }
-        }
-
-        if desiredGroups.isEmpty {
-            let general = realm.object(
-                ofType: RosterGroupStorageItem.self,
-                forPrimaryKey: RosterGroupStorageItem.genPrimary(
-                    name: RosterGroupStorageItem.systemGroupName,
-                    owner: owner
-                )
-            ) ?? {
-                let group = RosterGroupStorageItem()
-                group.isSystemGroup = true
-                group.name = RosterGroupStorageItem.systemGroupName
-                group.owner = owner
-                group.primary = RosterGroupStorageItem.genPrimary(name: group.name, owner: owner)
-                realm.add(group, update: .modified)
-                return group
-            }()
-            if general.contacts.contains(where: { $0.primary == instance.primary }) == false {
-                general.contacts.append(instance)
-            }
-        } else {
-            desiredGroups.forEach { name in
-                let key = RosterCircleName.key(name)
-                let group = selectedProjectionByKey[key] ?? {
-                    let group = RosterGroupStorageItem()
-                    group.name = name
-                    group.owner = owner
-                    group.primary = RosterGroupStorageItem.genPrimary(name: name, owner: owner)
-                    realm.add(group, update: .modified)
-                    return group
-                }()
-                if group.contacts.contains(where: { $0.primary == instance.primary }) == false {
-                    group.contacts.append(instance)
-                }
-            }
-        }
-
-        deleteEmptyUserGroups(owner: owner, realm: realm)
+        let batch = Batch(owner: owner, realm: realm)
+        batch.synchronize(instance, groups: groups)
+        batch.finish()
     }
 
     static func remove(
@@ -116,27 +44,195 @@ enum RosterGroupProjectionSynchronizer {
         owner: String,
         realm: Realm
     ) {
-        precondition(realm.isInWriteTransaction)
-        realm.objects(RosterGroupStorageItem.self)
-            .filter("owner == %@", owner)
-            .forEach { group in
-                while let index = group.contacts.firstIndex(where: { $0.primary == instance.primary }) {
-                    group.contacts.remove(at: index)
-                }
-            }
-        deleteEmptyUserGroups(owner: owner, realm: realm)
+        let batch = Batch(owner: owner, realm: realm)
+        batch.remove(instance)
+        batch.finish()
     }
 
-    private static func deleteEmptyUserGroups(owner: String, realm: Realm) {
-        let emptyUserGroups = realm.objects(RosterGroupStorageItem.self)
-            .filter("owner == %@ AND isSystemGroup == false", owner)
-            .toArray()
-            .filter { $0.contacts.isEmpty }
-        realm.delete(emptyUserGroups)
+    /// One owner-scoped roster write. Resolve aliases and membership changes in
+    /// wire order, then flush each surviving group's pending list edits once.
+    final class Batch {
+        private final class Group {
+            let record: RosterGroupStorageItem
+            let primary: String
+            let name: String
+            let isSystem: Bool
+            var members: Set<String>
+            var removedOriginalMembers: Set<String> = []
+            var additions: [(primary: String, item: RosterStorageItem)] = []
+            var liveAdditionIndices: [String: Int] = [:]
+
+            init(_ record: RosterGroupStorageItem) {
+                self.record = record
+                primary = record.primary
+                name = record.name
+                isSystem = record.isSystemGroup
+                members = Set(record.contacts.map(\.primary))
+            }
+
+            func remove(_ primary: String) {
+                guard members.remove(primary) != nil else { return }
+                if liveAdditionIndices.removeValue(forKey: primary) == nil {
+                    removedOriginalMembers.insert(primary)
+                }
+            }
+
+            func append(_ item: RosterStorageItem) -> Bool {
+                let primary = item.primary
+                guard members.insert(primary).inserted else { return false }
+                liveAdditionIndices[primary] = additions.count
+                additions.append((primary, item))
+                return true
+            }
+
+            func applyListEdits() {
+                if !removedOriginalMembers.isEmpty {
+                    for index in (0..<record.contacts.count).reversed() {
+                        if removedOriginalMembers.contains(record.contacts[index].primary) {
+                            record.contacts.remove(at: index)
+                        }
+                    }
+                }
+                let survivingAdditions = additions.enumerated().compactMap { index, addition in
+                    liveAdditionIndices[addition.primary] == index ? addition.item : nil
+                }
+                if !survivingAdditions.isEmpty { record.contacts.append(objectsIn: survivingAdditions) }
+            }
+        }
+
+        private let owner: String
+        private let realm: Realm
+        private var groupsByPrimary: [String: Group] = [:]
+        private var userGroupsByKey: [String: [Group]] = [:]
+        private var groupsByContact: [String: Set<String>] = [:]
+        private var emptyUserGroups: Set<String> = []
+        private var changedGroups: Set<String> = []
+
+        init(owner: String, realm: Realm) {
+            precondition(realm.isInWriteTransaction)
+            self.owner = owner
+            self.realm = realm
+            realm.objects(RosterGroupStorageItem.self).filter("owner == %@", owner).forEach {
+                register(Group($0))
+            }
+        }
+
+        func synchronize(_ item: RosterStorageItem, groups: [String]) {
+            let desiredNames = RosterCircleGroups.normalized(groups)
+            let selectedGroups = desiredNames.map { name -> Group? in
+                let candidates = userGroupsByKey[RosterCircleName.key(name)] ?? []
+                return candidates.first { $0.name == name }
+                    ?? candidates.min { $0.primary < $1.primary }
+            }
+            let existingMemberships = groupsByContact[item.primary] ?? []
+            let retainedPrimaries: Set<String>
+            if desiredNames.isEmpty {
+                retainedPrimaries = Set(existingMemberships.filter {
+                    groupsByPrimary[$0]?.name == RosterGroupStorageItem.systemGroupName
+                })
+            } else {
+                retainedPrimaries = Set(selectedGroups.compactMap { $0?.primary })
+            }
+            removeMemberships(item.primary, from: existingMemberships.subtracting(retainedPrimaries))
+
+            if desiredNames.isEmpty {
+                let name = RosterGroupStorageItem.systemGroupName
+                let primary = RosterGroupStorageItem.genPrimary(name: name, owner: owner)
+                let group = groupsByPrimary[primary] ?? createGroup(name: name, isSystem: true)
+                append(item, to: group)
+            } else {
+                for (name, selected) in zip(desiredNames, selectedGroups) {
+                    append(item, to: selected ?? createGroup(name: name, isSystem: false))
+                }
+            }
+            deleteEmptyUserGroups()
+        }
+
+        func remove(_ item: RosterStorageItem) {
+            removeMemberships(item.primary, from: groupsByContact[item.primary] ?? [])
+            deleteEmptyUserGroups()
+        }
+
+        func finish() {
+            for primary in changedGroups { groupsByPrimary[primary]?.applyListEdits() }
+            changedGroups.removeAll()
+        }
+
+        private func append(_ item: RosterStorageItem, to group: Group) {
+            guard group.append(item) else { return }
+            groupsByContact[item.primary, default: []].insert(group.primary)
+            changedGroups.insert(group.primary)
+            emptyUserGroups.remove(group.primary)
+        }
+
+        private func removeMemberships(_ contact: String, from primaries: Set<String>) {
+            for primary in primaries {
+                guard let group = groupsByPrimary[primary] else { continue }
+                group.remove(contact)
+                groupsByContact[contact]?.remove(primary)
+                changedGroups.insert(primary)
+                if !group.isSystem && group.members.isEmpty { emptyUserGroups.insert(primary) }
+            }
+            if groupsByContact[contact]?.isEmpty == true { groupsByContact.removeValue(forKey: contact) }
+        }
+
+        private func createGroup(name: String, isSystem: Bool) -> Group {
+            let record = RosterGroupStorageItem()
+            record.owner = owner
+            record.name = name
+            record.primary = RosterGroupStorageItem.genPrimary(name: name, owner: owner)
+            record.isSystemGroup = isSystem
+            if let previous = groupsByPrimary[record.primary] { unregister(previous) }
+            realm.add(record, update: .modified)
+            let group = Group(record)
+            register(group)
+            return group
+        }
+
+        private func register(_ group: Group) {
+            groupsByPrimary[group.primary] = group
+            for contact in group.members { groupsByContact[contact, default: []].insert(group.primary) }
+            if !group.isSystem {
+                userGroupsByKey[RosterCircleName.key(group.name), default: []].append(group)
+                if group.members.isEmpty { emptyUserGroups.insert(group.primary) }
+            }
+        }
+
+        private func unregister(_ group: Group) {
+            groupsByPrimary.removeValue(forKey: group.primary)
+            changedGroups.remove(group.primary)
+            emptyUserGroups.remove(group.primary)
+            for contact in group.members {
+                groupsByContact[contact]?.remove(group.primary)
+                if groupsByContact[contact]?.isEmpty == true { groupsByContact.removeValue(forKey: contact) }
+            }
+            if !group.isSystem {
+                let key = RosterCircleName.key(group.name)
+                userGroupsByKey[key]?.removeAll { $0.primary == group.primary }
+                if userGroupsByKey[key]?.isEmpty == true { userGroupsByKey.removeValue(forKey: key) }
+            }
+        }
+
+        private func deleteEmptyUserGroups() {
+            // Delete logically empty rows at each wire step. A later item can
+            // then recreate a group under a different exact alias, as before.
+            let primaries = emptyUserGroups
+            for primary in primaries {
+                guard let group = groupsByPrimary[primary] else { continue }
+                unregister(group)
+                realm.delete(group.record)
+            }
+        }
     }
 }
 
 final class AccountInitialRosterRequestCoordinator {
+    enum Completion: Equatable {
+        case matched
+        case matchedAfterFallback
+        case unmatched
+    }
+
     struct Configuration {
         let responseTimeout: TimeInterval
 
@@ -194,17 +290,21 @@ final class AccountInitialRosterRequestCoordinator {
 
     @discardableResult
     func complete(id: String) -> Bool {
+        completeWithOutcome(id: id) == .matched
+    }
+
+    func completeWithOutcome(id: String) -> Completion {
         queue.sync {
             switch state {
             case .waiting(let currentId) where currentId == id:
                 cancelTimerLocked()
                 state = .idle
-                return true
+                return .matched
             case .fallbackReleased(let currentId) where currentId == id:
                 state = .idle
-                return false
+                return .matchedAfterFallback
             case .idle, .waiting, .fallbackReleased:
-                return false
+                return .unmatched
             }
         }
     }
@@ -476,11 +576,12 @@ class RosterManager: AbstractXMPPManager {
                 user.presence()
             })
         }
+        let items = query.elements(forName: "item")
         var rosterApplySucceeded = true
         do {
             let realm = try  WRealm.safe()
             
-            let removedJids = query.elements(forName: "item").compactMap { item -> String? in
+            let removedJids = items.compactMap { item -> String? in
                 guard item.attributeStringValue(
                     forName: "subscription",
                     withDefaultValue: "none"
@@ -510,17 +611,24 @@ class RosterManager: AbstractXMPPManager {
             }
 
             try realm.write {
-                query.elements(forName: "item").forEach { item in
+                var projection: RosterGroupProjectionSynchronizer.Batch?
+                var chatLinks: [String: RosterStorageItem] = [:]
+                let accountDomain = XMPPJID(string: owner)?.domain
+                func groupProjection() -> RosterGroupProjectionSynchronizer.Batch {
+                    if let projection { return projection }
+                    let batch = RosterGroupProjectionSynchronizer.Batch(owner: owner, realm: realm)
+                    projection = batch
+                    return batch
+                }
+
+                items.forEach { item in
                     guard let jid = item.attributeStringValue(forName: "jid") else { return }
                     let subscribtion = item.attributeStringValue(forName: "subscription", withDefaultValue: "none")
                     if subscribtion == "remove" {
+                        chatLinks.removeValue(forKey: jid)
                         if let instance = realm.object(ofType: RosterStorageItem.self,
                                                        forPrimaryKey: [jid, owner].prp()) {
-                            RosterGroupProjectionSynchronizer.remove(
-                                instance,
-                                owner: owner,
-                                realm: realm
-                            )
+                            groupProjection().remove(instance)
                             instance.associatedLastChat?.rosterItem = nil
                             
                             realm.delete(instance)
@@ -558,43 +666,31 @@ class RosterManager: AbstractXMPPManager {
                         }
                     } else if let instance = realm.object(ofType: RosterStorageItem.self,
                                                           forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
-                        instance.owner = owner
-                        instance.customUsername = item.attributeStringValue(forName: "name", withDefaultValue: "")
-                        instance.subscription_ = subscribtion
+                        if instance.owner != owner { instance.owner = owner }
+                        let nickname = item.attributeStringValue(forName: "name", withDefaultValue: "")
+                        if instance.customUsername != nickname { instance.customUsername = nickname }
+                        if instance.subscription_ != subscribtion { instance.subscription_ = subscribtion }
 //                        SharedRosterUtils.setUsername(jid: jid, owner: owner, username: instance.displayName)
 //                        instance.ask_ = item.attributeStringValue(forName: "ask", withDefaultValue: "none")
                         if let ask = item.attributeStringValue(forName: "ask") {
-                            if ask == "subscribe" {
+                            if ask == "subscribe", instance.ask != .out {
                                 instance.ask = .out
                             }
                         } else {
-                            instance.ask = .none
+                            if instance.ask_ != RosterStorageItem.Ask.none.rawValue { instance.ask = .none }
                             if let notifyInstance = realm.object(ofType: UINotificationStorageItem.self, forPrimaryKey: UINotificationStorageItem.genPrimary(owner: jid, jid: owner)) {
                                 realm.delete(notifyInstance)
                             }
                         }
-                        if let approved = item.attributeStringValue(forName: "approved"),
-                           approved == "true" {
-                            instance.approved = true
-                        } else {
-                            instance.approved = false
+                        let approved = item.attributeStringValue(forName: "approved") == "true"
+                        if instance.approved != approved { instance.approved = approved }
+                        let groups = item.elements(forName: "group").compactMap(\.stringValue)
+                        if !instance.groups.elementsEqual(groups) {
+                            instance.groups.removeAll()
+                            instance.groups.append(objectsIn: groups)
                         }
-                        instance.groups.removeAll()
-                        let groups = item.elements(forName: "group").compactMap{ return $0.stringValue }
-                        instance.groups.removeAll()
-                        instance.groups.append(objectsIn: groups)
-                        RosterGroupProjectionSynchronizer.synchronize(
-                            instance,
-                            groups: groups,
-                            owner: owner,
-                            realm: realm
-                        )
-                        realm
-                            .objects(LastChatsStorageItem.self)
-                            .filter("owner == %@ AND jid == %@", self.owner, jid)
-                            .forEach {
-                            $0.rosterItem = instance
-                        }
+                        groupProjection().synchronize(instance, groups: groups)
+                        chatLinks[jid] = instance
                         let username = instance.displayName
                         let avatarUrl = instance.avatarUrl
                         CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
@@ -620,8 +716,7 @@ class RosterManager: AbstractXMPPManager {
                             instance.approved = false
                         }
 //                        instance.ask_ = item.attributeStringValue(forName: "ask", withDefaultValue: "none")
-                        instance.groups.removeAll()
-                        let groups = item.elements(forName: "group").compactMap{ return $0.stringValue }
+                        let groups = item.elements(forName: "group").compactMap(\.stringValue)
                         instance.groups.append(objectsIn: groups)
 //                        instance.associatedLastChat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(
 //                            jid: ,
@@ -630,13 +725,8 @@ class RosterManager: AbstractXMPPManager {
 //                        ))
                         realm.add(instance, update: .modified)
                         
-                        RosterGroupProjectionSynchronizer.synchronize(
-                            instance,
-                            groups: groups,
-                            owner: owner,
-                            realm: realm
-                        )
-                        if jid == XMPPJID(string: owner)?.domain {
+                        groupProjection().synchronize(instance, groups: groups)
+                        if jid == accountDomain {
                             let resourceInstance = ResourceStorageItem()
                             resourceInstance.jid = jid
                             resourceInstance.owner = owner
@@ -657,16 +747,21 @@ class RosterManager: AbstractXMPPManager {
                             displayName: item.attributeStringValue(forName: "name", withDefaultValue: ""),
                             commitTransaction: false
                         )
-                        realm
-                            .objects(LastChatsStorageItem.self)
-                            .filter("owner == %@ AND jid == %@", self.owner, jid)
-                            .forEach {
-                            $0.rosterItem = instance
-                        }
+                        chatLinks[jid] = instance
                         let username = instance.displayName
                         let avatarUrl = instance.avatarUrl
                         CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
                     }
+                }
+                projection?.finish()
+                if !chatLinks.isEmpty {
+                    realm.objects(LastChatsStorageItem.self)
+                        .filter("owner == %@ AND jid IN %@", owner, Array(chatLinks.keys))
+                        .forEach { chat in
+                            guard let contact = chatLinks[chat.jid],
+                                  chat.rosterItem?.primary != contact.primary else { return }
+                            chat.rosterItem = contact
+                        }
                 }
             }
             removedJids.forEach { jid in
@@ -689,7 +784,7 @@ class RosterManager: AbstractXMPPManager {
             var mutationSucceeded = rosterApplySucceeded
             var mutationError: String?
             if item.mutationMode == .acknowledged,
-               query.elements(forName: "item").isEmpty,
+               items.isEmpty,
                mutationSucceeded {
                 mutationSucceeded = applyLocalSetContact(
                     jid: item.value,
@@ -710,7 +805,8 @@ class RosterManager: AbstractXMPPManager {
 
         completeInitialRosterRequestIfNeeded(
             elementId,
-            reason: rosterApplySucceeded ? "resultApplied" : "storageFallback"
+            reason: rosterApplySucceeded ? "resultApplied" : "storageFallback",
+            successfulResult: rosterApplySucceeded && iq.iqType == .result ? iq : nil
         )
 
         return true
@@ -741,7 +837,9 @@ class RosterManager: AbstractXMPPManager {
                 return false
         }
         queryIds.remove(elementId)
-        completeInitialRosterRequestIfNeeded(elementId, reason: "emptyResult")
+        let isEmptyResult = iq.iqType == .result && iq.children?.contains { $0 is DDXMLElement } != true
+        completeInitialRosterRequestIfNeeded(elementId, reason: "emptyResult",
+                                             successfulResult: isEmptyResult ? iq : nil)
         if let item = takeMutationQueueItem(elementId: elementId) {
             let localApplySucceeded = item.mutationMode == .acknowledged
                 ? applyLocalSetContact(jid: item.value, nickname: item.nickname, groups: item.groups)
@@ -843,9 +941,17 @@ class RosterManager: AbstractXMPPManager {
         )
     }
 
-    private func completeInitialRosterRequestIfNeeded(_ elementId: String, reason: String) {
-        guard initialRosterRequestCoordinator.complete(id: elementId) else { return }
-        finishInitialRosterRequest(reason: reason)
+    private func completeInitialRosterRequestIfNeeded(
+        _ elementId: String,
+        reason: String,
+        successfulResult: XMPPIQ? = nil
+    ) {
+        let completion = initialRosterRequestCoordinator.completeWithOutcome(id: elementId)
+        guard completion != .unmatched else { return }
+        if let successfulResult, let account = AccountManager.shared.find(for: owner), account.roster === self {
+            account.syncManager.noteLegacyStartupRosterResponse(successfulResult)
+        }
+        if completion == .matched { finishInitialRosterRequest(reason: reason) }
     }
 
     private func initialRosterRequestDidTimeout(_ elementId: String) {

@@ -741,53 +741,38 @@ enum CanonicalGroupRegularShadowPolicy {
 
     static func activeGroupPrimaries(
         in realm: Realm,
-        owners: [String]
+        owners: [String],
+        restrictedToGroupJIDs: Set<String>? = nil
     ) -> Set<String> {
-        let normalizedOwners = Array(Set(owners.map(GroupStorageKey.bareJID)))
-            .filter { !$0.isEmpty }
-        guard !normalizedOwners.isEmpty else {
-            return []
+        let normalizedOwners = Array(Set(owners.map(GroupStorageKey.bareJID))).filter { !$0.isEmpty }
+        guard !normalizedOwners.isEmpty else { return [] }
+        var snapshots = realm.objects(GroupSnapshotStorageItem.self).filter("owner IN %@", normalizedOwners)
+        if let restrictedToGroupJIDs {
+            guard !restrictedToGroupJIDs.isEmpty else { return [] }
+            snapshots = snapshots.filter("groupJID IN %@", Array(restrictedToGroupJIDs.map(GroupStorageKey.bareJID)))
         }
-        let memberships = Dictionary(
-            uniqueKeysWithValues: realm
-                .objects(GroupSelfMembershipStorageItem.self)
-                .filter("owner IN %@", normalizedOwners)
-                .map { ($0.primary, $0.memberID) }
-        )
-        let membersByGroup = Dictionary(
-            grouping: realm
-                .objects(GroupMemberStorageItem.self)
-                .filter("owner IN %@", normalizedOwners),
-            by: \.groupPrimary
-        )
-
-        return Set(
-            realm.objects(GroupSnapshotStorageItem.self)
-                .filter("owner IN %@", normalizedOwners)
-                .compactMap { snapshot -> String? in
-                    guard snapshot.lifecycleStateRaw != GroupLifecycleState.inactive.rawValue else {
-                        return nil
-                    }
-                    let storedMembers = membersByGroup[snapshot.primary] ?? []
-                    let members = storedMembers.map {
-                        GroupMember(
-                            id: $0.memberID,
-                            jid: $0.jid,
-                            role: $0.roleRaw.flatMap(GroupMemberRole.init(rawValue:))
-                        )
-                    }
-                    guard let selfMemberID = CanonicalGroupSelfIdentity.resolve(
-                        existingMemberID: memberships[snapshot.primary] ?? nil,
-                        ownerJID: snapshot.owner,
-                        members: members
-                    ),
-                    let selfRole = members.first(where: { $0.id == selfMemberID })?.role,
-                    selfRole != .none else {
-                        return nil
-                    }
-                    return snapshot.primary
+        return Set(snapshots.compactMap { snapshot -> String? in
+            guard snapshot.lifecycleStateRaw != GroupLifecycleState.inactive.rawValue else { return nil }
+            let membership = realm.object(ofType: GroupSelfMembershipStorageItem.self, forPrimaryKey: snapshot.primary)
+            if let memberID = membership?.memberID, !memberID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let member = realm.object(ofType: GroupMemberStorageItem.self, forPrimaryKey:
+                GroupStorageKey.memberPrimary(owner: snapshot.owner, groupJID: snapshot.groupJID, memberID: memberID)) {
+                guard let role = member.roleRaw.flatMap(GroupMemberRole.init(rawValue:)), role != .none else { return nil }
+                return snapshot.primary
+            }
+            // Legacy/provisional self identities retain the exact previous
+            // resolver, but enumerate only this group's members when needed.
+            let members = realm.objects(GroupMemberStorageItem.self)
+                .filter("groupPrimary == %@", snapshot.primary).map {
+                    GroupMember(id: $0.memberID, jid: $0.jid,
+                                role: $0.roleRaw.flatMap(GroupMemberRole.init(rawValue:)))
                 }
-        )
+            let values = Array(members)
+            guard let selfID = CanonicalGroupSelfIdentity.resolve(
+                existingMemberID: membership?.memberID, ownerJID: snapshot.owner, members: values
+            ), let role = values.first(where: { $0.id == selfID })?.role, role != .none else { return nil }
+            return snapshot.primary
+        })
     }
 }
 

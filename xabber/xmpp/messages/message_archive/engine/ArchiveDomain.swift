@@ -57,6 +57,11 @@ struct ArchiveEngineDiagnosticEvent: Equatable, Sendable {
     /// Existing diagnostic domain/reason codes; no-progress is domain=5/reason=1.
     let failureDomainCode: Int
     let failureReasonCode: Int
+    /// Optional numeric QA metadata; raw conversation keys never leave memory.
+    var conversationCode: UInt64? = nil
+    var proofMessageCount: Int? = nil
+    var archiveStart: Int? = nil
+    var liveEdge: Int? = nil
 }
 
 typealias ArchiveEngineDiagnosticSink = @Sendable (ArchiveEngineDiagnosticEvent) -> Void
@@ -138,6 +143,16 @@ enum ArchiveEngineObservability {
             Int64(event.branch.rawValue), event.executionCode,
             Int64(event.locator.rawValue), Int64(clamping: event.resultCode),
             Int64(clamping: event.failureDomainCode), Int64(clamping: event.failureReasonCode))
+        #if DEBUG
+        if let conversationCode = event.conversationCode {
+            DeviceQADiagnostics.shared.recordArchive(conversationCode: conversationCode,
+                executionCode: event.executionCode, branch: event.branch.rawValue,
+                locator: event.locator.rawValue, result: event.resultCode,
+                failureDomain: event.failureDomainCode, failureReason: event.failureReasonCode,
+                proofMessageCount: event.proofMessageCount,
+                archiveStart: event.archiveStart, liveEdge: event.liveEdge)
+        }
+        #endif
     }
 
     static func event(

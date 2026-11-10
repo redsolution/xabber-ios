@@ -233,8 +233,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             details: [
                 "startTLS": hasStartTLS,
                 "bind": hasBind
-            ],
-            rawXML: features.prettyXMLString ?? features.xmlString
+            ]
         )
         if hasStartTLS {
             self.logConnectionDiagnostics(event: "tls_negotiation_required")
@@ -248,8 +247,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         guard sender === self.stream else { return }
         self.logConnectionDiagnostics(
             event: "authentication_failed",
-            details: ["streamError": self.streamErrorName(error)],
-            rawXML: error.prettyXMLString ?? error.xmlString
+            details: ["streamError": self.streamErrorName(error)]
         )
         authenticationCounterTracker.authenticationDidFail()
         let credentialsItem = CredentialsManager.shared.getItem(for: jid)
@@ -267,8 +265,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
     }
     
@@ -280,8 +277,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
         if self.mam.read(withIQ: iq) {
             return true
@@ -304,8 +300,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
@@ -442,8 +437,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
     }
 
@@ -454,7 +448,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "id": message.elementID ?? "none",
                 "type": message.type ?? "chat"
             ],
-            rawXML: message.prettyXMLString ?? message.xmlString,
             error: error
         )
     }
@@ -467,8 +460,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
     }
 
@@ -480,8 +472,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
     }
 
@@ -492,7 +483,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
     }
@@ -504,7 +494,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 "id": presence.elementID ?? "none",
                 "type": presence.type ?? "available"
             ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString,
             error: error
         )
     }

@@ -2623,6 +2623,8 @@ class ChatViewController: MessagesViewController {
     var archiveEnginePresentationDemandTask: Task<Void, Never>?
     var archiveEnginePresentationDemandConversation: ArchiveConversationKey?
     var archiveEnginePresentationDemandEngine: AccountArchiveEngine?
+    var archivePreparedOpenIntent: ArchiveWindowIntent?
+    var archivePreparedOpenRequest: ChatOpenMessageRequest?
     var archiveWindowState: ArchiveWindowState?
     var archiveWindowActivity: ArchiveWindowActivity = .idle
     var archiveWindowIntent: ArchiveWindowIntent?
@@ -2637,6 +2639,7 @@ class ChatViewController: MessagesViewController {
     var archiveWindowBoundaryLoadingTarget: ArchiveWindowLocator?
     var archiveWindowBoundaryPresentationAnchor: ChatArchiveBoundaryPresentationAnchor?
     var timelineBoundaryRequest: ChatTimelineBoundaryRequestContext?
+    var archiveTerminalBoundaryFailure: ArchiveBoundaryTerminalOutcome?
     var committedTimelineLocalPresentationToken:
         ChatCommittedTimelineLocalPresentationToken?
     var committedTimelineSensitiveRevealRemapPending = false
@@ -2650,6 +2653,7 @@ class ChatViewController: MessagesViewController {
     var archiveOpeningWaitExpired = false
     var archiveHistoryFailureFallbackRequestID: UUID?
     var archiveHistoryFailureFallbackIsVisible = false
+    var savedPositionCachePresentationContext: ChatSavedPositionCachePresentationContext?
     var archiveReferenceResolutionID: UUID?
     var archiveReferenceResolutionTask: Task<Void, Never>?
     var archiveWindowTargetOpenRequest: ChatOpenMessageRequest?
@@ -3174,6 +3178,60 @@ class ChatViewController: MessagesViewController {
         self.chatOpenPerformanceTraceLifecycle.currentContext
     }
 
+    #if DEBUG
+    private var chatOpenCachedContentDiagnosticContext: ChatOpenPerformanceTraceContext?
+    private var chatOpenFreshContentDiagnosticContext: ChatOpenPerformanceTraceContext?
+    #endif
+
+    /// Cache transaction receipts and verified history completion are separate
+    /// clocks. Actual first onscreen content requires video/display evidence.
+    /// This diagnostic observes existing authority; it never creates a scope.
+    internal func recordChatOpenVisibleContentIfNeeded(
+        context: ChatOpenPerformanceTraceContext?, allowsFreshReceipt: Bool = true
+    ) {
+        #if DEBUG
+        guard DeviceQADiagnostics.shared.isEnabled, let context,
+              self.chatOpenPerformanceTraceLifecycle.isCurrent(context),
+              !self.showSkeletonObserver.value,
+              self.datasource.contains(where: { !$0.isFakeMessage }) else { return }
+        let phase: DeviceQADiagnostics.ChatPhase
+        if self.archiveWindowCommittedCoverageGeneration != nil,
+           self.committedTimelineScope() != nil {
+            guard allowsFreshReceipt else { return }
+            guard self.chatOpenFreshContentDiagnosticContext != context else { return }
+            self.chatOpenFreshContentDiagnosticContext = context
+            phase = .content
+        } else if self.archiveHistoryFailureFallbackIsVisible {
+            guard self.chatOpenCachedContentDiagnosticContext != context else { return }
+            self.chatOpenCachedContentDiagnosticContext = context
+            phase = .cachedContent
+        } else {
+            return
+        }
+        DeviceQADiagnostics.shared.recordChat(phase,
+            conversation: self.archiveEngineConversationKey,
+            contextCode: context.traceID, purposeCode: Int(context.purposeCode))
+        #endif
+    }
+
+    internal func performCachedChatOpenPresentationTransaction(updates: () -> Void) {
+        #if DEBUG
+        guard DeviceQADiagnostics.shared.isEnabled else {
+            updates()
+            return
+        }
+        let context = self.chatOpenPerformanceTraceContext
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            self?.recordChatOpenVisibleContentIfNeeded(context: context, allowsFreshReceipt: false)
+        }
+        updates()
+        CATransaction.commit()
+        #else
+        updates()
+        #endif
+    }
+
     /// Route acceptance is the sole creator of an open-performance generation.
     @discardableResult
     internal func acceptChatOpenPerformanceTrace(
@@ -3207,6 +3265,13 @@ class ChatViewController: MessagesViewController {
             context: context,
             emitsOpenRequest: true
         )
+        #if DEBUG
+        DeviceQADiagnostics.shared.recordChatOpen(
+            conversation: self.archiveEngineConversationKey,
+            contextCode: context.traceID,
+            purposeCode: Int(context.purposeCode)
+        )
+        #endif
         self.chatOpenPerformanceTraceConversationKey = conversationKey
         self.chatOpenPerformanceTraceTargetFingerprint =
             semanticTargetFingerprint
@@ -3288,12 +3353,24 @@ class ChatViewController: MessagesViewController {
                 return
             }
             if receipt != .skeleton {
-                _ = self.chatOpenPerformanceTraceLifecycle
+                let recorded = self.chatOpenPerformanceTraceLifecycle
                     .recordPresentationReceipt(
                         receipt,
                         context: context,
                         schedulesStableFrame: false
                     )
+                #if DEBUG
+                if receipt == .content {
+                    self.recordChatOpenVisibleContentIfNeeded(context: context)
+                } else if recorded {
+                    DeviceQADiagnostics.shared.recordChat(
+                        .empty,
+                        conversation: self.archiveEngineConversationKey,
+                        contextCode: context.traceID,
+                        purposeCode: Int(context.purposeCode)
+                    )
+                }
+                #endif
             }
             guard self.chatOpenPerformanceTraceLifecycle
                 .hasRecordedPresentationReceipt(receipt, context: context) else {
@@ -3313,11 +3390,21 @@ class ChatViewController: MessagesViewController {
         updates()
         if receipt == .skeleton,
            self.hasCommittedChatOpenPerformanceReceipt(.skeleton) {
-            _ = self.chatOpenPerformanceTraceLifecycle.recordPresentationReceipt(
+            let recorded = self.chatOpenPerformanceTraceLifecycle.recordPresentationReceipt(
                 .skeleton,
                 context: context,
                 schedulesStableFrame: false
             )
+            #if DEBUG
+            if recorded {
+                DeviceQADiagnostics.shared.recordChat(
+                    .skeleton,
+                    conversation: self.archiveEngineConversationKey,
+                    contextCode: context.traceID,
+                    purposeCode: Int(context.purposeCode)
+                )
+            }
+            #endif
         }
         CATransaction.commit()
     }
@@ -3421,6 +3508,14 @@ class ChatViewController: MessagesViewController {
         ) else {
             return false
         }
+        #if DEBUG
+        DeviceQADiagnostics.shared.recordChat(
+            .stable,
+            conversation: self.archiveEngineConversationKey,
+            contextCode: context.traceID,
+            purposeCode: Int(context.purposeCode)
+        )
+        #endif
         if self.chatOpenPerformanceTraceLifecycle
             .hasCommittedTerminalPresentationReceipt(context: context),
            self.chatOpenStableTargetAcknowledgementGate.acknowledge(
@@ -8642,6 +8737,7 @@ class ChatViewController: MessagesViewController {
     /// test teardown may both reach it without reviving or double-finishing
     /// work. Cancelled navigation transitions must never enter this boundary.
     internal func performTerminalChatResourceTeardown() {
+        self.stopArchiveEnginePresentationSubscription()
         self.cancelMediaOpening()
         self.cancelActiveAudioRecordingForLifecycle()
         self.cancelChatOpenPerformanceTrace()
@@ -9101,6 +9197,7 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         self.isStackedNavigationPresentationPreparationCancelled = false
         self.isPreparingStackedNavigationPresentation = true
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = true
+        self.prepareArchiveEngineRequestBeforeLoadingViewIfNeeded()
         self.loadViewIfNeeded()
 
         if let targetBounds,
@@ -9217,6 +9314,9 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
     }
 
     func cancelStackedNavigationPresentationPreparation() {
+        if self.archivePreparedOpenIntent != nil {
+            self.detachArchiveEnginePresentationDemand()
+        }
         self.isStackedNavigationPresentationPreparationCancelled = true
         self.isPreparingStackedNavigationPresentation = false
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false

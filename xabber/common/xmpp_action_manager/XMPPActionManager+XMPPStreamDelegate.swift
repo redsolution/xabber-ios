@@ -110,8 +110,7 @@ extension XMPPActionManager: XMPPStreamDelegate {
             if !hasStandardSendCallback {
                 self.logConnectionDiagnostics(
                     event: "stanza_send",
-                    details: ["element": $0.name ?? "unknown"],
-                    rawXML: $0.prettyXMLString ?? $0.xmlString
+                    details: ["element": $0.name ?? "unknown"]
                 )
             }
             sender.send($0)
@@ -147,15 +146,13 @@ extension XMPPActionManager: XMPPStreamDelegate {
 
     func xmppStream(_ sender: XMPPStream, didNotAuthenticate error: DDXMLElement) {
         self.logConnectionDiagnostics(
-            event: "authentication_failed",
-            rawXML: error.prettyXMLString ?? error.xmlString
+            event: "authentication_failed"
         )
     }
 
     func xmppStream(_ sender: XMPPStream, didReceiveError error: DDXMLElement) {
         self.logConnectionDiagnostics(
-            event: "xmpp_stream_error",
-            rawXML: error.prettyXMLString ?? error.xmlString
+            event: "xmpp_stream_error"
         )
     }
 
@@ -167,8 +164,7 @@ extension XMPPActionManager: XMPPStreamDelegate {
             details: [
                 "startTLS": hasStartTLS,
                 "bind": hasBind
-            ],
-            rawXML: features.prettyXMLString ?? features.xmlString
+            ]
         )
     }
 
@@ -180,8 +176,7 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 "type": iq.type ?? "none",
                 "to": iq.to?.bare ?? "none",
                 "from": iq.from?.bare ?? "none"
-            ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString
+            ]
         )
     }
 
@@ -196,8 +191,7 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 "type": message.type ?? "chat",
                 "to": message.to?.bare ?? "none",
                 "from": message.from?.bare ?? "none"
-            ],
-            rawXML: message.prettyXMLString ?? message.xmlString
+            ]
         )
     }
 
@@ -209,8 +203,7 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 "type": presence.type ?? "available",
                 "to": presence.to?.bare ?? "none",
                 "from": presence.from?.bare ?? "none"
-            ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString
+            ]
         )
     }
 
@@ -221,7 +214,6 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 "id": iq.elementID ?? "none",
                 "type": iq.type ?? "none"
             ],
-            rawXML: iq.prettyXMLString ?? iq.xmlString,
             error: error
         )
     }
@@ -233,7 +225,6 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 "id": message.elementID ?? "none",
                 "type": message.type ?? "chat"
             ],
-            rawXML: message.prettyXMLString ?? message.xmlString,
             error: error
         )
     }
@@ -245,7 +236,6 @@ extension XMPPActionManager: XMPPStreamDelegate {
                 "id": presence.elementID ?? "none",
                 "type": presence.type ?? "available"
             ],
-            rawXML: presence.prettyXMLString ?? presence.xmlString,
             error: error
         )
     }
