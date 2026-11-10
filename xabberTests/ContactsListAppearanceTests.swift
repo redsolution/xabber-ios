@@ -721,6 +721,74 @@ final class ContactsListAppearanceTests: XCTestCase {
         }
     }
 
+    func testOpenContactsRefreshesVisiblePresenceWhenResourcesAreReplaced() async throws {
+        let owner = "presence-owner@example.test"
+        let jid = "presence-contact@example.test"
+        let realm = try WRealm.safe()
+        addEnabledAccount(owner: owner)
+        addRosterItem(owner: owner, jid: jid)
+
+        let roster = try XCTUnwrap(realm.object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        ))
+        let resource = ResourceStorageItem()
+        resource.owner = owner
+        resource.jid = jid
+        resource.resource = "desktop"
+        resource.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: resource.resource)
+        resource.status = .online
+        try realm.write { realm.add(resource) }
+
+        let controller = ContactsViewController()
+        let container = embedInTraitContainer(controller, horizontalSizeClass: .regular)
+        controller.view.frame = container.view.bounds
+        controller.unsubscribe()
+        defer { controller.unsubscribe() }
+        let indexPath = IndexPath(row: 0, section: 0)
+        func visibleContact() -> ContactsViewController.ContactCell? {
+            controller.view.layoutIfNeeded()
+            return controller.tableView.cellForRow(at: indexPath) as? ContactsViewController.ContactCell
+        }
+        let initialOnline = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            visibleContact()?.statusIndicator.color.isEqual(UIColor.clear) == false
+        }, object: nil)
+        await fulfillment(of: [initialOnline], timeout: 3)
+
+        // Wait for the first subscription refresh as well as viewDidLoad's
+        // initial mapping, so neither can accidentally publish the deletion.
+        let subscribedTitle = "Observed contact"
+        try realm.write { roster.username = subscribedTitle }
+        controller.subscribe()
+        let initialObservation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            visibleContact()?.titleLabel.text == subscribedTitle
+        }, object: nil)
+        await fulfillment(of: [initialObservation], timeout: 3)
+
+        try realm.write { realm.delete(resource) }
+
+        let offline = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            visibleContact()?.statusIndicator.color.isEqual(UIColor.clear) == true
+        }, object: nil)
+        await fulfillment(of: [offline], timeout: 3)
+        XCTAssertEqual(visibleContact()?.titleLabel.text, subscribedTitle)
+        XCTAssertEqual(controller.datasource.first?.first?.status, .offline)
+
+        let freshResource = ResourceStorageItem()
+        freshResource.owner = owner
+        freshResource.jid = jid
+        freshResource.resource = "mobile"
+        freshResource.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: freshResource.resource)
+        freshResource.status = .away
+        try realm.write { realm.add(freshResource) }
+
+        let freshPresence = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            visibleContact()?.statusIndicator.color.isEqual(UIColor.clear) == false
+                && controller.datasource.first?.first?.status == .away
+        }, object: nil)
+        await fulfillment(of: [freshPresence], timeout: 3)
+    }
+
     func testContactRowsUsePlainSystemBackgroundWithoutGlass() {
         let cell = ContactsViewController.ContactCell(
             style: .default,

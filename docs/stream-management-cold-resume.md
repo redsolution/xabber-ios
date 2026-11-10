@@ -6,6 +6,8 @@ On a cold launch, Chats and Unread show the skeleton from the first frame while 
 
 A checkpoint is written on controlled background transport closure, once the app has sent its available presence, startup is no longer blocked, the observed message/sync queues are settled, and the framework can prove the server acknowledged every outgoing stanza. It stores the resume ID, both counters, server timeout and real bound JID, scoped by account, configured route and a device-local credential epoch. It is single use once binding starts. Account removal, disable and intentional session termination clear it. Auxiliary and notification-extension streams do not participate.
 
+The client retains stored contact presence while the primary stream is connecting and after an accepted resume. A fresh authenticated session clears that account's stale presence resources before processing new presence. A network failure before the resume decision leaves the saved resources in place. Contacts and Recents read statuses from the stored resources.
+
 This version does not journal pending wire XML. An interrupted or busy suspension without a usable checkpoint can require a normal bind. Existing delivery receipts and archive catch-up remain responsible for business-level recovery.
 
 The CocoaPods dependency still uses the local checkout in `XABBER_DEPS_ROOT`. The required XMPPFramework revision is `2b4ecd8` (`codex/ios-sm-cold-resume`).

@@ -269,11 +269,7 @@ class PresenceManager: AbstractXMPPManager {
     
     fileprivate final func subscribe() {
         bag = DisposeBag()
-        
         checkTemporarySubscribtions()
-        RunLoop.main.perform {
-            self.resetResources(commitTransaction: true)
-        }
     }
 
     private func enqueuePresencePersistenceBatch(
@@ -959,30 +955,25 @@ class PresenceManager: AbstractXMPPManager {
     
     open func didResetState() {
         self.cancelPendingPresencePersistence(permanently: false)
-//        self.subscribe()
-//        RunLoop.main.perform {
-//            self.resetResources(commitTransaction: true)
-//        }
     }
     
-    func resetResources(for jid: String? = nil,commitTransaction: Bool) {
-        let resource = AccountManager.shared.find(for: owner)?.resource ?? ""
+    /// Called on the primary account queue once fresh authentication has completed.
+    func resetResourcesForNewSession(keepingCurrentResource resource: String) {
+        cancelPendingPresencePersistence(permanently: false)
+        guard let generation = activePresencePersistenceGeneration() else { return }
         do {
             let realm = try WRealm.safe()
-            var collection = realm.objects(ResourceStorageItem.self).filter("owner == %@ AND resource != %@ AND statusExt == %@", owner, resource, RosterItemEntity.contact.rawValue)
-            if let jid = jid {
-                collection = collection.filter("jid == %@", jid)
+            let staleResources = realm.objects(ResourceStorageItem.self).filter(
+                "owner == %@ AND statusExt == %@ AND (jid != %@ OR resource != %@)",
+                owner, RosterItemEntity.contact.rawValue, owner, resource
+            )
+            guard !staleResources.isEmpty else { return }
+            try realm.write {
+                guard isPresencePersistenceActive(generation: generation) else { return }
+                realm.delete(staleResources)
             }
-            if commitTransaction {
-                realm.writeAsync {
-                    realm.delete(collection)
-                }
-            } else {
-                realm.delete(collection)
-            }
-            
         } catch {
-            DDLogDebug("cant reset resources for \((jid == nil) ? "all contacts" : jid!) of \(self.owner)")
+            DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
         }
     }
     

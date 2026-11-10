@@ -343,6 +343,11 @@ extension Account: XMPPStreamDelegate {
         if !didResume {
             // Also retire the old record when the server skipped custom binding.
             PrimaryStreamManagementCheckpointStore.shared.invalidate(forOwner: jid)
+            // A new session will receive fresh presence. Drop the previous
+            // session's resources before its stanzas reach this account queue.
+            self.presences.resetResourcesForNewSession(
+                keepingCurrentResource: sender.myJID?.resource ?? self.resource
+            )
         }
         self.logConnectionDiagnostics(
             event: didResume ? "stream_management_resume_succeeded" : "stream_management_resume_not_used",
@@ -674,6 +679,7 @@ extension Account: XMPPStreamDelegate {
     }
     
     func xmppStream(_ sender: XMPPStream, didReceive presence: XMPPPresence) {
+        guard sender === self.xmppStream else { return }
         self.logConnectionDiagnostics(
             event: "stanza_receive_presence",
             details: [

@@ -772,6 +772,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             a.jid == b.jid &&
             a.title == b.title &&
             a.avatarUrl == b.avatarUrl &&
+            a.status == b.status &&
+            a.entity == b.entity &&
             a.groups.sorted().joined() == b.groups.sorted().joined()
         }
         
@@ -1764,11 +1766,17 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             let accountsCollection = realm.objects(AccountStorageItem.self).filter("enabled == true")
             let rosterCollection = realm.objects(RosterStorageItem.self)
             let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("isSystemGroup == false")
+            let contactResources = realm.objects(ResourceStorageItem.self)
+                .filter("statusExt == %@", RosterItemEntity.contact.rawValue)
             
             var invalidations: [Observable<Void>] = [
                 Observable.collection(from: accountsCollection).map { _ in () },
                 Observable.collection(from: rosterCollection).map { _ in () },
-                Observable.collection(from: groupsCollection).map { _ in () }
+                Observable.collection(from: groupsCollection).map { _ in () },
+                Observable.collection(
+                    from: contactResources,
+                    keyPaths: ["status_", "statusExt", "timestamp", "priority"]
+                ).map { _ in () }
             ]
             
             let groupStateChanges: PublishSubject<GroupRepositoryListState>? = isGroup

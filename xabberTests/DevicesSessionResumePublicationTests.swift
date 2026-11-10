@@ -88,11 +88,15 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         Realm.Configuration.defaultConfiguration = previousRealm
         try super.tearDownWithError()
     }
-    private func fixture(withReadinessCallbacks: Bool = false) throws -> Fixture {
+    private func fixture(
+        withReadinessCallbacks: Bool = false,
+        prepareRealm: (String) throws -> Void = { _ in }
+    ) throws -> Fixture {
         let owner = "devices-resume-\(UUID().uuidString.lowercased())@example.test"
         let row = AccountStorageItem(); row.jid = owner; row.isEncryptionEnabled = true
         row.deviceUuid = "current-device"
         try keeper.write { keeper.add(row) }
+        try prepareRealm(owner)
         let memory = Memory(), storage = try XabberOMEMO2Storage(owner: owner, persistence: memory)
         _ = try storage.prepare(deviceID: 42, preKeyCount: 2)
         let account = Account(jid: owner, queue: DispatchQueue(label: owner))
@@ -166,6 +170,121 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         // A queued Realm write may wait for a writer on the main run loop.
         wait(for: [drained], timeout: 5)
     }
+    private let contact = "cached-contact@example.test"
+
+    private func fixtureWithCachedContactPresence() throws -> Fixture {
+        try fixture { owner in
+            let roster = RosterStorageItem()
+            roster.owner = owner
+            roster.jid = contact
+            roster.primary = RosterStorageItem.genPrimary(jid: contact, owner: owner)
+            roster.subscribtion = .both
+            let mobile = makeResource(jid: contact, owner: owner, resource: "current", status: .away)
+            let desktop = makeResource(jid: contact, owner: owner, resource: "desktop", status: .chat)
+            mobile.timestamp = Date(timeIntervalSince1970: 1)
+            desktop.timestamp = Date(timeIntervalSince1970: 2)
+            try keeper.write {
+                keeper.add(roster)
+                keeper.add([mobile, desktop])
+            }
+        }
+    }
+
+    private func makeResource(
+        jid: String, owner: String, resource: String, status: ResourceStatus
+    ) -> ResourceStorageItem {
+        let item = ResourceStorageItem()
+        item.jid = jid
+        item.owner = owner
+        item.resource = resource
+        item.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: resource)
+        item.status = status
+        return item
+    }
+
+    private func contactResources(owner: String) -> [String: ResourceStatus] {
+        keeper.refresh()
+        let resources = keeper.objects(ResourceStorageItem.self).filter("owner == %@ AND jid == %@", owner, contact)
+        return Dictionary(uniqueKeysWithValues: resources.map { ($0.resource, $0.status) })
+    }
+
+    private func primaryContactStatus(owner: String) -> ResourceStatus? {
+        keeper.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: contact, owner: owner))?
+            .getPrimaryResource()?.status
+    }
+
+    private func drainStartupRealmWork() {
+        let scheduled = expectation(description: "scheduled main-run-loop startup work")
+        RunLoop.main.perform { scheduled.fulfill() }
+        wait(for: [scheduled], timeout: 2)
+        let deadline = Date().addingTimeInterval(2)
+        while keeper.isPerformingAsynchronousWriteOperations && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertFalse(keeper.isPerformingAsynchronousWriteOperations)
+    }
+
+    func testAccountStartupKeepsCachedContactPresenceWhileResumeOutcomeIsUnknown() throws {
+        let f = try fixtureWithCachedContactPresence()
+
+        drainStartupRealmWork()
+
+        XCTAssertEqual(contactResources(owner: f.owner), ["current": .away, "desktop": .chat])
+        XCTAssertEqual(primaryContactStatus(owner: f.owner), .chat)
+    }
+
+    func testAcceptedColdResumePreservesCachedContactPresence() throws {
+        let f = try fixtureWithCachedContactPresence()
+        let sm = AuthenticationSM(storage: f.account.smStorage, dispatchQueue: f.account.queue)
+        sm.usedCheckpoint = true
+        f.account.sm = sm
+
+        f.account.xmppStreamDidAuthenticate(f.wire)
+        drainStartupRealmWork()
+        waitForAccountQueue(f.account)
+
+        XCTAssertEqual(contactResources(owner: f.owner), ["current": .away, "desktop": .chat])
+        XCTAssertEqual(primaryContactStatus(owner: f.owner), .chat)
+    }
+
+    func testFreshSessionClearsOnlyItsStaleContactResourcesAndKeepsIncomingPresence() throws {
+        let f = try fixtureWithCachedContactPresence()
+        f.account.resource = try XCTUnwrap(f.wire.myJID?.resource)
+        let group = makeResource(jid: "group@example.test", owner: f.owner, resource: "group", status: .online)
+        group.entity = .groupchat
+        let ownResource = makeResource(jid: f.owner, owner: f.owner, resource: f.account.resource, status: .online)
+        let otherOwner = makeResource(jid: contact, owner: "other@example.test", resource: "desktop", status: .away)
+        try keeper.write { keeper.add([group, ownResource, otherOwner]) }
+        let sm = AuthenticationSM(storage: f.account.smStorage, dispatchQueue: f.account.queue)
+        sm.resumeAccepted = false
+        f.account.sm = sm
+
+        drainStartupRealmWork()
+        XCTAssertEqual(contactResources(owner: f.owner), ["current": .away, "desktop": .chat])
+
+        f.account.xmppStreamDidAuthenticate(f.wire)
+
+        XCTAssertTrue(contactResources(owner: f.owner).isEmpty, "A fresh session must clear the old contacts before new presence arrives")
+        XCTAssertNil(primaryContactStatus(owner: f.owner))
+        XCTAssertFalse(group.isInvalidated)
+        XCTAssertFalse(ownResource.isInvalidated)
+        XCTAssertEqual(contactResources(owner: otherOwner.owner), ["desktop": .away])
+
+        let persisted = expectation(description: "incoming presence reaches storage")
+        f.account.presences.presencePersistenceAttemptObserver = { persisted.fulfill() }
+        defer { f.account.presences.presencePersistenceAttemptObserver = nil }
+        let presence = try XCTUnwrap(XMPPPresence(xmlString: """
+        <presence from="\(contact)/current" to="\(f.owner)/current"><show>dnd</show></presence>
+        """))
+        f.account.xmppStream(f.wire, didReceive: presence)
+        wait(for: [persisted], timeout: 2)
+        waitForAccountQueue(f.account)
+        drainStartupRealmWork()
+
+        XCTAssertEqual(contactResources(owner: f.owner), ["current": .dnd])
+        XCTAssertEqual(primaryContactStatus(owner: f.owner), .dnd)
+    }
+
     func testActualSMResumeRepreparesManagedOMEMOAfterAccidentalReset() throws {
         let f = try fixture(); var handled = Set<String>()
         f.manager.beginOMEMO2Registration(f.wire)
