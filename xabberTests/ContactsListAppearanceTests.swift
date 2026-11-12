@@ -814,6 +814,95 @@ final class ContactsListAppearanceTests: XCTestCase {
         }
     }
 
+    func testContactsFirstLoadShowsCachedRowsForSelectedAccountAndCircle() throws {
+        let realm = try WRealm.safe()
+        defer { withExtendedLifetime(realm) {} }
+        let owner = "first-frame-contacts@example.com"
+        let otherOwner = "other-contacts@example.com"
+        let expected = "included@example.com"
+        addEnabledAccount(owner: owner)
+        addEnabledAccount(owner: otherOwner)
+        addRosterItem(owner: owner, jid: expected, groups: ["Friends"])
+        addRosterItem(owner: owner, jid: "other-circle@example.com", groups: ["Work"])
+        addRosterItem(owner: otherOwner, jid: "other-account@example.com", groups: ["Friends"])
+
+        let controller = ContactsViewController()
+        controller.filteredAccounts = [owner]
+        controller.filteredGroups = ["Friends"]
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.datasource.flatMap { $0 }.map(\.jid), [expected])
+        let table = controller.tableView
+        XCTAssertEqual((0..<table.numberOfSections).map { table.numberOfRows(inSection: $0) }, [1])
+        XCTAssertTrue(controller.emptyView.isHidden)
+    }
+
+    func testGroupsFirstLoadShowsMutualRosterRowsForSelectedCategory() throws {
+        let realm = try WRealm.safe()
+        let owner = "first-frame-groups@example.com"
+        let expected = "incognito@groups.example.com"
+        addEnabledAccount(owner: owner)
+        try addGroupRosterItem(owner: owner, jid: expected, entity: .incognitoChat, in: realm)
+        try addGroupRosterItem(owner: owner, jid: "public@groups.example.com", entity: .groupchat, in: realm)
+
+        let controller = ContactsViewController()
+        controller.isGroup = true
+        controller.category = "incognito"
+        controller.loadViewIfNeeded()
+
+        XCTAssertEqual(controller.category, "incognito")
+        XCTAssertEqual(groupRows(in: controller).map(\.jid), [expected])
+        let table = controller.tableView
+        XCTAssertEqual((0..<table.numberOfSections).map { table.numberOfRows(inSection: $0) }, [1, 1])
+        XCTAssertTrue(controller.emptyView.isHidden)
+        withExtendedLifetime(realm) {}
+    }
+
+    func testReopeningGroupsShowsTheNewCategoryBeforeAppearanceCompletes() async throws {
+        let realm = try WRealm.safe()
+        let owner = "reopen-groups@example.com"
+        let publicGroup = "public@groups.example.com"
+        let incognitoGroup = "incognito@groups.example.com"
+        addEnabledAccount(owner: owner)
+        try addGroupRosterItem(owner: owner, jid: publicGroup, entity: .groupchat, in: realm)
+        try addGroupRosterItem(owner: owner, jid: incognitoGroup, entity: .incognitoChat, in: realm)
+        let controller = ContactsViewController()
+        controller.category = "public"
+        let initialRows = await loadGroupsRows(in: controller)
+        XCTAssertEqual(initialRows.map(\.jid), [publicGroup])
+
+        controller.selectSpecialCategory("all")
+        controller.beginAppearanceTransition(true, animated: false)
+        defer {
+            controller.endAppearanceTransition()
+            controller.beginAppearanceTransition(false, animated: false)
+            controller.endAppearanceTransition()
+            controller.unsubscribe()
+        }
+
+        XCTAssertEqual(controller.category, "all")
+        XCTAssertEqual(groupRows(in: controller).map(\.jid).sorted(), [incognitoGroup, publicGroup])
+        XCTAssertTrue(controller.emptyView.isHidden)
+        withExtendedLifetime(realm) {}
+    }
+
+    func testFirstLoadShowsResolvedEmptyStateForEnabledAccount() throws {
+        let realm = try WRealm.safe()
+        defer { withExtendedLifetime(realm) {} }
+        addEnabledAccount(owner: "first-frame-empty@example.com")
+
+        for isGroup in [false, true] {
+            let controller = ContactsViewController()
+            controller.isGroup = isGroup
+            controller.loadViewIfNeeded()
+
+            XCTAssertTrue(controller.currentSnapshotIsResolved)
+            XCTAssertTrue(ContactsViewController.visibleDatasourceIsEmpty(controller.datasource))
+            XCTAssertFalse(controller.emptyView.isHidden)
+            XCTAssertEqual(controller.emptyView.accessibilityIdentifier, isGroup ? "groups_empty_view" : "contacts_empty_view")
+        }
+    }
+
     func testOpenContactsRefreshesVisiblePresenceWhenResourcesAreReplaced() async throws {
         let owner = "presence-owner@example.test"
         let jid = "presence-contact@example.test"
@@ -1500,6 +1589,12 @@ final class ContactsListAppearanceTests: XCTestCase {
     }
 
     func testContactsCompactBottomFilterReceivesHitWhenSearchHostIsCollapsed() {
+        let realm = try! WRealm.safe()
+        defer { withExtendedLifetime(realm) {} }
+        let owner = "owner@example.com"
+        addEnabledAccount(owner: owner)
+        addRosterItem(owner: owner, jid: "contact@example.com")
+
         let controller = ContactsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
