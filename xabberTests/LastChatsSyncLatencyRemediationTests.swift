@@ -430,6 +430,76 @@ final class LastChatsSyncLatencyRemediationTests: XCTestCase {
         XCTAssertEqual(recreated.datasource.first?.message, fixture.message.body)
     }
 
+    func testColdStartupDeadlineShowsCachedRecentsWhileSyncIsStillPending() throws {
+        let fixture = try makeFixture()
+        AccountManager.shared.connectingUsers.accept([fixture.owner])
+        var scheduledDeadlines: [() -> Void] = []
+        let presentation = LastChatsStartupPresentation(scheduleDeadline: { deadline in
+            scheduledDeadlines.append(deadline)
+        })
+        presentation.begin(owners: [fixture.owner])
+        presentation.begin(owners: [fixture.owner])
+        let controller = LastChatsViewController()
+        controller.startupRecentsPresentation = presentation
+        controller.startupRecentsSyncPendingForTesting = { $0 == fixture.owner }
+        controllers.append(controller)
+
+        controller.loadViewIfNeeded()
+        controller.subscribe()
+        pumpMainRunLoop(for: 0.5)
+
+        XCTAssertTrue(controller.datasourceShowsSkeleton)
+        XCTAssertFalse(controller.datasource.contains { $0.jid == fixture.chat.jid })
+        XCTAssertEqual(scheduledDeadlines.count, 1)
+
+        try XCTUnwrap(scheduledDeadlines.first)()
+        pumpMainRunLoop(for: 0.5)
+
+        XCTAssertEqual(AccountManager.shared.connectingUsers.value, [fixture.owner])
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+        XCTAssertEqual(controller.datasource.first?.message, fixture.message.body)
+
+        presentation.begin(owners: [fixture.owner])
+        NotificationCenter.default.post(
+            name: ClientSynchronizationManager.startupRecentsReadinessDidChange,
+            object: fixture.owner
+        )
+        pumpMainRunLoop(for: 0.3)
+
+        XCTAssertEqual(scheduledDeadlines.count, 1)
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+        XCTAssertEqual(controller.datasource.first?.message, fixture.message.body)
+    }
+
+    func testColdStartupDeadlineRemovesSkeletonWithoutPublishingAnActiveSyncBatch() throws {
+        let fixture = try makeFixture()
+        var scheduledDeadline: (() -> Void)?
+        let presentation = LastChatsStartupPresentation(scheduleDeadline: { scheduledDeadline = $0 })
+        presentation.begin(owners: [fixture.owner])
+        let controller = LastChatsViewController()
+        controller.startupRecentsPresentation = presentation
+        controller.startupRecentsSyncPendingForTesting = { $0 == fixture.owner }
+        controllers.append(controller)
+        let activePage = ClientSyncPageBatch.shared.begin(owner: fixture.owner, generation: 1)
+        defer { ClientSyncPageBatch.shared.cancel(activePage) }
+
+        controller.loadViewIfNeeded()
+        controller.subscribe()
+        XCTAssertTrue(controller.datasourceShowsSkeleton)
+
+        try XCTUnwrap(scheduledDeadline)()
+        pumpMainRunLoop(for: 0.3)
+
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+        XCTAssertFalse(controller.datasource.contains { $0.jid == fixture.chat.jid })
+
+        ClientSyncPageBatch.shared.commit(activePage, changedConversationPrimaries: [])
+        pumpMainRunLoop(for: 0.5)
+
+        XCTAssertFalse(controller.datasourceShowsSkeleton)
+        XCTAssertEqual(controller.datasource.first?.message, fixture.message.body)
+    }
+
     func testNoActiveStartupSyncShowsCachedRecentsWhenTheListSubscribes() throws {
         let fixture = try makeFixture()
         AccountManager.shared.connectingUsers.accept([fixture.owner])

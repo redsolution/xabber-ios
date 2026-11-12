@@ -33,18 +33,32 @@ import AVFoundation
 /// Shared by Recents controllers for the first foreground of this process.
 /// App and scene lifecycle callbacks update it on the main thread.
 final class LastChatsStartupPresentation {
-    static let shared = LastChatsStartupPresentation()
+    private static let iPadSkeletonDeadline: TimeInterval = 5
+    static let shared = LastChatsStartupPresentation(scheduleDeadline: { action in
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + iPadSkeletonDeadline, execute: action)
+    })
 
     private let startupOwners = BehaviorRelay<Set<String>>(value: [])
+    private let scheduleDeadline: ((@escaping () -> Void) -> Void)?
     private var hasBegun = false
     private(set) var hasEnded = false
     var owners: Set<String> { startupOwners.value }
     var ownersDidChange: Observable<Set<String>> { startupOwners.skip(1) }
 
+    init(scheduleDeadline: ((@escaping () -> Void) -> Void)? = nil) {
+        self.scheduleDeadline = scheduleDeadline
+    }
+
     func begin(owners: Set<String>) {
         guard !hasBegun, !hasEnded else { return }
         hasBegun = true
         startupOwners.accept(owners)
+        if !owners.isEmpty {
+            scheduleDeadline? { [weak self] in
+                self?.end()
+            }
+        }
     }
 
     func end() {
@@ -3718,8 +3732,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             return AccountManager.shared.find(for: owner)?.syncManager.isStartupRecentsReady() == false
         }
         if startupRecentsPresentation.hasEnded, datasourceShowsSkeleton {
-            // A backgrounded launch may still be waiting on a page. Remove its
-            // placeholders before foregrounding, even if list mapping is blocked.
+            // Remove placeholders even if an active sync page still owns list publication.
             installStartupRecentsRows([], showsSkeleton: false)
         }
         guard showSkeleton.value != shouldShowSkeleton else { return false }
