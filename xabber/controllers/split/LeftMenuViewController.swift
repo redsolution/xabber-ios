@@ -520,6 +520,8 @@ class LeftMenuViewController: UIViewController {
     private enum ExperimentLayout {
         static let menuSurfaceHorizontalInset: CGFloat = 16
         static let tableHeaderHeight: CGFloat = 112
+        // Match the first section of the neighboring inset-grouped Chats table.
+        static let iPadTableHeaderHeight: CGFloat = 35
         static let titleSafeAreaTopOffset: CGFloat = 8
         static let titleHorizontalInset: CGFloat = 16
     }
@@ -1139,10 +1141,6 @@ class LeftMenuViewController: UIViewController {
         menuSurfaceView.isHidden = !usesSharedBackdrop || usesIPadLayout
         iPadMenuTitleLabel.isHidden = !usesIPadLayout
         tableView.alignsMainSurfaceWithFirstRow = usesIPadLayout
-        let headerPadding = usesIPadLayout ? UITableView.automaticDimension : 0
-        if tableView.sectionHeaderTopPadding != headerPadding {
-            tableView.sectionHeaderTopPadding = headerPadding
-        }
         let appTitle = CommonConfigManager.shared.config.app_name.capitalized
         guard usesSharedBackdrop else {
             if title != appTitle { title = appTitle }
@@ -1153,7 +1151,7 @@ class LeftMenuViewController: UIViewController {
         if title != nil { title = nil }
         if navigationItem.title != nil { navigationItem.title = nil }
         if usesIPadLayout {
-            if tableView.tableHeaderView != nil { tableView.tableHeaderView = nil }
+            configureExperimentTableHeaderIfNeeded(height: ExperimentLayout.iPadTableHeaderHeight)
             layoutIPadMenuTitle(appTitle)
             return
         }
@@ -1163,7 +1161,7 @@ class LeftMenuViewController: UIViewController {
             view.addSubview(menuSurfaceView)
             menuSurfaceView.contentView.addSubview(menuTitleLabel)
         }
-        configureExperimentTableHeaderIfNeeded()
+        configureExperimentTableHeaderIfNeeded(height: ExperimentLayout.tableHeaderHeight)
         layoutMenuSurfaceIfNeeded()
         menuTitleLabel.frame = menuSurfaceView.bounds.insetBy(dx: ExperimentLayout.titleHorizontalInset, dy: 0)
     }
@@ -1185,12 +1183,12 @@ class LeftMenuViewController: UIViewController {
         )
     }
 
-    private func configureExperimentTableHeaderIfNeeded() {
+    private func configureExperimentTableHeaderIfNeeded(height: CGFloat) {
         let headerFrame = CGRect(
             x: 0,
             y: 0,
             width: max(tableView.bounds.width, view.bounds.width),
-            height: ExperimentLayout.tableHeaderHeight
+            height: height
         )
 
         if let headerView = tableView.tableHeaderView {
@@ -1665,8 +1663,7 @@ extension LeftMenuViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        guard section == 0 else { return 12 }
-        return self.tableView.alignsMainSurfaceWithFirstRow ? UITableView.automaticDimension : .leastNormalMagnitude
+        return section == 0 ? .leastNormalMagnitude : 12
     }
     
     private func selectionPresentationAction(for splitVC: UISplitViewController) -> LeftMenuSelectionPresentationPolicy.PresentationAction {

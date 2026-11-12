@@ -307,6 +307,10 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         }
 
         let menu = makeMenu()
+        // UIKit can resolve section metrics while the split's primary column
+        // is detached. Revealing it must replace those metrics automatically.
+        menu.tableView.reloadData()
+        _ = menu.tableView.rectForRow(at: IndexPath(row: 0, section: 0))
         let chats = ChatsTableFixtureViewController()
         let rows = ChatsTableFixtureDataSource()
         chats.loadViewIfNeeded()
@@ -314,7 +318,7 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         let split = UISplitViewController(style: .tripleColumn)
         MainSplitLayout.apply(to: split)
         split.preferredSplitBehavior = .tile
-        split.preferredDisplayMode = .twoBesideSecondary
+        split.preferredDisplayMode = .oneBesideSecondary
         split.setViewController(menu, for: .primary)
         split.setViewController(UINavigationController(rootViewController: chats), for: .supplementary)
         split.setViewController(UIViewController(), for: .secondary)
@@ -331,8 +335,6 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(chats.view.window) === window)
         chats.configureBars()
         window.layoutIfNeeded()
-        menu.viewDidLayoutSubviews()
-        menu.tableView.reloadData()
         menu.tableView.layoutIfNeeded()
         chats.tableView.layoutIfNeeded()
 
