@@ -252,7 +252,6 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         view.cellLayoutMarginsFollowReadableWidth = true
         view.rowHeight = UITableView.automaticDimension
         view.estimatedRowHeight = 68
-        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -262,6 +261,9 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
         return view
     }()
+
+    private let chatBackgroundBackdropView = ChatBackgroundBackdropView()
+    private let navigationTitleView = ListNavigationTitleView(accessibilityIdentifier: "calls.navigation.title")
     
     private let localSearchResultsUpdater = EmptySearchResultsUpdater()
     internal var callsSearchQuery: String? = nil
@@ -294,30 +296,8 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         return button
     }()
     
-    internal let customTitleLabel: UILabel = {
-        let label = UILabel()
-        
-        label.textAlignment = .center
-        label.font = UIFont.systemFont(ofSize: 18, weight: UIFont.Weight.medium)
-        
-        return label
-    }()
-
     internal var callsSearchPlaceholderText: String {
         "Search calls".localizeString(id: "calls_search_hint", arguments: [])
-    }
-    
-    internal func updateTitle() {
-        if AccountManager.shared.connectingUsers.value.isNotEmpty {
-            customTitleLabel.text = "Connecting...".localizeString(id: "application_state_connecting", arguments: [])
-            customTitleLabel.sizeToFit()
-            customTitleLabel.layoutIfNeeded()
-            return
-        }
-        customTitleLabel.text = "Calls".localizeString(id: "chat_calls_title", arguments: [])
-        
-        customTitleLabel.sizeToFit()
-        customTitleLabel.layoutIfNeeded()
     }
     
     internal func load() {
@@ -418,23 +398,11 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                             withDuration: 0.1,
                             isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
                         ) {
-                            self.customTitleLabel.textColor = AccountColorManager.shared.topColor()
                             self.addButton.tintColor = AccountColorManager.shared.topColor()
                         }
                     }
                 }).disposed(by: bag)
             
-            AccountManager
-                .shared
-                .connectingUsers
-                .asObservable()
-                .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
-                .subscribe(onNext: { (results) in
-                    DispatchQueue.main.async {
-                        self.updateTitle()
-                    }
-                })
-                .disposed(by: bag)
             filter
                 .asObservable()
                 .distinctUntilChanged()
@@ -547,19 +515,6 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         vc.jid = self.topAccountJid
         showModal(vc, parent: self)
     }
-    
-//    private final func configureNavbar() {
-//        addButton.target = self
-//        addButton.action = #selector(onAddButtonPress)
-//        
-//        navigationItem.setRightBarButton(addButton,
-//                                         animated: true)
-//        let leftButton = UIBarButtonItem(customView: accountNavButton)
-//        accountNavButton.addTarget(self, action: #selector(onAccountNavButtonPress), for: .touchUpInside)
-//        navigationItem.setLeftBarButton(leftButton, animated: true)
-//        customTitleLabel.textColor = AccountColorManager.shared.topColor()
-//        self.navigationItem.titleView = customTitleLabel
-//    }
     
     internal let bottomBar: BottomBarView = {
         let view = BottomBarView(frame: .zero)
@@ -708,6 +663,10 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     internal func configureBars(animated: Bool = false, updateNavigationItems: Bool = true) {
         self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
+        navigationTitleView.titleLabel.text = title
+        if navigationItem.titleView !== navigationTitleView {
+            navigationItem.titleView = navigationTitleView
+        }
         securityButton.target = self
         securityButton.action = #selector(onRegisterYubikey)
         switch CommonConfigManager.shared.interfaceType {
@@ -864,7 +823,12 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        configureCallsBackground()
         updateTableInsetsForBottomSearch()
+    }
+
+    private func configureCallsBackground() {
+        chatBackgroundBackdropView.applyListBackground(to: tableView, emptyView: emptyView, in: self)
     }
     
     internal func configure() {
@@ -872,13 +836,11 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        configureCallsBackground()
         tableView.dataSource = self
         tableView.delegate = self
         
         emptyView.isHidden = true
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         view.addSubview(emptyView)
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
@@ -886,7 +848,6 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 //        navigationController?
 //            .navigationBar
 //            .titleTextAttributes = [NSAttributedString.Key.foregroundColor: AccountColorManager.shared.topColor()]
-        title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
         
         do {
             let realm = try WRealm.safe()
@@ -921,7 +882,20 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
-        self.title = "Calls".localizeString(id: "chat_calls_title", arguments: [])
+    }
+
+    override func observer() {
+        super.observer()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadCallsBackground),
+            name: .chatBackgroundChanged,
+            object: nil
+        )
+    }
+
+    @objc private func reloadCallsBackground() {
+        chatBackgroundBackdropView.reloadFromSettings()
     }
     
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
@@ -938,10 +912,8 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        configureCallsBackground()
         NavigationLargeTitlePolicy.apply(to: self)
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         subscribe()
         let updateNavigationItems = !isSearchHostNavigationTransitionActive
         configureBars(animated: false, updateNavigationItems: updateNavigationItems)

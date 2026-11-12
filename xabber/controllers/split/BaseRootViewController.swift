@@ -391,6 +391,20 @@ final class ChatBackgroundBackdropView: UIView {
         render(document: document)
     }
 
+    func applyListBackground(to tableView: UITableView, emptyView: UIView, in controller: UIViewController) {
+        tableView.backgroundColor = .clear
+        tableView.isOpaque = false
+        emptyView.backgroundColor = .clear
+        emptyView.isOpaque = false
+
+        if ContinuousSplitBackgroundExperiment.mode(for: controller) == .sharedBackdrop {
+            if tableView.backgroundView != nil { tableView.backgroundView = nil }
+        } else if tableView.backgroundView !== self {
+            reloadFromSettings()
+            tableView.backgroundView = self
+        }
+    }
+
     /// Renders an explicit appearance document for settings previews while
     /// keeping the production chat background renderer as the single source
     /// of truth for gradients, tiled assets, cloud images, blur and motion.

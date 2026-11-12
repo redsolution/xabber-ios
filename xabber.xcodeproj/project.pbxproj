@@ -27,7 +27,7 @@
 		DA071E8167BF410BA8B4C951 /* LastChatsSkeletonReplacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */; };
 		E399C7099F5E42DCA86BA2AB /* LeftMenuGlassTableViewCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */; };
 		54BE13FBBA5346108D8180B3 /* LeftMenuGlassPremiumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */; };
-		C677ACEA89C14223BEEB54CF /* LastChatsNavigationTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */; };
+		C677ACEA89C14223BEEB54CF /* ListNavigationTitleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C7449023F140CF928AB12A /* ListNavigationTitleView.swift */; };
 		75A54EA9E9214504838A4E61 /* LastChatsNavigationTitleBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE7A5D9E6DA74AEA9A8FEC36 /* LastChatsNavigationTitleBackdropTests.swift */; };
 		A32810280000000000000002 /* InitialSyncTrafficOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */; };
 		08C7AA12149646198E8BEEFB /* ArchiveLoadingLiveDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */; };
@@ -1300,7 +1300,7 @@
 		325517C20B964DFA91E2023E /* LastChatsSkeletonReplacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSkeletonReplacementTests.swift; sourceTree = "<group>"; };
 		4C5F7824B0974A358CA267FB /* LeftMenuGlassTableViewCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassTableViewCell.swift; sourceTree = "<group>"; };
 		D43CA500EEE54DD2A179BA63 /* LeftMenuGlassPremiumTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeftMenuGlassPremiumTests.swift; sourceTree = "<group>"; };
-		11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationTitleView.swift; sourceTree = "<group>"; };
+		11C7449023F140CF928AB12A /* ListNavigationTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListNavigationTitleView.swift; sourceTree = "<group>"; };
 		EE7A5D9E6DA74AEA9A8FEC36 /* LastChatsNavigationTitleBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsNavigationTitleBackdropTests.swift; sourceTree = "<group>"; };
 		A32810280000000000000001 /* InitialSyncTrafficOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InitialSyncTrafficOrderingTests.swift; sourceTree = "<group>"; };
 		E919CCE9AA8F4AABA7B8534F /* ArchiveLoadingLiveDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveLoadingLiveDeviceTests.swift; sourceTree = "<group>"; };
@@ -3162,7 +3162,6 @@
 			isa = PBXGroup;
 			children = (
 				665F923122CF189E0019D301 /* LastChatsViewController.swift */,
-				11C7449023F140CF928AB12A /* LastChatsNavigationTitleView.swift */,
 				6689734D23140F1800FF5D74 /* LastChatsViewController+SearchResultsDelegate.swift */,
 				66F6A65F22D5C554007B7A29 /* LastChatsViewController+EmptyView.swift */,
 				6697DDE022D31C3200C5FB27 /* LastChatsViewController+UITableViewDatasource.swift */,
@@ -4981,6 +4980,7 @@
 		66BCD4A0214655D1008AA315 /* bars */ = {
 			isa = PBXGroup;
 			children = (
+				11C7449023F140CF928AB12A /* ListNavigationTitleView.swift */,
 				66FA15DE2BD7C4F8009AAC55 /* bottom_bar */,
 					66AD011522D714E900823398 /* tab_bar */,
 					6644E27B213D0FBA001726DD /* NavBarController.swift */,
@@ -6265,7 +6265,7 @@
 				1AAD59FF27AAAFC2006D0BA9 /* VoiceMediaCollectionCell.swift in Sources */,
 				66A08B5D282BD3CB0027F78F /* SignatureManager.swift in Sources */,
 				665F923222CF189E0019D301 /* LastChatsViewController.swift in Sources */,
-				C677ACEA89C14223BEEB54CF /* LastChatsNavigationTitleView.swift in Sources */,
+				C677ACEA89C14223BEEB54CF /* ListNavigationTitleView.swift in Sources */,
 				66EAF7FA2407EB8000207AD3 /* UIEdgeInsets+Init.swift in Sources */,
 				6643F31B21C2650E00333229 /* InsetLabel.swift in Sources */,
 				66F9071A2260B76400F64A37 /* APNSManager+Network.swift in Sources */,

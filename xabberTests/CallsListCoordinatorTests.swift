@@ -511,25 +511,54 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertNil(controller.tableView.backgroundView)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
+        XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
+        XCTAssertFalse(controller.emptyView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
     }
 
-    func testCallsListTableUsesStockBackgroundInCompactSplitWidth() {
+    func testCallsListTableKeepsChatWallpaperInCompactSplitWidth() throws {
         let controller = LastCallsViewController()
         let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        controller.viewDidLayoutSubviews()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
-        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-        XCTAssertTrue(controller.tableView.isOpaque)
-        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
-        XCTAssertTrue(controller.view.isOpaque)
+        XCTAssertTrue(controller.tableView.backgroundView === backdrop)
+        XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper)
+        XCTAssertEqual(controller.tableView.backgroundColor, .clear)
+        XCTAssertFalse(controller.tableView.isOpaque)
+        XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
+        XCTAssertFalse(controller.emptyView.isOpaque)
+    }
+
+    func testCallsWallpaperNotificationRefreshesExistingBackdropInTabs() throws {
+        CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.tabs.rawValue
+        let controller = LastCallsViewController()
+        controller.loadViewIfNeeded()
+        let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        var preview = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let previewColor = try XCTUnwrap(AppearanceColor(hex: "#123456"))
+        preview.profile.wallpaper = .gradient(stops: [previewColor], pattern: nil, intensity: 0)
+        backdrop.configure(document: preview)
+        XCTAssertEqual(backdrop.representedWallpaper, preview.profile.wallpaper)
+
+        NotificationCenter.default.post(name: .chatBackgroundChanged, object: nil)
+
+        XCTAssertTrue(controller.tableView.backgroundView === backdrop)
+        XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper)
+    }
+
+    private var activeWallpaper: AppearanceWallpaper {
+        AppearanceSettingsStore()?.load().profile.wallpaper
+            ?? AppearanceProfile.default(accent: .systemBlue).wallpaper
     }
 
     func testCallsConfigureSearchBarInstallsBottomSearchWithoutMutatingAppearance() {
@@ -564,17 +593,53 @@ final class CallsVisualStyleTests: XCTestCase {
         XCTAssertTrue(searchBar.searchTextField.layer.backgroundColor === textFieldLayerBackground)
     }
 
-    func testCallsConfigureBarsReusesNavigationItemsWhenStateIsUnchanged() {
+    func testCallsConfigureBarsKeepsLocalizedGlassTitleAndNativeNavigationItems() throws {
+        CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.tabs.rawValue
         let controller = LastCallsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
 
         controller.configureBars(animated: false)
-        let leftItem = controller.navigationItem.leftBarButtonItem
-        let rightItem = controller.navigationItem.rightBarButtonItem
+        let title = try XCTUnwrap(controller.navigationItem.titleView)
+        let surface = try XCTUnwrap(title.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        let label = try XCTUnwrap(surface.contentView.subviews.compactMap { $0 as? UILabel }.first)
+        let expectedTitle = "Calls".localizeString(id: "chat_calls_title", arguments: [])
+        XCTAssertEqual(controller.title, expectedTitle)
+        XCTAssertEqual(label.text, expectedTitle)
+        XCTAssertEqual(label.textAlignment, .center)
+        XCTAssertTrue(label.isAccessibilityElement)
+        XCTAssertTrue(label.accessibilityTraits.contains(.header))
+        XCTAssertFalse(title.isUserInteractionEnabled)
+        XCTAssertFalse(surface.isUserInteractionEnabled)
+
+        navigationController.view.frame = container.view.bounds
+        navigationController.view.layoutIfNeeded()
+        navigationController.navigationBar.layoutIfNeeded()
+        title.setNeedsLayout()
+        title.layoutIfNeeded()
+        XCTAssertGreaterThan(title.bounds.width, 0)
+        XCTAssertEqual(title.bounds.height, 44, accuracy: 0.5)
+        XCTAssertEqual(surface.bounds.size, title.bounds.size)
+        XCTAssertEqual(title.intrinsicContentSize.height, 44)
+        if #available(iOS 26.0, *) {
+            let glass = try XCTUnwrap(surface.effect as? UIGlassEffect)
+            XCTAssertNil(glass.tintColor)
+            XCTAssertFalse(glass.isInteractive)
+            XCTAssertEqual(surface.cornerConfiguration, .capsule())
+        } else {
+            XCTAssertTrue(surface.effect is UIBlurEffect)
+            XCTAssertEqual(surface.layer.cornerRadius, 22, accuracy: 0.5)
+        }
+
+        let leftItems = try XCTUnwrap(controller.navigationItem.leftBarButtonItems)
+        let rightItems = try XCTUnwrap(controller.navigationItem.rightBarButtonItems)
 
         controller.configureBars(animated: false)
 
-        XCTAssertTrue(controller.navigationItem.leftBarButtonItem === leftItem)
-        XCTAssertTrue(controller.navigationItem.rightBarButtonItem === rightItem)
+        XCTAssertTrue(controller.navigationItem.titleView === title)
+        XCTAssertTrue(title.subviews.compactMap { $0 as? UIVisualEffectView }.first === surface)
+        XCTAssertEqual(controller.navigationItem.leftBarButtonItems?.map(ObjectIdentifier.init), leftItems.map(ObjectIdentifier.init))
+        XCTAssertEqual(controller.navigationItem.rightBarButtonItems?.map(ObjectIdentifier.init), rightItems.map(ObjectIdentifier.init))
         XCTAssertNil(controller.navigationItem.searchController)
     }
 

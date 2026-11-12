@@ -196,7 +196,7 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
 
-        let referenceTitle = LastChatsNavigationTitleView()
+        let referenceTitle = ListNavigationTitleView(accessibilityIdentifier: "last_chats.navigation.title")
         referenceTitle.titleLabel.text = "Chats"
         let windowWidth = window.bounds.width
         let widths: [CGFloat] = UIDevice.current.userInterfaceIdiom == .pad

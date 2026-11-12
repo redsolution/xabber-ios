@@ -3306,7 +3306,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
     }
     
-    internal let navigationTitleView = LastChatsNavigationTitleView(frame: .zero)
+    internal let navigationTitleView = ListNavigationTitleView(accessibilityIdentifier: "last_chats.navigation.title")
 
     internal func updateTitle(_ value: Filter) {
         guard !self.isNavigationTransitionActive else {
@@ -6150,17 +6150,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     private func configureChatBackground() {
-        tableView.backgroundColor = .clear
-        tableView.isOpaque = false
-        emptyView.backgroundColor = .clear
-        emptyView.isOpaque = false
-
-        if ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop {
-            tableView.backgroundView = nil
-        } else if tableView.backgroundView !== chatBackgroundBackdropView {
-            chatBackgroundBackdropView.reloadFromSettings()
-            tableView.backgroundView = chatBackgroundBackdropView
-        }
+        chatBackgroundBackdropView.applyListBackground(to: tableView, emptyView: emptyView, in: self)
     }
 
     var isPrimaryShow: Bool = false

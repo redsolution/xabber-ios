@@ -1,7 +1,7 @@
 import UIKit
 
 /// Fills the title space that UIKit leaves between the navigation actions.
-final class LastChatsNavigationTitleView: UIView {
+final class ListNavigationTitleView: UIView {
     let titleLabel: UILabel = {
         let label = UILabel()
         label.font = .preferredFont(forTextStyle: .headline)
@@ -24,10 +24,10 @@ final class LastChatsNavigationTitleView: UIView {
         return view
     }()
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(accessibilityIdentifier: String) {
+        super.init(frame: .zero)
         isUserInteractionEnabled = false
-        accessibilityIdentifier = "last_chats.navigation.title"
+        self.accessibilityIdentifier = accessibilityIdentifier
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(surfaceView)
