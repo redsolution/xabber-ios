@@ -124,13 +124,13 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         }
     }
 
-    func testOrdinaryRowsShareOneNativeGlassBackdropAndKeepTheirOwnBackgroundsTransparent() throws {
+    func testOrdinaryRowsShareOneOpaqueChatListBackdropAndKeepTheirOwnBackgroundsTransparent() throws {
         let controller = makeMenu()
         controller.tableView.reloadData()
         controller.view.layoutIfNeeded()
         controller.tableView.layoutIfNeeded()
         controller.viewDidLayoutSubviews()
-        let groupSurfaces = descendants(of: controller.tableView).compactMap { $0 as? UIVisualEffectView }
+        let groupSurfaces = descendants(of: controller.tableView)
             .filter { $0.accessibilityIdentifier == "left_menu_main_section_surface" }
         let groupSurface = try XCTUnwrap(groupSurfaces.first)
         let mainRows = controller.datasource[0]
@@ -149,13 +149,17 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         XCTAssertLessThanOrEqual(groupFrame.minY, firstFrame.minY + 4.5)
         XCTAssertGreaterThanOrEqual(groupFrame.maxY, lastFrame.maxY - 4.5)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
-        if #available(iOS 26.0, *) {
-            let glass = try XCTUnwrap(groupSurface.effect as? UIGlassEffect)
-            XCTAssertFalse(glass.isInteractive)
-            XCTAssertNil(glass.tintColor)
-        } else {
-            XCTAssertTrue(groupSurface.effect is UIBlurEffect)
+        let chatCell = UITableViewCell()
+        chatCell.applyPlainGroupedSystemBackground()
+        let chatBackground = try XCTUnwrap(chatCell.backgroundColor)
+        let menuBackground = try XCTUnwrap(groupSurface.backgroundColor)
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let traits = UITraitCollection(userInterfaceStyle: style)
+            let resolvedMenuBackground = menuBackground.resolvedColor(with: traits)
+            XCTAssertEqual(resolvedMenuBackground, chatBackground.resolvedColor(with: traits))
+            XCTAssertEqual(resolvedMenuBackground.cgColor.alpha, 1)
         }
+        XCTAssertTrue(effectSurfaces(in: groupSurface).isEmpty)
         for (row, item) in mainRows.enumerated() {
             let cell = try XCTUnwrap(controller.tableView.cellForRow(at: IndexPath(row: row, section: 0)))
             let title = try XCTUnwrap(labels(in: cell).first { $0.text == item.title })
@@ -338,7 +342,7 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         menu.tableView.layoutIfNeeded()
         chats.tableView.layoutIfNeeded()
 
-        let surface = try XCTUnwrap(descendants(of: menu.tableView).compactMap { $0 as? UIVisualEffectView }.first {
+        let surface = try XCTUnwrap(descendants(of: menu.tableView).first {
             $0.accessibilityIdentifier == "left_menu_main_section_surface"
         })
         let firstChat = try XCTUnwrap(chats.tableView.cellForRow(at: IndexPath(row: 0, section: 0)))

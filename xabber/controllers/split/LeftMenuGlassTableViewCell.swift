@@ -17,7 +17,7 @@ enum LeftMenuPremiumContent {
     }
 }
 
-/// Sidebar rows use the shared glass plate or a system grouped Premium background.
+/// Sidebar rows use the shared section background or a system grouped Premium background.
 final class LeftMenuGlassTableViewCell: UITableViewCell {
     static let cellName = "LeftMenuGlassTableViewCell"
     static let premiumCellName = "LeftMenuPremiumTableViewCell"
@@ -200,7 +200,7 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
     }
 }
 
-/// One shared glass plate follows the ordinary sidebar section in scroll coordinates.
+/// One shared background follows the ordinary sidebar section in scroll coordinates.
 final class LeftMenuTableView: UITableView {
     var alignsMainSurfaceWithFirstRow = false {
         didSet {
@@ -208,12 +208,12 @@ final class LeftMenuTableView: UITableView {
         }
     }
 
-    private let mainSectionSurface: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: nil)
-        XabberGlassStyle.applySurface(
-            to: view, role: .leftMenuSurface, cornerStyle: .fixed(16), interactive: false
-        )
-        view.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
+    private let mainSectionSurface: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemBackground
+        view.layer.cornerRadius = 16
+        view.layer.cornerCurve = .continuous
+        view.clipsToBounds = true
         view.accessibilityIdentifier = "left_menu_main_section_surface"
         view.isAccessibilityElement = false
         view.isUserInteractionEnabled = false
