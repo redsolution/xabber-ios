@@ -50,15 +50,10 @@ final class LastChatsNavigationTitleView: UIView {
     }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.layoutFittingExpandedSize.width, height: NativeGlassBarStyle.minimumHeight)
+        NativeGlassBarStyle.navigationTitleIntrinsicSize
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        CGSize(
-            width: size.width > 0 ? size.width : intrinsicContentSize.width,
-            height: size.height > 0
-                ? min(size.height, NativeGlassBarStyle.minimumHeight)
-                : NativeGlassBarStyle.minimumHeight
-        )
+        NativeGlassBarStyle.navigationTitleSizeThatFits(size)
     }
 }

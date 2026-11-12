@@ -842,97 +842,30 @@ final class ChatNavigationBarStateTests: XCTestCase {
     @objc
     private func legacyBackAction() {}
 
-    func testNarrowChatTitleUsesStableFixedWidthConstraintWithoutChurn() throws {
-        let rootViewController = UIViewController()
-        let chat = ChatViewController()
-        let navigationController = UINavigationController(rootViewController: rootViewController)
-        navigationController.pushViewController(chat, animated: false)
-        navigationController.view.frame = CGRect(x: 0, y: 0, width: 240, height: 844)
-        chat.loadViewIfNeeded()
-        chat.configureNavbar()
-        navigationController.view.layoutIfNeeded()
-        navigationController.navigationBar.layoutIfNeeded()
-
-        let widthConstraint = try XCTUnwrap(
-            chat.titleButton.constraints.first(where: {
-                $0.firstItem === chat.titleButton && $0.firstAttribute == .width
-            })
-        )
-        let isPad = UIDevice.current.userInterfaceIdiom == .pad
-        let sideReserve: CGFloat = isPad ? 120 : 88
-        let availableWidth = max(0, navigationController.navigationBar.bounds.width - sideReserve * 2)
-        let expectedWidth = isPad ? min(availableWidth, 360) : availableWidth
-        XCTAssertEqual(widthConstraint.relation, .equal)
-        XCTAssertEqual(widthConstraint.constant, expectedWidth, accuracy: 0.5)
-        let initialConstraintIdentity = ObjectIdentifier(widthConstraint)
-        let initialConstant = widthConstraint.constant
-
-        chat.viewDidLayoutSubviews()
-        chat.viewDidLayoutSubviews()
-
-        let finalWidthConstraint = try XCTUnwrap(
-            chat.titleButton.constraints.first(where: {
-                $0.firstItem === chat.titleButton && $0.firstAttribute == .width
-            })
-        )
-        XCTAssertEqual(ObjectIdentifier(finalWidthConstraint), initialConstraintIdentity)
-        XCTAssertEqual(finalWidthConstraint.constant, initialConstant, accuracy: 0.001)
-    }
-
-    func testRegularWidthChatTitleFillsSafeCenterWithFixedWidth() throws {
-        let rootViewController = UIViewController()
-        let chat = ChatViewController()
-        let navigationController = UINavigationController(rootViewController: rootViewController)
-        navigationController.pushViewController(chat, animated: false)
-        navigationController.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-        chat.loadViewIfNeeded()
-        chat.configureNavbar()
-        navigationController.view.layoutIfNeeded()
-        navigationController.navigationBar.layoutIfNeeded()
-        chat.viewDidLayoutSubviews()
-
-        let widthConstraint = try XCTUnwrap(
-            chat.titleButton.constraints.first(where: {
-                $0.firstItem === chat.titleButton && $0.firstAttribute == .width
-            })
-        )
-        let isPad = UIDevice.current.userInterfaceIdiom == .pad
-        let sideReserve: CGFloat = isPad ? 120 : 88
-        let availableWidth = max(0, navigationController.navigationBar.bounds.width - sideReserve * 2)
-        let expectedSafeCenterWidth = isPad ? min(availableWidth, 360) : availableWidth
-
-        XCTAssertEqual(widthConstraint.relation, .equal)
-        XCTAssertEqual(widthConstraint.constant, expectedSafeCenterWidth, accuracy: 0.5)
-        XCTAssertGreaterThan(
-            widthConstraint.constant,
-            140,
-            "a regular-width chat title should not keep the legacy fixed cap when navbar space is free"
-        )
-    }
-
-    func testChatTitleKeepsLastFixedWidthWhenNavigationGeometryIsUnavailable() throws {
+    func testTitlePreparedBeforePushAppearsWithTheSameAvatarAndNativeBack() throws {
         let chat = ChatViewController()
         chat.loadViewIfNeeded()
-        chat.configureNavbar()
-
-        let widthConstraint = try XCTUnwrap(
-            chat.titleButton.constraints.first(where: {
-                $0.firstItem === chat.titleButton && $0.firstAttribute == .width
-            })
-        )
-        let establishedWidth = widthConstraint.constant
-        XCTAssertEqual(widthConstraint.relation, .equal)
-
         chat.view.frame = .zero
-        chat.viewDidLayoutSubviews()
+        chat.configureNavbar()
+        let preparedTitle = try XCTUnwrap(chat.navigationItem.titleView)
+        let preparedAvatar = try XCTUnwrap(chat.navigationItem.rightBarButtonItem)
 
-        XCTAssertEqual(
-            widthConstraint.constant,
-            establishedWidth,
-            accuracy: 0.001,
-            "a transient zero-width layout must not collapse the last safe title width"
-        )
-        XCTAssertGreaterThan(establishedWidth, 0)
+        let root = UIViewController()
+        root.navigationItem.title = "Chats"
+        root.navigationItem.backButtonDisplayMode = .minimal
+        let navigationController = UINavigationController(rootViewController: root)
+        let window = TraitWindow(horizontalSizeClass: .compact)
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        retainedTraitWindows.append(window)
+        navigationController.pushViewController(chat, animated: false)
+        chat.configureNavbar()
+        settleNavigationLifecycle(navigationController)
+
+        XCTAssertTrue(chat.navigationItem.titleView === preparedTitle)
+        XCTAssertTrue(chat.navigationItem.rightBarButtonItem === preparedAvatar)
+        XCTAssertTrue(navigationController.navigationBar.backItem === root.navigationItem)
+        XCTAssertTrue(isEffectivelyVisible(preparedTitle, in: navigationController.navigationBar))
     }
 
     func testCancelledInteractivePopKeepsChatChromeAndHiddenLastChatsFrozen() throws {

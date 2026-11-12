@@ -45,6 +45,19 @@ enum XabberGlassStyle {
     static let leftMenuFallbackSurfaceBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.28)
     static let splitCellNormalBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.24)
 
+    @MainActor
+    static var navigationTitleIntrinsicSize: CGSize {
+        CGSize(width: UIView.layoutFittingExpandedSize.width, height: minimumHeight)
+    }
+
+    @MainActor
+    static func navigationTitleSizeThatFits(_ size: CGSize) -> CGSize {
+        CGSize(
+            width: size.width > 0 ? size.width : navigationTitleIntrinsicSize.width,
+            height: size.height > 0 ? min(size.height, minimumHeight) : minimumHeight
+        )
+    }
+
     private static let detachedIconButtonGlassViewTag = 26051801
     private static var iconButtonCachedImageKey: UInt8 = 0
 

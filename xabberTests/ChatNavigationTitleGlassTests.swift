@@ -37,10 +37,7 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
         XCTAssertEqual(surface.contentView.backgroundColor, .clear)
         XCTAssertEqual(surface.layer.borderWidth, 0)
         XCTAssertEqual(surface.layer.shadowOpacity, 0)
-        let height = try XCTUnwrap(chat.titleButton.constraints.first {
-            $0.firstItem === chat.titleButton && $0.firstAttribute == .height
-        })
-        XCTAssertEqual(height.constant, 44)
+        XCTAssertEqual(chat.titleButton.intrinsicContentSize.height, 44)
 
         if #available(iOS 26.0, *) {
             let glass = try XCTUnwrap(surface.effect as? UIGlassEffect)
@@ -57,10 +54,6 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
         let chat = makeChat()
         chat.configureNavbar()
         let surface = try titleSurface(in: chat)
-        let titleWidth = try XCTUnwrap(chat.titleButton.constraints.first {
-            $0.firstItem === chat.titleButton && $0.firstAttribute == .width
-        })
-        titleWidth.isActive = false
         chat.titleLabel.attributedText = NSAttributedString(
             string: "A long conversation title that needs to truncate in a narrow navigation bar",
             attributes: [.font: UIFont.systemFont(ofSize: 17, weight: .semibold)]
@@ -87,45 +80,6 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
             XCTAssertGreaterThan(chat.titleLabel.bounds.width, 0)
             XCTAssertGreaterThan(chat.statusLabel.bounds.width, 0)
         }
-    }
-
-    func testGlassTitleKeepsFixedSafeWidthForShortAndLongText() throws {
-        let chat = makeChat()
-        chat.configureNavbar()
-        _ = try titleSurface(in: chat)
-        let host = UIView(frame: CGRect(x: 0, y: 0, width: chat.view.bounds.width, height: 44))
-        host.addSubview(chat.titleButton)
-        NSLayoutConstraint.activate([
-            chat.titleButton.centerXAnchor.constraint(equalTo: host.centerXAnchor),
-            chat.titleButton.centerYAnchor.constraint(equalTo: host.centerYAnchor)
-        ])
-        let widthConstraint = try XCTUnwrap(chat.titleButton.constraints.first {
-            $0.firstItem === chat.titleButton && $0.firstAttribute == .width
-        })
-        let expectedWidth = expectedTitleWidth(forNavigationBarWidth: host.bounds.width)
-        var renderedWidths: [CGFloat] = []
-
-        for title in ["Alex", "Research planning and project coordination with a very long conversation title"] {
-            chat.titleLabel.attributedText = NSAttributedString(
-                string: title,
-                attributes: [.font: UIFont.systemFont(ofSize: 17, weight: .semibold)]
-            )
-            chat.statusLabel.text = "Online"
-            chat.statusLabel.isHidden = false
-            host.setNeedsLayout()
-            host.layoutIfNeeded()
-
-            XCTAssertEqual(widthConstraint.relation, .equal)
-            XCTAssertEqual(widthConstraint.constant, expectedWidth, accuracy: 0.5)
-            XCTAssertEqual(chat.titleButton.frame.height, 44, accuracy: 0.5)
-            XCTAssertEqual(chat.titleButton.frame.width, expectedWidth, accuracy: 0.5)
-            XCTAssertEqual(chat.titleButton.frame.midX, host.bounds.midX, accuracy: 0.5)
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                XCTAssertLessThanOrEqual(chat.titleButton.frame.width, 360)
-            }
-            renderedWidths.append(chat.titleButton.frame.width)
-        }
-        XCTAssertEqual(renderedWidths[0], renderedWidths[1], accuracy: 0.5)
     }
 
     func testRepeatedNavbarConfigurationKeepsSingleSurfaceConstraintsAndInfoAction() throws {
@@ -200,7 +154,7 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
         XCTAssertTrue(try titleSurface(in: chat) === surface)
     }
 
-    func testHostedNavigationTitleFitsNativeBarAndCapturesWholeWindow() throws {
+    func testHostedNavigationTitleMatchesRecentChatsSlotAcrossWidths() throws {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = try XCTUnwrap(
             scenes.first { $0.activationState == .foregroundActive } ?? scenes.first,
@@ -215,7 +169,11 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
         let chat = makeChat()
         let navigationController = UINavigationController(rootViewController: root)
         navigationController.pushViewController(chat, animated: false)
-        window.rootViewController = navigationController
+        let host = UIViewController()
+        host.addChild(navigationController)
+        host.view.addSubview(navigationController.view)
+        navigationController.didMove(toParent: host)
+        window.rootViewController = host
         defer {
             window.isHidden = true
             window.rootViewController = nil
@@ -229,64 +187,64 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
         chat.view.insertSubview(backdrop, at: 0)
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
-        navigationController.view.layoutIfNeeded()
-        chat.configureNavbar()
-        var renderedTitleWidths: [CGFloat] = []
-
-        for (kind, title) in [
-            ("short", "Alex"),
-            ("long", "Research planning and project coordination with a very long conversation title")
-        ] {
-            chat.titleLabel.attributedText = NSAttributedString(
-                string: title,
-                attributes: [.font: UIFont.systemFont(ofSize: 17, weight: .semibold)]
-            )
-            chat.statusLabel.text = "Online"
-            chat.statusLabel.isHidden = false
-            chat.titleButton.invalidateIntrinsicContentSize()
-            navigationController.navigationBar.setNeedsLayout()
-            window.layoutIfNeeded()
+        let bar = navigationController.navigationBar
+        func layoutBar() {
+            navigationController.view.setNeedsLayout()
             navigationController.view.layoutIfNeeded()
-            navigationController.navigationBar.layoutIfNeeded()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-
-            let bar = navigationController.navigationBar
-            let titleFrame = chat.titleButton.convert(chat.titleButton.bounds, to: bar)
-            XCTAssertTrue(chat.titleButton.window === window)
-            XCTAssertTrue(bar.backItem === root.navigationItem)
-            XCTAssertNotNil(chat.navigationItem.rightBarButtonItem)
-            XCTAssertGreaterThan(titleFrame.width, 24, kind)
-            XCTAssertEqual(titleFrame.height, 44, accuracy: 0.5, kind)
-            XCTAssertEqual(titleFrame.width, expectedTitleWidth(forNavigationBarWidth: bar.bounds.width), accuracy: 0.5, kind)
-            XCTAssertEqual(titleFrame.midX, bar.bounds.midX, accuracy: 0.5, kind)
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                XCTAssertLessThanOrEqual(titleFrame.width, 360, kind)
-            }
-            renderedTitleWidths.append(titleFrame.width)
-            XCTAssertGreaterThanOrEqual(titleFrame.minX, 44, kind)
-            XCTAssertLessThanOrEqual(titleFrame.maxX, bar.bounds.maxX - 44, kind)
-            XCTAssertGreaterThanOrEqual(titleFrame.minY, bar.bounds.minY - 0.5, kind)
-            XCTAssertLessThanOrEqual(titleFrame.maxY, bar.bounds.maxY + 0.5, kind)
-            if let avatar = chat.navigationItem.rightBarButtonItem?.customView,
-               avatar.window === window {
-                let avatarFrame = avatar.convert(avatar.bounds, to: bar)
-                XCTAssertLessThanOrEqual(titleFrame.maxX + 4, avatarFrame.minX, kind)
-            }
-            let surface = try titleSurface(in: chat)
-            XCTAssertEqual(surface.bounds.size, chat.titleButton.bounds.size)
-
-            var didDrawWholeWindow = false
-            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-                didDrawWholeWindow = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-            }
-            XCTAssertTrue(didDrawWholeWindow, "capture the whole native-glass hierarchy")
-            let attachment = XCTAttachment(image: image)
-            let device = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
-            attachment.name = "chat-navbar-title-glass-\(device)-\(kind)-fixture"
-            attachment.lifetime = .keepAlways
-            add(attachment)
+            bar.setNeedsLayout()
+            bar.layoutIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         }
-        XCTAssertEqual(renderedTitleWidths[0], renderedTitleWidths[1], accuracy: 0.5)
+
+        let referenceTitle = LastChatsNavigationTitleView()
+        referenceTitle.titleLabel.text = "Chats"
+        let windowWidth = window.bounds.width
+        let widths: [CGFloat] = UIDevice.current.userInterfaceIdiom == .pad
+            ? [windowWidth, 393, 700, windowWidth]
+            : [windowWidth, 320, windowWidth]
+        for width in widths {
+            navigationController.view.frame = CGRect(x: 0, y: 0, width: width, height: window.bounds.height)
+            layoutBar()
+            chat.configureNavbar()
+            XCTAssertEqual(bar.bounds.width, width, accuracy: 0.5)
+            XCTAssertTrue(bar.backItem === root.navigationItem)
+            let avatar = try XCTUnwrap(chat.navigationItem.rightBarButtonItem?.customView)
+
+            // Compare the title views with the very same native Back and avatar items.
+            chat.navigationItem.titleView = referenceTitle
+            layoutBar()
+            let referenceFrame = referenceTitle.convert(referenceTitle.bounds, to: bar)
+            XCTAssertTrue(referenceTitle.window === window)
+            XCTAssertGreaterThan(referenceFrame.width, 24)
+
+            chat.navigationItem.titleView = chat.titleButton
+            for title in ["Alex", "Research planning and project coordination with a very long conversation title"] {
+                chat.titleLabel.text = title
+                chat.statusLabel.text = "Online"
+                chat.statusLabel.isHidden = false
+                layoutBar()
+
+                let frame = chat.titleButton.convert(chat.titleButton.bounds, to: bar)
+                XCTAssertTrue(chat.titleButton.window === window)
+                XCTAssertEqual(frame.minX, referenceFrame.minX, accuracy: 0.5, "width \(width), \(title)")
+                XCTAssertEqual(frame.maxX, referenceFrame.maxX, accuracy: 0.5, "width \(width), \(title)")
+                XCTAssertEqual(frame.height, 44, accuracy: 0.5)
+                XCTAssertEqual(try titleSurface(in: chat).bounds.size, chat.titleButton.bounds.size)
+                XCTAssertTrue(avatar.window === window)
+                let avatarFrame = avatar.convert(avatar.bounds, to: bar)
+                XCTAssertLessThanOrEqual(frame.maxX, avatarFrame.minX)
+            }
+        }
+
+        var didDrawWholeWindow = false
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            didDrawWholeWindow = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        XCTAssertTrue(didDrawWholeWindow)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "chat-navbar-title-matches-recent-chats"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func makeChat(
@@ -306,13 +264,6 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
 
     private func constraintIdentities(in views: UIView...) -> Set<ObjectIdentifier> {
         Set(views.flatMap(\.constraints).map(ObjectIdentifier.init))
-    }
-
-    private func expectedTitleWidth(forNavigationBarWidth width: CGFloat) -> CGFloat {
-        let isPad = UIDevice.current.userInterfaceIdiom == .pad
-        let sideReserve: CGFloat = isPad ? 120 : 88
-        let availableWidth = max(0, width - sideReserve * 2)
-        return isPad ? min(availableWidth, 360) : availableWidth
     }
 
     private final class TitleOnlyChatViewController: ChatViewController {

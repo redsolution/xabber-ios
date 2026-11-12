@@ -31,6 +31,16 @@ import CocoaLumberjack
 import AVFoundation
 import XMPPFramework.XMPPJID
 
+private final class ChatNavigationTitleButton: UIButton {
+    override var intrinsicContentSize: CGSize {
+        NativeGlassBarStyle.navigationTitleIntrinsicSize
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        NativeGlassBarStyle.navigationTitleSizeThatFits(size)
+    }
+}
+
 /// In-memory UI-intent identity. Exact anchors that share the same MAM
 /// transport target (`latest`) must still own different open generations.
 /// This value is never emitted, exported, or persisted.
@@ -2794,8 +2804,6 @@ class ChatViewController: MessagesViewController {
     internal var navigationAvatarItem: UIBarButtonItem? = nil
     internal var savedMessagesSearchNavigationItem: UIBarButtonItem? = nil
     private var splitChatCloseNavigationItem: UIBarButtonItem?
-    private var navigationTitleWidthConstraint: NSLayoutConstraint? = nil
-    private var navigationTitleHeightConstraint: NSLayoutConstraint? = nil
 
 // Pin message bar
     internal var groupProjectionObserver: ChatGroupProjectionObserver? = nil
@@ -4105,10 +4113,12 @@ class ChatViewController: MessagesViewController {
     }()
 
     var titleButton: UIButton = {
-        let button = UIButton(frame: .zero)
+        let button = ChatNavigationTitleButton(frame: .zero)
 
         button.backgroundColor = .clear
         button.layer.cornerRadius = 0
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         if #available(iOS 15.0, *) {
             var configuration = UIButton.Configuration.plain()
             configuration.contentInsets = .zero
@@ -5484,7 +5494,6 @@ class ChatViewController: MessagesViewController {
         commitPendingWidthTransitionLayoutRemapIfReady()
         recordWidthTransitionLayoutFinalizationObservationIfNeeded()
         synchronizeReadVisibleGeometryEpoch()
-        updateNavbarTitleWidth()
         updateFloatingControlsFrames(animated: false, ensureComposerLayout: false)
         updateInitialMessageOverlayFrame()
         updateFloatingBubblesVisibility(animated: false)
@@ -6343,7 +6352,6 @@ class ChatViewController: MessagesViewController {
             titleLabel.attributedText = title
         }
         initStatus()
-        updateNavbarTitleWidth()
     }
 
     private func currentExpandedSplitChatContext() -> (
@@ -6463,16 +6471,6 @@ class ChatViewController: MessagesViewController {
             navigationTitleEffectView.effect = glass
         }
 
-        if navigationTitleWidthConstraint == nil {
-            titleButton.translatesAutoresizingMaskIntoConstraints = false
-            let widthConstraint = titleButton.widthAnchor.constraint(equalToConstant: 140)
-            widthConstraint.priority = UILayoutPriority(999)
-            let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize)
-            NSLayoutConstraint.activate([widthConstraint, heightConstraint])
-            navigationTitleWidthConstraint = widthConstraint
-            navigationTitleHeightConstraint = heightConstraint
-        }
-
         titleStack.isUserInteractionEnabled = false
         titleStack.alignment = .fill
         titleLabel.textAlignment = .center
@@ -6554,35 +6552,6 @@ class ChatViewController: MessagesViewController {
             side: .left,
             animated: false
         )
-    }
-
-    private func updateNavbarTitleWidth() {
-        guard navigationItem.titleView === titleButton,
-              let navigationTitleWidthConstraint else { return }
-        let measuredNavigationBarWidth = navigationController?.navigationBar.bounds.width ?? 0
-        let measuredViewWidth = viewIfLoaded?.bounds.width ?? 0
-        let navBarWidth: CGFloat
-        if measuredNavigationBarWidth > 0.5 {
-            navBarWidth = measuredNavigationBarWidth
-        } else if measuredViewWidth > 0.5 {
-            navBarWidth = measuredViewWidth
-        } else {
-            // `configureNavbar()` intentionally runs before the push so the
-            // first navigation frame already contains title and avatar.
-            // Keep the installed 140-point width until UIKit supplies geometry;
-            // writing zero here collapses the title for the whole transition.
-            return
-        }
-        let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
-        let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
-        let sideReserve = max(leftReserved, rightReserved)
-        let availableWidth = max(0, navBarWidth - sideReserve * 2)
-        let targetWidth = UIDevice.current.userInterfaceIdiom == .pad
-            ? min(availableWidth, 360)
-            : availableWidth
-        if abs(navigationTitleWidthConstraint.constant - targetWidth) > 0.5 {
-            navigationTitleWidthConstraint.constant = targetWidth
-        }
     }
 
     internal func setupFloatingGlassBubbles() {
