@@ -202,6 +202,12 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
 
 /// One shared glass plate follows the ordinary sidebar section in scroll coordinates.
 final class LeftMenuTableView: UITableView {
+    var alignsMainSurfaceWithFirstRow = false {
+        didSet {
+            if oldValue != alignsMainSurfaceWithFirstRow { setNeedsLayout() }
+        }
+    }
+
     private let mainSectionSurface: UIVisualEffectView = {
         let view = UIVisualEffectView(effect: nil)
         XabberGlassStyle.applySurface(
@@ -233,11 +239,12 @@ final class LeftMenuTableView: UITableView {
         let last = rectForRow(at: IndexPath(row: numberOfRows(inSection: 0) - 1, section: 0))
         let rowFrame = visibleCells.first { indexPath(for: $0)?.section == 0 }
             .map { $0.contentView.convert($0.contentView.bounds, to: self) } ?? first
+        let top = first.minY + (alignsMainSurfaceWithFirstRow ? 0 : 4)
         let frame = CGRect(
             x: rowFrame.minX,
-            y: first.minY + 4,
+            y: top,
             width: rowFrame.width,
-            height: max(0, last.maxY - first.minY - 8)
+            height: max(0, last.maxY - top - 4)
         )
         if mainSectionSurface.frame != frame { mainSectionSurface.frame = frame }
         mainSectionSurface.isHidden = false

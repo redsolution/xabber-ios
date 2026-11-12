@@ -237,7 +237,7 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         XCTAssertFalse(controller.tableView.isOpaque)
     }
 
-    func testWindowAttachmentAndCompactTransitionSwitchCommonBackdropAndGlassHeader() throws {
+    func testWindowAttachmentUsesPlatformHeaderAndCompactRestoresLocalBackdrop() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("Window trait overrides require iOS 17") }
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         defer { CommonConfigManager.shared.config.interface_type = previousInterfaceType }
@@ -259,13 +259,25 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         controller.viewDidLayoutSubviews()
         let appName = CommonConfigManager.shared.config.app_name.capitalized
         let headerLabel = try XCTUnwrap(labels(in: controller.view).first { $0.text == appName })
-        let headerSurface = try XCTUnwrap(effectSurfaces(in: controller.view).first {
+        let headerSurface = effectSurfaces(in: controller.view).first {
             headerLabel.isDescendant(of: $0.contentView)
-        })
+        }
 
         XCTAssertNil(controller.tableView.backgroundView)
-        XCTAssertFalse(headerSurface.isHidden)
-        XCTAssertTrue(headerLabel.isDescendant(of: headerSurface.contentView))
+        if controller.traitCollection.userInterfaceIdiom == .pad {
+            XCTAssertNil(headerSurface)
+            XCTAssertEqual(headerLabel.textAlignment, .natural)
+            XCTAssertTrue(headerLabel.font.fontDescriptor.symbolicTraits.contains(.traitBold))
+            XCTAssertTrue(headerLabel.adjustsFontForContentSizeCategory)
+            XCTAssertTrue(headerLabel.accessibilityTraits.contains(.header))
+            XCTAssertEqual(
+                headerLabel.font.pointSize,
+                UIFont.preferredFont(forTextStyle: .largeTitle, compatibleWith: controller.traitCollection).pointSize,
+                accuracy: 2
+            )
+        } else {
+            XCTAssertEqual(headerSurface?.isHidden, false)
+        }
 
         window.traitOverrides.horizontalSizeClass = .compact
         window.setNeedsLayout()
@@ -273,8 +285,71 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         controller.viewDidLayoutSubviews()
 
         XCTAssertTrue(controller.tableView.backgroundView is ChatBackgroundBackdropView)
-        XCTAssertTrue(headerSurface.isHidden || headerSurface.window == nil)
+        XCTAssertTrue(headerLabel.isHidden || headerLabel.window == nil || headerSurface?.isHidden == true)
         XCTAssertEqual(controller.tableView.tableHeaderView?.frame.height ?? 0, 0, accuracy: 0.5)
+    }
+
+    func testExpandedIPadMenuSurfaceStartsAtSameHeightAsChats() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        guard scene.traitCollection.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Requires an iPad split view")
+        }
+        let previousInterfaceType = CommonConfigManager.shared.config.interface_type
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+            CommonConfigManager.shared.config.interface_type = previousInterfaceType
+        }
+
+        let menu = makeMenu()
+        let chats = ChatsTableFixtureViewController()
+        let rows = ChatsTableFixtureDataSource()
+        chats.loadViewIfNeeded()
+        chats.tableView.dataSource = rows
+        let split = UISplitViewController(style: .tripleColumn)
+        MainSplitLayout.apply(to: split)
+        split.preferredSplitBehavior = .tile
+        split.preferredDisplayMode = .twoBesideSecondary
+        split.setViewController(menu, for: .primary)
+        split.setViewController(UINavigationController(rootViewController: chats), for: .supplementary)
+        split.setViewController(UIViewController(), for: .secondary)
+        menu.chatsVc = chats
+        window.rootViewController = split
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        split.show(.primary)
+        let deadline = Date().addingTimeInterval(2)
+        while (menu.view.window !== window || chats.view.window !== window) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertTrue(try XCTUnwrap(menu.view.window) === window)
+        XCTAssertTrue(try XCTUnwrap(chats.view.window) === window)
+        chats.configureBars()
+        window.layoutIfNeeded()
+        menu.viewDidLayoutSubviews()
+        menu.tableView.reloadData()
+        menu.tableView.layoutIfNeeded()
+        chats.tableView.layoutIfNeeded()
+
+        let surface = try XCTUnwrap(descendants(of: menu.tableView).compactMap { $0 as? UIVisualEffectView }.first {
+            $0.accessibilityIdentifier == "left_menu_main_section_surface"
+        })
+        let firstChat = try XCTUnwrap(chats.tableView.cellForRow(at: IndexPath(row: 0, section: 0)))
+        let appName = CommonConfigManager.shared.config.app_name.capitalized
+        let title = try XCTUnwrap(labels(in: menu.view).first { $0.text == appName && !$0.isHidden })
+        XCTAssertTrue(surface.window === window)
+        XCTAssertTrue(firstChat.window === window)
+        XCTAssertLessThan(title.convert(title.bounds, to: window).maxY, surface.convert(surface.bounds, to: window).minY)
+        XCTAssertEqual(
+            surface.convert(surface.bounds, to: window).minY,
+            firstChat.convert(firstChat.bounds, to: window).minY,
+            accuracy: 1
+        )
     }
 
     private var premiumDescription: String {
@@ -325,7 +400,19 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         window.frame = scene.coordinateSpace.bounds
         let navigationController = UINavigationController(rootViewController: controller)
         navigationController.navigationBar.prefersLargeTitles = true
-        window.rootViewController = navigationController
+        let sidebarHost = UIViewController()
+        sidebarHost.addChild(navigationController)
+        sidebarHost.view.addSubview(navigationController.view)
+        navigationController.view.translatesAutoresizingMaskIntoConstraints = false
+        let sidebarWidth = min(window.bounds.width, 280)
+        NSLayoutConstraint.activate([
+            navigationController.view.leadingAnchor.constraint(equalTo: sidebarHost.view.leadingAnchor),
+            navigationController.view.topAnchor.constraint(equalTo: sidebarHost.view.topAnchor),
+            navigationController.view.bottomAnchor.constraint(equalTo: sidebarHost.view.bottomAnchor),
+            navigationController.view.widthAnchor.constraint(equalToConstant: sidebarWidth)
+        ])
+        navigationController.didMove(toParent: sidebarHost)
+        window.rootViewController = sidebarHost
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
@@ -353,7 +440,7 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         ).height
         XCTAssertGreaterThan(description.bounds.width, 0, language)
         XCTAssertGreaterThanOrEqual(description.bounds.height + 0.5, font.lineHeight * 2, language)
-        XCTAssertLessThanOrEqual(description.bounds.height, font.lineHeight * 3 + 0.5, language)
+        XCTAssertEqual(description.numberOfLines, 3, language)
         XCTAssertGreaterThanOrEqual(description.bounds.height + 1, completeTextHeight,
                                    "The hosted \(language) explanation must display its complete text without truncation")
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
@@ -375,6 +462,29 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         override func viewWillDisappear(_ animated: Bool) {}
         override func viewDidDisappear(_ animated: Bool) {}
     }
+
+    private final class ChatsTableFixtureViewController: LastChatsViewController {
+        override func viewDidLoad() {
+            view.addSubview(tableView)
+            tableView.fillSuperview()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {}
+        override func viewDidAppear(_ animated: Bool) {}
+        override func viewWillDisappear(_ animated: Bool) {}
+        override func viewDidDisappear(_ animated: Bool) {}
+        override func viewDidLayoutSubviews() {}
+        override func viewSafeAreaInsetsDidChange() {}
+    }
+
+    private final class ChatsTableFixtureDataSource: NSObject, UITableViewDataSource {
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 2 }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            UITableViewCell()
+        }
+    }
+
     private final class PremiumRouteSpyViewController: MenuFixtureViewController {
         private(set) var purchasePresentationCount = 0
 

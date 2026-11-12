@@ -684,7 +684,7 @@ class LeftMenuViewController: UIViewController {
     private weak var savedMessagesExpandedActivationController:
         LastChatsViewController?
     
-    internal let tableView: UITableView = {
+    internal let tableView: LeftMenuTableView = {
         let view = LeftMenuTableView(frame: .zero, style: .insetGrouped)
         view.register(LeftMenuGlassTableViewCell.self, forCellReuseIdentifier: LeftMenuGlassTableViewCell.cellName)
         view.register(LeftMenuGlassTableViewCell.self, forCellReuseIdentifier: LeftMenuGlassTableViewCell.premiumCellName)
@@ -720,6 +720,17 @@ class LeftMenuViewController: UIViewController {
         label.backgroundColor = .clear
         label.isUserInteractionEnabled = false
 
+        return label
+    }()
+
+    private let iPadMenuTitleLabel: UILabel = {
+        let label = UILabel()
+        let font = UIFont.systemFont(ofSize: 34, weight: .bold)
+        label.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: font)
+        label.adjustsFontForContentSizeCategory = true
+        label.textAlignment = .natural
+        label.textColor = .label
+        label.accessibilityTraits.insert(.header)
         return label
     }()
 
@@ -1124,46 +1135,57 @@ class LeftMenuViewController: UIViewController {
 
     private func configureMenuHeader() {
         let usesSharedBackdrop = ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop
-        menuSurfaceView.isHidden = !usesSharedBackdrop
+        let usesIPadLayout = usesSharedBackdrop && traitCollection.userInterfaceIdiom == .pad
+        menuSurfaceView.isHidden = !usesSharedBackdrop || usesIPadLayout
+        iPadMenuTitleLabel.isHidden = !usesIPadLayout
+        tableView.alignsMainSurfaceWithFirstRow = usesIPadLayout
+        let headerPadding = usesIPadLayout ? UITableView.automaticDimension : 0
+        if tableView.sectionHeaderTopPadding != headerPadding {
+            tableView.sectionHeaderTopPadding = headerPadding
+        }
         let appTitle = CommonConfigManager.shared.config.app_name.capitalized
-        if usesSharedBackdrop {
-            if title != nil { title = nil }
-            if navigationItem.title != nil { navigationItem.title = nil }
-            menuTitleLabel.text = appTitle
-            configureMenuSurfaceIfNeeded()
-            configureExperimentTitleIfNeeded()
-            configureExperimentTableHeaderIfNeeded()
-            layoutMenuSurfaceIfNeeded()
-            layoutMenuTitleIfNeeded()
-        } else {
+        guard usesSharedBackdrop else {
             if title != appTitle { title = appTitle }
             if tableView.tableHeaderView != nil { tableView.tableHeaderView = nil }
-        }
-    }
-
-    private func configureMenuSurfaceIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
-        guard menuSurfaceView.superview == nil else { return }
-
-        view.insertSubview(menuSurfaceView, at: 0)
-        configureExperimentTableHeaderIfNeeded()
-        layoutMenuSurfaceIfNeeded()
-    }
-
-    private func configureExperimentTitleIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
-        guard menuTitleLabel.superview == nil else {
-            view.bringSubviewToFront(menuSurfaceView)
             return
         }
 
-        menuSurfaceView.contentView.addSubview(menuTitleLabel)
-        view.bringSubviewToFront(menuSurfaceView)
-        layoutMenuTitleIfNeeded()
+        if title != nil { title = nil }
+        if navigationItem.title != nil { navigationItem.title = nil }
+        if usesIPadLayout {
+            if tableView.tableHeaderView != nil { tableView.tableHeaderView = nil }
+            layoutIPadMenuTitle(appTitle)
+            return
+        }
+
+        menuTitleLabel.text = appTitle
+        if menuSurfaceView.superview == nil {
+            view.addSubview(menuSurfaceView)
+            menuSurfaceView.contentView.addSubview(menuTitleLabel)
+        }
+        configureExperimentTableHeaderIfNeeded()
+        layoutMenuSurfaceIfNeeded()
+        menuTitleLabel.frame = menuSurfaceView.bounds.insetBy(dx: ExperimentLayout.titleHorizontalInset, dy: 0)
+    }
+
+    private func layoutIPadMenuTitle(_ title: String) {
+        if iPadMenuTitleLabel.superview == nil {
+            view.addSubview(iPadMenuTitleLabel)
+        }
+        iPadMenuTitleLabel.text = title
+        let safeAreaTop = view.window.map {
+            view.convert($0.safeAreaLayoutGuide.layoutFrame, from: $0).minY
+        } ?? view.safeAreaInsets.top
+        let inset = ExperimentLayout.titleHorizontalInset
+        iPadMenuTitleLabel.frame = CGRect(
+            x: inset,
+            y: max(view.bounds.minY, safeAreaTop) + ExperimentLayout.titleSafeAreaTopOffset,
+            width: max(0, view.bounds.width - inset * 2),
+            height: iPadMenuTitleLabel.intrinsicContentSize.height
+        )
     }
 
     private func configureExperimentTableHeaderIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
         let headerFrame = CGRect(
             x: 0,
             y: 0,
@@ -1196,7 +1218,6 @@ class LeftMenuViewController: UIViewController {
     }
 
     private func layoutMenuSurfaceIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
         let topSafeAreaInset = view.window?.safeAreaInsets.top ?? view.safeAreaInsets.top
         menuSurfaceView.frame = CGRect(
             x: ExperimentLayout.menuSurfaceHorizontalInset,
@@ -1205,13 +1226,6 @@ class LeftMenuViewController: UIViewController {
             height: XabberGlassStyle.minimumHeight
         )
         view.bringSubviewToFront(menuSurfaceView)
-    }
-
-    private func layoutMenuTitleIfNeeded() {
-        guard ContinuousSplitBackgroundExperiment.mode(for: self) == .sharedBackdrop else { return }
-        menuTitleLabel.frame = menuSurfaceView.bounds.insetBy(
-            dx: ExperimentLayout.titleHorizontalInset, dy: 0
-        )
     }
 
     @discardableResult
@@ -1651,7 +1665,8 @@ extension LeftMenuViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return section == 0 ? .leastNormalMagnitude : 12
+        guard section == 0 else { return 12 }
+        return self.tableView.alignsMainSurfaceWithFirstRow ? UITableView.automaticDimension : .leastNormalMagnitude
     }
     
     private func selectionPresentationAction(for splitVC: UISplitViewController) -> LeftMenuSelectionPresentationPolicy.PresentationAction {
