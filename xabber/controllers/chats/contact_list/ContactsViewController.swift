@@ -846,7 +846,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         view.register(MenuItemHeaderTableCell.self, forCellReuseIdentifier: MenuItemHeaderTableCell.cellName)
         
         view.separatorStyle = .singleLine
-        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -856,6 +855,11 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         
         return view
     }()
+
+    private let chatBackgroundBackdropView = ChatBackgroundBackdropView()
+    private lazy var navigationTitleView = ListNavigationTitleView(
+        accessibilityIdentifier: "\(contactsNavigationPrefix).navigation.title"
+    )
     
     internal var isCellTapped: Bool = false
     
@@ -930,15 +934,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         let button = AccountNavButton(frame: CGRect(width: 64, height: 40))
         
         return button
-    }()
-    
-    internal let customTitleLabel: UILabel = {
-        let label = UILabel()
-        
-        label.textAlignment = .center
-        label.font = UIFont.systemFont(ofSize: 18, weight: UIFont.Weight.medium)
-        
-        return label
     }()
     
     override func resetState() {
@@ -2425,67 +2420,62 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        configureContactsBackground()
         updateTableInsetsForBottomSearch()
+    }
+
+    private func configureContactsBackground() {
+        chatBackgroundBackdropView.applyListBackground(to: tableView, emptyView: emptyView, in: self)
+    }
+
+    @objc private func reloadContactsBackground() {
+        chatBackgroundBackdropView.reloadFromSettings()
     }
     
     internal func updateTitle() {
-//        if AccountManager.shared.connectingUsers.value.isNotEmpty {
-//            customTitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
-//            customTitleLabel.sizeToFit()
-//            customTitleLabel.layoutIfNeeded()
-//            return
-//        }
-//        customTitleLabel.text = "Contacts".localizeString(id: "contacts", arguments: [])
-//        
-//        customTitleLabel.sizeToFit()
-//        customTitleLabel.layoutIfNeeded()
-        
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            self.title = nil
-        } else {
-            switch self.category ?? "" {
-                
-                case "all":
-                  self.title = L10n.text("contacts", fallback: "Contacts")
-                case "online":
-                  self.title = L10n.text("contacts__list__online_contacts", fallback: "Online contacts")
-                case "subscribtions":
-                  self.title = L10n.text("contacts__list__contact_requests", fallback: "Contact Requests")
-                case "requests":
-                  self.title = L10n.text("contacts__list__outgoing_requests", fallback: "Outgoing Requests")
-                case "public":
-                  self.title = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
-                case "incognito":
-                  self.title = L10n.text("contacts__list__incognito_groups", fallback: "Incognito Groups")
-                case "private":
-                  self.title = L10n.text("contacts__list__private_groups", fallback: "Private groups")
-                case "invitations":
-                  self.title = L10n.text("contacts__list__group_invitations", fallback: "Group invitations")
-                default:
-                    if isGroup {
-                        self.title = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
-                    } else {
-                        self.title = L10n.text("contacts", fallback: "Contacts")
-                    }
-            }
+        let listTitle: String
+        switch category ?? "" {
+        case "all":
+            listTitle = L10n.text("contacts", fallback: "Contacts")
+        case "online":
+            listTitle = L10n.text("contacts__list__online_contacts", fallback: "Online contacts")
+        case "subscribtions":
+            listTitle = L10n.text("contacts__list__contact_requests", fallback: "Contact Requests")
+        case "requests":
+            listTitle = L10n.text("contacts__list__outgoing_requests", fallback: "Outgoing Requests")
+        case "public":
+            listTitle = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
+        case "incognito":
+            listTitle = L10n.text("contacts__list__incognito_groups", fallback: "Incognito Groups")
+        case "private":
+            listTitle = L10n.text("contacts__list__private_groups", fallback: "Private groups")
+        case "invitations":
+            listTitle = L10n.text("contacts__list__group_invitations", fallback: "Group invitations")
+        default:
+            listTitle = isGroup
+                ? L10n.text("contacts__list__public_groups", fallback: "Public Groups")
+                : L10n.text("contacts", fallback: "Contacts")
         }
-        
+
+        title = listTitle
+        navigationTitleView.titleLabel.text = listTitle
+        if navigationItem.titleView !== navigationTitleView {
+            navigationItem.titleView = navigationTitleView
+        }
     }
-    
+
     internal func configure() {
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
         NavigationLargeTitlePolicy.apply(to: self)
         view.addSubview(tableView)
         tableView.fillSuperview()
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        configureContactsBackground()
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 92
         
         emptyView.isHidden = true
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         view.addSubview(emptyView)
         emptyView.fillSuperview()
         view.bringSubviewToFront(emptyView)
@@ -2504,6 +2494,12 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                                                selector: #selector(reloadDatasource),
                                                name: .appearanceDidChange,
                                                object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadContactsBackground),
+            name: .chatBackgroundChanged,
+            object: nil
+        )
         configureBars(animated: false)
         if self.category == nil {
             if isGroup {
@@ -2525,10 +2521,8 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
+        configureContactsBackground()
         NavigationLargeTitlePolicy.apply(to: self)
-        emptyView.backgroundColor = ContinuousSplitBackgroundExperiment.isActive ? .clear : .systemBackground
-        emptyView.isOpaque = !ContinuousSplitBackgroundExperiment.isActive
         let updateNavigationItems = !isSearchHostNavigationTransitionActive
         configureBars(animated: false, updateNavigationItems: updateNavigationItems)
         if !updateNavigationItems {

@@ -320,7 +320,7 @@ final class ContactsListAppearanceTests: XCTestCase {
             navigationController.viewControllers.forEach(applyContinuousSplitAppearanceAfterAttach)
         }
         if let contactsController = viewController as? ContactsViewController {
-            contactsController.tableView.applyContinuousSplitInsetGroupedAppearance()
+            contactsController.viewDidLayoutSubviews()
         }
         if let categoryController = viewController as? ContactsCategoryViewController {
             categoryController.tableView.applyContinuousSplitInsetGroupedAppearance()
@@ -473,10 +473,17 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertNil(controller.tableView.backgroundView)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
+        XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
+        XCTAssertFalse(controller.emptyView.isOpaque)
+        XCTAssertEqual(
+            (controller.navigationItem.titleView as? ListNavigationTitleView)?.titleLabel.text,
+            L10n.text("contacts", fallback: "Contacts")
+        )
         XCTAssertNil(controller.navigationItem.searchController)
         XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
@@ -486,20 +493,19 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.searchController.definesPresentationContext)
     }
 
-    func testContactsListUsesStockBackgroundAndBottomSearchInCompactSplitWidth() {
+    func testContactsListKeepsChatWallpaperAndBottomSearchInCompactSplitWidth() throws {
         let controller = ContactsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         let container = embedInTraitContainer(navigationController, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        controller.viewDidLayoutSubviews()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
-        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-        XCTAssertTrue(controller.tableView.isOpaque)
-        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
-        XCTAssertTrue(controller.view.isOpaque)
+        assertLocalWallpaper(on: controller, backdrop: backdrop)
         XCTAssertNil(controller.navigationItem.searchController)
         XCTAssertTrue(controller.bottomSearchHostView.superview === controller.view)
         XCTAssertFalse(controller.bottomSearchHostView.isExpanded)
@@ -509,6 +515,42 @@ final class ContactsListAppearanceTests: XCTestCase {
             controller.contactsCompactBottomBarCenterTitle,
             "Add Contact".localizeString(id: "contacts_empty_add_contact", arguments: [])
         )
+    }
+
+    func testContactsAndGroupsRefreshExistingChatWallpaperInTabs() throws {
+        CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.tabs.rawValue
+        let previewColor = try XCTUnwrap(AppearanceColor(hex: "#123456"))
+        var preview = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        preview.profile.wallpaper = .gradient(stops: [previewColor], pattern: nil, intensity: 0)
+
+        for isGroup in [false, true] {
+            let controller = ContactsViewController()
+            controller.isGroup = isGroup
+            controller.loadViewIfNeeded()
+            let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+            backdrop.configure(document: preview)
+            XCTAssertEqual(backdrop.representedWallpaper, preview.profile.wallpaper)
+
+            NotificationCenter.default.post(name: .chatBackgroundChanged, object: nil)
+
+            assertLocalWallpaper(on: controller, backdrop: backdrop)
+        }
+    }
+
+    private func assertLocalWallpaper(
+        on controller: ContactsViewController,
+        backdrop: ChatBackgroundBackdropView,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let activeWallpaper = AppearanceSettingsStore()?.load().profile.wallpaper
+            ?? AppearanceProfile.default(accent: .systemBlue).wallpaper
+        XCTAssertTrue(controller.tableView.backgroundView === backdrop, file: file, line: line)
+        XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper, file: file, line: line)
+        XCTAssertEqual(controller.tableView.backgroundColor, .clear, file: file, line: line)
+        XCTAssertFalse(controller.tableView.isOpaque, file: file, line: line)
+        XCTAssertEqual(controller.emptyView.backgroundColor, .clear, file: file, line: line)
+        XCTAssertFalse(controller.emptyView.isOpaque, file: file, line: line)
     }
 
     func testContactsUsesGeometryBasedBottomOverlayInsetCoordinator() {
@@ -653,26 +695,32 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertNil(controller.tableView.backgroundView)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
         XCTAssertFalse(controller.view.isOpaque)
+        XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
+        XCTAssertFalse(controller.emptyView.isOpaque)
+        XCTAssertEqual(
+            (controller.navigationItem.titleView as? ListNavigationTitleView)?.titleLabel.text,
+            L10n.text("contacts__list__public_groups", fallback: "Public Groups")
+        )
     }
 
-    func testGroupsListUsesStockBackgroundInCompactSplitWidth() {
+    func testGroupsListKeepsChatWallpaperInCompactSplitWidth() throws {
         let controller = ContactsViewController()
         controller.isGroup = true
         let container = embedInTraitContainer(controller, horizontalSizeClass: .compact)
 
         container.loadViewIfNeeded()
+        let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        controller.viewDidLayoutSubviews()
 
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
-        XCTAssertTrue(controller.tableView.backgroundColor?.isEqual(UIColor.systemGroupedBackground) == true)
-        XCTAssertTrue(controller.tableView.isOpaque)
-        XCTAssertTrue(controller.view.backgroundColor?.isEqual(UIColor.systemBackground) == true)
-        XCTAssertTrue(controller.view.isOpaque)
+        assertLocalWallpaper(on: controller, backdrop: backdrop)
         XCTAssertFalse(controller.isContactsCompactBottomBarHidden)
         XCTAssertEqual(
             controller.contactsCompactBottomBarCenterTitle,
@@ -1384,10 +1432,13 @@ final class ContactsListAppearanceTests: XCTestCase {
         controller.traitCollectionDidChange(UITraitCollection(horizontalSizeClass: .compact))
 
         XCTAssertTrue(controller.isContactsCompactBottomBarHidden)
-        XCTAssertEqual(controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier), [
-            "contacts_filter_menu_button",
-            "contacts_add_button"
-        ])
+        let expectedActionIdentifiers = UIDevice.current.userInterfaceIdiom == .pad
+            ? ["contacts_add_button"]
+            : ["contacts_filter_menu_button", "contacts_add_button"]
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier),
+            expectedActionIdentifiers
+        )
     }
 
     func testContactsCompactTitleSurvivesRepeatedBarConfiguration() {
@@ -1404,13 +1455,14 @@ final class ContactsListAppearanceTests: XCTestCase {
     func testGroupsCompactTitleSurvivesRepeatedBarConfiguration() {
         let controller = ContactsViewController()
         controller.isGroup = true
+        let publicGroups = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
 
         controller.loadViewIfNeeded()
-        XCTAssertEqual(controller.title, "Public groups")
+        XCTAssertEqual(controller.title, publicGroups)
 
         controller.configureBars(animated: false)
 
-        XCTAssertEqual(controller.title, "Public groups")
+        XCTAssertEqual(controller.title, publicGroups)
     }
 
     func testContactsAndGroupsCompactTitlesSurviveAccountFilterBarRefresh() {
@@ -1427,24 +1479,35 @@ final class ContactsListAppearanceTests: XCTestCase {
 
         groupsController.shouldFilterBy(account: "owner@example.com")
 
-        XCTAssertEqual(groupsController.title, "Public groups")
+        XCTAssertEqual(groupsController.title, L10n.text("contacts__list__public_groups", fallback: "Public Groups"))
     }
 
-    func testContactsAndGroupsCompactCategoryTitlesStillUpdate() {
+    func testContactsAndGroupsCompactCategoryTitlesUpdateInStableSharedCapsules() throws {
         let contactsController = ContactsViewController()
         contactsController.loadViewIfNeeded()
+        let contactsTitle = try XCTUnwrap(contactsController.navigationItem.titleView as? ListNavigationTitleView)
+        XCTAssertTrue(contactsTitle.titleLabel.accessibilityTraits.contains(.header))
+        XCTAssertFalse(contactsTitle.isUserInteractionEnabled)
+        XCTAssertEqual(contactsTitle.intrinsicContentSize.height, 44)
 
         contactsController.shouldFilterBy(category: "online")
 
-        XCTAssertEqual(contactsController.title, "Online contacts")
+        let onlineTitle = L10n.text("contacts__list__online_contacts", fallback: "Online contacts")
+        XCTAssertTrue(contactsController.navigationItem.titleView === contactsTitle)
+        XCTAssertEqual(contactsController.title, onlineTitle)
+        XCTAssertEqual(contactsTitle.titleLabel.text, onlineTitle)
 
         let groupsController = ContactsViewController()
         groupsController.isGroup = true
         groupsController.loadViewIfNeeded()
+        let groupsTitle = try XCTUnwrap(groupsController.navigationItem.titleView as? ListNavigationTitleView)
 
         groupsController.shouldFilterBy(category: "private")
 
-        XCTAssertEqual(groupsController.title, "Private groups")
+        let privateTitle = L10n.text("contacts__list__private_groups", fallback: "Private groups")
+        XCTAssertTrue(groupsController.navigationItem.titleView === groupsTitle)
+        XCTAssertEqual(groupsController.title, privateTitle)
+        XCTAssertEqual(groupsTitle.titleLabel.text, privateTitle)
     }
 
     func testContactsAndGroupsRowsDoNotUseUIKitFocusOutline() {
