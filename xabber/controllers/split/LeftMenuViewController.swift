@@ -686,8 +686,8 @@ class LeftMenuViewController: UIViewController {
     private weak var savedMessagesExpandedActivationController:
         LastChatsViewController?
     
-    internal let tableView: LeftMenuTableView = {
-        let view = LeftMenuTableView(frame: .zero, style: .insetGrouped)
+    internal let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         view.register(LeftMenuGlassTableViewCell.self, forCellReuseIdentifier: LeftMenuGlassTableViewCell.cellName)
         view.register(LeftMenuGlassTableViewCell.self, forCellReuseIdentifier: LeftMenuGlassTableViewCell.premiumCellName)
         view.backgroundColor = .clear
@@ -1140,7 +1140,6 @@ class LeftMenuViewController: UIViewController {
         let usesIPadLayout = usesSharedBackdrop && traitCollection.userInterfaceIdiom == .pad
         menuSurfaceView.isHidden = !usesSharedBackdrop || usesIPadLayout
         iPadMenuTitleLabel.isHidden = !usesIPadLayout
-        tableView.alignsMainSurfaceWithFirstRow = usesIPadLayout
         let appTitle = CommonConfigManager.shared.config.app_name.capitalized
         guard usesSharedBackdrop else {
             if title != appTitle { title = appTitle }

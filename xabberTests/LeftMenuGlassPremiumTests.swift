@@ -61,13 +61,11 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         let cell = controller.tableView(controller.tableView, cellForRowAt: path)
         let title = try XCTUnwrap(labels(in: cell).first { $0.text == "Xabber Premium" })
         let description = try XCTUnwrap(labels(in: cell).first { $0.text == premiumDescription })
-        let background = try XCTUnwrap(cell.backgroundConfiguration)
         let goldenIcons = descendants(of: cell).compactMap { $0 as? UIImageView }
             .filter { $0.image != nil && $0.tintColor == .systemYellow }
 
         XCTAssertFalse(premiumDescription.isEmpty)
         XCTAssertTrue(description.numberOfLines == 0 || description.numberOfLines >= 3)
-        XCTAssertNotNil(background.visualEffect)
         XCTAssertTrue(title.isDescendant(of: cell.contentView))
         XCTAssertTrue(description.isDescendant(of: cell.contentView))
         XCTAssertEqual(goldenIcons.count, 1)
@@ -78,7 +76,7 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         XCTAssertTrue(cell.accessibilityLabel?.contains(premiumDescription) == true)
     }
 
-    func testPremiumUsesSystemInsetGroupedBackgroundWithoutCustomCornerGeometry() throws {
+    func testOrdinaryAndPremiumRowsUseOpaqueNativeSectionBackgrounds() throws {
         let controller = makeMenu()
         let path = try premiumIndexPath(in: controller)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -96,79 +94,43 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         window.layoutIfNeeded()
         controller.tableView.scrollToRow(at: path, at: .none, animated: false)
         window.layoutIfNeeded()
-        let cell = try XCTUnwrap(controller.tableView.cellForRow(at: path) as? LeftMenuGlassTableViewCell)
-        let background = try XCTUnwrap(cell.backgroundConfiguration)
-        var systemBackground: UIBackgroundConfiguration
-        if #available(iOS 18.0, *) {
-            systemBackground = .listCell()
-        } else {
-            systemBackground = .listGroupedCell()
-        }
-        systemBackground = systemBackground.updated(for: cell.configurationState)
-
-        XCTAssertTrue(cell.window === window)
-        XCTAssertEqual(controller.tableView.style, .insetGrouped)
-        XCTAssertEqual(background.cornerRadius, systemBackground.cornerRadius)
-        XCTAssertEqual(background.backgroundInsets, systemBackground.backgroundInsets)
-        XCTAssertNil(background.customView)
-        XCTAssertNotNil(background.visualEffect)
-        XCTAssertNil(cell.glassSurfaceView.effect)
-        XCTAssertEqual(cell.glassSurfaceView.layer.cornerRadius, 0)
-        if #available(iOS 26.0, *) {
-            XCTAssertEqual(cell.glassSurfaceView.cornerConfiguration, UIVisualEffectView(effect: nil).cornerConfiguration)
-            let glass = try XCTUnwrap(background.visualEffect as? UIGlassEffect)
-            XCTAssertFalse(glass.isInteractive)
-            XCTAssertNil(glass.tintColor)
-        } else {
-            XCTAssertTrue(background.visualEffect is UIBlurEffect)
-        }
-    }
-
-    func testOrdinaryRowsShareOneOpaqueChatListBackdropAndKeepTheirOwnBackgroundsTransparent() throws {
-        let controller = makeMenu()
-        controller.tableView.reloadData()
-        controller.view.layoutIfNeeded()
-        controller.tableView.layoutIfNeeded()
-        controller.viewDidLayoutSubviews()
-        let groupSurfaces = descendants(of: controller.tableView)
-            .filter { $0.accessibilityIdentifier == "left_menu_main_section_surface" }
-        let groupSurface = try XCTUnwrap(groupSurfaces.first)
-        let mainRows = controller.datasource[0]
-        let firstFrame = controller.tableView.rectForRow(at: IndexPath(row: 0, section: 0))
-        let lastFrame = controller.tableView.rectForRow(at: IndexPath(row: mainRows.count - 1, section: 0))
-        let firstCell = try XCTUnwrap(controller.tableView.cellForRow(at: IndexPath(row: 0, section: 0)))
-        let lastCell = try XCTUnwrap(controller.tableView.cellForRow(at: IndexPath(row: mainRows.count - 1, section: 0)))
-        let firstContentFrame = firstCell.contentView.convert(firstCell.contentView.bounds, to: controller.tableView)
-        let lastContentFrame = lastCell.contentView.convert(lastCell.contentView.bounds, to: controller.tableView)
-        let groupFrame = groupSurface.convert(groupSurface.bounds, to: controller.tableView)
-
-        XCTAssertEqual(groupSurfaces.count, 1)
-        XCTAssertFalse(groupSurface.isUserInteractionEnabled)
-        XCTAssertLessThanOrEqual(groupFrame.minX, firstContentFrame.minX + 0.5)
-        XCTAssertGreaterThanOrEqual(groupFrame.maxX, lastContentFrame.maxX - 0.5)
-        XCTAssertLessThanOrEqual(groupFrame.minY, firstFrame.minY + 4.5)
-        XCTAssertGreaterThanOrEqual(groupFrame.maxY, lastFrame.maxY - 4.5)
-        XCTAssertEqual(controller.tableView.backgroundColor, .clear)
+        let table = controller.tableView
+        let menuPaths = controller.datasource[0].indices.map { IndexPath(row: $0, section: 0) }
+        let menuFrame = table.rectForRow(at: menuPaths[0])
+        let premiumFrame = table.rectForRow(at: path)
+        XCTAssertEqual(table.style, .insetGrouped)
+        XCTAssertEqual(premiumFrame.minX, menuFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(premiumFrame.maxX, menuFrame.maxX, accuracy: 0.5)
         let chatCell = UITableViewCell()
         chatCell.applyPlainGroupedSystemBackground()
-        let chatBackground = try XCTUnwrap(chatCell.backgroundColor)
-        let menuBackground = try XCTUnwrap(groupSurface.backgroundColor)
-        for style in [UIUserInterfaceStyle.light, .dark] {
-            let traits = UITraitCollection(userInterfaceStyle: style)
-            let resolvedMenuBackground = menuBackground.resolvedColor(with: traits)
-            XCTAssertEqual(resolvedMenuBackground, chatBackground.resolvedColor(with: traits))
-            XCTAssertEqual(resolvedMenuBackground.cgColor.alpha, 1)
-        }
-        XCTAssertTrue(effectSurfaces(in: groupSurface).isEmpty)
-        for (row, item) in mainRows.enumerated() {
-            let cell = try XCTUnwrap(controller.tableView.cellForRow(at: IndexPath(row: row, section: 0)))
-            let title = try XCTUnwrap(labels(in: cell).first { $0.text == item.title })
-            let surfaces = effectSurfaces(in: cell)
-            XCTAssertEqual(cell.backgroundColor, .clear, item.key)
-            XCTAssertEqual(cell.contentView.backgroundColor, .clear, item.key)
-            XCTAssertEqual(surfaces.count, 1, item.key)
-            XCTAssertTrue(surfaces.allSatisfy { $0.effect == nil }, item.key)
-            XCTAssertTrue(title.isDescendant(of: try XCTUnwrap(surfaces.first).contentView), item.key)
+        let chatColor = try XCTUnwrap(chatCell.backgroundColor)
+
+        for indexPath in menuPaths + [path] {
+            table.scrollToRow(at: indexPath, at: .none, animated: false)
+            window.layoutIfNeeded()
+            let cell = try XCTUnwrap(table.cellForRow(at: indexPath))
+            let background = try XCTUnwrap(cell.backgroundConfiguration)
+            let nativeBackground: UIBackgroundConfiguration
+            if #available(iOS 18.0, *) {
+                nativeBackground = UIBackgroundConfiguration.listCell().updated(for: cell.configurationState)
+            } else {
+                nativeBackground = UIBackgroundConfiguration.listGroupedCell().updated(for: cell.configurationState)
+            }
+            XCTAssertTrue(cell.window === window)
+            XCTAssertEqual(background.cornerRadius, nativeBackground.cornerRadius)
+            XCTAssertEqual(background.backgroundInsets, nativeBackground.backgroundInsets)
+            XCTAssertEqual(background.edgesAddingLayoutMarginsToBackgroundInsets, nativeBackground.edgesAddingLayoutMarginsToBackgroundInsets)
+            XCTAssertNil(background.customView)
+            XCTAssertNil(background.visualEffect)
+            XCTAssertNil(cell.backgroundView)
+            XCTAssertEqual(cell.contentView.backgroundColor, .clear)
+            let rowColor = background.resolvedBackgroundColor(for: cell.tintColor)
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                let traits = UITraitCollection(userInterfaceStyle: style)
+                let resolvedColor = rowColor.resolvedColor(with: traits)
+                XCTAssertEqual(resolvedColor, chatColor.resolvedColor(with: traits))
+                XCTAssertEqual(resolvedColor.cgColor.alpha, 1)
+            }
         }
     }
 
@@ -342,17 +304,15 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         menu.tableView.layoutIfNeeded()
         chats.tableView.layoutIfNeeded()
 
-        let surface = try XCTUnwrap(descendants(of: menu.tableView).first {
-            $0.accessibilityIdentifier == "left_menu_main_section_surface"
-        })
+        let firstMenuRow = try XCTUnwrap(menu.tableView.cellForRow(at: IndexPath(row: 0, section: 0)))
         let firstChat = try XCTUnwrap(chats.tableView.cellForRow(at: IndexPath(row: 0, section: 0)))
         let appName = CommonConfigManager.shared.config.app_name.capitalized
         let title = try XCTUnwrap(labels(in: menu.view).first { $0.text == appName && !$0.isHidden })
-        XCTAssertTrue(surface.window === window)
+        XCTAssertTrue(firstMenuRow.window === window)
         XCTAssertTrue(firstChat.window === window)
-        XCTAssertLessThan(title.convert(title.bounds, to: window).maxY, surface.convert(surface.bounds, to: window).minY)
+        XCTAssertLessThan(title.convert(title.bounds, to: window).maxY, firstMenuRow.convert(firstMenuRow.bounds, to: window).minY)
         XCTAssertEqual(
-            surface.convert(surface.bounds, to: window).minY,
+            firstMenuRow.convert(firstMenuRow.bounds, to: window).minY,
             firstChat.convert(firstChat.bounds, to: window).minY,
             accuracy: 1
         )

@@ -17,7 +17,7 @@ enum LeftMenuPremiumContent {
     }
 }
 
-/// Sidebar rows use the shared section background or a system grouped Premium background.
+/// UIKit draws the backgrounds for both inset-grouped sidebar sections.
 final class LeftMenuGlassTableViewCell: UITableViewCell {
     static let cellName = "LeftMenuGlassTableViewCell"
     static let premiumCellName = "LeftMenuPremiumTableViewCell"
@@ -28,8 +28,8 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
         static let spacing: CGFloat = 12
     }
 
-    let glassSurfaceView: UIVisualEffectView = {
-        let view = UIVisualEffectView(effect: nil)
+    private let rowSurfaceView: UIView = {
+        let view = UIView()
         view.backgroundColor = .clear
         view.isOpaque = false
         view.isUserInteractionEnabled = false
@@ -52,26 +52,13 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundConfiguration = .clear()
-        backgroundColor = .clear
+        automaticallyUpdatesBackgroundConfiguration = false
         contentView.backgroundColor = .clear
-        if reuseIdentifier == Self.premiumCellName {
-            // Let the containing inset-grouped table own the section's shape.
-            var background: UIBackgroundConfiguration
-            if #available(iOS 18.0, *) {
-                background = .listCell()
-            } else {
-                background = .listGroupedCell()
-            }
-            background.visualEffect = LeftMenuSurfaceEffectFactory.makeEffect()
-            background.backgroundColor = LeftMenuSurfaceEffectFactory.surfaceBackgroundColor()
-            backgroundConfiguration = background
-        }
         isOpaque = false
         selectionStyle = .none
         contentView.isAccessibilityElement = false
-        contentView.addSubview(glassSurfaceView)
-        glassSurfaceView.contentView.addSubview(contentStack)
+        contentView.addSubview(rowSurfaceView)
+        rowSurfaceView.addSubview(contentStack)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .horizontal
         contentStack.alignment = .center
@@ -108,15 +95,15 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
         let minimumBadgeWidth = badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 24)
         minimumBadgeWidth.priority = .init(999)
         NSLayoutConstraint.activate([
-            glassSurfaceView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            glassSurfaceView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            glassSurfaceView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            glassSurfaceView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-            glassSurfaceView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-            contentStack.leadingAnchor.constraint(equalTo: glassSurfaceView.leadingAnchor, constant: Metrics.horizontalInset),
-            contentStack.trailingAnchor.constraint(equalTo: glassSurfaceView.trailingAnchor, constant: -Metrics.horizontalInset),
-            contentStack.topAnchor.constraint(equalTo: glassSurfaceView.topAnchor, constant: 12),
-            contentStack.bottomAnchor.constraint(equalTo: glassSurfaceView.bottomAnchor, constant: -12),
+            rowSurfaceView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            rowSurfaceView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            rowSurfaceView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            rowSurfaceView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            rowSurfaceView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            contentStack.leadingAnchor.constraint(equalTo: rowSurfaceView.leadingAnchor, constant: Metrics.horizontalInset),
+            contentStack.trailingAnchor.constraint(equalTo: rowSurfaceView.trailingAnchor, constant: -Metrics.horizontalInset),
+            contentStack.topAnchor.constraint(equalTo: rowSurfaceView.topAnchor, constant: 12),
+            contentStack.bottomAnchor.constraint(equalTo: rowSurfaceView.bottomAnchor, constant: -12),
             iconView.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
             badgeLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 20),
@@ -126,6 +113,20 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateConfiguration(using state: UICellConfigurationState) {
+        super.updateConfiguration(using: state)
+        var background: UIBackgroundConfiguration
+        if #available(iOS 18.0, *) {
+            background = .listCell().updated(for: state)
+        } else {
+            background = .listGroupedCell().updated(for: state)
+        }
+        background.backgroundColor = .systemBackground
+        background.backgroundColorTransformer = nil
+        background.visualEffect = nil
+        backgroundConfiguration = background
     }
 
     func configure(item: LeftMenuViewController.Datasource) {
@@ -156,8 +157,7 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
         verticalFittingPriority: UILayoutPriority
     ) -> CGSize {
         if representsPremium {
-            // Establish the wrapping width before UITableView asks for the row's
-            // height; the effect's contentView otherwise retains its last frame.
+            // Use the proposed width to measure wrapping before the row is laid out.
             let textWidth = targetSize.width - Metrics.horizontalInset * 2
                 - Metrics.iconSize - Metrics.spacing
             if textWidth > 0 { subtitleLabel.preferredMaxLayoutWidth = textWidth }
@@ -197,56 +197,5 @@ final class LeftMenuGlassTableViewCell: UITableViewCell {
         accessibilityLabel = nil
         accessibilityValue = nil
         accessibilityTraits = []
-    }
-}
-
-/// One shared background follows the ordinary sidebar section in scroll coordinates.
-final class LeftMenuTableView: UITableView {
-    var alignsMainSurfaceWithFirstRow = false {
-        didSet {
-            if oldValue != alignsMainSurfaceWithFirstRow { setNeedsLayout() }
-        }
-    }
-
-    private let mainSectionSurface: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemBackground
-        view.layer.cornerRadius = 16
-        view.layer.cornerCurve = .continuous
-        view.clipsToBounds = true
-        view.accessibilityIdentifier = "left_menu_main_section_surface"
-        view.isAccessibilityElement = false
-        view.isUserInteractionEnabled = false
-        return view
-    }()
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard numberOfSections > 0, numberOfRows(inSection: 0) > 0 else {
-            mainSectionSurface.isHidden = true
-            return
-        }
-        if let backgroundView, backgroundView.superview === self,
-           let backgroundIndex = subviews.firstIndex(where: { $0 === backgroundView }) {
-            let surfaceIndex = subviews.firstIndex(where: { $0 === mainSectionSurface })
-            if surfaceIndex != backgroundIndex + 1 {
-                insertSubview(mainSectionSurface, aboveSubview: backgroundView)
-            }
-        } else if subviews.first !== mainSectionSurface {
-            insertSubview(mainSectionSurface, at: 0)
-        }
-        let first = rectForRow(at: IndexPath(row: 0, section: 0))
-        let last = rectForRow(at: IndexPath(row: numberOfRows(inSection: 0) - 1, section: 0))
-        let rowFrame = visibleCells.first { indexPath(for: $0)?.section == 0 }
-            .map { $0.contentView.convert($0.contentView.bounds, to: self) } ?? first
-        let top = first.minY + (alignsMainSurfaceWithFirstRow ? 0 : 4)
-        let frame = CGRect(
-            x: rowFrame.minX,
-            y: top,
-            width: rowFrame.width,
-            height: max(0, last.maxY - top - 4)
-        )
-        if mainSectionSurface.frame != frame { mainSectionSurface.frame = frame }
-        mainSectionSurface.isHidden = false
     }
 }
