@@ -632,6 +632,9 @@ class NotificationsListViewController: SimpleBaseViewController {
         
         return view
     }()
+
+    private let chatBackgroundBackdropView = ChatBackgroundBackdropView()
+    private let navigationTitleView = ListNavigationTitleView(accessibilityIdentifier: "notifications.navigation.title")
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -639,7 +642,6 @@ class NotificationsListViewController: SimpleBaseViewController {
         view.rowHeight = UITableView.automaticDimension
         view.estimatedRowHeight = 88
         view.cellLayoutMarginsFollowReadableWidth = true
-        view.applyContinuousSplitInsetGroupedAppearance()
         
         view.register(NotificationItemCell.self, forCellReuseIdentifier: NotificationItemCell.cellName)
         view.register(NotificationsSubscribtionsListViewController.ContactItemCell.self, forCellReuseIdentifier: NotificationsSubscribtionsListViewController.ContactItemCell.cellName)
@@ -698,24 +700,17 @@ class NotificationsListViewController: SimpleBaseViewController {
         super.setupSubviews()
         self.view.addSubview(self.tableView)
         self.tableView.fillSuperviewWithOffset(top: 0, bottom: 0, left: 0, right: 0)
-        refreshContinuousSplitBackgroundAppearance()
         
         self.emptyView.isHidden = !self.emptyScreenShowObserver.value
         self.view.addSubview(self.emptyView)
         self.emptyView.fillSuperview()
         self.view.bringSubviewToFront(self.emptyView)
-        refreshContinuousSplitBackgroundAppearance()
     }
     
     override func configure() {
         super.configure()
         applyNotificationsNavigationAppearance()
         NavigationLargeTitlePolicy.apply(to: self)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            self.title = nil
-        } else {
-        self.title = L10n.text("notifications__screen__title", fallback: "Notifications")
-        }
         refreshContinuousSplitBackgroundAppearance()
         self.tableView.dataSource = self
         self.tableView.delegate = self
@@ -727,16 +722,7 @@ class NotificationsListViewController: SimpleBaseViewController {
 
     internal func refreshContinuousSplitBackgroundAppearance() {
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(self)
-        tableView.applyContinuousSplitInsetGroupedAppearance()
-
-        switch ContinuousSplitBackgroundExperiment.mode(for: self) {
-        case .sharedBackdrop:
-            emptyView.backgroundColor = .clear
-            emptyView.isOpaque = false
-        case .inactive, .deferred, .stockCompact:
-            emptyView.backgroundColor = .systemBackground
-            emptyView.isOpaque = true
-        }
+        chatBackgroundBackdropView.applyListBackground(to: tableView, emptyView: emptyView, in: self)
     }
     
     override func loadDatasource() {
@@ -1074,6 +1060,11 @@ class NotificationsListViewController: SimpleBaseViewController {
     }
     
     func configureBars(animated: Bool = false) {
+        title = L10n.text("notifications__screen__title", fallback: "Notifications")
+        navigationTitleView.titleLabel.text = title
+        if navigationItem.titleView !== navigationTitleView {
+            navigationItem.titleView = navigationTitleView
+        }
         lastConfiguredBarsState = (filter: filter.value, account: filterAccount.value, unreadOnly: unreadOnly.value)
         let button = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle"), style: .plain, target: self, action: nil)
         button.accessibilityIdentifier = "notifications_filter_menu_button"
@@ -1533,7 +1524,22 @@ class NotificationsListViewController: SimpleBaseViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        refreshContinuousSplitBackgroundAppearance()
         updateNotificationsTableInsetsForBottomSearch()
+    }
+
+    override func observer() {
+        super.observer()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadNotificationsBackground),
+            name: .chatBackgroundChanged,
+            object: nil
+        )
+    }
+
+    @objc private func reloadNotificationsBackground() {
+        chatBackgroundBackdropView.reloadFromSettings()
     }
 
     override func viewDidLoad() {

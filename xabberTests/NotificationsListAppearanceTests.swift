@@ -248,6 +248,7 @@ final class NotificationsListAppearanceTests: XCTestCase {
         XCTAssertEqual(controller.tableView.style, .insetGrouped)
         XCTAssertNil(controller.tableView.tableHeaderView)
         XCTAssertNil(controller.tableView.tableFooterView)
+        XCTAssertNil(controller.tableView.backgroundView)
         XCTAssertEqual(controller.tableView.backgroundColor, .clear)
         XCTAssertFalse(controller.tableView.isOpaque)
         XCTAssertEqual(controller.view.backgroundColor, .clear)
@@ -262,6 +263,63 @@ final class NotificationsListAppearanceTests: XCTestCase {
         }
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForHeaderInSection:))))
         XCTAssertFalse(controller.responds(to: #selector(UITableViewDelegate.tableView(_:heightForFooterInSection:))))
+    }
+
+    func testNotificationsListKeepsChatWallpaperInCompactSplitWidth() throws {
+        let controller = NotificationsListViewController()
+        embedInTraitContainer(controller, horizontalSizeClass: .compact)
+        let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+
+        controller.viewDidLayoutSubviews()
+
+        XCTAssertTrue(controller.tableView.backgroundView === backdrop)
+        XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper)
+        XCTAssertEqual(controller.tableView.backgroundColor, .clear)
+        XCTAssertFalse(controller.tableView.isOpaque)
+        XCTAssertEqual(controller.emptyView.backgroundColor, .clear)
+        XCTAssertFalse(controller.emptyView.isOpaque)
+    }
+
+    func testNotificationsWallpaperNotificationRefreshesExistingBackdropInTabs() throws {
+        CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.tabs.rawValue
+        let controller = NotificationsListViewController()
+        controller.loadViewIfNeeded()
+        let backdrop = try XCTUnwrap(controller.tableView.backgroundView as? ChatBackgroundBackdropView)
+        var preview = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let previewColor = try XCTUnwrap(AppearanceColor(hex: "#123456"))
+        preview.profile.wallpaper = .gradient(stops: [previewColor], pattern: nil, intensity: 0)
+        backdrop.configure(document: preview)
+        XCTAssertEqual(backdrop.representedWallpaper, preview.profile.wallpaper)
+
+        NotificationCenter.default.post(name: .chatBackgroundChanged, object: nil)
+
+        XCTAssertTrue(controller.tableView.backgroundView === backdrop)
+        XCTAssertEqual(backdrop.representedWallpaper, activeWallpaper)
+    }
+
+    private var activeWallpaper: AppearanceWallpaper {
+        AppearanceSettingsStore()?.load().profile.wallpaper
+            ?? AppearanceProfile.default(accent: .systemBlue).wallpaper
+    }
+
+    func testNotificationsKeepsLocalizedSharedTitleCapsuleWhenRefreshingBars() throws {
+        let controller = NotificationsListViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        embedInTraitContainer(navigationController, horizontalSizeClass: .regular)
+        controller.configureBars(animated: false)
+        let title = try XCTUnwrap(controller.navigationItem.titleView as? ListNavigationTitleView)
+        let originalActions = controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier)
+
+        controller.configureBars(animated: false)
+
+        XCTAssertTrue(controller.navigationItem.titleView === title)
+        XCTAssertEqual(title.titleLabel.text, L10n.text("notifications__screen__title", fallback: "Notifications"))
+        XCTAssertTrue(title.titleLabel.isAccessibilityElement)
+        XCTAssertTrue(title.titleLabel.accessibilityTraits.contains(.header))
+        XCTAssertFalse(title.isUserInteractionEnabled)
+        XCTAssertEqual(title.intrinsicContentSize.height, 44)
+        XCTAssertEqual(controller.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier), originalActions)
+        XCTAssertNil(controller.navigationItem.searchController)
     }
 
     func testNotificationsCategoriesUseInsetGroupedTransparentSplitAppearanceAndNativeSpacing() {
