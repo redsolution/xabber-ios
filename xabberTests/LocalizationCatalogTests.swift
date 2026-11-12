@@ -997,6 +997,8 @@ final class LocalizationCatalogTests: XCTestCase {
         let cases: [(String?, Bool, Int, String)] = [
             ("all", false, 1, "1 contact"),
             ("all", false, 2, "2 contacts"),
+            ("all", true, 1, "1 group"),
+            ("all", true, 2, "2 groups"),
             ("subscriptions", false, 1, "1 contact request"),
             ("subscriptions", false, 2, "2 contact requests"),
             ("requests", false, 1, "1 outgoing request"),

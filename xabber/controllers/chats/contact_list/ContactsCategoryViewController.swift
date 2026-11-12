@@ -194,11 +194,8 @@ class ContactsCategoryViewController: BaseViewController {
                 Observable.collection(from: groupsCollection).map { _ in () }
             ]
 
-            let groupStateChanges: PublishSubject<GroupRepositoryListState>? = isGroup
-                ? PublishSubject<GroupRepositoryListState>()
-                : nil
-            if let groupStateChanges {
-                invalidations.append(groupStateChanges.map { _ in () })
+            if isGroup {
+                invalidations.append(CanonicalGroupListUIQuery.changes(in: realm))
             }
 
             Observable.merge(invalidations)
@@ -208,13 +205,6 @@ class ContactsCategoryViewController: BaseViewController {
                 })
                 .disposed(by: bag)
 
-            if let groupStateChanges {
-                let observation = try GroupRepository(realm: realm).observeList { state in
-                    groupStateChanges.onNext(state)
-                }
-                Disposables.create { observation.invalidate() }
-                    .disposed(by: bag)
-            }
         } catch {
             DDLogDebug("ContactsCategoryViewController: \(#function). \(error.localizedDescription)")
         }

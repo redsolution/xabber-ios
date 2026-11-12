@@ -56,6 +56,9 @@ extension ContactsViewController: UITableViewDelegate {
             case "contacts":
                 self.category = "all"
                 self.categoryDelegate?.filterDidSelect(category: "all")
+            case "all" where isGroup:
+                self.category = "all"
+                self.categoryDelegate?.filterDidSelect(category: "all")
             case "public":
                 self.category = "public"
                 self.categoryDelegate?.filterDidSelect(category: "public")
@@ -75,6 +78,8 @@ extension ContactsViewController: UITableViewDelegate {
             case "contacts":
                 self.shouldFilterBy(category: "all")
                 self.categoryDelegate?.filterDidSelect(category: "all")
+            case "all" where isGroup:
+                self.shouldFilterBy(category: "all")
             case "public":
                 self.shouldFilterBy(category: "public")
                 self.categoryDelegate?.filterDidSelect(category: "public")

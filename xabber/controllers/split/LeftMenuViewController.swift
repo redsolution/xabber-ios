@@ -790,7 +790,7 @@ class LeftMenuViewController: UIViewController {
                     Datasource(title: L10n.text("navigation__destination__calls", fallback: "Calls"), icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
                     Datasource(title: L10n.text("navigation__destination__notifications", fallback: "Notifications"), icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
                     Datasource(title: L10n.text("navigation__destination__contacts", fallback: "Contacts"), icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
-                    Datasource(title: L10n.text("navigation__destination__groups", fallback: "Groups"), icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__groups", fallback: "Groups"), icon: "person.2", key: "groups", category: "all", subtitle: "\(invitations.count)", showTriangle: false),
                     Datasource(title: L10n.text("navigation__destination__archive", fallback: "Archive"), icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
                 ]
                 if let savedItem {

@@ -169,7 +169,8 @@ final class CanonicalGroupInviteUICutoverTests: XCTestCase {
             XCTAssertFalse(source.contains("GroupchatInvitePersistenceService"), path)
             XCTAssertTrue(
                 source.contains("GroupRepository")
-                    || source.contains("CanonicalGroupInviteUIQuery"),
+                    || source.contains("CanonicalGroupInviteUIQuery")
+                    || source.contains("CanonicalGroupListUIQuery"),
                 path
             )
         }
@@ -331,7 +332,7 @@ final class CanonicalGroupInviteUICutoverTests: XCTestCase {
             XCTAssertFalse(source.contains("GroupSelfMembershipStorageItem"), path)
             XCTAssertFalse(source.contains("GroupMemberStorageItem"), path)
             XCTAssertFalse(source.contains("GroupInviteStorageItem"), path)
-            XCTAssertTrue(source.contains("GroupRepository"), path)
+            XCTAssertTrue(source.contains("GroupRepository") || source.contains("CanonicalGroupListUIQuery"), path)
         }
     }
 

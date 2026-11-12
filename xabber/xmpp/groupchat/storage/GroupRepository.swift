@@ -1445,6 +1445,41 @@ extension GroupRepository {
             }
     }
 
+    /// Presentation metadata for a group already identified in the roster.
+    /// An absent snapshot is different from a recorded departure or deletion.
+    func rosterListMetadata(
+        owner: String,
+        groupJID: String
+    ) throws -> (snapshot: GroupSnapshot?, isTerminal: Bool) {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        let snapshot = realm.object(
+            ofType: GroupSnapshotStorageItem.self,
+            forPrimaryKey: context.groupPrimary
+        )
+        let membership = realm.object(
+            ofType: GroupSelfMembershipStorageItem.self,
+            forPrimaryKey: context.groupPrimary
+        )
+        return (
+            snapshot.map { makeSnapshot($0, fallbackJID: context.groupJID) },
+            membership?.stateRaw == GroupSelfMembershipState.none.rawValue ||
+                snapshot?.lifecycleStateRaw == GroupLifecycleState.inactive.rawValue
+        )
+    }
+
+    /// Roster-backed rows can change even when the canonical list of active
+    /// groups hasn't changed, for example when privacy metadata first arrives.
+    func observeRosterListMetadata(_ onChange: @escaping () -> Void) -> [NotificationToken] {
+        [
+            realm.objects(GroupSnapshotStorageItem.self).observe { _ in onChange() },
+            realm.objects(GroupSelfMembershipStorageItem.self).observe { _ in onChange() },
+            realm.objects(GroupMemberStorageItem.self).observe { _ in onChange() },
+            realm.objects(GroupInviteStorageItem.self)
+                .filter("directionRaw == %@", GroupInviteDirection.incoming.rawValue)
+                .observe { _ in onChange() }
+        ]
+    }
+
     func incomingInvites(owners: [String]? = nil) -> [GroupInviteRecord] {
         let normalizedOwners = normalizedListOwners(owners)
         if owners != nil, normalizedOwners?.isEmpty == true {

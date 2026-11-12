@@ -171,6 +171,51 @@ final class ContactsListAppearanceTests: XCTestCase {
         )
     }
 
+    private func addGroupRosterItem(
+        owner: String,
+        jid: String,
+        entity: RosterItemEntity? = nil,
+        subscription: RosterStorageItem.Subsccribtion = .both,
+        in realm: Realm
+    ) throws {
+        addRosterItem(owner: owner, jid: jid, subscription: subscription)
+        guard let entity else { return }
+        let resource = ResourceStorageItem()
+        resource.owner = owner
+        resource.jid = jid
+        resource.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: resource.resource)
+        resource.entity = entity
+        try realm.write { realm.add(resource, update: .modified) }
+    }
+
+    private func addSyncedChatProjection(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .group,
+        in realm: Realm
+    ) throws {
+        let chat = LastChatsStorageItem()
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = conversationType
+        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
+        try realm.write { realm.add(chat, update: .modified) }
+    }
+
+    private func loadGroupsRows(in controller: ContactsViewController) async -> [ContactsViewController.Datasource] {
+        controller.isGroup = true
+        controller.loadViewIfNeeded()
+        let didApplyDataset = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            controller.currentSnapshotIsResolved
+        }, object: nil)
+        await fulfillment(of: [didApplyDataset], timeout: 3)
+        return groupRows(in: controller)
+    }
+
+    private func groupRows(in controller: ContactsViewController) -> [ContactsViewController.Datasource] {
+        controller.datasource.flatMap { $0 }.filter { !$0.isHeader && !$0.isButton }
+    }
+
     private func deriveContactsState(
         category: String?,
         filteredAccounts: Set<String> = [],
@@ -704,7 +749,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertFalse(controller.emptyView.isOpaque)
         XCTAssertEqual(
             (controller.navigationItem.titleView as? ListNavigationTitleView)?.titleLabel.text,
-            L10n.text("contacts__list__public_groups", fallback: "Public Groups")
+            L10n.text("contacts__list__groups", fallback: "Groups")
         )
     }
 
@@ -1030,8 +1075,13 @@ final class ContactsListAppearanceTests: XCTestCase {
         let controller = ContactsCategoryViewController()
         controller.isGroup = true
         controller.loadViewIfNeeded()
-        controller.filterDidSelect(category: "public")
+        let groups = ContactsViewController()
+        groups.isGroup = true
+        groups.categoryDelegate = controller
+        groups.loadViewIfNeeded()
 
+        XCTAssertEqual(controller.filterCategory, "all")
+        XCTAssertEqual(controller.datasource[1].map(\.key), ["all", "public", "incognito", "private"])
         XCTAssertTrue(controller.tableView.indexPathsForSelectedRows?.isEmpty ?? true)
 
         let selectedCell = controller.tableView(
@@ -1044,6 +1094,10 @@ final class ContactsListAppearanceTests: XCTestCase {
         )
         XCTAssertNil(selectedCell.backgroundConfiguration?.visualEffect)
         assertNoSelectionOutline(in: selectedCell)
+
+        controller.filterDidSelect(category: "public")
+        let publicCell = controller.tableView(controller.tableView, cellForRowAt: IndexPath(row: 1, section: 1))
+        XCTAssertEqual(publicCell.backgroundColor, AccountColorManager.shared.palette(for: owner).tint50)
     }
 
     func testGroupsCategoryIntroHeaderIsInformationalOnly() {
@@ -1077,7 +1131,7 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertTrue(controller.tableView(controller.tableView, shouldHighlightRowAt: categoryIndexPath))
         XCTAssertEqual(controller.tableView(controller.tableView, willSelectRowAt: categoryIndexPath), categoryIndexPath)
         controller.tableView(controller.tableView, didSelectRowAt: categoryIndexPath)
-        XCTAssertEqual(spy.categoryFilters, ["public"])
+        XCTAssertEqual(spy.categoryFilters, ["all"])
     }
 
     func testContactsOnlineFilterHiddenWhenCurrentUnfilteredScopeHasNoRosterRows() {
@@ -1160,6 +1214,122 @@ final class ContactsListAppearanceTests: XCTestCase {
         let derivedState = deriveContactsState(category: "public", isGroup: true)
 
         XCTAssertEqual(derivedState.filterablePresenceRowCount, 0)
+    }
+
+    func testDefaultGroupsShowsMutuallySubscribedGroupRosterEntriesWithoutDuplicates() async throws {
+        let realm = try WRealm.safe()
+        let owner = "groups-roster-owner@example.com"
+        let rosterOnly = "roster-only@groups.example.com"
+        let rosterAndSync = "roster-and-sync@groups.example.com"
+        let rosterAndSnapshot = "roster-and-snapshot@groups.example.com"
+        let otherOwner = "other-owner@example.com"
+        let crossAccount = "other-account@groups.example.com"
+        let confirmed = "confirmed@groups.example.com"
+        let pending = "pending@groups.example.com"
+        let syncOnly = "sync-only@groups.example.com"
+        let left = "left@groups.example.com"
+        let contact = "contact@example.com"
+        addEnabledAccount(owner: owner)
+        addEnabledAccount(owner: otherOwner)
+        try addGroupRosterItem(owner: owner, jid: rosterOnly, entity: .groupchat, in: realm)
+        try addGroupRosterItem(owner: owner, jid: rosterAndSync.uppercased(), in: realm)
+        try addSyncedChatProjection(owner: owner, jid: rosterAndSync, in: realm)
+        try addGroupRosterItem(owner: owner, jid: rosterAndSnapshot, in: realm)
+        try GroupRepository(realm: realm).applySnapshot(
+            GroupSnapshot(jid: rosterAndSnapshot, privacy: .incognito, info: GroupInfo(name: "Cached group name")),
+            owner: owner,
+            groupJID: rosterAndSnapshot
+        )
+        try addGroupRosterItem(owner: owner, jid: crossAccount, in: realm)
+        try addSyncedChatProjection(owner: otherOwner, jid: crossAccount, in: realm)
+        addJoinedGroup(owner: owner, jid: confirmed)
+        try addSyncedChatProjection(owner: owner, jid: confirmed, in: realm)
+        try addGroupRosterItem(owner: owner, jid: pending, entity: .groupchat, subscription: .to, in: realm)
+        try addSyncedChatProjection(owner: owner, jid: pending, in: realm)
+        try addSyncedChatProjection(owner: owner, jid: syncOnly, in: realm)
+        try addGroupRosterItem(owner: owner, jid: left, entity: .groupchat, in: realm)
+        try addSyncedChatProjection(owner: owner, jid: left, in: realm)
+        try GroupRepository(realm: realm).setSelfMembership(.none, memberID: nil, owner: owner, groupJID: left)
+        addRosterItem(owner: owner, jid: contact)
+        try addSyncedChatProjection(owner: owner, jid: contact, conversationType: .regular, in: realm)
+
+        let controller = ContactsViewController()
+        let rows = await loadGroupsRows(in: controller)
+
+        XCTAssertEqual(controller.category, "all")
+        XCTAssertEqual(rows.map(\.jid).sorted(), [confirmed, rosterAndSnapshot, rosterAndSync, rosterOnly].sorted())
+        XCTAssertEqual(rows.first(where: { $0.jid == rosterAndSnapshot })?.title, "Cached group name")
+        XCTAssertTrue(rows.allSatisfy { $0.conversationType == .group })
+        withExtendedLifetime(realm) {}
+    }
+
+    func testGroupPrivacyFiltersUseKnownPrivacyAndKeepUnknownGroupsInAll() async throws {
+        let realm = try WRealm.safe()
+        let owner = "groups-privacy-owner@example.com"
+        let publicGroup = "public@groups.example.com"
+        let incognitoGroup = "incognito@groups.example.com"
+        let unknownGroup = "unknown@groups.example.com"
+        addEnabledAccount(owner: owner)
+        try addGroupRosterItem(owner: owner, jid: publicGroup, entity: .groupchat, in: realm)
+        try addGroupRosterItem(owner: owner, jid: incognitoGroup, entity: .incognitoChat, in: realm)
+        try addGroupRosterItem(owner: owner, jid: unknownGroup, in: realm)
+        try addSyncedChatProjection(owner: owner, jid: unknownGroup, in: realm)
+
+        for (category, expected) in [
+            ("all", [publicGroup, incognitoGroup, unknownGroup]),
+            ("public", [publicGroup]),
+            ("incognito", [incognitoGroup])
+        ] {
+            let controller = ContactsViewController()
+            controller.category = category
+            let rows = await loadGroupsRows(in: controller)
+
+            XCTAssertEqual(rows.map(\.jid).sorted(), expected.sorted(), "Category: \(category)")
+        }
+        withExtendedLifetime(realm) {}
+    }
+
+    func testOpenGroupsUpdatesWhenChatKindAndRosterMembershipChange() async throws {
+        let realm = try WRealm.safe()
+        let owner = "live-groups-owner@example.com"
+        let known = "known@groups.example.com"
+        let late = "late@groups.example.com"
+        addEnabledAccount(owner: owner)
+        try addGroupRosterItem(owner: owner, jid: known, entity: .groupchat, subscription: .to, in: realm)
+        try addGroupRosterItem(owner: owner, jid: late, in: realm)
+        let knownRoster = try XCTUnwrap(realm.object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: known, owner: owner)
+        ))
+        let lateRoster = try XCTUnwrap(realm.object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: late, owner: owner)
+        ))
+        let controller = ContactsViewController()
+        controller.category = "all"
+        let initialRows = await loadGroupsRows(in: controller)
+        XCTAssertTrue(initialRows.isEmpty)
+
+        func waitForRows(_ expected: [String]) async {
+            let expected = expected.sorted()
+            let didPublishRows = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                self.groupRows(in: controller).map(\.jid).sorted() == expected
+            }, object: nil)
+            await fulfillment(of: [didPublishRows], timeout: 3)
+            XCTAssertEqual(groupRows(in: controller).map(\.jid).sorted(), expected)
+        }
+
+        controller.subscribe()
+        defer { controller.unsubscribe() }
+        try realm.write { knownRoster.subscribtion = .both }
+        // Observe a completed subscription refresh before inserting the new chat.
+        await waitForRows([known])
+
+        try addSyncedChatProjection(owner: owner, jid: late, in: realm)
+        await waitForRows([known, late])
+
+        try realm.write { lateRoster.subscribtion = .none }
+        await waitForRows([known])
     }
 
     func testGroupsInvitationOnlyScopeDoesNotCountAsOnlineFilterData() {
@@ -1399,19 +1569,19 @@ final class ContactsListAppearanceTests: XCTestCase {
 
         container.loadViewIfNeeded()
 
-        XCTAssertEqual(controller.category, "public")
+        XCTAssertEqual(controller.category, "all")
         XCTAssertTrue(controller.showOffline)
         XCTAssertFalse(controller.isContactsCompactOnlineFilterActive)
 
         controller.contactsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(controller.category, "public")
+        XCTAssertEqual(controller.category, "all")
         XCTAssertFalse(controller.showOffline)
         XCTAssertTrue(controller.isContactsCompactOnlineFilterActive)
 
         controller.contactsCompactBottomBarFilterButton.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(controller.category, "public")
+        XCTAssertEqual(controller.category, "all")
         XCTAssertTrue(controller.showOffline)
         XCTAssertFalse(controller.isContactsCompactOnlineFilterActive)
     }
@@ -1455,14 +1625,14 @@ final class ContactsListAppearanceTests: XCTestCase {
     func testGroupsCompactTitleSurvivesRepeatedBarConfiguration() {
         let controller = ContactsViewController()
         controller.isGroup = true
-        let publicGroups = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
+        let groups = L10n.text("contacts__list__groups", fallback: "Groups")
 
         controller.loadViewIfNeeded()
-        XCTAssertEqual(controller.title, publicGroups)
+        XCTAssertEqual(controller.title, groups)
 
         controller.configureBars(animated: false)
 
-        XCTAssertEqual(controller.title, publicGroups)
+        XCTAssertEqual(controller.title, groups)
     }
 
     func testContactsAndGroupsCompactTitlesSurviveAccountFilterBarRefresh() {
@@ -1479,7 +1649,7 @@ final class ContactsListAppearanceTests: XCTestCase {
 
         groupsController.shouldFilterBy(account: "owner@example.com")
 
-        XCTAssertEqual(groupsController.title, L10n.text("contacts__list__public_groups", fallback: "Public Groups"))
+        XCTAssertEqual(groupsController.title, L10n.text("contacts__list__groups", fallback: "Groups"))
     }
 
     func testContactsAndGroupsCompactCategoryTitlesUpdateInStableSharedCapsules() throws {

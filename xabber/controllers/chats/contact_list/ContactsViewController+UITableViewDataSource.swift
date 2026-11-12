@@ -39,7 +39,7 @@ enum ContactsFooterLocalization {
         }
 
         switch category {
-        case "all":
+        case "all" where !isGroup:
             return contacts(count)
         case "online":
             return L10n.plural(
