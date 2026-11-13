@@ -29,6 +29,12 @@ extension Notification.Name {
 
 class ServerDiscoManager: AbstractXMPPManager {
 
+    enum PrivacyProxyDiscovery: Equatable {
+        case unknown
+        case notAdvertised
+        case advertised(URL)
+    }
+
     enum CloudDiscoveryTerminalKind: Equatable {
         case response
         case error
@@ -86,6 +92,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     private var groupServiceCandidateRanks: [String: Int] = [:]
     private var discoveredGroupServiceRank: Int?
     private var activeCloudDiscoveryQuery: ActiveCloudDiscoveryQuery?
+    private var discoveredPrivacyProxy: PrivacyProxyDiscovery = .unknown
     private var accountOwnerCapabilityGeneration: UInt64 = 0
     private var accountOwnerCapabilityDiscovery: AccountOwnerCapabilityDiscovery?
     private weak var accountOwnerCapabilityStream: XMPPStream?
@@ -96,6 +103,12 @@ class ServerDiscoManager: AbstractXMPPManager {
         groupServiceLock.lock()
         defer { groupServiceLock.unlock() }
         return discoveredGroupServiceJID
+    }
+
+    var privacyProxyDiscovery: PrivacyProxyDiscovery {
+        cloudDiscoveryLock.lock()
+        defer { cloudDiscoveryLock.unlock() }
+        return discoveredPrivacyProxy
     }
 
     var activeCloudDiscoveryQueryIDForTesting: String? {
@@ -197,6 +210,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     func requestServerFeatures(_ xmppStream: XMPPStream) {
+        guard let serverJID = XMPPJID(string: owner)?.domainJID else { return }
         let elementId = xmppStream.generateUUID
         cloudDiscoveryLock.lock()
         guard activeCloudDiscoveryQuery == nil else {
@@ -246,7 +260,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             execute: timeoutWorkItem
         )
         xmppStream.send(XMPPIQ(iqType: .get,
-                               to: xmppStream.myJID?.domainJID,
+                               to: serverJID,
                                elementID: elementId,
                                child: DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")))
         cloudDiscoveryLock.unlock()
@@ -331,11 +345,12 @@ class ServerDiscoManager: AbstractXMPPManager {
             return true
         }
 
-        guard let activeDiscovery = consumeActiveCloudDiscovery(
-            elementID: elementID,
-            terminal: .error,
-            requiresRegisteredQuery: true
-        ) else {
+        guard isRootServerSender(iq.from),
+              let activeDiscovery = consumeActiveCloudDiscovery(
+                elementID: elementID,
+                terminal: .error,
+                requiresRegisteredQuery: true
+              ) else {
             return false
         }
         AccountManager.shared.find(for: owner)?.cloudStorage.markAvailabilityRetryableFailure(stage: .discovery)
@@ -354,22 +369,24 @@ class ServerDiscoManager: AbstractXMPPManager {
         let activeServerDiscovery: ActiveCloudDiscoveryQuery?
         let accountOwnerCapabilityGeneration: UInt64?
         let accountOwnerResponseStream: XMPPStream?
-        if query.xmlns() == "http://jabber.org/protocol/disco#info" {
+        let isDiscoInfo = query.xmlns() == "http://jabber.org/protocol/disco#info"
+        if isDiscoInfo,
+           isRootServerSender(iq.from),
+           (query.attributeStringValue(forName: "node") ?? "").isEmpty {
             activeServerDiscovery = consumeActiveCloudDiscovery(
                 elementID: elementId,
                 terminal: .response,
-                requiresRegisteredQuery: true
+                requiresRegisteredQuery: true,
+                serverInfo: query
             )
-            if activeServerDiscovery == nil {
-                let claim = claimAccountOwnerCapabilityQuery(elementID: elementId, sender: iq.from)
-                accountOwnerCapabilityGeneration = claim?.generation
-                accountOwnerResponseStream = claim?.stream
-            } else {
-                accountOwnerCapabilityGeneration = nil
-                accountOwnerResponseStream = nil
-            }
         } else {
             activeServerDiscovery = nil
+        }
+        if activeServerDiscovery == nil, isDiscoInfo {
+            let claim = claimAccountOwnerCapabilityQuery(elementID: elementId, sender: iq.from)
+            accountOwnerCapabilityGeneration = claim?.generation
+            accountOwnerResponseStream = claim?.stream
+        } else {
             accountOwnerCapabilityGeneration = nil
             accountOwnerResponseStream = nil
         }
@@ -542,6 +559,39 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
     }
 
+    private func isRootServerSender(_ sender: XMPPJID?) -> Bool {
+        guard let domain = XMPPJID(string: owner)?.domain else { return false }
+        return sender?.full == domain
+    }
+
+    private static func parsePrivacyProxyEndpoint(_ query: DDXMLElement) -> URL? {
+        for form in query.elements(forLocalName: "x", uri: "jabber:x:data")
+        where form.attributeStringValue(forName: "type") == "result" {
+            let fields = form.elements(forLocalName: "field", uri: "jabber:x:data")
+            func value(for fieldName: String) -> String? {
+                fields.first { $0.attributeStringValue(forName: "var") == fieldName }?
+                    .elements(forLocalName: "value", uri: "jabber:x:data").first?.stringValue
+            }
+            guard value(for: "FORM_TYPE") == "urn:xabber:http:url",
+                  let rawURL = value(for: "urn:xabber:http:url:privacyproxy") else {
+                continue
+            }
+            let baseURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard var components = URLComponents(string: baseURL),
+                  components.scheme?.lowercased() == "https",
+                  let host = components.host, !host.isEmpty,
+                  components.user == nil, components.password == nil,
+                  components.query == nil, components.fragment == nil else {
+                continue
+            }
+            if !components.percentEncodedPath.hasSuffix("/") {
+                components.percentEncodedPath += "/"
+            }
+            return components.url
+        }
+        return nil
+    }
+
     @discardableResult
     private func parseAndStoreUrls(
         query: DDXMLElement,
@@ -640,7 +690,8 @@ class ServerDiscoManager: AbstractXMPPManager {
     private func consumeActiveCloudDiscovery(
         elementID: String?,
         terminal: CloudDiscoveryTerminalKind,
-        requiresRegisteredQuery: Bool
+        requiresRegisteredQuery: Bool,
+        serverInfo: DDXMLElement? = nil
     ) -> ActiveCloudDiscoveryQuery? {
         cloudDiscoveryLock.lock()
         guard let activeQuery = activeCloudDiscoveryQuery,
@@ -648,6 +699,10 @@ class ServerDiscoManager: AbstractXMPPManager {
               !requiresRegisteredQuery || activeQuery.phase == .registered else {
             cloudDiscoveryLock.unlock()
             return nil
+        }
+        if let serverInfo {
+            discoveredPrivacyProxy = Self.parsePrivacyProxyEndpoint(serverInfo)
+                .map(PrivacyProxyDiscovery.advertised) ?? .notAdvertised
         }
         activeCloudDiscoveryQuery = nil
         cloudDiscoveryLock.unlock()

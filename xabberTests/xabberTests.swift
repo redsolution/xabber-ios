@@ -41259,8 +41259,9 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
     }
 
     private func makeMediaGalleryDiscoIQ(id: String, galleryURL: String) throws -> XMPPIQ {
+        let domain = try XCTUnwrap(XMPPJID(string: owner)?.domain)
         let document = try DDXMLDocument(xmlString: """
-        <iq type="result" id="\(id)" from="xabber.com">
+        <iq type="result" id="\(id)" from="\(domain)">
           <query xmlns="http://jabber.org/protocol/disco#info">
             <x xmlns="jabber:x:data" type="result">
               <field var="FORM_TYPE"><value>urn:xabber:http:url</value></field>
