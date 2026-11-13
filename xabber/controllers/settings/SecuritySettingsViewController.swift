@@ -47,7 +47,7 @@ final class SecuritySettingsViewController: BaseViewController, UITableViewDataS
         guard !isObserving else { return }
         isObserving = true
         let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(discoveryDidChange), name: .privacyProxyDiscoveryDidChange, object: nil)
+        center.addObserver(self, selector: #selector(proxyAvailabilityDidChange), name: .privacyProxyAvailabilityDidChange, object: nil)
         center.addObserver(self, selector: #selector(premiumDidChange), name: .premiumEntitlementDidChange, object: nil)
         center.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         refreshAll()
@@ -57,10 +57,9 @@ final class SecuritySettingsViewController: BaseViewController, UITableViewDataS
         super.viewDidDisappear(animated)
         isObserving = false
         NotificationCenter.default.removeObserver(self)
-        proxySettings.forEach { $0.stopProbing() }
     }
 
-    @objc private func discoveryDidChange(_ notification: Notification) {
+    @objc private func proxyAvailabilityDidChange(_ notification: Notification) {
         refreshOwner(notification.userInfo?["owner"] as? String)
     }
 
@@ -82,7 +81,7 @@ final class SecuritySettingsViewController: BaseViewController, UITableViewDataS
     }
 
     private func refreshAll() {
-        proxySettings.forEach { $0.refresh(forceProbe: true) }
+        proxySettings.forEach { $0.refresh() }
     }
 
     func numberOfSections(in tableView: UITableView) -> Int {

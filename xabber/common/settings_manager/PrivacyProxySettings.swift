@@ -3,12 +3,7 @@ import XMPPFramework
 
 @MainActor
 final class PrivacyProxySettings {
-    enum Availability: Equatable {
-        case checking
-        case notAdvertised
-        case unreachable(host: String)
-        case reachable(host: String)
-    }
+    typealias Availability = PrivacyProxyReachability.Availability
 
     struct State: Equatable {
         let availability: Availability
@@ -28,15 +23,10 @@ final class PrivacyProxySettings {
     var onChange: ((State) -> Void)?
 
     private let policy: CommonConfigManager.PrivacyProxyPolicy
-    private let discovery: () -> ServerDiscoManager.PrivacyProxyDiscovery
+    private let availability: () -> Availability
     private let hasActivePremium: () -> Bool
     private let readPreference: () -> Bool
     private let writePreference: (Bool) -> Void
-    private let probe: (URL) async -> Bool
-
-    private var probeTask: Task<Void, Never>?
-    private var probingEndpoint: URL?
-    private var lastProbe: (endpoint: URL, reachable: Bool)?
 
     convenience init(owner: String) {
         let owner = XMPPJID(string: owner)?.bare ?? owner
@@ -44,113 +34,47 @@ final class PrivacyProxySettings {
         let preferenceKey = SettingManager.privacyProxyEnabledKey
         self.init(
             policy: policy,
-            discovery: { AccountManager.shared.find(for: owner)?.disco.privacyProxyDiscovery ?? .unknown },
+            availability: { AccountManager.shared.find(for: owner)?.disco.privacyProxyAvailability ?? .checking },
             hasActivePremium: { SubscribtionsManager.shared.hasActiveSubsription(for: owner) },
             readPreference: {
                 SettingManager.shared.getKeyBool(for: owner, scope: .security, key: preferenceKey) ?? false
             },
             writePreference: {
                 SettingManager.shared.saveItem(for: owner, scope: .security, key: preferenceKey, value: $0)
-            },
-            probe: PrivacyProxyReachability.check
+            }
         )
     }
 
     init(
         policy: CommonConfigManager.PrivacyProxyPolicy,
-        discovery: @escaping () -> ServerDiscoManager.PrivacyProxyDiscovery,
+        availability: @escaping () -> Availability,
         hasActivePremium: @escaping () -> Bool,
         readPreference: @escaping () -> Bool,
-        writePreference: @escaping (Bool) -> Void,
-        probe: @escaping (URL) async -> Bool
+        writePreference: @escaping (Bool) -> Void
     ) {
         self.policy = policy
-        self.discovery = discovery
+        self.availability = availability
         self.hasActivePremium = hasActivePremium
         self.readPreference = readPreference
         self.writePreference = writePreference
-        self.probe = probe
     }
 
-    deinit {
-        probeTask?.cancel()
-    }
-
-    func refresh(forceProbe: Bool = false) {
-        guard policy != .never else {
-            reset(to: .notAdvertised)
-            return
-        }
-        switch discovery() {
-        case .unknown:
-            reset(to: .checking)
-        case .notAdvertised:
-            reset(to: .notAdvertised)
-        case .advertised(let endpoint):
-            refresh(endpoint: endpoint, forceProbe: forceProbe)
-        }
-    }
-
-    func stopProbing() {
-        probeTask?.cancel()
-        probeTask = nil
-        probingEndpoint = nil
+    func refresh() {
+        updateState(policy == .never ? .notAdvertised : availability())
     }
 
     @discardableResult
     func setEnabled(_ enabled: Bool) -> Bool {
-        guard probingEndpoint == nil,
-              let lastProbe, lastProbe.reachable,
-              discovery() == .advertised(lastProbe.endpoint),
-              policy.canEnableProxyInSettings(hasActivePremium: policy == .payed && hasActivePremium()) else {
+        guard policy.canEnableProxyInSettings(hasActivePremium: policy == .payed && hasActivePremium()),
+              case .reachable = availability() else {
             refresh()
             return false
         }
         if readPreference() != enabled {
             writePreference(enabled)
         }
-        updateState(.reachable(host: host(for: lastProbe.endpoint)))
+        refresh()
         return true
-    }
-
-    private func refresh(endpoint: URL, forceProbe: Bool) {
-        guard endpoint != probingEndpoint else { return }
-        stopProbing()
-        if !forceProbe, let lastProbe, lastProbe.endpoint == endpoint {
-            updateState(availability(for: endpoint, reachable: lastProbe.reachable))
-            return
-        }
-
-        lastProbe = nil
-        probingEndpoint = endpoint
-        probeTask = Task { [weak self, probe] in
-            let reachable = await probe(endpoint)
-            guard !Task.isCancelled, let self else { return }
-            self.probeTask = nil
-            self.probingEndpoint = nil
-            guard self.discovery() == .advertised(endpoint) else {
-                self.refresh()
-                return
-            }
-            self.lastProbe = (endpoint, reachable)
-            self.updateState(self.availability(for: endpoint, reachable: reachable))
-        }
-        updateState(.checking)
-    }
-
-    private func reset(to availability: Availability) {
-        stopProbing()
-        lastProbe = nil
-        updateState(availability)
-    }
-
-    private func availability(for endpoint: URL, reachable: Bool) -> Availability {
-        let host = host(for: endpoint)
-        return reachable ? .reachable(host: host) : .unreachable(host: host)
-    }
-
-    private func host(for endpoint: URL) -> String {
-        endpoint.host ?? endpoint.absoluteString
     }
 
     private func updateState(_ availability: Availability) {
@@ -174,7 +98,81 @@ final class PrivacyProxySettings {
     }
 }
 
-private final class PrivacyProxyReachability: NSObject, URLSessionTaskDelegate {
+@MainActor
+final class PrivacyProxyReachability {
+    enum Availability: Equatable {
+        case checking
+        case notAdvertised
+        case unreachable(host: String)
+        case reachable(host: String)
+    }
+
+    private let probe: (URL) async -> Bool
+    private let onChange: (Availability) -> Void
+    private var discovery: ServerDiscoManager.PrivacyProxyDiscovery = .unknown
+    private var isConnected = false
+    private var task: Task<Void, Never>?
+
+    private(set) var availability: Availability = .checking {
+        didSet {
+            if availability != oldValue { onChange(availability) }
+        }
+    }
+
+    init(probe: @escaping (URL) async -> Bool, onChange: @escaping (Availability) -> Void) {
+        self.probe = probe
+        self.onChange = onChange
+    }
+
+    deinit { task?.cancel() }
+
+    func connect(discovery: ServerDiscoManager.PrivacyProxyDiscovery) {
+        updateDiscovery(discovery)
+        guard !isConnected else { return }
+        isConnected = true
+        startProbeIfNeeded()
+    }
+
+    func disconnect() {
+        isConnected = false
+        cancelProbe()
+    }
+
+    func updateDiscovery(_ discovery: ServerDiscoManager.PrivacyProxyDiscovery) {
+        guard self.discovery != discovery else { return }
+        self.discovery = discovery
+        cancelProbe()
+        availability = discovery == .notAdvertised ? .notAdvertised : .checking
+        startProbeIfNeeded()
+    }
+
+    func availability(for discovery: ServerDiscoManager.PrivacyProxyDiscovery) -> Availability {
+        if discovery == self.discovery { return availability }
+        return discovery == .notAdvertised ? .notAdvertised : .checking
+    }
+
+    private func cancelProbe() {
+        task?.cancel()
+        task = nil
+    }
+
+    private func startProbeIfNeeded() {
+        guard isConnected, task == nil,
+              case .advertised(let endpoint) = discovery else { return }
+        if case .reachable = availability { return }
+        task = Task { [weak self, probe] in
+            guard !Task.isCancelled else { return }
+            let reachable = await probe(endpoint)
+            guard !Task.isCancelled, let self else { return }
+            self.task = nil
+            let host = endpoint.host ?? endpoint.absoluteString
+            self.availability = reachable ? .reachable(host: host) : .unreachable(host: host)
+        }
+        availability = .checking
+    }
+}
+
+final class PrivacyProxyHTTPProbe: NSObject, URLSessionTaskDelegate {
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 4
@@ -182,7 +180,7 @@ private final class PrivacyProxyReachability: NSObject, URLSessionTaskDelegate {
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
-        return URLSession(configuration: configuration, delegate: PrivacyProxyReachability(), delegateQueue: nil)
+        return URLSession(configuration: configuration, delegate: PrivacyProxyHTTPProbe(), delegateQueue: nil)
     }()
 
     static func check(_ endpoint: URL) async -> Bool {

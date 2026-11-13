@@ -18,7 +18,7 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
 
     @MainActor
     func testMissingProxyShowsStatusWithoutSwitch() {
-        let settings = makeSettings(discovery: .notAdvertised)
+        let settings = makeSettings(availability: .notAdvertised)
         let controller = SecuritySettingsViewController(owners: ["alice@example.com"]) { _ in settings }
         controller.loadViewIfNeeded()
         settings.refresh()
@@ -35,7 +35,7 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
     func testRouteCardsRemainReadableAtCompactAndWideWidths() throws {
         let controller = SecuritySettingsViewController(owners: []) { _ in
             XCTFail("The illustration does not require an account")
-            return makeSettings(discovery: .notAdvertised)
+            return makeSettings(availability: .notAdvertised)
         }
         controller.loadViewIfNeeded()
         let indexPath = IndexPath(row: 1, section: controller.numberOfSections(in: controller.tableView) - 1)
@@ -81,25 +81,16 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
     }
 
     @MainActor
-    func testReachableProxyShowsOneSwitchAndSavesTheLocalChoice() async throws {
+    func testReachableProxyShowsOneSwitchAndSavesTheLocalChoice() throws {
         var preference = false
         let settings = makeSettings(
-            discovery: .advertised(URL(string: "https://proxy.example.com/")!),
+            availability: .reachable(host: "proxy.example.com"),
             readPreference: { preference },
             writePreference: { preference = $0 }
         )
         let controller = SecuritySettingsViewController(owners: ["alice@example.com"]) { _ in settings }
         controller.loadViewIfNeeded()
-        let previousOnChange = settings.onChange
-        let reachable = expectation(description: "Reachable proxy rendered")
-        settings.onChange = { state in
-            previousOnChange?(state)
-            if state.showsSwitch { reachable.fulfill() }
-        }
-
         settings.refresh()
-        await fulfillment(of: [reachable], timeout: 2)
-        settings.onChange = previousOnChange
 
         XCTAssertEqual(controller.tableView(controller.tableView, numberOfRowsInSection: 0), 1)
         let cell = controller.tableView(
@@ -119,17 +110,16 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
 
     @MainActor
     private func makeSettings(
-        discovery: ServerDiscoManager.PrivacyProxyDiscovery,
+        availability: PrivacyProxySettings.Availability,
         readPreference: @escaping () -> Bool = { false },
         writePreference: @escaping (Bool) -> Void = { _ in }
     ) -> PrivacyProxySettings {
         PrivacyProxySettings(
             policy: .manual,
-            discovery: { discovery },
+            availability: { availability },
             hasActivePremium: { false },
             readPreference: readPreference,
-            writePreference: writePreference,
-            probe: { _ in true }
+            writePreference: writePreference
         )
     }
 }

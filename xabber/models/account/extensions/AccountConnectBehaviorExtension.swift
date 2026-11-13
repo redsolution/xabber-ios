@@ -45,6 +45,7 @@ extension Account {
         registerRegularPushForAccount()
         registerVoIPPushForAccount()
         self.configureBase()
+        self.disco.privacyProxyStreamDidConnect()
         let didResume = self.sm.didResume
         if didResume && restoredSMCheckpoint {
             // Rebuild local capabilities while retaining the server session.
@@ -67,6 +68,10 @@ extension Account {
 //            self.presence()
             DispatchQueue.main.async {
                 ToastPresenter().presentSuccess(message: L10n.text("connection__stream_management__sm_did_resume", fallback: "Session resumed"))
+            }
+            if CommonConfigManager.shared.config.privacyProxyPolicy != .never,
+               self.disco.privacyProxyDiscovery == .unknown {
+                self.disco.requestServerFeatures(self.xmppStream)
             }
             self.cloudStorage.resumeAvailabilityWorkIfNeeded(
                 stream: self.xmppStream,

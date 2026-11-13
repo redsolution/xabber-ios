@@ -164,6 +164,56 @@ final class DevicesSessionResumePublicationTests: XCTestCase {
         f.account.sm = AuthenticationSM(storage: f.account.smStorage, dispatchQueue: f.account.queue)
         f.account.xmppStreamDidAuthenticate(f.wire)
     }
+
+    func testResumeRetriesUnfinishedProxyDiscoveryEvenWhenGalleryIsUnsupported() throws {
+        let config = CommonConfigManager.shared
+        let original = config.config
+        let data = try PropertyListEncoder().encode(original)
+        var values = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        func setPolicy(_ policy: String) throws {
+            values["privacy_proxy_policy"] = policy
+            let data = try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0)
+            config.config = try PropertyListDecoder().decode(CommonConfigManager.CommonConfig.self, from: data)
+        }
+        defer { config.config = original }
+
+        let f = try fixture()
+        let rootQueries = {
+            f.wire.packets.compactMap { $0 as? XMPPIQ }.filter {
+                $0.to?.full == "example.test"
+                    && $0.element(forName: "query", xmlns: "http://jabber.org/protocol/disco#info") != nil
+            }
+        }
+        f.account.cloudStorage.availabilityRelay.accept(.unsupported)
+
+        try setPolicy("never")
+        resume(f)
+        XCTAssertTrue(rootQueries().isEmpty)
+
+        try setPolicy("manual")
+        resume(f)
+        let first = try XCTUnwrap(rootQueries().first?.elementID)
+        XCTAssertEqual(rootQueries().count, 1)
+        resume(f)
+        XCTAssertEqual(rootQueries().count, 1, "An in-flight query must be shared")
+
+        f.account.disco.cancelCloudDiscoveryForDisconnect()
+        f.account.cloudStorage.availabilityRelay.accept(.unsupported)
+        resume(f)
+        let retry = try XCTUnwrap(rootQueries().last?.elementID)
+        XCTAssertNotEqual(first, retry)
+        XCTAssertEqual(rootQueries().count, 2)
+
+        let stale = try XMPPIQ(xmlString: "<iq type='result' from='example.test' id='\(first)'><query xmlns='http://jabber.org/protocol/disco#info'/></iq>")
+        _ = f.account.xmppStream(f.wire, didReceive: stale)
+        XCTAssertEqual(f.account.disco.privacyProxyDiscovery, .unknown)
+
+        let result = try XMPPIQ(xmlString: "<iq type='result' from='example.test' id='\(retry)'><query xmlns='http://jabber.org/protocol/disco#info'/></iq>")
+        XCTAssertTrue(f.account.xmppStream(f.wire, didReceive: result))
+        XCTAssertEqual(f.account.disco.privacyProxyDiscovery, .notAdvertised)
+        resume(f)
+        XCTAssertEqual(rootQueries().count, 2)
+    }
     private func waitForAccountQueue(_ account: Account) {
         let drained = expectation(description: "account queue fence")
         account.queue.async { drained.fulfill() }

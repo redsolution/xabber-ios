@@ -25,7 +25,7 @@ import XMPPFramework
 
 extension Notification.Name {
     static let groupServiceDiscoveryDidChange = Notification.Name("groupServiceDiscoveryDidChange")
-    static let privacyProxyDiscoveryDidChange = Notification.Name("privacyProxyDiscoveryDidChange")
+    static let privacyProxyAvailabilityDidChange = Notification.Name("privacyProxyAvailabilityDidChange")
 }
 
 class ServerDiscoManager: AbstractXMPPManager {
@@ -94,6 +94,14 @@ class ServerDiscoManager: AbstractXMPPManager {
     private var discoveredGroupServiceRank: Int?
     private var activeCloudDiscoveryQuery: ActiveCloudDiscoveryQuery?
     private var discoveredPrivacyProxy: PrivacyProxyDiscovery = .unknown
+    @MainActor private lazy var privacyProxyReachability = PrivacyProxyReachability(
+        probe: PrivacyProxyHTTPProbe.check,
+        onChange: { [owner = self.owner] _ in
+            NotificationCenter.default.post(
+                name: .privacyProxyAvailabilityDidChange, object: nil, userInfo: ["owner": owner]
+            )
+        }
+    )
     private var accountOwnerCapabilityGeneration: UInt64 = 0
     private var accountOwnerCapabilityDiscovery: AccountOwnerCapabilityDiscovery?
     private weak var accountOwnerCapabilityStream: XMPPStream?
@@ -110,6 +118,10 @@ class ServerDiscoManager: AbstractXMPPManager {
         cloudDiscoveryLock.lock()
         defer { cloudDiscoveryLock.unlock() }
         return discoveredPrivacyProxy
+    }
+
+    @MainActor var privacyProxyAvailability: PrivacyProxyReachability.Availability {
+        privacyProxyReachability.availability(for: privacyProxyDiscovery)
     }
 
     var activeCloudDiscoveryQueryIDForTesting: String? {
@@ -267,8 +279,19 @@ class ServerDiscoManager: AbstractXMPPManager {
         cloudDiscoveryLock.unlock()
     }
 
+    func privacyProxyStreamDidConnect() {
+        guard CommonConfigManager.shared.config.privacyProxyPolicy != .never else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.privacyProxyReachability.connect(discovery: self.privacyProxyDiscovery)
+        }
+    }
+
     @discardableResult
     func cancelCloudDiscoveryForDisconnect() -> Bool {
+        if CommonConfigManager.shared.config.privacyProxyPolicy != .never {
+            DispatchQueue.main.async { [weak self] in self?.privacyProxyReachability.disconnect() }
+        }
         resetGroupServiceDiscovery()
         cloudDiscoveryLock.lock()
         accountOwnerCapabilityStream = nil
@@ -713,14 +736,12 @@ class ServerDiscoManager: AbstractXMPPManager {
         activeQuery.timeoutWorkItem?.cancel()
         Self.cloudDiscoveryDidConsumeTerminalTestingHandler?(terminal)
         if didChangePrivacyProxy {
-            let ownerSnapshot = owner
-            PrivacyProxyMediaRouter.shared.publishPushRouting(owner: ownerSnapshot)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .privacyProxyDiscoveryDidChange,
-                    object: nil,
-                    userInfo: ["owner": ownerSnapshot]
-                )
+            PrivacyProxyMediaRouter.shared.publishPushRouting(owner: owner)
+            if CommonConfigManager.shared.config.privacyProxyPolicy != .never {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.privacyProxyReachability.updateDiscovery(self.privacyProxyDiscovery)
+                }
             }
         }
         return activeQuery
