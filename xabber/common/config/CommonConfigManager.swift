@@ -91,6 +91,30 @@ class CommonConfigManager: NSObject {
         case heavy = "heavy"
         case black = "black"
     }
+
+    enum PrivacyProxyPolicy: String {
+        case always
+        case manual
+        case payed
+        case never
+
+        var requiresProxyForExternalMedia: Bool {
+            self == .always
+        }
+
+        var showsProxyControls: Bool {
+            self == .manual || self == .payed
+        }
+
+        func canEnableProxyInSettings(hasActivePremium: Bool) -> Bool {
+            self == .manual || (self == .payed && hasActivePremium)
+        }
+
+        func usesProxy(localProxyEnabled: Bool, hasActivePremium: Bool) -> Bool {
+            requiresProxyForExternalMedia
+                || (localProxyEnabled && canEnableProxyInSettings(hasActivePremium: hasActivePremium))
+        }
+    }
     
     public struct CommonConfig: Codable {
         var locked_conversation_type: String
@@ -127,6 +151,7 @@ class CommonConfigManager: NSObject {
         var support_subscribtions: Bool
         var show_text_logo: Bool
         var default_privacy_level: String
+        private var privacy_proxy_policy: String?
         var auto_delete_messages_interval: Int
         var locked_account_color: String
         var locked_background: String
@@ -142,6 +167,10 @@ class CommonConfigManager: NSObject {
         var xabber_account_url: String
         var xabber_account_api_url: String
         var xabber_account_xmpp_jid: String
+
+        var privacyProxyPolicy: PrivacyProxyPolicy {
+            privacy_proxy_policy.flatMap(PrivacyProxyPolicy.init(rawValue:)) ?? .never
+        }
     }
     
     var interfaceType: InterfaceType {

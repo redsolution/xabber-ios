@@ -6,6 +6,9 @@
 	<integer>0</integer>
 	<key>default_privacy_level</key>
 	<string>server</string>
+	<!-- Privacy Proxy policy: always, manual, payed, or never. -->
+	<key>privacy_proxy_policy</key>
+	<string>never</string>
 	<key>blur_screen_when_enter_background</key>
 	<false/>
 	<key>show_server_features</key>
