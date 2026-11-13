@@ -74,6 +74,11 @@ extension SettingsViewController: UITableViewDelegate {
 
         if let key = menuItem.key {
             switch key {
+                case .securitySettings:
+                    let owners = accounts?.filter("enabled == true").map(\.jid) ?? [jid]
+                    let controller = SecuritySettingsViewController(owners: owners)
+                    navigationController?.pushViewController(controller, animated: true)
+                    return
                 case .accountSessions:
                     let vc = DevicesListViewController()
                     vc.configure(for: jid)

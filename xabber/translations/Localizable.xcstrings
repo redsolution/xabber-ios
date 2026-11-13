@@ -102697,6 +102697,594 @@
         }
       }
     },
+    "settings__proxy__checking": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحقق…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查…"
+          }
+        }
+      }
+    },
+    "settings__proxy__did_not_answer": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ did not answer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no respondió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas répondu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не ответил."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未响应。"
+          }
+        }
+      }
+    },
+    "settings__proxy__enabled": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفعّل"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включён"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已启用"
+          }
+        }
+      }
+    },
+    "settings__proxy__explanation": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غالبًا ما تتضمن الرسائل وسائط مستضافة على مواقع أخرى، مثل معاينات الروابط والصور ومقاطع الفيديو والرسائل الصوتية والمرئية والملفات المرفقة. وتشمل الوسائط أيضًا صور جهات الاتصال. عند تحميل أي منها مباشرة، يعرف الموقع عنوان IP الخاص بك والوقت التقريبي لقراءة الرسالة. يحمي وكيل الخصوصية عنوان IP الخاص بك من الانكشاف: فهو يجلب الوسائط نيابةً عنك، فلا يرى الموقع سوى الوكيل."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages often carry media hosted on other sites: link previews, pictures, videos, voice and video messages, attached files. Contacts' avatars are media too. Loading any of it directly tells that site your IP address and roughly when you read the message. A privacy proxy shields your IP address from being exposed: it fetches the media for you, so the site only ever sees the proxy."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes suelen incluir contenido alojado en otros sitios: vistas previas de enlaces, imágenes, vídeos, mensajes de voz y de vídeo, y archivos adjuntos. Los avatares de los contactos también cuentan. Al cargar ese contenido directamente, el sitio conoce tu dirección IP y aproximadamente cuándo leíste el mensaje. Un proxy de privacidad protege tu dirección IP: obtiene el contenido por ti, de modo que el sitio solo ve el proxy."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages contiennent souvent des médias hébergés sur d’autres sites : aperçus de liens, images, vidéos, messages vocaux et vidéo, et fichiers joints. Les avatars des contacts en font aussi partie. Un chargement direct révèle à ce site votre adresse IP et le moment approximatif où vous avez lu le message. Un proxy de confidentialité protège votre adresse IP : il récupère les médias pour vous, et le site ne voit que le proxy."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В сообщениях часто встречаются медиа с других сайтов: превью ссылок, картинки, видео, голосовые и видеосообщения, вложенные файлы. Аватары контактов тоже относятся к медиа. При прямой загрузке сайт узнаёт ваш IP-адрес и примерное время чтения сообщения. Прокси конфиденциальности скрывает ваш IP-адрес: он загружает медиа за вас, и сайт видит только прокси."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息中常有托管在其他网站上的媒体，例如链接预览、图片、视频、语音和视频消息，以及附件。联系人头像也属于媒体。直接加载这些内容会让对方网站知道您的 IP 地址和大致阅读时间。隐私代理会代您获取媒体，因此网站只能看到代理，无法看到您的 IP 地址。"
+          }
+        }
+      }
+    },
+    "settings__proxy__how_it_works": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلية العمل"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How it works"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo funciona"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonctionnement"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как это работает"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作原理"
+          }
+        }
+      }
+    },
+    "settings__proxy__not_available": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متاح"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponible"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступен"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用"
+          }
+        }
+      }
+    },
+    "settings__proxy__not_provided": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوفر %@ وكيل خصوصية"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ does not provide a privacy proxy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no ofrece un proxy de privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne fournit pas de proxy de confidentialité"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не предоставляет прокси конфиденциальности"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不提供隐私代理"
+          }
+        }
+      }
+    },
+    "settings__proxy__not_responding": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستجيب"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not responding"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No responde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne répond pas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не отвечает"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无响应"
+          }
+        }
+      }
+    },
+    "settings__proxy__premium_required": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يلزم اشتراك Premium لتفعيل وكيل الخصوصية."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium is required to enable the privacy proxy."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere Premium para activar el proxy de privacidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium est requis pour activer le proxy de confidentialité."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для включения прокси конфиденциальности нужна подписка Premium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用隐私代理需要 Premium 订阅。"
+          }
+        }
+      }
+    },
+    "settings__proxy__provider": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المزوّد: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provided by %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proporcionado por %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fourni par %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предоставляет %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 %@ 提供"
+          }
+        }
+      }
+    },
+    "settings__proxy__route_explanation": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يرى الموقع سوى الوكيل. أما الوكيل الذي يحدده خادمك فيرى عنوانك."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The site sees only the proxy. The proxy, named by your server, sees your address instead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El sitio solo ve el proxy. El proxy que indica tu servidor ve tu dirección."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le site ne voit que le proxy. Le proxy désigné par votre serveur voit votre adresse."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт видит только прокси. Прокси, указанный вашим сервером, видит ваш адрес."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网站只能看到代理。您的服务器指定的代理可以看到您的地址。"
+          }
+        }
+      }
+    },
+    "settings__proxy__title": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل الخصوصية"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy proxy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy de privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy de confidentialité"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прокси конфиденциальности"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私代理"
+          }
+        }
+      }
+    },
+    "settings__proxy__toggle": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحميل الوسائط الخارجية عبر وكيل الخصوصية"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load external media through the privacy proxy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar contenido externo a través del proxy de privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charger les médias externes via le proxy de confidentialité"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загружать внешние медиа через прокси конфиденциальности"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过隐私代理加载外部媒体"
+          }
+        }
+      }
+    },
+    "settings__proxy__what_it_does": {
+      "comment": "Privacy Proxy options in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وظيفته"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What it does"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué hace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À quoi sert-il"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для чего нужен прокси"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用途"
+          }
+        }
+      }
+    },
     "settings__section__security": {
       "comment": "Settings section title for security options.",
       "extractionState": "manual",

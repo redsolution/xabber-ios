@@ -230,6 +230,7 @@ extension SettingsViewController: UITableViewDataSource {
 
             let cell = tableView.dequeueReusableCell(withIdentifier: "SettingsItem", for: indexPath)
             cell.textLabel?.text = item.title
+            cell.accessibilityIdentifier = item.key == .securitySettings ? "settings.security" : nil
             cell.accessoryType = .disclosureIndicator
             if let icon = item.icon,
                let color = item.color {

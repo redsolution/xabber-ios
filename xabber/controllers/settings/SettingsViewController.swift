@@ -284,6 +284,7 @@ class SettingsViewController: BaseViewController {
             case chatChooseSubscriptionSound = "chat_choose_subscription_sound"
             case developer = "developer"
             case languages = "languages"
+            case securitySettings = "security_settings"
             case turnPasscodeOff = "turn_passcode_off"
             case changePasscode = "change_passcode"
             case turnBiometricsOnOff = "turn_biometrics_on_off"
@@ -1062,47 +1063,11 @@ class SettingsViewController: BaseViewController {
             }
         }
 
-        datasource.append(Datasource(section: .settings, title: Datasource.Section.settings.description(), childs: [
-            Datasource(
-                section: .privacy,
-                title: Datasource.Section.privacy.description(),
-                subtitle: nil,
-                icon:"xabber.incognito.fill.square.fill",
-                color: UIColor.systemGreen,
-                premiumOnly: false,
-                viewController: PrivacySettingsViewController.self,
-                childs: []
-              ),
-            Datasource(
-                section: .interface,
-                title: L10n.text("category_interface", fallback: "Interface"),
-                icon: "custom.paintpalette.square.fill",
-                color: UIColor.systemGreen,
-                viewController: InterfaceSettingsViewController.self
-            ),
-            Datasource(
-                section: .settings,
-                title: L10n.text("account_settings_notificaions", fallback: "Notifications"),
-                icon: "custom.bell.square.fill",
-                color: UIColor.systemGreen,
-                viewController: NotificationsSettingsViewController.self
-            ),
-            Datasource(
-                section: .settings,
-                title: L10n.text("account_settings_developer", fallback: "Debug"),
-                icon:"custom.ant.square.fill",
-                color: UIColor.systemGreen,
-                key: .developer
-            ),
-            
-            Datasource(
-                section: .settings,
-                title: L10n.text("settings__menu_item__interface_language", fallback: "Language"),
-                icon:"xabber.translate.square.fill",
-                color: UIColor.systemPurple,
-                key: .languages
-            )
-            ]))
+        datasource.append(Datasource(
+            section: .settings,
+            title: Datasource.Section.settings.description(),
+            childs: Self.makeSettingsRows(proxyPolicy: CommonConfigManager.shared.config.privacyProxyPolicy)
+        ))
 
         var premiumFeatures: [Datasource] = []
         if CommonConfigManager.shared.config.support_xabber_account || CommonConfigManager.shared.config.support_subscribtions {
@@ -1151,6 +1116,63 @@ class SettingsViewController: BaseViewController {
             )
         ]))
         
+    }
+
+
+    static func makeSettingsRows(proxyPolicy: CommonConfigManager.PrivacyProxyPolicy) -> [Datasource] {
+        var rows = [
+            Datasource(
+                section: .privacy,
+                title: Datasource.Section.privacy.description(),
+                subtitle: nil,
+                icon:"xabber.incognito.fill.square.fill",
+                color: UIColor.systemGreen,
+                premiumOnly: false,
+                viewController: PrivacySettingsViewController.self,
+                childs: []
+              )
+        ]
+        if proxyPolicy != .never {
+            rows.append(Datasource(
+                section: .security,
+                title: Datasource.Section.security.description(),
+                icon: "custom.shield.pattern.checkered.square.fill",
+                color: .systemGreen,
+                key: .securitySettings
+            ))
+        }
+        rows += [
+            Datasource(
+                section: .interface,
+                title: L10n.text("category_interface", fallback: "Interface"),
+                icon: "custom.paintpalette.square.fill",
+                color: UIColor.systemGreen,
+                viewController: InterfaceSettingsViewController.self
+            ),
+            Datasource(
+                section: .settings,
+                title: L10n.text("account_settings_notificaions", fallback: "Notifications"),
+                icon: "custom.bell.square.fill",
+                color: UIColor.systemGreen,
+                viewController: NotificationsSettingsViewController.self
+            ),
+            Datasource(
+                section: .settings,
+                title: L10n.text("account_settings_developer", fallback: "Debug"),
+                icon:"custom.ant.square.fill",
+                color: UIColor.systemGreen,
+                key: .developer
+            ),
+
+            Datasource(
+                section: .settings,
+                title: L10n.text("settings__menu_item__interface_language", fallback: "Language"),
+                icon:"xabber.translate.square.fill",
+                color: UIColor.systemPurple,
+                key: .languages
+            )
+        ]
+        return rows
     }
 
     internal func configure() {

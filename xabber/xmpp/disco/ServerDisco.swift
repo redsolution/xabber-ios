@@ -25,6 +25,7 @@ import XMPPFramework
 
 extension Notification.Name {
     static let groupServiceDiscoveryDidChange = Notification.Name("groupServiceDiscoveryDidChange")
+    static let privacyProxyDiscoveryDidChange = Notification.Name("privacyProxyDiscoveryDidChange")
 }
 
 class ServerDiscoManager: AbstractXMPPManager {
@@ -700,15 +701,27 @@ class ServerDiscoManager: AbstractXMPPManager {
             cloudDiscoveryLock.unlock()
             return nil
         }
+        let previousPrivacyProxy = discoveredPrivacyProxy
         if let serverInfo {
             discoveredPrivacyProxy = Self.parsePrivacyProxyEndpoint(serverInfo)
                 .map(PrivacyProxyDiscovery.advertised) ?? .notAdvertised
         }
+        let didChangePrivacyProxy = previousPrivacyProxy != discoveredPrivacyProxy
         activeCloudDiscoveryQuery = nil
         cloudDiscoveryLock.unlock()
 
         activeQuery.timeoutWorkItem?.cancel()
         Self.cloudDiscoveryDidConsumeTerminalTestingHandler?(terminal)
+        if didChangePrivacyProxy {
+            let ownerSnapshot = owner
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .privacyProxyDiscoveryDidChange,
+                    object: nil,
+                    userInfo: ["owner": ownerSnapshot]
+                )
+            }
+        }
         return activeQuery
     }
 
