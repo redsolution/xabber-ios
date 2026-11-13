@@ -190,6 +190,7 @@ final class SecuritySettingsViewController: BaseViewController, UITableViewDataS
 
 private final class PrivacyProxyDiagramCell: UITableViewCell {
     private let routes = UIStackView()
+    private var rowAlignment: [NSLayoutConstraint] = []
 
     init() {
         super.init(style: .default, reuseIdentifier: nil)
@@ -205,8 +206,14 @@ private final class PrivacyProxyDiagramCell: UITableViewCell {
 
         routes.axis = .vertical
         routes.spacing = 12
-        routes.addArrangedSubview(PrivacyProxyRouteCard(usesProxy: false))
-        routes.addArrangedSubview(PrivacyProxyRouteCard(usesProxy: true))
+        let direct = PrivacyProxyRouteCard(usesProxy: false)
+        let proxied = PrivacyProxyRouteCard(usesProxy: true)
+        routes.addArrangedSubview(direct)
+        routes.addArrangedSubview(proxied)
+        rowAlignment = [
+            direct.headingArea.heightAnchor.constraint(equalTo: proxied.headingArea.heightAnchor),
+            direct.flow.heightAnchor.constraint(equalTo: proxied.flow.heightAnchor)
+        ]
 
         let stack = UIStackView(arrangedSubviews: [title, routes])
         stack.axis = .vertical
@@ -251,12 +258,17 @@ private final class PrivacyProxyDiagramCell: UITableViewCell {
             && !traitCollection.preferredContentSizeCategory.isAccessibilityCategory
         let axis: NSLayoutConstraint.Axis = fitsSideBySide ? .horizontal : .vertical
         guard routes.axis != axis else { return }
+        if !fitsSideBySide { NSLayoutConstraint.deactivate(rowAlignment) }
         routes.axis = axis
         routes.distribution = fitsSideBySide ? .fillEqually : .fill
+        if fitsSideBySide { NSLayoutConstraint.activate(rowAlignment) }
     }
 }
 
 private final class PrivacyProxyRouteCard: UIView {
+    let headingArea = UIView()
+    let flow = UIStackView()
+
     private static let proxyOrange = UIColor(red: 1, green: 0.34, blue: 0.13, alpha: 1)
     private static let exposureColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
@@ -281,8 +293,15 @@ private final class PrivacyProxyRouteCard: UIView {
 
         let heading = Self.label(title, style: .subheadline, color: .label)
         heading.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: 15, weight: .semibold))
+        heading.translatesAutoresizingMaskIntoConstraints = false
+        headingArea.addSubview(heading)
+        NSLayoutConstraint.activate([
+            heading.topAnchor.constraint(equalTo: headingArea.topAnchor),
+            heading.leadingAnchor.constraint(equalTo: headingArea.leadingAnchor),
+            heading.trailingAnchor.constraint(equalTo: headingArea.trailingAnchor),
+            heading.bottomAnchor.constraint(lessThanOrEqualTo: headingArea.bottomAnchor)
+        ])
         let explanation = Self.label(caption, style: .footnote)
-        let flow = UIStackView()
         flow.alignment = .top
         flow.addArrangedSubview(Self.node(
             L10n.text("settings__proxy__node_you", fallback: "You"), symbol: "person.fill"
@@ -306,7 +325,7 @@ private final class PrivacyProxyRouteCard: UIView {
             L10n.text("settings__proxy__node_site", fallback: "Other site"), symbol: "globe"
         ))
 
-        let stack = UIStackView(arrangedSubviews: [heading, flow, explanation])
+        let stack = UIStackView(arrangedSubviews: [headingArea, flow, explanation])
         stack.axis = .vertical
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
