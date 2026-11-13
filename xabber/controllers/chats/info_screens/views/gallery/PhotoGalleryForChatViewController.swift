@@ -45,6 +45,7 @@ extension GalleryPlaceholderView: Placeholder {}
 enum MediaGalleryImageLoadOutcome: Equatable {
     case success
     case failure
+    case authenticationFailed
 }
 
 protocol MediaGalleryImageLoading: AnyObject {
@@ -66,6 +67,7 @@ final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
 
     private var subscriptions: [ObjectIdentifier: ChatThumbnailSubscription] = [:]
     private var generations: [ObjectIdentifier: UUID] = [:]
+    private var downloadTasks: [ObjectIdentifier: KingfisherChatThumbnailLoadTask] = [:]
 
     func load(
         request: MediaGalleryImageRequest,
@@ -74,25 +76,39 @@ final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
         completion: @escaping (MediaGalleryImageLoadOutcome) -> Void
     ) {
         cancelLoad(in: imageView)
+        let identifier = ObjectIdentifier(imageView)
+        let generation = UUID()
+        generations[identifier] = generation
         if request.encryptedAttachment?.requiresAuthentication == true || PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: request.owner) {
-            let identifier = ObjectIdentifier(imageView), generation = UUID()
-            generations[identifier] = generation
             let subscription = thumbnailPipeline.acquire(request.thumbnailRequest,
                 consumer: ChatThumbnailConsumer(identity: request.thumbnailConsumer.identity, role: .visible(generation))) { [weak self, weak imageView] result in
                 guard let self, let imageView, self.generations[identifier] == generation else { return }
+                self.generations.removeValue(forKey: identifier)
+                self.subscriptions.removeValue(forKey: identifier)
                 switch result {
                 case .success(let delivery): imageView.image = delivery.image; completion(.success)
+                case .failure(.authenticationFailed): completion(.authenticationFailed)
                 case .failure: completion(.failure)
                 }
             }
             if generations[identifier] == generation { subscriptions[identifier] = subscription } else { subscription.cancel() }
             return
         }
+        let task = KingfisherChatThumbnailLoadTask()
+        downloadTasks[identifier] = task
+        let modifier = PrivacyProxyImageRequestModifier(
+            owner: request.owner,
+            onResolution: task.updateResolution,
+            onDownloadTaskStarted: task.update
+        )
         imageView.kf.setImage(
             with: request.resource,
             placeholder: placeholder as? GalleryPlaceholderView,
-            options: request.kingfisherOptions + [.transition(.fade(0.1))]
-        ) { result in
+            options: request.kingfisherOptions + modifier.options + [.transition(.fade(0.1))]
+        ) { [weak self] result in
+            guard let self, !task.isCancelled, self.generations[identifier] == generation else { return }
+            self.generations.removeValue(forKey: identifier)
+            self.downloadTasks.removeValue(forKey: identifier)
             switch result {
             case .success:
                 completion(.success)
@@ -106,9 +122,13 @@ final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
         let identifier = ObjectIdentifier(imageView)
         generations.removeValue(forKey: identifier)
         subscriptions.removeValue(forKey: identifier)?.cancel()
+        downloadTasks.removeValue(forKey: identifier)?.cancel()
         imageView.kf.cancelDownloadTask()
     }
-    deinit { subscriptions.values.forEach { $0.cancel() } }
+    deinit {
+        subscriptions.values.forEach { $0.cancel() }
+        downloadTasks.values.forEach { $0.cancel() }
+    }
 }
 
 class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
@@ -122,7 +142,8 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
         }()
         private let sensitiveOverlay = SensitiveMediaOverlayView()
         private let imageLoader: MediaGalleryImageLoading
-        private var representedPrimary: String?
+        private lazy var showExternalImageButton = ExternalImageConsentButton(in: contentView)
+        private var imageGeneration = UUID()
         private(set) var failurePlaceholderPrimary: String?
 
         override init(frame: CGRect) {
@@ -159,8 +180,10 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             thumb: UIImage?,
             isSensitive: Bool
         ) {
+            imageGeneration = UUID()
+            let generation = imageGeneration
             imageLoader.cancelLoad(in: imageView)
-            representedPrimary = primary
+            showExternalImageButton.reset()
             failurePlaceholderPrimary = nil
             imageView.image = nil
             imageView.subviews.forEach { $0.removeFromSuperview() }
@@ -177,12 +200,31 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
                 placeholder: placeholderView
             ) { [weak self] outcome in
                 guard let self,
-                      self.representedPrimary == primary,
-                      outcome == .failure else {
+                      self.imageGeneration == generation,
+                      outcome != .success else {
+                    return
+                }
+                self.imageView.subviews.forEach { $0.removeFromSuperview() }
+                if outcome == .failure,
+                   PrivacyProxyMediaRouter.shared.canRequestDirectImage(request.url, owner: request.owner) {
+                    self.imageView.addSubview(placeholderView)
+                    placeholderView.fillSuperview()
+                    self.showExternalImageButton.isHidden = isSensitive
+                    self.showExternalImageButton.retryWhenProxyRecovers(for: request.owner) { [weak self] in
+                        self?.configure(primary: primary, request: request, thumb: thumb, isSensitive: isSensitive)
+                    }
+                    self.showExternalImageButton.onTap = { [weak self] in
+                        guard let self else { return }
+                        ExternalImageConsent.present(for: request.url, owner: request.owner, from: self, shouldGrant: { [weak self] in
+                            guard let self else { return false }
+                            return self.window != nil && self.imageGeneration == generation
+                        }) { [weak self] in
+                            self?.configure(primary: primary, request: request, thumb: thumb, isSensitive: isSensitive)
+                        }
+                    }
                     return
                 }
                 self.failurePlaceholderPrimary = primary
-                self.imageView.subviews.forEach { $0.removeFromSuperview() }
                 let failureView = GalleryPlaceholderView(frame: CGRect(square: 64))
                 failureView.configureWithThumb(
                     thumb,
@@ -195,8 +237,9 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
 
         override func prepareForReuse() {
             super.prepareForReuse()
+            imageGeneration = UUID()
             imageLoader.cancelLoad(in: imageView)
-            representedPrimary = nil
+            showExternalImageButton.reset()
             failurePlaceholderPrimary = nil
             imageView.image = nil
             imageView.subviews.forEach { $0.removeFromSuperview() }
@@ -215,6 +258,7 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     }()
 
     private var imagePrefetchCoordinator: MediaGalleryImagePrefetchCoordinator?
+    private var photoOpeningGeneration = UUID()
 
     override func apply(_ newDatasource: [BaseMediaGalleryForChatViewController.Datasource]) {
         let changes = compareDatasource(newDatasource)
@@ -329,7 +373,21 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     }
 
     private func openGalleryPhoto(primary: String) {
-        resolveGalleryMedia(datasource, selectedPrimary: primary) { [weak self] urls, selected in
+        guard let item = datasource.first(where: { $0.primary == primary }) else { return }
+        photoOpeningGeneration = UUID()
+        let generation = photoOpeningGeneration
+        resolveGalleryMedia(datasource, selectedPrimary: primary, onImageConsentRequired: { [weak self] url in
+            guard let self, self.canPresentGalleryMedia else { return }
+            ExternalImageConsent.present(for: url, owner: item.owner, from: self.view, shouldGrant: { [weak self] in
+                guard let self, self.photoOpeningGeneration == generation, self.owner == item.owner,
+                      self.jid == item.jid, self.conversationType == item.conversationType,
+                      self.viewIfLoaded?.window != nil,
+                      let current = self.datasource.first(where: { $0.primary == primary }) else { return false }
+                return current.url == url && current.encryptedAttachment == item.encryptedAttachment
+            }) { [weak self] in
+                self?.openGalleryPhoto(primary: primary)
+            }
+        }) { [weak self] urls, selected in
             guard let self, self.canPresentGalleryMedia else { return }
             if let callback = self.mediaGalleryPresentationForTesting { callback(.photo, urls, selected); return }
             let gallery = PhotoGallery(urls: urls, from: selected)

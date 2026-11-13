@@ -21,7 +21,6 @@
 import Foundation
 import RealmSwift
 import CocoaLumberjack
-import Kingfisher
 import SensitiveContentAnalysis
 
 enum SensitiveAnalyzableMediaType: Equatable {
@@ -43,7 +42,6 @@ enum SensitiveMediaAnalysisError: Error, LocalizedError {
     case missingMediaURL
     case encryptedRemoteImageRequiresLocalFile
     case encryptedRemoteVideoRequiresLocalFile
-    case imageDecodeFailed
     case emptyAnalysisResult
     case unsupportedRemoteURL
 
@@ -61,8 +59,6 @@ enum SensitiveMediaAnalysisError: Error, LocalizedError {
             return L10n.text("sensitive_media_analysis__encrypted_remote_image_requires_local_file", fallback: "Encrypted remote image requires a local decrypted file before analysis.")
         case .encryptedRemoteVideoRequiresLocalFile:
             return L10n.text("sensitive_media_analysis__localized_error_description__encrypted_remote_video_requires_a_local_decrypted_file_before_analysis", fallback: "Encrypted remote video requires a local decrypted file before analysis.")
-        case .imageDecodeFailed:
-            return L10n.text("sensitive_media_analysis__localized_error_description__image_could_not_be_decoded_for_sensitivecontentanalysis", fallback: "Image could not be decoded for SensitiveContentAnalysis.")
         case .emptyAnalysisResult:
             return L10n.text("sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_returned_no_result", fallback: "SensitiveContentAnalysis returned no result.")
         case .unsupportedRemoteURL:
@@ -172,9 +168,6 @@ protocol SensitiveMediaAnalyzing {
     func analyzeImageFile(at url: URL) async throws -> Bool
     @available(iOS 17.0, *)
     @SensitiveMediaAnalysisExecutionActor
-    func analyzeImage(_ cgImage: CGImage) async throws -> Bool
-    @available(iOS 17.0, *)
-    @SensitiveMediaAnalysisExecutionActor
     func analyzeVideoFile(at url: URL) async throws -> Bool
 }
 
@@ -184,9 +177,6 @@ struct SensitiveMediaAnalysisLocalFile {
 }
 
 protocol SensitiveMediaFileProviding {
-    @available(iOS 17.0, *)
-    @SensitiveMediaAnalysisExecutionActor
-    func downloadImageCGImage(from url: URL) async throws -> CGImage
     @available(iOS 17.0, *)
     @SensitiveMediaAnalysisExecutionActor
     func localVideoFile(from url: URL) async throws -> SensitiveMediaAnalysisLocalFile
@@ -245,24 +235,6 @@ final class AppleSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
         }
     }
 
-    func analyzeImage(_ cgImage: CGImage) async throws -> Bool {
-        guard #available(iOS 17.0, *) else {
-            throw SensitiveMediaAnalysisError.unavailable
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            SCSensitivityAnalyzer().analyzeImage(cgImage) { result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let result = result {
-                    continuation.resume(returning: result.isSensitive)
-                } else {
-                    continuation.resume(throwing: SensitiveMediaAnalysisError.emptyAnalysisResult)
-                }
-            }
-        }
-    }
-
     func analyzeVideoFile(at url: URL) async throws -> Bool {
         guard #available(iOS 17.0, *) else {
             throw SensitiveMediaAnalysisError.unavailable
@@ -274,31 +246,6 @@ final class AppleSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
 }
 
 final class DefaultSensitiveMediaFileProvider: SensitiveMediaFileProviding {
-    func downloadImageCGImage(from url: URL) async throws -> CGImage {
-        return try await withCheckedThrowingContinuation { continuation in
-            ImageDownloader.default.downloadImage(
-                with: url,
-                options: KingfisherParsedOptionsInfo([
-                    .alsoPrefetchToMemory,
-                    .cacheOriginalImage,
-                    .backgroundDecode,
-                    .waitForCache
-                ])
-            ) { result in
-                switch result {
-                case .success(let value):
-                    if let cgImage = value.image.cgImage {
-                        continuation.resume(returning: cgImage)
-                    } else {
-                        continuation.resume(throwing: SensitiveMediaAnalysisError.imageDecodeFailed)
-                    }
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
     func localVideoFile(from url: URL) async throws -> SensitiveMediaAnalysisLocalFile {
         if url.isFileURL {
             return SensitiveMediaAnalysisLocalFile(url: url, shouldDeleteAfterUse: false)
@@ -446,6 +393,7 @@ final class SensitiveMediaAnalysisService {
     private let failureRetryInterval: TimeInterval
     private let analysisTaskScheduler: AnalysisTaskScheduler?
     private let accountTaskScheduler: SensitiveMediaAnalysisAccountTaskScheduler?
+    private let downloadAutomaticImage: (URL, String) async throws -> URL
 
     var isAnalysisEnabled: Bool {
         analyzer.analysisPolicy == .enabled
@@ -458,7 +406,10 @@ final class SensitiveMediaAnalysisService {
         dateProvider: @escaping () -> Date = Date.init,
         failureRetryInterval: TimeInterval = 6 * 60 * 60,
         analysisTaskScheduler: AnalysisTaskScheduler? = nil,
-        accountTaskScheduler: SensitiveMediaAnalysisAccountTaskScheduler? = nil
+        accountTaskScheduler: SensitiveMediaAnalysisAccountTaskScheduler? = nil,
+        downloadAutomaticImage: @escaping (URL, String) async throws -> URL = { url, owner in
+            try await PrivacyProxyMediaRouter.shared.downloadAutomaticImage(url, owner: owner)
+        }
     ) {
         self.analyzer = analyzer
         self.fileProvider = fileProvider
@@ -467,6 +418,7 @@ final class SensitiveMediaAnalysisService {
         self.failureRetryInterval = failureRetryInterval
         self.analysisTaskScheduler = analysisTaskScheduler
         self.accountTaskScheduler = accountTaskScheduler
+        self.downloadAutomaticImage = downloadAutomaticImage
     }
 
     func checkIsSensitive(messageReferencePrimaryKey primaryKey: String) {
@@ -592,6 +544,8 @@ final class SensitiveMediaAnalysisService {
                 return
             }
             persistSuccess(snapshot: snapshot, isSensitive: isSensitive)
+        } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {
+            return
         } catch {
             recordFailure(snapshot: snapshot, error: error)
         }
@@ -664,20 +618,19 @@ final class SensitiveMediaAnalysisService {
             throw SensitiveMediaAnalysisError.missingMediaURL
         }
 
-        if downloadURL.isFileURL,
-           FileManager.default.isReadableFile(atPath: downloadURL.path) {
+        if downloadURL.isFileURL {
+            guard FileManager.default.isReadableFile(atPath: downloadURL.path) else {
+                throw SensitiveMediaAnalysisError.missingMediaURL
+            }
             return try await analyzer.analyzeImageFile(at: downloadURL)
         }
 
         if snapshot.remoteURLIsEncrypted {
             throw SensitiveMediaAnalysisError.encryptedRemoteImageRequiresLocalFile
         }
-        if PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: snapshot.owner) {
-            let local = try await PrivacyProxyMediaRouter.shared.download(downloadURL, owner: snapshot.owner)
-            return try await analyzer.analyzeImageFile(at: local)
-        }
-        let cgImage = try await fileProvider.downloadImageCGImage(from: downloadURL)
-        return try await analyzer.analyzeImage(cgImage)
+        let local = try await downloadAutomaticImage(downloadURL, snapshot.owner)
+        defer { try? FileManager.default.removeItem(at: local) }
+        return try await analyzer.analyzeImageFile(at: local)
     }
 
     @available(iOS 17.0, *)

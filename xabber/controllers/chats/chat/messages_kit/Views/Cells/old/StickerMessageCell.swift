@@ -29,17 +29,21 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         case loading
         case loaded
         case failed
+        case awaitingConsent
+        case unavailable
     }
 
     internal let imageView: UIImageView = {
         let view = UIImageView()
         view.contentMode = .scaleAspectFit
         view.clipsToBounds = true
+        view.isUserInteractionEnabled = true
         view.backgroundColor = ChatStickerPlaceholder.color
         return view
     }()
 
     var thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
+    private lazy var showExternalImageButton = ExternalImageConsentButton(in: imageView)
     private(set) var representedStickerPrimary: String?
     private var representedMessagePrimary: String?
     private var representedAttachment: ImageAttachment?
@@ -48,6 +52,29 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     private var thumbnailSubscription: ChatThumbnailSubscription?
     private var deliveryState: DeliveryState = .idle
     private let visibleConsumerID = UUID()
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        let center = NotificationCenter.default
+        center.removeObserver(self, name: .privacyProxyAvailabilityDidChange, object: nil)
+        guard window != nil else { return }
+        center.addObserver(self, selector: #selector(proxyAvailabilityDidChange),
+                           name: .privacyProxyAvailabilityDidChange, object: nil)
+        retryUnavailableStickerThroughProxy()
+    }
+
+    @objc private func proxyAvailabilityDidChange(_ notification: Notification) {
+        guard notification.userInfo?["owner"] as? String == stickerOwner else { return }
+        retryUnavailableStickerThroughProxy()
+    }
+
+    private func retryUnavailableStickerThroughProxy() {
+        guard deliveryState == .awaitingConsent || deliveryState == .failed,
+              PrivacyProxyMediaRouter.shared.canResolveImagesThroughProxy(owner: stickerOwner),
+              case .reachable = AccountManager.shared.find(for: stickerOwner)?.disco.privacyProxyAvailability else { return }
+        cancelOffscreenWork()
+        refreshStickerBinding()
+    }
 
     override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
@@ -82,6 +109,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         representedThumbnailRequest = nil
         representedThumbnailConsumer = nil
         deliveryState = .idle
+        showExternalImageButton.reset()
         imageView.image = nil
         imageView.backgroundColor = ChatStickerPlaceholder.color
     }
@@ -101,8 +129,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         updateWarning(with: message)
         switch message.kind {
         case .sticker(let attachment):
-            stickerOwner = message.owner
-            represent(attachment, messagePrimary: message.primary)
+            represent(attachment, messagePrimary: message.primary, owner: message.owner)
             refreshStickerBinding()
         default: break
         }
@@ -130,9 +157,10 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         messagePrimary: String,
         displaySize: CGSize,
         scale: Double,
-        traitStyle: ChatThumbnailTraitStyle
+        traitStyle: ChatThumbnailTraitStyle,
+        owner: String = ""
     ) {
-        represent(attachment, messagePrimary: messagePrimary)
+        represent(attachment, messagePrimary: messagePrimary, owner: owner)
         imageView.frame = CGRect(origin: .zero, size: displaySize)
         acquireSticker(
             attachment,
@@ -145,17 +173,20 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
 
     private func represent(
         _ attachment: ImageAttachment,
-        messagePrimary: String
+        messagePrimary: String,
+        owner: String
     ) {
         if representedStickerPrimary != attachment.primary ||
-            representedMessagePrimary != messagePrimary {
+            representedMessagePrimary != messagePrimary ||
+            representedAttachment?.url != attachment.url ||
+            representedAttachment?.encryptedAttachment != attachment.encryptedAttachment ||
+            stickerOwner != owner {
             cancelOffscreenWork()
         }
+        stickerOwner = owner
         representedAttachment = attachment
         representedStickerPrimary = attachment.primary
         representedMessagePrimary = messagePrimary
-        imageView.image = nil
-        imageView.backgroundColor = ChatStickerPlaceholder.color
     }
 
     private func refreshStickerBinding() {
@@ -217,6 +248,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         representedThumbnailRequest = request
         representedThumbnailConsumer = consumer
         deliveryState = .loading
+        showExternalImageButton.reset()
         imageView.image = nil
         imageView.backgroundColor = ChatStickerPlaceholder.color
         thumbnailSubscription = thumbnailPipeline.acquire(
@@ -233,16 +265,37 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
                 self.deliveryState = .loaded
                 self.imageView.image = delivery.image
                 self.imageView.backgroundColor = .clear
-            case .failure:
-                self.deliveryState = .failed
-                self.imageView.image = nil
-                self.imageView.backgroundColor = ChatStickerPlaceholder.color
+            case .failure(let error):
+                if error == .loadFailed, PrivacyProxyMediaRouter.shared.canRequestDirectImage(url, owner: request.owner) {
+                    self.deliveryState = .awaitingConsent
+                    self.showExternalImageButton.isHidden = false
+                    self.showExternalImageButton.onTap = { [weak self] in
+                        self?.requestDirectSticker(request, consumer: consumer)
+                    }
+                } else {
+                    self.deliveryState = error == .authenticationFailed ? .unavailable : .failed
+                }
             }
+        }
+    }
+
+    private func requestDirectSticker(_ request: ChatThumbnailRequest, consumer: ChatThumbnailConsumer) {
+        ExternalImageConsent.present(for: request.url, owner: request.owner, from: imageView, shouldGrant: { [weak self] in
+            guard let self else { return false }
+            return self.representedThumbnailRequest == request &&
+                self.representedThumbnailConsumer == consumer &&
+                self.deliveryState == .awaitingConsent
+        }) { [weak self] in
+            guard let self else { return }
+            self.cancelOffscreenWork()
+            self.refreshStickerBinding()
         }
     }
     
     override func cellContentView(canHandle touchPoint: CGPoint) -> Bool {
-        return false
+        guard deliveryState == .awaitingConsent, imageView.frame.contains(touchPoint) else { return false }
+        showExternalImageButton.onTap?()
+        return true
     }
     
     override func layoutMessageContainerView(with attributes: MessagesCollectionViewLayoutAttributes) {
@@ -258,7 +311,8 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         let modifiedLocation = CGPoint(x: touchLocation.x, y: frame.height - touchLocation.y)
         var isTapHandled: Bool = false
         switch true {
-        case messageContainerView.frame.contains(touchLocation) && !cellContentView(canHandle: convert(touchLocation, to: messageContainerView)):
+        case messageContainerView.frame.contains(touchLocation):
+            _ = cellContentView(canHandle: convert(touchLocation, to: messageContainerView))
             isTapHandled = true
         case messageTopLabel.frame.contains(touchLocation):
             delegate?.didTapMessageTopLabel(in: self)

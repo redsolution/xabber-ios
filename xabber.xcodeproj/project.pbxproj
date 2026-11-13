@@ -48,6 +48,7 @@
 		A32010200000000000000023 /* ChatEncryptedAttachmentReceiverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000024 /* ChatEncryptedAttachmentReceiverTests.swift */; };
 		A32010200000000000000021 /* ChatEncryptedAttachmentReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000022 /* ChatEncryptedAttachmentReceiver.swift */; };
 		67278DFC93BF4534A5F0B5D9 /* PrivacyProxyMediaRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4AE6901D05B48E5A1DD5134 /* PrivacyProxyMediaRouter.swift */; };
+		FA30E8D1C6B74866922BB6B1 /* ExternalImageConsent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C83C4AF8DA9E48B0AC721E73 /* ExternalImageConsent.swift */; };
 		A32010200000000000000013 /* XENTrustTransportInteroperabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */; };
 		A32010200000000000000011 /* ReceivedMessageDateAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */; };
 		B2CE15EA78AB4745BE05CB59 /* PushExtensionDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */; };
@@ -1332,6 +1333,7 @@
 		A32010200000000000000024 /* ChatEncryptedAttachmentReceiverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatEncryptedAttachmentReceiverTests.swift"; sourceTree = "<group>"; };
 		A32010200000000000000022 /* ChatEncryptedAttachmentReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "media/ChatEncryptedAttachmentReceiver.swift"; sourceTree = "<group>"; };
 		E4AE6901D05B48E5A1DD5134 /* PrivacyProxyMediaRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "media/PrivacyProxyMediaRouter.swift"; sourceTree = "<group>"; };
+		C83C4AF8DA9E48B0AC721E73 /* ExternalImageConsent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "media/ExternalImageConsent.swift"; sourceTree = "<group>"; };
 		A32010200000000000000014 /* XENTrustTransportInteroperabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XENTrustTransportInteroperabilityTests.swift; sourceTree = "<group>"; };
 		A32010200000000000000012 /* ReceivedMessageDateAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceivedMessageDateAdmissionTests.swift; sourceTree = "<group>"; };
 		4EE3012B5E8B4657A954DC75 /* PushExtensionDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionDiagnostics.swift; sourceTree = "<group>"; };
@@ -4108,6 +4110,7 @@
 			children = (
 				A32010200000000000000022 /* ChatEncryptedAttachmentReceiver.swift */,
 				E4AE6901D05B48E5A1DD5134 /* PrivacyProxyMediaRouter.swift */,
+				C83C4AF8DA9E48B0AC721E73 /* ExternalImageConsent.swift */,
 				4EC000003D1000000ABC0001 /* localization */,
 				6614411B2F598E7E00D2D9A7 /* xabber_account */,
 				66A9F8542C786D6300F64574 /* contacts */,
@@ -6624,6 +6627,7 @@
 				4EAD00042FFE00000ABC001 /* ChatMediaThumbnailPipeline.swift in Sources */,
 				A32010200000000000000021 /* ChatEncryptedAttachmentReceiver.swift in Sources */,
 				67278DFC93BF4534A5F0B5D9 /* PrivacyProxyMediaRouter.swift in Sources */,
+				FA30E8D1C6B74866922BB6B1 /* ExternalImageConsent.swift in Sources */,
 				4EAE00062FFF00000ABC001 /* ChatFileAttachmentPipeline.swift in Sources */,
 				4EAE00082FFF00000ABC001 /* ChatStickerPipeline.swift in Sources */,
 				4EAF0006300000000ABC001 /* ChatLocationSnapshotPipeline.swift in Sources */,

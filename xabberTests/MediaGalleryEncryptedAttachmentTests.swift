@@ -100,6 +100,20 @@ final class MediaGalleryEncryptedAttachmentTests: XCTestCase {
         complete(probe.pending[1], file: other); XCTAssertTrue(probe.presented.isEmpty)
         complete(probe.pending[0]); XCTAssertEqual(probe.presented.first?.1, [local!, other]); XCTAssertEqual(probe.presented.first?.2, other)
     }
+    func testFailedNeighborImageDoesNotBlockVerifiedSelectedPhoto() throws {
+        let first = try stored()
+        let second = try stored("second", url: URL(string: "https://example.test/second.png")!)
+        let controller = PhotoGalleryForChatViewController(), probe = configure(controller)
+        controller.datasource = [map(first), map(second)]
+        controller.collectionView(controller.collectionView, didSelectItemAt: IndexPath(item: 1, section: 0))
+
+        XCTAssertEqual(probe.pending.count, 2)
+        try XCTUnwrap(probe.pending.first).completion(.failure(.downloadFailed))
+        complete(try XCTUnwrap(probe.pending.last))
+
+        XCTAssertEqual(probe.presented.first?.1, [local!])
+        XCTAssertEqual(probe.presented.first?.2, local)
+    }
     func testNormalVideoGalleryTapUsesOnlyVerifiedLocalPlayerURL() throws {
         let item = map(try stored(kind: .video)), controller = VideoGalleryForChatViewController(), probe = configure(controller)
         controller.datasource = [item]; controller.collectionView(controller.collectionView, didSelectItemAt: IndexPath(item: 0, section: 0))

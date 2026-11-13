@@ -80,13 +80,29 @@ struct PrivacyProxyPushRouting {
     }
 
     func route(_ url: URL, owner: String, requiresPremium: Bool = false, now: Date = Date()) -> URL? {
+        route(url, owner: owner, allowsMapping: true, requiresPremium: requiresPremium, now: now)
+    }
+
+    func routeImage(
+        _ url: URL, owner: String, policy: CommonConfigManager.PrivacyProxyPolicy, now: Date = Date()
+    ) -> URL? {
+        route(
+            url, owner: owner, allowsMapping: needsProxy(owner: owner, policy: policy),
+            requiresPremium: policy == .payed, now: now
+        )
+    }
+
+    private func route(
+        _ url: URL, owner: String, allowsMapping: Bool, requiresPremium: Bool, now: Date
+    ) -> URL? {
         let snapshot = read(owner: owner)
         let domain = owner.split(separator: "@", maxSplits: 1).dropFirst().first.map(String.init)
         let trustedHosts = (snapshot?.trustedHosts ?? []) + [domain].compactMap { $0 }
         if Self.matchesTrustedHost(url, trustedHosts: trustedHosts) {
             return url
         }
-        guard !requiresPremium || snapshot?.premiumExpires.map({ $0 > now }) == true,
+        guard allowsMapping,
+              !requiresPremium || snapshot?.premiumExpires.map({ $0 > now }) == true,
               let mapping = snapshot?.mappings[Self.digest(url.absoluteString)],
               mapping.expires > now else { return nil }
         return mapping.url

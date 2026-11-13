@@ -145,9 +145,10 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         }
     }
     
-    var galleryAttachmentReceive: (ChatEncryptedAttachmentDescriptor, @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask = { descriptor, completion in
-        ChatEncryptedAttachmentReceiver.shared.receive(descriptor, completion: completion)
-    }
+    var galleryAttachmentReceive: ((
+        ChatEncryptedAttachmentDescriptor,
+        @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void
+    ) -> ChatEncryptedAttachmentReceiveTask)?
     var mediaGalleryPresentationForTesting: ((ChatMediaOpeningKind, [URL], URL) -> Void)?
     private var galleryMediaGeneration = UUID()
     private var galleryMediaTasks: [ChatEncryptedAttachmentReceiveTask] = []
@@ -196,6 +197,7 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
     }
 
     func resolveGalleryMedia(_ items: [Datasource], selectedPrimary: String,
+                             onImageConsentRequired: ((URL) -> Void)? = nil,
                              completion: @escaping ([URL], URL) -> Void) {
         cancelGalleryMediaOpening()
         guard !items.isEmpty, let selected = items.firstIndex(where: { $0.primary == selectedPrimary }) else { return }
@@ -205,8 +207,8 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
                   item.encryptedAttachment == nil || item.encryptedAttachment == descriptor else { return }
             descriptors.append(descriptor)
         }
-        var resolved = items.compactMap(\.url)
-        guard resolved.count == items.count else { return }
+        var resolved = items.map(\.url)
+        guard let selectedURL = resolved[selected] else { return }
         let generation = galleryMediaGeneration, capturedOwner = owner, capturedJid = jid, capturedType = conversationType
         let current: (BaseMediaGalleryForChatViewController) -> Bool = { controller in
             controller.galleryMediaGeneration == generation && controller.owner == capturedOwner &&
@@ -214,20 +216,45 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
                 zip(items, descriptors).allSatisfy { item, descriptor in controller.currentGalleryDescriptor(for: item) == descriptor }
         }
         var remaining = descriptors.filter(\.requiresAuthentication).count
-        guard remaining > 0 else { completion(resolved, resolved[selected]); return }
+        guard remaining > 0 else { completion(resolved.compactMap { $0 }, selectedURL); return }
         var completed = Set<Int>()
         for (index, descriptor) in descriptors.enumerated() where descriptor.requiresAuthentication {
             guard galleryMediaGeneration == generation else { break }
-            let task = galleryAttachmentReceive(descriptor) { [weak self] result in
+            let isImage = items[index].kind == .image
+            let onReceived: (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void = { [weak self] result in
                 guard let self, self.galleryMediaGeneration == generation, !completed.contains(index) else { return }
-                guard current(self), case let .success(file) = result,
-                      file.fileURL.isFileURL, FileManager.default.fileExists(atPath: file.fileURL.path),
-                      file.cacheIdentity == descriptor.cacheIdentity else { self.cancelGalleryMediaOpening(); return }
-                completed.insert(index); resolved[index] = file.fileURL; remaining -= 1
-                guard remaining == 0 else { return }
+                guard current(self) else { self.cancelGalleryMediaOpening(); return }
+                switch result {
+                case .success(let file):
+                    guard file.fileURL.isFileURL, FileManager.default.fileExists(atPath: file.fileURL.path),
+                          file.cacheIdentity == descriptor.cacheIdentity else { self.cancelGalleryMediaOpening(); return }
+                    resolved[index] = file.fileURL
+                case .failure(.downloadFailed) where isImage && index != selected:
+                    resolved[index] = nil
+                case .failure(.downloadFailed) where isImage:
+                    self.cancelGalleryMediaOpening()
+                    if PrivacyProxyMediaRouter.shared.canRequestDirectImage(selectedURL, owner: capturedOwner) {
+                        onImageConsentRequired?(selectedURL)
+                    }
+                    return
+                case .failure:
+                    self.cancelGalleryMediaOpening()
+                    return
+                }
+                completed.insert(index)
+                remaining -= 1
+                guard remaining == 0, let selectedURL = resolved[selected] else { return }
                 self.galleryMediaTasks.removeAll()
                 self.galleryMediaGeneration = UUID()
-                completion(resolved, resolved[selected])
+                completion(resolved.compactMap { $0 }, selectedURL)
+            }
+            let task: ChatEncryptedAttachmentReceiveTask
+            if let galleryAttachmentReceive {
+                task = galleryAttachmentReceive(descriptor, onReceived)
+            } else if isImage {
+                task = ChatEncryptedAttachmentReceiver.shared.receiveImage(descriptor, allowsConsent: index == selected, completion: onReceived)
+            } else {
+                task = ChatEncryptedAttachmentReceiver.shared.receive(descriptor, completion: onReceived)
             }
             if galleryMediaGeneration == generation { galleryMediaTasks.append(task) } else { task.cancel() }
         }

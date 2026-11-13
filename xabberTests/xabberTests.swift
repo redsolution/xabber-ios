@@ -16765,23 +16765,17 @@ private struct SensitiveMediaAnalysisTestError: Error, LocalizedError {
 private final class FakeSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
     var analysisPolicy: SensitiveMediaAnalysisPolicy
     var imageFileResult: Result<Bool, Error>
-    var imageResult: Result<Bool, Error>
     var videoFileResult: Result<Bool, Error>
     var delayNanoseconds: UInt64
 
     private let lock = NSLock()
     private var _imageFileCallCount = 0
-    private var _imageCallCount = 0
     private var _videoFileCallCount = 0
     private var _activeAnalysisCount = 0
     private var _maximumConcurrentAnalysisCount = 0
 
     var imageFileCallCount: Int {
         locked { _imageFileCallCount }
-    }
-
-    var imageCallCount: Int {
-        locked { _imageCallCount }
     }
 
     var videoFileCallCount: Int {
@@ -16795,13 +16789,11 @@ private final class FakeSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
     init(
         analysisPolicy: SensitiveMediaAnalysisPolicy = .enabled,
         imageFileResult: Result<Bool, Error> = .success(false),
-        imageResult: Result<Bool, Error> = .success(false),
         videoFileResult: Result<Bool, Error> = .success(false),
         delayNanoseconds: UInt64 = 0
     ) {
         self.analysisPolicy = analysisPolicy
         self.imageFileResult = imageFileResult
-        self.imageResult = imageResult
         self.videoFileResult = videoFileResult
         self.delayNanoseconds = delayNanoseconds
     }
@@ -16812,14 +16804,6 @@ private final class FakeSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
         defer { endAnalysis() }
         try await delayIfNeeded()
         return try imageFileResult.get()
-    }
-
-    func analyzeImage(_ cgImage: CGImage) async throws -> Bool {
-        incrementImageCalls()
-        beginAnalysis()
-        defer { endAnalysis() }
-        try await delayIfNeeded()
-        return try imageResult.get()
     }
 
     func analyzeVideoFile(at url: URL) async throws -> Bool {
@@ -16838,10 +16822,6 @@ private final class FakeSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
 
     private func incrementImageFileCalls() {
         locked { _imageFileCallCount += 1 }
-    }
-
-    private func incrementImageCalls() {
-        locked { _imageCallCount += 1 }
     }
 
     private func incrementVideoFileCalls() {
@@ -16870,42 +16850,16 @@ private final class FakeSensitiveMediaAnalyzer: SensitiveMediaAnalyzing {
 }
 
 private final class FakeSensitiveMediaFileProvider: SensitiveMediaFileProviding {
-    var imageResult: Result<CGImage, Error>
     var videoResult: Result<SensitiveMediaAnalysisLocalFile, Error>
 
     init(
-        imageResult: Result<CGImage, Error> = .success(FakeSensitiveMediaFileProvider.makeCGImage()),
         videoResult: Result<SensitiveMediaAnalysisLocalFile, Error> = .failure(SensitiveMediaAnalysisTestError())
     ) {
-        self.imageResult = imageResult
         self.videoResult = videoResult
-    }
-
-    func downloadImageCGImage(from url: URL) async throws -> CGImage {
-        return try imageResult.get()
     }
 
     func localVideoFile(from url: URL) async throws -> SensitiveMediaAnalysisLocalFile {
         return try videoResult.get()
-    }
-
-    private static func makeCGImage() -> CGImage {
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let data = Data([255, 0, 0, 255]) as CFData
-        let provider = CGDataProvider(data: data)!
-        return CGImage(
-            width: 1,
-            height: 1,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: 4,
-            space: colorSpace,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: false,
-            intent: .defaultIntent
-        )!
     }
 }
 
@@ -17037,6 +16991,31 @@ final class SensitiveMediaAnalysisServiceTests: XCTestCase {
         XCTAssertFalse(reference.isSensitive)
         XCTAssertTrue(reference.isSensitiveChecked)
         XCTAssertEqual(reference.sensitivitySource, SensitiveMediaAnalysisService.sourceAppleSCA)
+    }
+
+    func testExternalImageAwaitingConsentRemainsEligibleForAnalysis() async throws {
+        let url = try XCTUnwrap(URL(string: "https://outside.example.org/photo.jpg"))
+        let primary = try insertMediaReference(
+            primary: "external-image", mimeType: "image/jpeg", mediaType: "image", fileExtension: "jpg",
+            remoteURL: url
+        )
+        let analyzer = FakeSensitiveMediaAnalyzer()
+        let routeRequest = expectation(description: "Check background image route")
+        let service = SensitiveMediaAnalysisService(analyzer: analyzer, downloadAutomaticImage: { requested, owner in
+            XCTAssertEqual(requested, url)
+            XCTAssertEqual(owner, "owner@example.com")
+            routeRequest.fulfill()
+            throw PrivacyProxyMediaRouter.RoutingError.imageConsentRequired
+        })
+
+        await service.analyzeMessageReference(primaryKey: primary)
+
+        await fulfillment(of: [routeRequest], timeout: 1)
+        let realm = try WRealm.safe()
+        let reference = try XCTUnwrap(realm.object(ofType: MessageReferenceStorageItem.self, forPrimaryKey: primary))
+        XCTAssertFalse(reference.isSensitiveChecked)
+        XCTAssertNil(reference.sensitivityAnalysisFailedAt)
+        XCTAssertEqual(analyzer.imageFileCallCount, 0)
     }
 
     func testVideoSensitiveResultTruePersistsCheckedState() async throws {
@@ -17248,9 +17227,10 @@ final class SensitiveMediaAnalysisServiceTests: XCTestCase {
         mimeType: String,
         mediaType: String,
         fileExtension: String,
-        isSensitive: Bool = false
+        isSensitive: Bool = false,
+        remoteURL: URL? = nil
     ) throws -> String {
-        let fileURL = try temporaryFileURL(fileExtension: fileExtension)
+        let fileURL = try remoteURL ?? temporaryFileURL(fileExtension: fileExtension)
         let message = MessageStorageItem()
         message.primary = "message-\(primary)"
         message.owner = "owner@example.com"
@@ -17264,10 +17244,11 @@ final class SensitiveMediaAnalysisServiceTests: XCTestCase {
         reference.kind = .media
         reference.mimeType = mimeType
         reference.url = fileURL.absoluteString
-        reference.metadata = [
-            "localFileUri": fileURL.absoluteString,
-            "media-type": mediaType
-        ]
+        var metadata = ["media-type": mediaType]
+        if remoteURL == nil {
+            metadata["localFileUri"] = fileURL.absoluteString
+        }
+        reference.metadata = metadata
         reference.isSensitive = isSensitive
         reference.isSensitiveChecked = false
 
@@ -21376,11 +21357,6 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         }
 
         func analyzeImageFile(at url: URL) async throws -> Bool {
-            await waitForRelease()
-            return false
-        }
-
-        func analyzeImage(_ cgImage: CGImage) async throws -> Bool {
             await waitForRelease()
             return false
         }

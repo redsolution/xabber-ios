@@ -146,6 +146,18 @@ final class ChatAuthenticatedMediaOpeningTests: XCTestCase {
         XCTAssertTrue(probe.presented.isEmpty); complete(try XCTUnwrap(probe.requests.first))
         XCTAssertEqual(probe.presented.first?.1, [plain, localFile!]); XCTAssertEqual(probe.presented.first?.2, plain)
     }
+    func testUnavailableEncryptedNeighborDoesNotBlockSelectedPlainPhoto() throws {
+        try reference()
+        let plain = URL(string: "https://gallery.example.test/plain.png")!
+        try reference(primary: "plain", metadata: ["name": "plain.png"], url: plain)
+        let (chat, probe) = controller()
+
+        chat.didTapOnPhoto(message: "message", urls: [source, plain], url: plain, referencePrimary: "plain", isSensitive: false)
+        try XCTUnwrap(probe.requests.first).completion(.failure(.downloadFailed))
+
+        XCTAssertEqual(probe.presented.first?.1, [plain])
+        XCTAssertEqual(probe.presented.first?.2, plain)
+    }
     func testVoiceBuilderPreservesEncryptedMappedFallbackWhenReferenceIsAbsent() throws {
         let descriptor = ChatEncryptedAttachmentDescriptor(metadata: ["iv": "incomplete"], url: source, owner: owner, referenceIdentity: "missing")
         let audio = AudioAttachment(primary: "missing", url: source, size: 22, name: "voice", duration: 1, downloaded: false, pcm: [], encryptedAttachment: descriptor)

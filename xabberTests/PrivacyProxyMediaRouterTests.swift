@@ -7,6 +7,66 @@ final class PrivacyProxyMediaRouterTests: XCTestCase {
     private let external = URL(string: "https://files.example.org/photo.jpg?x=1&y=2")!
     private let resolved = URL(string: "https://proxy.example.net/service/proxy/files/123/")!
 
+    func testExternalImageConsentIsScopedAndBackgroundCannotUseIt() async throws {
+        let router = makeRouter(policy: .never, enabled: false) { _, _ in
+            XCTFail("Never must not contact the proxy")
+            return self.resolved
+        }
+        XCTAssertTrue(router.imageRequiresConsent(external, owner: owner))
+        do {
+            _ = try await router.resolveImage(external, owner: owner)
+            XCTFail("Original image must wait for consent")
+        } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {}
+        XCTAssertTrue(router.grantDirectImage(external, owner: owner))
+        let approved = try await router.resolveImage(external, owner: owner)
+        XCTAssertEqual(approved, external)
+        XCTAssertTrue(router.imageRequiresConsent(external, owner: "bob@example.com"))
+        XCTAssertTrue(router.imageRequiresConsent(external.appendingPathComponent("other"), owner: owner))
+        do {
+            _ = try await router.resolveAutomaticImage(external, owner: owner)
+            XCTFail("Background work must not use a foreground grant")
+        } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {}
+        router.clearImageConsent(owner: owner)
+        XCTAssertTrue(router.imageRequiresConsent(external, owner: owner))
+    }
+
+    func testOptionalProxyCanFallBackOnlyAfterApprovalAndAlwaysCannot() async throws {
+        let optional = makeRouter(policy: .manual, enabled: true) { _, _ in
+            throw URLError(.cannotConnectToHost)
+        }
+        do {
+            _ = try await optional.resolveImage(external, owner: owner)
+            XCTFail("A failed proxy must not authorize direct loading")
+        } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {}
+        XCTAssertTrue(optional.grantDirectImage(external, owner: owner))
+        let approved = try await optional.resolveImage(external, owner: owner)
+        XCTAssertEqual(approved, external)
+
+        let mandatory = makeRouter(policy: .always, enabled: true, advertised: false) { _, _ in
+            XCTFail("No endpoint to use")
+            return self.resolved
+        }
+        XCTAssertFalse(mandatory.canRequestDirectImage(external, owner: owner))
+        XCTAssertFalse(mandatory.grantDirectImage(external, owner: owner))
+        do {
+            _ = try await mandatory.resolveImage(external, owner: owner)
+            XCTFail("Always requires proxy for an external image")
+        } catch PrivacyProxyMediaRouter.RoutingError.unavailable {}
+    }
+
+    func testAutomaticImageUsesProxyOrTrustedHostWithoutConsent() async throws {
+        let router = makeRouter(policy: .manual, enabled: true) { url, owner in
+            XCTAssertEqual(url, self.external)
+            XCTAssertEqual(owner, self.owner)
+            return self.resolved
+        }
+        let proxied = try await router.resolveImage(external, owner: owner)
+        XCTAssertEqual(proxied, resolved)
+        let trusted = URL(string: "https://gallery.example.net/photo.jpg")!
+        let direct = try await router.resolveAutomaticImage(trusted, owner: owner)
+        XCTAssertEqual(direct, trusted)
+    }
+
     func testManualOffAndNeverKeepExistingURLs() async throws {
         for policy in [CommonConfigManager.PrivacyProxyPolicy.manual, .never] {
             let router = makeRouter(policy: policy, enabled: false) { _, _ in

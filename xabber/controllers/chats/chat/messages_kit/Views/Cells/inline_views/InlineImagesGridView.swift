@@ -32,6 +32,7 @@ class InlineImagesGridView: InlineAttachmentView {
             case loading
             case ready
             case unavailable
+            case awaitingConsent
         }
         
         var primary: String {
@@ -51,6 +52,9 @@ class InlineImagesGridView: InlineAttachmentView {
         var thumbnailSubscription: ChatThumbnailSubscription?
         let visibleConsumerID = UUID()
         private(set) var thumbnailPresentationState: ThumbnailPresentationState = .loading
+        private(set) var consentURL: URL?
+        private(set) var lastThumbnailError: ChatThumbnailPipelineError?
+        var onRequestConsent: (() -> Void)?
         private var didAttemptFullSourceFallback = false
         var isSensitive: Bool {
             didSet {
@@ -59,6 +63,20 @@ class InlineImagesGridView: InlineAttachmentView {
         }
         
         private var sensitiveOverlay: SensitiveMediaOverlayView?
+        private lazy var consentLabel: UILabel = {
+            let label = UILabel()
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.font = .preferredFont(forTextStyle: .footnote)
+            label.adjustsFontForContentSizeCategory = true
+            label.numberOfLines = 0
+            label.textAlignment = .center
+            label.textColor = .label
+            label.backgroundColor = .systemBackground
+            label.layer.cornerRadius = 6
+            label.clipsToBounds = true
+            label.isHidden = true
+            return label
+        }()
 
         var hasSensitiveOverlay: Bool {
             sensitiveOverlay != nil
@@ -90,10 +108,18 @@ class InlineImagesGridView: InlineAttachmentView {
         
         private func setup() {
             self.layer.masksToBounds = true
+            addSubview(consentLabel)
+            NSLayoutConstraint.activate([
+                consentLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+                consentLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                consentLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor)
+            ])
             showLoadingPlaceholder()
         }
 
         func showLoadingPlaceholder() {
+            clearConsent()
+            lastThumbnailError = nil
             thumbnailPresentationState = .loading
             contentMode = .center
             tintColor = .tertiaryLabel
@@ -103,6 +129,7 @@ class InlineImagesGridView: InlineAttachmentView {
         }
 
         func showThumbnail(_ image: UIImage) {
+            clearConsent()
             thumbnailPresentationState = .ready
             contentMode = .scaleAspectFill
             backgroundColor = .clear
@@ -110,7 +137,9 @@ class InlineImagesGridView: InlineAttachmentView {
             updateSensitiveAppearance()
         }
 
-        func showUnavailablePlaceholder() {
+        func showUnavailablePlaceholder(error: ChatThumbnailPipelineError? = nil) {
+            clearConsent()
+            lastThumbnailError = error
             thumbnailPresentationState = .unavailable
             contentMode = .center
             tintColor = .secondaryLabel
@@ -118,6 +147,37 @@ class InlineImagesGridView: InlineAttachmentView {
             image = UIImage(systemName: "photo.badge.exclamationmark")
                 ?? UIImage(systemName: "photo")
             updateSensitiveAppearance()
+        }
+
+        func showConsentPlaceholder(for url: URL) {
+            if thumbnailPresentationState != .ready {
+                contentMode = .center
+                backgroundColor = .secondarySystemBackground
+                image = nil
+            }
+            thumbnailPresentationState = .awaitingConsent
+            consentURL = url
+            consentLabel.text = ExternalImageConsent.title
+            consentLabel.isHidden = false
+            isAccessibilityElement = true
+            accessibilityLabel = ExternalImageConsent.title
+            accessibilityTraits.insert(.button)
+            bringSubviewToFront(consentLabel)
+        }
+
+        private func clearConsent() {
+            consentURL = nil
+            onRequestConsent = nil
+            consentLabel.isHidden = true
+            isAccessibilityElement = false
+            accessibilityLabel = nil
+            accessibilityTraits.remove(.button)
+        }
+
+        override func accessibilityActivate() -> Bool {
+            guard let onRequestConsent else { return super.accessibilityActivate() }
+            onRequestConsent()
+            return true
         }
         
         private func updateSensitiveAppearance() {
@@ -130,6 +190,9 @@ class InlineImagesGridView: InlineAttachmentView {
                 }
                 overlay.frame = bounds
                 bringSubviewToFront(overlay)
+                if consentURL != nil {
+                    bringSubviewToFront(consentLabel)
+                }
             } else {
                 sensitiveOverlay?.removeFromSuperview()
                 sensitiveOverlay = nil
@@ -156,6 +219,7 @@ class InlineImagesGridView: InlineAttachmentView {
             self.sourceURL = sourceURL
             url = preferredURL
             didAttemptFullSourceFallback = false
+            showLoadingPlaceholder()
         }
 
         func beginFullSourceFallback() -> Bool {
@@ -184,6 +248,32 @@ class InlineImagesGridView: InlineAttachmentView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        refreshThumbnailBindings()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        let center = NotificationCenter.default
+        center.removeObserver(self, name: .privacyProxyAvailabilityDidChange, object: nil)
+        guard window != nil else { return }
+        center.addObserver(self, selector: #selector(proxyAvailabilityDidChange),
+                           name: .privacyProxyAvailabilityDidChange, object: nil)
+        retryUnavailableImagesThroughProxy()
+    }
+
+    @objc private func proxyAvailabilityDidChange(_ notification: Notification) {
+        guard notification.userInfo?["owner"] as? String == mediaOwner else { return }
+        retryUnavailableImagesThroughProxy()
+    }
+
+    private func retryUnavailableImagesThroughProxy() {
+        guard PrivacyProxyMediaRouter.shared.canResolveImagesThroughProxy(owner: mediaOwner),
+              case .reachable = AccountManager.shared.find(for: mediaOwner)?.disco.privacyProxyAvailability else { return }
+        for view in views where view.consentURL != nil || view.lastThumbnailError == .loadFailed {
+            guard let url = view.consentURL ?? view.url else { continue }
+            view.cancelThumbnailBinding()
+            view.url = url
+        }
         refreshThumbnailBindings()
     }
 
@@ -400,7 +490,7 @@ class InlineImagesGridView: InlineAttachmentView {
                 request,
                 consumer: consumer
             ) { [weak self, weak view] result in
-                guard let view,
+                guard let self, let view,
                       view.representedThumbnailRequest == request,
                       view.representedThumbnailConsumer == consumer else {
                     return
@@ -408,11 +498,20 @@ class InlineImagesGridView: InlineAttachmentView {
                 switch result {
                 case .success(let delivery):
                     view.showThumbnail(delivery.image)
-                case .failure:
-                    if view.beginFullSourceFallback() {
-                        self?.refreshThumbnailBindings()
+                    if let sourceURL = view.sourceURL, sourceURL != url,
+                       PrivacyProxyMediaRouter.shared.imageRequiresConsent(sourceURL, owner: request.owner) {
+                        self.showConsentPlaceholder(in: view, for: sourceURL)
+                    }
+                case .failure(let error):
+                    if error == .authenticationFailed {
+                        view.showUnavailablePlaceholder(error: error)
+                    } else if view.beginFullSourceFallback() {
+                        self.refreshThumbnailBindings()
+                    } else if error == .loadFailed,
+                              PrivacyProxyMediaRouter.shared.canRequestDirectImage(url, owner: request.owner) {
+                        self.showConsentPlaceholder(in: view, for: url)
                     } else {
-                        view.showUnavailablePlaceholder()
+                        view.showUnavailablePlaceholder(error: error)
                     }
                 }
             }
@@ -428,19 +527,49 @@ class InlineImagesGridView: InlineAttachmentView {
             }
         }
     }
+
+    private func showConsentPlaceholder(in view: InlineMessageImageView, for url: URL) {
+        view.showConsentPlaceholder(for: url)
+        view.onRequestConsent = { [weak self, weak view] in
+            guard let self, let view else { return }
+            self.requestDirectImage(url, in: view)
+        }
+    }
+
+    private func requestDirectImage(_ url: URL, in view: InlineMessageImageView) {
+        let owner = mediaOwner
+        let request = view.representedRequest
+        let encryptedAttachment = view.encryptedAttachment
+        ExternalImageConsent.present(for: url, owner: owner, from: view, shouldGrant: { [weak self, weak view] in
+            guard let self, let view else { return false }
+            return self.mediaOwner == owner &&
+                self.views.contains { $0 === view } &&
+                view.representedRequest == request &&
+                view.encryptedAttachment == encryptedAttachment &&
+                (view.sourceURL == url || view.url == url)
+        }) { [weak self, weak view] in
+            guard let self, let view else { return }
+            view.cancelThumbnailBinding()
+            view.url = url
+            self.refreshThumbnailBindings()
+        }
+    }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {
-        var isMyTouch: Bool = false
-        let urls = views.compactMap(\.sourceURL)
-        views.forEach {
-            item in
-            if !isMyTouch {
-                if item.frame.contains(point), let url = item.sourceURL {
-                    callback?(urls, url, item.primary, item.isSensitive)
-                    isMyTouch = true
-                }
-            }
+        guard let item = views.first(where: { $0.frame.contains(point) }) else { return false }
+        if let consentURL = item.consentURL,
+           PrivacyProxyMediaRouter.shared.canRequestDirectImage(consentURL, owner: mediaOwner) {
+            requestDirectImage(consentURL, in: item)
+            return true
         }
-        return isMyTouch
+        guard let url = item.sourceURL else { return false }
+        guard item.lastThumbnailError != .authenticationFailed else { return true }
+        if item.url != url || item.thumbnailPresentationState != .ready,
+           PrivacyProxyMediaRouter.shared.imageRequiresConsent(url, owner: mediaOwner) {
+            requestDirectImage(url, in: item)
+            return true
+        }
+        callback?(views.compactMap(\.sourceURL), url, item.primary, item.isSensitive)
+        return true
     }
 }

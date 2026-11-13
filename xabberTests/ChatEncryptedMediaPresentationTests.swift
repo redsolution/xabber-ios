@@ -163,13 +163,15 @@ final class ChatEncryptedMediaPresentationTests: XCTestCase {
             ],
             url: url, owner: "receiver@example.com", referenceIdentity: "image"
         )
-        let receiver = ChatEncryptedAttachmentReceiver(session: session, cacheDirectory: directory)
+        let receiver = ChatEncryptedAttachmentReceiver(
+            session: session, cacheDirectory: directory, resolveImageURL: { url, _ in url }
+        )
         let loader = KingfisherChatThumbnailLoader(attachmentReceiver: receiver)
         let done = expectation(description: "Normal thumbnail path completes")
         let task = loader.load(ChatThumbnailRequest(url: url, displaySize: .init(width: 64, height: 64), scale: 1, encryptedAttachment: descriptor)) { result in
             defer { done.fulfill() }
             if damageAuthenticationTag {
-                guard case .failure(.loadFailed) = result else { return XCTFail("Tampered bytes must not become an image") }
+                guard case .failure(.authenticationFailed) = result else { return XCTFail("Tampered bytes must not become an image") }
             } else {
                 guard case .success(let image) = result else { return XCTFail("Verified PNG must reach the standard image decoder") }
                 XCTAssertGreaterThan(image.pixelSize.width, 0)

@@ -56,7 +56,8 @@ struct ChatAvatarRequest: Hashable {
                 displaySize: displaySize,
                 scale: scale,
                 traitStyle: traitStyle,
-                owner: owner
+                owner: owner,
+                allowsImageConsent: false
             )
         }
     }

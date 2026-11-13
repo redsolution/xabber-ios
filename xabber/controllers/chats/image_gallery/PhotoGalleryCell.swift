@@ -53,7 +53,8 @@ class PhotoGalleryCell: UICollectionViewCell {
 
     private var imageLoadGeneration = UUID()
     private var localImageWork: DispatchWorkItem?
-    private var imageResolutionTask: Task<Void, Never>?
+    private var networkImageTask: KingfisherChatThumbnailLoadTask?
+    private lazy var showExternalImageButton = ExternalImageConsentButton(in: contentView)
     var mediaOwner = ""
 
     var imageUrl: URL? {
@@ -167,11 +168,12 @@ class PhotoGalleryCell: UICollectionViewCell {
     func configureForNewImageUrl(animated: Bool = true) {
         localImageWork?.cancel()
         localImageWork = nil
-        imageResolutionTask?.cancel()
-        imageResolutionTask = nil
+        networkImageTask?.cancel()
+        networkImageTask = nil
         imageView.kf.cancelDownloadTask()
         imageLoadGeneration = UUID()
         let generation = imageLoadGeneration
+        showExternalImageButton.reset()
         imageView.image = nil
         accessibilityIdentifier = "chat.media.photo.loading"
         errorImageView.removeFromSuperview()
@@ -202,30 +204,62 @@ class PhotoGalleryCell: UICollectionViewCell {
             case .success(let value):
                 if let image = value.image {
                     self.applyGalleryImage(image)
-                } else if PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: self.mediaOwner) {
-                    self.downloadImage(url, generation: generation)
                 } else {
-                    self.activateErrorImage()
+                    self.loadUncachedImage(url, generation: generation)
                 }
             case .failure(let error):
-                self.activateErrorImage()
+                self.loadUncachedImage(url, generation: generation)
                 DDLogDebug("PhotoGalleryCell: \(#function). \(error.localizedDescription)")
             }
         }
     }
 
+    private func loadUncachedImage(_ url: URL, generation: UUID) {
+        if PrivacyProxyMediaRouter.shared.imageRequiresConsent(url, owner: mediaOwner) {
+            offerExternalImageConsent(url, generation: generation)
+        } else {
+            downloadImage(url, generation: generation)
+        }
+    }
+
     private func downloadImage(_ url: URL, generation: UUID) {
         imageView.kf.indicatorType = .activity
-        let modifier = PrivacyProxyImageRequestModifier(owner: mediaOwner, onResolution: { [weak self] task in
-            self?.imageResolutionTask = task
-        })
+        let task = KingfisherChatThumbnailLoadTask()
+        networkImageTask = task
+        let modifier = PrivacyProxyImageRequestModifier(
+            owner: mediaOwner,
+            onResolution: task.updateResolution,
+            onDownloadTaskStarted: task.update
+        )
         imageView.kf.setImage(with: url, options: modifier.options) { [weak self] result in
-            guard let self, self.imageLoadGeneration == generation, self.imageUrl == url else { return }
-            self.imageResolutionTask = nil
+            guard let self, !task.isCancelled, self.imageLoadGeneration == generation, self.imageUrl == url else { return }
+            self.networkImageTask = nil
             self.imageView.kf.indicatorType = .none
             switch result {
             case .success(let value): self.applyGalleryImage(value.image)
-            case .failure: self.activateErrorImage()
+            case .failure:
+                if PrivacyProxyMediaRouter.shared.canRequestDirectImage(url, owner: self.mediaOwner) {
+                    self.offerExternalImageConsent(url, generation: generation)
+                } else {
+                    self.activateErrorImage()
+                }
+            }
+        }
+    }
+
+    private func offerExternalImageConsent(_ url: URL, generation: UUID) {
+        let owner = mediaOwner
+        showExternalImageButton.isHidden = false
+        showExternalImageButton.retryWhenProxyRecovers(for: owner) { [weak self] in
+            self?.configureForNewImageUrl(animated: false)
+        }
+        showExternalImageButton.onTap = { [weak self] in
+            guard let self else { return }
+            ExternalImageConsent.present(for: url, owner: owner, from: self, shouldGrant: { [weak self] in
+                guard let self else { return false }
+                return self.window != nil && self.imageLoadGeneration == generation && self.imageUrl == url && self.mediaOwner == owner
+            }) { [weak self] in
+                self?.configureForNewImageUrl(animated: false)
             }
         }
     }
@@ -278,9 +312,10 @@ class PhotoGalleryCell: UICollectionViewCell {
         imageLoadGeneration = UUID()
         localImageWork?.cancel()
         localImageWork = nil
-        imageResolutionTask?.cancel()
-        imageResolutionTask = nil
+        networkImageTask?.cancel()
+        networkImageTask = nil
         imageView.kf.cancelDownloadTask()
+        showExternalImageButton.reset()
         imageUrl = nil
         imageView.image = nil
         accessibilityIdentifier = nil

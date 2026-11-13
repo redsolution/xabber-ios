@@ -80,6 +80,24 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
         XCTAssertEqual(prefetched.displaySize, .init(width: 96, height: 80))
     }
 
+    func testBlockedVideoPosterOffersConsentWithoutOpeningVideo() throws {
+        let poster = try XCTUnwrap(URL(string: "https://remote.example.net/poster.jpg"))
+        let serving = RecordingChatThumbnailServing()
+        let grid = InlineVideosGridView(frame: CGRect(x: 0, y: 0, width: 160, height: 120))
+        grid.thumbnailPipeline = serving
+        grid.configure([VideoAttachment(primary: "video", url: URL(string: "https://remote.example.net/video.mp4"),
+                                        size: CGSize(width: 160, height: 120), previewUrl: poster, duration: 4, downloaded: false)],
+                       representedBy: "message", owner: "owner@example.com")
+
+        serving.complete(at: 0, with: .failure(.loadFailed))
+
+        let item = try XCTUnwrap(grid.views.first)
+        XCTAssertFalse(item.showExternalImageButton.isHidden)
+        XCTAssertTrue(grid.handleTouch(at: CGPoint(x: 80, y: 60)) { _, _, _, _ in XCTFail("Opened video instead of asking about the poster") })
+        grid.resetState()
+        XCTAssertTrue(item.showExternalImageButton.isHidden)
+    }
+
     func testProcessedPrefetchIsConsumedByVisibleBindingWithoutSecondLoadOrDecode() {
         let loader = FakeChatThumbnailLoader()
         let cache = FakeChatThumbnailCache()
@@ -407,6 +425,46 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
         serving.complete(at: 0, with: .failure(.loadFailed))
         XCTAssertEqual(grid.views[0].thumbnailPresentationState, .unavailable)
         XCTAssertNotNil(grid.views[0].image)
+    }
+
+    func testBlockedExternalImageTapRequestsConsentBeforeOpeningTheGallery() throws {
+        let owner = "owner@example.com"
+        let attachment = ImageAttachment(
+            primary: "external",
+            url: URL(string: "https://outside.example.org/photo.jpg"),
+            size: CGSize(width: 1_000, height: 1_000)
+        )
+        let serving = RecordingChatThumbnailServing()
+        let grid = InlineImagesGridView(frame: CGRect(x: 0, y: 0, width: 220, height: 220))
+        grid.thumbnailPipeline = serving
+        grid.configure([attachment], representedBy: "message", owner: owner)
+        serving.complete(at: 0, with: .failure(.loadFailed))
+
+        let placeholder = try XCTUnwrap(grid.views.first)
+        XCTAssertEqual(placeholder.accessibilityLabel, L10n.text("external_image__show", fallback: "Show image"))
+        XCTAssertTrue(placeholder.accessibilityTraits.contains(.button))
+        XCTAssertTrue(grid.handleTouch(at: CGPoint(x: 110, y: 110)) { _, _, _, _ in
+            XCTFail("The gallery must wait for consent")
+        })
+        XCTAssertEqual(serving.requests.count, 1)
+    }
+
+    func testImageAuthenticationFailureDoesNotOfferDirectDownload() throws {
+        let attachment = ImageAttachment(
+            primary: "external",
+            url: URL(string: "https://outside.example.org/photo.jpg"),
+            size: CGSize(width: 1_000, height: 1_000)
+        )
+        let serving = RecordingChatThumbnailServing()
+        let grid = InlineImagesGridView(frame: CGRect(x: 0, y: 0, width: 220, height: 220))
+        grid.thumbnailPipeline = serving
+        grid.configure([attachment], representedBy: "message", owner: "owner@example.com")
+
+        serving.complete(at: 0, with: .failure(.authenticationFailed))
+
+        let image = try XCTUnwrap(grid.views.first)
+        XCTAssertEqual(image.thumbnailPresentationState, .unavailable)
+        XCTAssertNil(image.consentURL)
     }
 
     func testRemoteThumbnailFailureFallsBackToFullSourceExactlyOnce() throws {

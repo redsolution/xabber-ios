@@ -845,7 +845,9 @@ extension NotificationService: PushPayloadDelegate {
         } else {
             route = nil
         }
-        let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates, route: route)
+        let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates, route: route, imageRoute: { url in
+            proxyRouting.routeImage(url, owner: owner, policy: proxyPolicy)
+        })
         trace("attachments_loaded", "candidates=\(candidates) attachments=\(attachmentLease.attachments)")
         defer { attachmentLease.release() }
         let attachments = attachmentLease.attachments

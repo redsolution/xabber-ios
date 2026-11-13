@@ -64382,6 +64382,88 @@
         }
       }
     },
+    "external_image__direct_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيؤدي تحميل هذه الصورة إلى الاتصال مباشرةً بـ %@ وكشف عنوان IP الخاص بك لهذا الموقع."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading this image connects directly to %@ and reveals your IP address to that site."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargar esta imagen conecta directamente con %@ y revela tu dirección IP a ese sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chargement de cette image établit une connexion directe avec %@ et révèle votre adresse IP à ce site."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При прямой загрузке изображения сайт %@ узнает ваш IP-адрес."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载此图片将直接连接到 %@，并向该网站透露你的 IP 地址。"
+          }
+        }
+      }
+    },
+    "external_image__show": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الصورة"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show image"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar imagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’image"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать изображение"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示图片"
+          }
+        }
+      }
+    },
     "feedback": {
       "extractionState": "manual",
       "localizations": {

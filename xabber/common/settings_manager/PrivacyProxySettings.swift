@@ -41,6 +41,12 @@ final class PrivacyProxySettings {
             },
             writePreference: {
                 SettingManager.shared.saveItem(for: owner, scope: .security, key: preferenceKey, value: $0)
+                if $0 { PrivacyProxyMediaRouter.shared.clearImageConsent(owner: owner) }
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .privacyProxyAvailabilityDidChange, object: nil, userInfo: ["owner": owner]
+                    )
+                }
             }
         )
     }

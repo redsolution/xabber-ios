@@ -183,11 +183,23 @@ final class ChatEncryptedAttachmentReceiver {
     }
     private final class Work {
         let descriptor: ChatEncryptedAttachmentDescriptor
+        let identity: WorkIdentity
         var subscribers: [UUID: Delivery]
         var task: URLSessionDataTask?
         var resolution: Task<Void, Never>?
-        init(descriptor: ChatEncryptedAttachmentDescriptor, subscriber: UUID, delivery: Delivery) { self.descriptor = descriptor; subscribers = [subscriber: delivery] }
+        init(descriptor: ChatEncryptedAttachmentDescriptor, identity: WorkIdentity, subscriber: UUID, delivery: Delivery) {
+            self.descriptor = descriptor
+            self.identity = identity
+            subscribers = [subscriber: delivery]
+        }
         var hasActiveSubscribers: Bool { subscribers.values.contains { !$0.token.isCancelled } }
+    }
+    private struct WorkIdentity: Hashable {
+        let cacheKey: String
+        let route: Route
+    }
+    private enum Route: Hashable {
+        case media, image, automaticImage
     }
     private struct CacheRecord: Codable {
         let version: Int
@@ -200,14 +212,22 @@ final class ChatEncryptedAttachmentReceiver {
     private let cacheDirectory: URL
     private let maximumCiphertextBytes: Int
     private let resolveMediaURL: (URL, String) async throws -> URL
+    private let resolveImageURL: (URL, String) async throws -> URL
+    private let resolveAutomaticImageURL: (URL, String) async throws -> URL
     private let queue = DispatchQueue(label: "com.xabber.authenticated-attachment-receiver", qos: .userInitiated)
-    private var workByIdentity: [String: Work] = [:]
+    private var workByIdentity: [WorkIdentity: Work] = [:]
 
     init(session: URLSession? = nil, cacheDirectory: URL? = nil, maximumCiphertextBytes: Int = 512 * 1_024 * 1_024,
          resolveMediaURL: @escaping (URL, String) async throws -> URL = { url, owner in
              try await PrivacyProxyMediaRouter.shared.resolve(url, owner: owner)
+         }, resolveImageURL: @escaping (URL, String) async throws -> URL = { url, owner in
+             try await PrivacyProxyMediaRouter.shared.resolveImage(url, owner: owner)
+         }, resolveAutomaticImageURL: @escaping (URL, String) async throws -> URL = { url, owner in
+             try await PrivacyProxyMediaRouter.shared.resolveAutomaticImage(url, owner: owner)
          }) {
         self.resolveMediaURL = resolveMediaURL
+        self.resolveImageURL = resolveImageURL
+        self.resolveAutomaticImageURL = resolveAutomaticImageURL
         if let session { self.session = session } else {
             let configuration = URLSessionConfiguration.ephemeral
             configuration.urlCache = nil; configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
@@ -220,24 +240,40 @@ final class ChatEncryptedAttachmentReceiver {
 
     @discardableResult
     func receive(_ descriptor: ChatEncryptedAttachmentDescriptor, completion: @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask {
+        receive(descriptor, route: .media, completion: completion)
+    }
+
+    @discardableResult
+    func receiveImage(_ descriptor: ChatEncryptedAttachmentDescriptor, allowsConsent: Bool = true, completion: @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask {
+        receive(descriptor, route: allowsConsent ? .image : .automaticImage, completion: completion)
+    }
+
+    private func receive(_ descriptor: ChatEncryptedAttachmentDescriptor, route: Route, completion: @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask {
         let subscriber = UUID()
-        let token = ChatEncryptedAttachmentToken { [weak self] in self?.queue.async { [weak self] in self?.cancel(identity: descriptor.cacheIdentity, subscriber: subscriber) } }
+        let identity = WorkIdentity(cacheKey: descriptor.cacheIdentity, route: route)
+        let token = ChatEncryptedAttachmentToken { [weak self] in self?.queue.async { [weak self] in self?.cancel(identity: identity, subscriber: subscriber) } }
         let delivery = Delivery(token: token, completion: completion)
         queue.async { [weak self] in
             guard let self, !token.isCancelled else { return }
             guard descriptor.state == .encrypted, let url = descriptor.sourceURL, let size = descriptor.originalSize else { return self.deliver(.failure(.invalidMetadata), to: delivery) }
             guard size <= self.maximumCiphertextBytes - 16 else { return self.deliver(.failure(.tooLarge), to: delivery) }
-            if let existing = self.workByIdentity[descriptor.cacheIdentity] { existing.subscribers[subscriber] = delivery; return }
-            let work = Work(descriptor: descriptor, subscriber: subscriber, delivery: delivery)
-            self.workByIdentity[descriptor.cacheIdentity] = work
+            if let existing = self.workByIdentity[identity] { existing.subscribers[subscriber] = delivery; return }
+            let work = Work(descriptor: descriptor, identity: identity, subscriber: subscriber, delivery: delivery)
+            self.workByIdentity[identity] = work
             if let file = self.readCache(descriptor) { self.finish(work, result: .success(file)); return }
             work.resolution = Task { [weak self, weak work] in
                 guard let self, let work else { return }
-                let restrictsRedirects = PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: descriptor.owner)
-                let resolved = try? await self.resolveMediaURL(url, descriptor.owner)
+                let restrictsRedirects = route != .media || PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: descriptor.owner)
+                let resolve: (URL, String) async throws -> URL
+                switch route {
+                case .media: resolve = self.resolveMediaURL
+                case .image: resolve = self.resolveImageURL
+                case .automaticImage: resolve = self.resolveAutomaticImageURL
+                }
+                let resolved = try? await resolve(url, descriptor.owner)
                 guard !Task.isCancelled else { return }
                 self.queue.async {
-                    guard self.workByIdentity[descriptor.cacheIdentity] === work, work.hasActiveSubscribers else { return }
+                    guard self.workByIdentity[identity] === work, work.hasActiveSubscribers else { return }
                     work.resolution = nil
                     guard let resolved else { self.finish(work, result: .failure(.downloadFailed)); return }
                     self.transfer(work, url: resolved, restrictsRedirects: restrictsRedirects || url != resolved)
@@ -257,8 +293,8 @@ final class ChatEncryptedAttachmentReceiver {
         ) { [weak self, weak work] result in
             guard let self, let work else { return }
             self.queue.async {
-                guard self.workByIdentity[descriptor.cacheIdentity] === work else { return }
-                guard work.hasActiveSubscribers else { self.workByIdentity.removeValue(forKey: descriptor.cacheIdentity); return }
+                guard self.workByIdentity[work.identity] === work else { return }
+                guard work.hasActiveSubscribers else { self.workByIdentity.removeValue(forKey: work.identity); return }
                 let data: Data
                 switch result {
                 case .success(let value): data = value
@@ -266,9 +302,9 @@ final class ChatEncryptedAttachmentReceiver {
                 }
                 do {
                     let plaintext = try self.authenticate(data, descriptor: descriptor)
-                    guard work.hasActiveSubscribers else { self.workByIdentity.removeValue(forKey: descriptor.cacheIdentity); return }
+                    guard work.hasActiveSubscribers else { self.workByIdentity.removeValue(forKey: work.identity); return }
                     let file = try self.writeCache(plaintext, descriptor: descriptor)
-                    guard work.hasActiveSubscribers else { self.removeCache(descriptor); self.workByIdentity.removeValue(forKey: descriptor.cacheIdentity); return }
+                    guard work.hasActiveSubscribers else { self.removeCache(descriptor); self.workByIdentity.removeValue(forKey: work.identity); return }
                     self.finish(work, result: .success(file))
                 } catch let error as ChatEncryptedAttachmentReceiveError { self.finish(work, result: .failure(error)) }
                 catch { self.finish(work, result: .failure(.cacheFailure)) }
@@ -290,7 +326,7 @@ final class ChatEncryptedAttachmentReceiver {
         guard plaintext.count == originalSize else { throw ChatEncryptedAttachmentReceiveError.plaintextSizeMismatch }
         return plaintext
     }
-    private func cancel(identity: String, subscriber: UUID) {
+    private func cancel(identity: WorkIdentity, subscriber: UUID) {
         guard let work = workByIdentity[identity] else { return }
         work.subscribers.removeValue(forKey: subscriber)
         if !work.hasActiveSubscribers {
@@ -303,8 +339,8 @@ final class ChatEncryptedAttachmentReceiver {
         DispatchQueue.main.async { guard !delivery.token.isCancelled else { return }; delivery.completion(result) }
     }
     private func finish(_ work: Work, result: Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) {
-        guard workByIdentity[work.descriptor.cacheIdentity] === work else { return }
-        workByIdentity.removeValue(forKey: work.descriptor.cacheIdentity)
+        guard workByIdentity[work.identity] === work else { return }
+        workByIdentity.removeValue(forKey: work.identity)
         work.subscribers.values.forEach { deliver(result, to: $0) }
     }
     private func paths(_ descriptor: ChatEncryptedAttachmentDescriptor) -> (file: URL, record: URL) {

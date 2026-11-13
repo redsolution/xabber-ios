@@ -96,7 +96,11 @@ class ServerDiscoManager: AbstractXMPPManager {
     private var discoveredPrivacyProxy: PrivacyProxyDiscovery = .unknown
     @MainActor private lazy var privacyProxyReachability = PrivacyProxyReachability(
         probe: PrivacyProxyHTTPProbe.check,
-        onChange: { [owner = self.owner] _ in
+        onChange: { [owner = self.owner] availability in
+            if case .reachable = availability,
+               PrivacyProxyMediaRouter.shared.canResolveImagesThroughProxy(owner: owner) {
+                PrivacyProxyMediaRouter.shared.clearImageConsent(owner: owner)
+            }
             NotificationCenter.default.post(
                 name: .privacyProxyAvailabilityDidChange, object: nil, userInfo: ["owner": owner]
             )
@@ -436,6 +440,7 @@ class ServerDiscoManager: AbstractXMPPManager {
             if isServerFeatureResponse, let account = AccountManager.shared.find(for: owner) {
                 let resolveGallery: (Account, XMPPStream) -> Void = { user, _ in
                     user.cloudStorage.resolveAuthoritativeDiscovery(endpoint: discoveredGalleryEndpoint)
+                    PrivacyProxyMediaRouter.shared.publishPushRouting(owner: user.jid)
                 }
                 if !account.deferWorkUntilStartupSynchronizationCompletes(
                     key: "gallery.discovery",

@@ -182,6 +182,29 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertEqual(serving.activeSubscriptionCount, 1)
     }
 
+    func testBlockedExternalStickerShowsConsentActionUntilRebound() throws {
+        let serving = RecordingStickerThumbnailServing()
+        let cell = StickerMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
+        cell.thumbnailPipeline = serving
+        cell.bindSticker(
+            ImageAttachment(primary: "external", url: URL(string: "https://outside.example.org/sticker.png"), size: CGSize(width: 192, height: 192)),
+            messagePrimary: "message",
+            displaySize: CGSize(width: 192, height: 192),
+            scale: 2,
+            traitStyle: .light,
+            owner: "owner@example.com"
+        )
+        let request = try XCTUnwrap(serving.subscriptions.first)
+        request.emit(.failure(.loadFailed))
+        XCTAssertTrue(cell.imageView.subviews.contains {
+            $0.accessibilityIdentifier == "chat.media.photo.show-external" && !$0.isHidden
+        })
+
+        cell.prepareForReuse()
+
+        XCTAssertFalse(cell.imageView.subviews.contains { !$0.isHidden })
+    }
+
     func testStickerPrefetchUsesSameBoundedRequestAsVisibleBindingAndNoDocumentResource() throws {
         let url = try XCTUnwrap(URL(string: "https://files.example.com/sticker.png"))
         let item = ChatCollectionPrefetchItem(

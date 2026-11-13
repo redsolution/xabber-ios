@@ -269,6 +269,7 @@ class InlineVideosGridView: InlineAttachmentView {
             }
         }
         private var sensitiveOverlay: SensitiveMediaOverlayView?
+        lazy var showExternalImageButton = ExternalImageConsentButton(in: self)
 
         var hasSensitiveOverlay: Bool {
             sensitiveOverlay != nil
@@ -320,6 +321,9 @@ class InlineVideosGridView: InlineAttachmentView {
             if let sensitiveOverlay {
                 bringSubviewToFront(sensitiveOverlay)
             }
+            if !showExternalImageButton.isHidden {
+                bringSubviewToFront(showExternalImageButton)
+            }
         }
 
         func cancelThumbnailBinding() {
@@ -327,6 +331,17 @@ class InlineVideosGridView: InlineAttachmentView {
             thumbnailSubscription = nil
             representedThumbnailRequest = nil
             representedThumbnailConsumer = nil
+            showExternalImageButton.reset()
+            playButton.isHidden = false
+            isUserInteractionEnabled = false
+        }
+
+        func offerPosterConsent(_ action: @escaping () -> Void) {
+            isUserInteractionEnabled = true
+            playButton.isHidden = true
+            showExternalImageButton.onTap = action
+            showExternalImageButton.isHidden = false
+            bringSubviewToFront(showExternalImageButton)
         }
 
         private func updateSensitiveAppearance() {
@@ -565,15 +580,50 @@ class InlineVideosGridView: InlineAttachmentView {
             view.thumbnailSubscription = thumbnailPipeline.acquire(
                 request,
                 consumer: consumer
-            ) { [weak view] result in
-                guard let view,
+            ) { [weak self, weak view] result in
+                guard let self, let view,
                       view.representedThumbnailRequest == request,
-                      view.representedThumbnailConsumer == consumer,
-                      case .success(let delivery) = result else {
+                      view.representedThumbnailConsumer == consumer else {
                     return
                 }
-                view.image = delivery.image
+                switch result {
+                case .success(let delivery):
+                    view.image = delivery.image
+                case .failure(.loadFailed) where PrivacyProxyMediaRouter.shared.canRequestDirectImage(previewURL, owner: request.owner):
+                    view.offerPosterConsent { [weak self, weak view] in
+                        guard let self, let view else { return }
+                        self.requestPosterConsent(in: view, request: request, consumer: consumer)
+                    }
+                    view.showExternalImageButton.retryWhenProxyRecovers(for: request.owner) { [weak self, weak view] in
+                        guard let self, let view, view.representedThumbnailRequest == request,
+                              view.representedThumbnailConsumer == consumer else { return }
+                        view.cancelThumbnailBinding()
+                        self.refreshThumbnailBindings()
+                    }
+                case .failure:
+                    break
+                }
             }
+        }
+    }
+
+    private func requestPosterConsent(in view: InlineMessageVideoView, request: ChatThumbnailRequest, consumer: ChatThumbnailConsumer) {
+        let identity = view.representedRequest
+        let isCurrent: () -> Bool = { [weak self, weak view] in
+            guard let self, let view else { return false }
+            return self.mediaOwner == request.owner && self.views.contains { $0 === view }
+                && view.representedRequest == identity && view.representedThumbnailRequest == request
+                && view.representedThumbnailConsumer == consumer && view.previewURL == request.url
+        }
+        let retry: () -> Void = { [weak self, weak view] in
+            guard let self, let view, isCurrent() else { return }
+            view.cancelThumbnailBinding()
+            self.refreshThumbnailBindings()
+        }
+        if PrivacyProxyMediaRouter.shared.canRequestDirectImage(request.url, owner: request.owner) {
+            ExternalImageConsent.present(for: request.url, owner: request.owner, from: view, shouldGrant: isCurrent, onGranted: retry)
+        } else {
+            retry()
         }
     }
 
@@ -596,6 +646,10 @@ class InlineVideosGridView: InlineAttachmentView {
         let urls = views.compactMap { $0.url }
         for item in views {
             if item.frame.contains(point) {
+                if let showPoster = item.showExternalImageButton.onTap {
+                    showPoster()
+                    return true
+                }
                 if let url = item.url {
                     callback?(urls, url, item.primary, item.isSensitive)
                 }

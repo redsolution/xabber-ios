@@ -22,17 +22,15 @@ final class PrivacyProxyMediaRouter {
         case unavailable
         case configurationChanged
         case invalidDownloadResponse
+        case imageConsentRequired
     }
 
     static let shared = PrivacyProxyMediaRouter(
         context: { owner in
             let policy = CommonConfigManager.shared.config.privacyProxyPolicy
-            guard policy != .never else {
-                return Context(policy: policy, localEnabled: false, premium: false, endpoint: nil, trustedHosts: [])
-            }
-            let preference = SettingManager.shared.getKeyBool(
+            let preference = policy != .never && (SettingManager.shared.getKeyBool(
                 for: owner, scope: .security, key: SettingManager.privacyProxyEnabledKey
-            ) ?? false
+            ) ?? false)
             let premiumExpires = policy == .payed && preference
                 ? SubscribtionsManager.shared.getExpiresDate(for: owner)
                 : nil
@@ -59,6 +57,8 @@ final class PrivacyProxyMediaRouter {
     private let context: (String) -> Context
     private let resolveExternal: (URL, String) async throws -> URL
     private let pushRouting: PrivacyProxyPushRouting?
+    private let imageConsentLock = NSLock()
+    private var approvedImages: [String: [URL]] = [:]
 
     init(
         context: @escaping (String) -> Context,
@@ -76,8 +76,95 @@ final class PrivacyProxyMediaRouter {
 
     func publishPushRouting(owner: String) {
         let current = context(owner)
-        guard current.policy != .never else { return }
         pushRouting?.publish(endpoint: current.endpoint, trustedHosts: current.trustedHosts, owner: owner)
+    }
+
+    func canRequestDirectImage(_ url: URL, owner: String) -> Bool {
+        guard let jid = XMPPJID(string: owner), jid.user != nil, Self.isHTTPImageURL(url) else { return false }
+        let current = context(jid.bare)
+        return mayApproveImage(url, jid: jid, context: current)
+    }
+
+    func imageRequiresConsent(_ url: URL, owner: String) -> Bool {
+        guard let jid = XMPPJID(string: owner), jid.user != nil, Self.isHTTPImageURL(url) else { return false }
+        let current = context(jid.bare)
+        return (!current.usesProxy || current.endpoint == nil) && mayApproveImage(url, jid: jid, context: current)
+    }
+
+    func canResolveImagesThroughProxy(owner: String) -> Bool {
+        guard let jid = XMPPJID(string: owner), jid.user != nil else { return false }
+        let current = context(jid.bare)
+        return current.usesProxy && current.endpoint != nil
+    }
+
+    @discardableResult
+    func grantDirectImage(_ url: URL, owner: String) -> Bool {
+        guard canRequestDirectImage(url, owner: owner), let jid = XMPPJID(string: owner) else { return false }
+        imageConsentLock.lock()
+        defer { imageConsentLock.unlock() }
+        var recent = approvedImages[jid.bare, default: []]
+        recent.removeAll { $0 == url }
+        recent.append(url)
+        approvedImages[jid.bare] = Array(recent.suffix(128))
+        return true
+    }
+
+    func clearImageConsent(owner: String) {
+        imageConsentLock.lock()
+        defer { imageConsentLock.unlock() }
+        approvedImages.removeValue(forKey: XMPPJID(string: owner)?.bare ?? owner)
+    }
+
+    private func hasImageConsent(_ url: URL, owner: String) -> Bool {
+        imageConsentLock.lock()
+        defer { imageConsentLock.unlock() }
+        return approvedImages[owner]?.contains(url) == true
+    }
+
+    private func mayApproveImage(_ url: URL, jid: XMPPJID, context: Context) -> Bool {
+        context.policy != .always && !isTrustedImage(url, jid: jid, context: context)
+            && !hasImageConsent(url, owner: jid.bare)
+    }
+
+    private func isTrustedImage(_ url: URL, jid: XMPPJID, context: Context) -> Bool {
+        if PrivacyProxyPushRouting.matchesTrustedHost(url, trustedHosts: context.trustedHosts + [jid.domain]) {
+            return true
+        }
+        return context.usesProxy && context.endpoint.map {
+            PrivacyProxyClient.isProxiedFileURL(url, endpoint: $0)
+        } == true
+    }
+
+    private static func isHTTPImageURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else { return false }
+        return url.user == nil && url.password == nil
+    }
+
+    func resolveImage(_ url: URL, owner: String) async throws -> URL {
+        try await resolveImage(url, owner: owner, allowsConsent: true)
+    }
+
+    func resolveAutomaticImage(_ url: URL, owner: String) async throws -> URL {
+        try await resolveImage(url, owner: owner, allowsConsent: false)
+    }
+
+    private func resolveImage(_ url: URL, owner: String, allowsConsent: Bool) async throws -> URL {
+        try Task.checkCancellation()
+        if url.isFileURL || url.scheme?.lowercased() == "data" { return url }
+        guard let jid = XMPPJID(string: owner), jid.user != nil else { throw RoutingError.invalidOwner }
+        guard Self.isHTTPImageURL(url) else { throw RoutingError.invalidSource }
+        let current = context(jid.bare)
+        if isTrustedImage(url, jid: jid, context: current) { return url }
+        if current.policy != .always, allowsConsent, hasImageConsent(url, owner: jid.bare) { return url }
+        guard current.usesProxy else { throw RoutingError.imageConsentRequired }
+        do {
+            return try await resolveUsingProxy(url, jid: jid, current: current)
+        } catch {
+            try Task.checkCancellation()
+            if current.policy == .always { throw error }
+            throw RoutingError.imageConsentRequired
+        }
     }
 
     func resolve(_ url: URL, owner: String) async throws -> URL {
@@ -86,14 +173,17 @@ final class PrivacyProxyMediaRouter {
         let jid = XMPPJID(string: owner)
         let owner = jid?.bare ?? owner
         let current = context(owner)
+        guard current.usesProxy else { return url }
+        guard let jid, jid.user != nil else { throw RoutingError.invalidOwner }
+        guard Self.isHTTPImageURL(url) else { throw RoutingError.invalidSource }
+        return try await resolveUsingProxy(url, jid: jid, current: current)
+    }
+
+    private func resolveUsingProxy(_ url: URL, jid: XMPPJID, current: Context) async throws -> URL {
+        let owner = jid.bare
         if current.policy == .payed {
             pushRouting?.publishPremiumExpiration(current.premiumExpires, owner: owner)
         }
-        guard current.usesProxy else { return url }
-        guard let jid, jid.user != nil else { throw RoutingError.invalidOwner }
-        guard let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              url.host != nil, url.user == nil, url.password == nil else { throw RoutingError.invalidSource }
-
         pushRouting?.publish(endpoint: current.endpoint, trustedHosts: current.trustedHosts, owner: owner)
         let trustedHosts = current.trustedHosts + [jid.domain]
         if PrivacyProxyPushRouting.matchesTrustedHost(url, trustedHosts: trustedHosts) {
@@ -135,9 +225,9 @@ final class PrivacyProxyMediaRouter {
     }
 
     static func redirectHandler(
-        for originalURL: URL, resolvedURL: URL, owner: String
+        for originalURL: URL, resolvedURL: URL, owner: String, force: Bool = false
     ) -> (any ImageDownloadRedirectHandler)? {
-        guard originalURL != resolvedURL || shared.restrictsRedirects(owner: owner) else { return nil }
+        guard force || originalURL != resolvedURL || shared.restrictsRedirects(owner: owner) else { return nil }
         return AnyRedirectHandler { _, _, request, completion in
             completion(request.url.map { allowsRedirect(from: resolvedURL, to: $0) } == true ? request : nil)
         }
@@ -152,6 +242,15 @@ final class PrivacyProxyMediaRouter {
 
     func download(_ url: URL, owner: String) async throws -> URL {
         let resolved = try await resolve(url, owner: owner)
+        return try await download(from: resolved, originalURL: url)
+    }
+
+    func downloadAutomaticImage(_ url: URL, owner: String) async throws -> URL {
+        let resolved = try await resolveAutomaticImage(url, owner: owner)
+        return try await download(from: resolved, originalURL: url)
+    }
+
+    private func download(from resolved: URL, originalURL url: URL) async throws -> URL {
         let (temporary, response) = try await Self.downloadSession.download(
             for: URLRequest(url: resolved), delegate: RedirectDelegate(source: resolved)
         )

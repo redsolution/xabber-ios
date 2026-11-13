@@ -516,6 +516,7 @@ open class SettingManager: NSObject {
     }
 
     public final func clear(for jid: String) {
+        PrivacyProxyMediaRouter.shared.clearImageConsent(owner: jid)
         PrivacyProxyPushRouting.live.clear(owner: jid)
         removeItem(for: jid, scope: .security, key: Self.privacyProxyEnabledKey)
         removeItem(for: jid, scope: .clientSynchronization, key: "version")

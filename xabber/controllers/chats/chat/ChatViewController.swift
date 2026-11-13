@@ -2759,9 +2759,7 @@ class ChatViewController: MessagesViewController {
     
 // attachments
     var chatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating? = nil
-    internal var mediaAttachmentReceive: (ChatEncryptedAttachmentDescriptor, @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask = { descriptor, completion in
-        ChatEncryptedAttachmentReceiver.shared.receive(descriptor, completion: completion)
-    }
+    internal var mediaAttachmentReceive: ((ChatEncryptedAttachmentDescriptor, @escaping (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void) -> ChatEncryptedAttachmentReceiveTask)?
     internal var mediaPresentationForTesting: ((ChatMediaOpeningKind, [URL], URL) -> Void)?
     internal var mediaOpenTasks: [ChatEncryptedAttachmentReceiveTask] = []
     internal var mediaOpenGeneration = UUID()

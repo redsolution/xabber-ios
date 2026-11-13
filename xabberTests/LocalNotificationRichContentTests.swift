@@ -766,6 +766,74 @@ final class LocalNotificationRichContentTests: XCTestCase {
         XCTAssertNil(data)
     }
 
+    func testImageRoutingRequiresAnActiveProxyAndFreshMappingForExternalHosts() throws {
+        let suite = "\(name)-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let routing = PrivacyProxyPushRouting(defaults: defaults)
+        let owner = "romeo@example.com"
+        let external = try XCTUnwrap(URL(string: "https://external.example.org/photo.png"))
+        let trusted = try XCTUnwrap(URL(string: "https://upload.example.com/photo.png"))
+        let gallery = try XCTUnwrap(URL(string: "https://cdn.example.net/photo.png"))
+        let endpoint = try XCTUnwrap(URL(string: "https://proxy.example.com/proxy/"))
+        let proxyURL = endpoint.appendingPathComponent("files/123")
+        let now = Date(timeIntervalSince1970: 1_723_337_600)
+
+        routing.publish(endpoint: endpoint, trustedHosts: ["cdn.example.net"], owner: owner)
+        XCTAssertNil(routing.routeImage(external, owner: owner, policy: .always, now: now))
+        routing.remember(source: external, resolved: proxyURL, endpoint: endpoint, owner: owner, now: now)
+
+        XCTAssertNil(routing.routeImage(external, owner: owner, policy: .never, now: now))
+        XCTAssertNil(routing.routeImage(external, owner: owner, policy: .manual, now: now))
+        XCTAssertEqual(routing.routeImage(trusted, owner: owner, policy: .never, now: now), trusted)
+        XCTAssertEqual(routing.routeImage(gallery, owner: owner, policy: .always, now: now), gallery)
+        XCTAssertEqual(routing.routeImage(external, owner: owner, policy: .always, now: now), proxyURL)
+
+        defaults.set(true, forKey: PrivacyProxyPushRouting.preferenceKey(owner))
+        XCTAssertEqual(routing.routeImage(external, owner: owner, policy: .manual, now: now), proxyURL)
+        XCTAssertNil(routing.routeImage(external, owner: owner, policy: .payed, now: now))
+        routing.publishPremiumExpiration(now, owner: owner)
+        XCTAssertNil(routing.routeImage(external, owner: owner, policy: .payed, now: now))
+        routing.publishPremiumExpiration(now.addingTimeInterval(800), owner: owner)
+        XCTAssertEqual(routing.routeImage(external, owner: owner, policy: .payed, now: now), proxyURL)
+        XCTAssertNil(routing.routeImage(external, owner: owner, policy: .payed, now: now.addingTimeInterval(601)))
+    }
+
+    func testImageRouteBlocksPrimaryAndVideoFallbackImagesWithoutBlockingVideoRequest() async throws {
+        let image = try XCTUnwrap(URL(string: "https://outside.example.org/photo.png"))
+        let video = try XCTUnwrap(URL(string: "https://outside.example.org/video.mp4"))
+        let videoRequest = expectation(description: "Video request")
+        let imageRoutes = expectation(description: "Primary and fallback images use image routing")
+        imageRoutes.expectedFulfillmentCount = 2
+        RichNotificationLoaderURLProtocol.install { request, transport in
+            if request.url == video {
+                videoRequest.fulfill()
+            } else {
+                XCTFail("Unexpected HTTP request: \(String(describing: request.url))")
+            }
+            transport.fail(URLError(.resourceUnavailable))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RichNotificationLoaderURLProtocol.self]
+        let loader = RichNotificationAttachmentLoader(configuration: configuration)
+        let candidates = [
+            RichNotificationAttachmentCandidate(kind: .image, sourceURL: image.absoluteString),
+            RichNotificationAttachmentCandidate(
+                kind: .video, sourceURL: video.absoluteString, fallbackImageURL: image.absoluteString
+            )
+        ]
+
+        let lease = await loader.attachmentLease(for: candidates, imageRoute: { url in
+            XCTAssertEqual(url, image)
+            imageRoutes.fulfill()
+            return nil
+        })
+        defer { lease.release() }
+
+        await fulfillment(of: [videoRequest, imageRoutes], timeout: 1)
+        XCTAssertTrue(lease.attachments.isEmpty)
+    }
+
     private func preview(
         route: PushNotificationRoutePayload,
         body: String,

@@ -591,6 +591,16 @@ extension PhotoGallery: UICollectionViewDelegate {
 }
 
 extension PhotoGallery: UIGestureRecognizerDelegate {
+
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer is UITapGestureRecognizer else { return true }
+        var target = touch.view
+        while let view = target, view !== imageCollectionView {
+            if view is ExternalImageConsentButton { return false }
+            target = view.superview
+        }
+        return true
+    }
     
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         

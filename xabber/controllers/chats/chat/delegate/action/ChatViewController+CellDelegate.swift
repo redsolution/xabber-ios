@@ -86,7 +86,7 @@ extension ChatViewController {
                 chat.boundMediaReference(url: source, primary: binding.primary)?.descriptor == binding.descriptor
             }
         }
-        var resolved = requested
+        var resolved: [URL?] = requested.map { $0 }
         var remaining = bindings.filter { $0.descriptor.requiresAuthentication }.count
         guard remaining > 0 else {
             if kind == .video, !url.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: capturedOwner) {
@@ -103,25 +103,51 @@ extension ChatViewController {
                     }
                 }
             } else {
-                presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex], referencePrimary: bindings[selectedIndex].primary)
+                presentBoundMedia(kind: kind, urls: requested, url: url, referencePrimary: bindings[selectedIndex].primary)
             }
             return
         }
         for (index, binding) in bindings.enumerated() where binding.descriptor.requiresAuthentication {
             guard mediaOpenGeneration == generation else { break }
-            let task = mediaAttachmentReceive(binding.descriptor) { [weak self] result in
+            let completion: (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void = { [weak self] result in
                 guard let self, self.mediaOpenGeneration == generation else { return }
                 guard current(self) else { self.cancelMediaOpening(); return }
-                guard case let .success(file) = result, file.fileURL.isFileURL, file.cacheIdentity == binding.descriptor.cacheIdentity else {
+                switch result {
+                case .success(let file) where file.fileURL.isFileURL && file.cacheIdentity == binding.descriptor.cacheIdentity:
+                    resolved[index] = file.fileURL
+                case .failure(.downloadFailed) where kind == .photo && index != selectedIndex:
+                    // A neighboring photo may be unavailable without a proxy or consent.
+                    resolved[index] = nil
+                case .failure(.downloadFailed) where kind == .photo:
+                    self.cancelMediaOpening()
+                    let consentGeneration = self.mediaOpenGeneration
+                    guard let source = binding.descriptor.sourceURL, let view = self.viewIfLoaded else { return }
+                    ExternalImageConsent.present(for: source, owner: capturedOwner, from: view, shouldGrant: { [weak self] in
+                        guard let self else { return false }
+                        return self.mediaOpenGeneration == consentGeneration &&
+                            self.owner == capturedOwner && self.jid == capturedJid && self.conversationType == capturedType &&
+                            self.boundMediaReference(url: url, primary: binding.primary)?.descriptor == binding.descriptor
+                    }) { [weak self] in
+                        self?.openBoundMedia(kind: kind, url: url, urls: urls, referencePrimary: referencePrimary, messagePrimary: messagePrimary)
+                    }
+                    return
+                default:
                     self.cancelMediaOpening()
                     return
                 }
-                resolved[index] = file.fileURL
                 remaining -= 1
-                guard remaining == 0 else { return }
+                guard remaining == 0, let selectedURL = resolved[selectedIndex] else { return }
                 self.mediaOpenTasks.removeAll()
                 self.mediaOpenGeneration = UUID()
-                self.presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex], referencePrimary: bindings[selectedIndex].primary)
+                self.presentBoundMedia(kind: kind, urls: resolved.compactMap { $0 }, url: selectedURL, referencePrimary: bindings[selectedIndex].primary)
+            }
+            let task: ChatEncryptedAttachmentReceiveTask
+            if let mediaAttachmentReceive {
+                task = mediaAttachmentReceive(binding.descriptor, completion)
+            } else if kind == .photo {
+                task = ChatEncryptedAttachmentReceiver.shared.receiveImage(binding.descriptor, allowsConsent: index == selectedIndex, completion: completion)
+            } else {
+                task = ChatEncryptedAttachmentReceiver.shared.receive(binding.descriptor, completion: completion)
             }
             if mediaOpenGeneration == generation { mediaOpenTasks.append(task) } else { task.cancel() }
         }

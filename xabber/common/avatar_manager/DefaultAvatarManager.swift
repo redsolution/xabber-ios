@@ -46,7 +46,7 @@ final class AvatarHTTPImageLoad {
         owner: String,
         options: KingfisherOptionsInfo = [],
         resolve: @escaping (URL, String) async throws -> URL = { url, owner in
-            try await PrivacyProxyMediaRouter.shared.resolve(url, owner: owner)
+            try await PrivacyProxyMediaRouter.shared.resolveAutomaticImage(url, owner: owner)
         },
         completion: @escaping (UIImage?) -> Void
     ) {
@@ -93,7 +93,7 @@ final class AvatarHTTPImageLoad {
         for originalURL: URL, resolvedURL: URL, owner: String
     ) -> KingfisherOptionsInfo {
         guard let handler = PrivacyProxyMediaRouter.redirectHandler(
-            for: originalURL, resolvedURL: resolvedURL, owner: owner
+            for: originalURL, resolvedURL: resolvedURL, owner: owner, force: true
         ) else { return [] }
         return [.downloader(PrivacyProxyMediaRouter.protectedImageDownloader), .redirectHandler(handler)]
     }

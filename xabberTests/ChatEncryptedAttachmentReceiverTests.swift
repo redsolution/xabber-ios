@@ -93,6 +93,37 @@ final class ChatEncryptedAttachmentReceiverTests: XCTestCase {
         XCTAssertEqual(EncryptedAttachmentURLProtocol.requestCount, 0)
     }
 
+    func testEncryptedImageWaitsForConsentAndThenAuthenticatesOriginal() throws {
+        let owner = "owner@another.test"
+        let url = try XCTUnwrap(URL(string: "https://encrypted.example.test/image"))
+        let value = ChatEncryptedAttachmentDescriptor(metadata: metadata(["name": "photo.jpg", "media-type": "image/jpeg"]),
+                                                      url: url, owner: owner, referenceIdentity: "image")
+        let router = PrivacyProxyMediaRouter(context: { _ in
+            .init(policy: .never, localEnabled: false, premium: false, endpoint: nil, trustedHosts: [])
+        }, resolveExternal: { _, _ in throw URLError(.cannotConnectToHost) })
+        receiver = ChatEncryptedAttachmentReceiver(session: session, cacheDirectory: directory, resolveImageURL: { url, owner in
+            try await router.resolveImage(url, owner: owner)
+        })
+
+        let denied = expectation(description: "Image denied before consent")
+        tasks.append(receiver.receiveImage(value) { result in
+            guard case .failure(.downloadFailed) = result else { XCTFail("Expected an image routing failure"); denied.fulfill(); return }
+            denied.fulfill()
+        })
+        wait(for: [denied], timeout: 3)
+        XCTAssertEqual(EncryptedAttachmentURLProtocol.requestCount, 0)
+
+        XCTAssertTrue(router.grantDirectImage(url, owner: owner))
+        let approved = expectation(description: "Image authenticated after consent")
+        tasks.append(receiver.receiveImage(value) { result in
+            let file = try? result.get()
+            XCTAssertEqual(file?.plaintextSHA256, self.hash(self.plaintext))
+            approved.fulfill()
+        })
+        wait(for: [approved], timeout: 3)
+        XCTAssertEqual(EncryptedAttachmentURLProtocol.requestURLs, [url])
+    }
+
     func testCiphertextHashIsVerifiedBeforeDecryption() {
         guard case let .failure(error)? = receive(descriptor(["hash": String(repeating: "0", count: 64)])) else { return XCTFail("Expected hash rejection") }
         XCTAssertEqual(error, .ciphertextHashMismatch)

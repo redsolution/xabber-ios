@@ -631,7 +631,8 @@ final class RichNotificationAttachmentLoader {
     /// or notification-service content completion, then call `release()`.
     func attachmentLease(
         for candidates: [RichNotificationAttachmentCandidate],
-        route: ((URL) async -> URL?)? = nil
+        route: ((URL) async -> URL?)? = nil,
+        imageRoute: ((URL) async -> URL?)? = nil
     ) async -> RichNotificationAttachmentLease {
         guard limits.maximumAttachmentCount > 0,
               limits.maximumTotalBytes > 0,
@@ -687,7 +688,8 @@ final class RichNotificationAttachmentLoader {
                 requestDirectory: requestDirectory,
                 deadline: deadline,
                 remainingBytes: remainingBytes,
-                route: route
+                route: route,
+                imageRoute: imageRoute ?? route
             ) {
                 result.append(staged.attachment)
                 let addition = consumedBytes.addingReportingOverflow(staged.size)
@@ -714,7 +716,8 @@ final class RichNotificationAttachmentLoader {
         requestDirectory: URL,
         deadline: Date,
         remainingBytes: Int64,
-        route: ((URL) async -> URL?)?
+        route: ((URL) async -> URL?)?,
+        imageRoute: ((URL) async -> URL?)?
     ) async -> StagedAttachment? {
         if let attachment = await stagedAttachment(
             kind: candidate.kind,
@@ -724,7 +727,7 @@ final class RichNotificationAttachmentLoader {
             requestDirectory: requestDirectory,
             deadline: deadline,
             remainingBytes: remainingBytes,
-            route: route
+            route: candidate.kind == .image ? imageRoute : route
         ) {
             return attachment
         }
@@ -743,7 +746,7 @@ final class RichNotificationAttachmentLoader {
             requestDirectory: requestDirectory,
             deadline: deadline,
             remainingBytes: remainingBytes,
-            route: route
+            route: imageRoute
         )
     }
 

@@ -150,6 +150,101 @@ final class MediaGalleryImagePrefetchTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(loader.cancelCount, 1)
     }
 
+    func testFullGalleryOffersConsentOnAnUncachedExternalImage() throws {
+        let originalConfig = CommonConfigManager.shared.config
+        try setPrivacyProxyPolicy("manual")
+        defer { CommonConfigManager.shared.config = originalConfig }
+
+        let cell = PhotoGalleryCell(frame: CGRect(x: 0, y: 0, width: 200, height: 300))
+        cell.mediaOwner = "photo-gallery-consent@example.test"
+        cell.imageUrl = try XCTUnwrap(URL(string: "https://external.test/\(UUID()).png"))
+        cell.configureForNewImageUrl(animated: false)
+
+        let action = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? UIButton }.first {
+            $0.accessibilityIdentifier == "chat.media.photo.show-external"
+        })
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !action.isHidden }, object: nil)
+        wait(for: [ready], timeout: 2)
+        XCTAssertFalse(action.isHidden)
+        XCTAssertNil(cell.imageView.image)
+
+        cell.prepareForReuse()
+        XCTAssertTrue(action.isHidden)
+    }
+
+    func testGalleryGridOffersConsentAfterFailureOnlyForCurrentExternalImage() throws {
+        let originalConfig = CommonConfigManager.shared.config
+        try setPrivacyProxyPolicy("manual")
+        defer { CommonConfigManager.shared.config = originalConfig }
+
+        let loader = FakeMediaGalleryImageLoader()
+        let cell = PhotoGalleryForChatViewController.GalleryPhotoItemCell(
+            frame: CGRect(x: 0, y: 0, width: 120, height: 120),
+            imageLoader: loader
+        )
+        let owner = "photo-gallery-consent@example.test"
+        let external = MediaGalleryImageRequest(
+            url: try XCTUnwrap(URL(string: "https://external.test/image.jpg")),
+            displaySize: cell.bounds.size, scale: 2, owner: owner
+        )
+        let trusted = MediaGalleryImageRequest(
+            url: try XCTUnwrap(URL(string: "https://example.test/image.jpg")),
+            displaySize: cell.bounds.size, scale: 2, owner: owner
+        )
+        func actionIsVisible() -> Bool {
+            cell.contentView.subviews.contains {
+                $0.accessibilityIdentifier == "chat.media.photo.show-external" && !$0.isHidden
+            }
+        }
+
+        cell.configure(primary: "external", request: external, thumb: nil, isSensitive: false)
+        cell.configure(primary: "trusted", request: trusted, thumb: nil, isSensitive: false)
+        loader.completeLoad(at: 0, outcome: .failure)
+        XCTAssertFalse(actionIsVisible())
+        loader.completeLoad(at: 1, outcome: .failure)
+        XCTAssertFalse(actionIsVisible())
+
+        cell.configure(primary: "external", request: external, thumb: nil, isSensitive: false)
+        loader.completeLoad(at: 2, outcome: .failure)
+        XCTAssertTrue(actionIsVisible())
+
+        cell.prepareForReuse()
+        XCTAssertFalse(actionIsVisible())
+    }
+
+    func testGalleryGridKeepsFailedExternalImageBlockedUnderAlwaysPolicy() throws {
+        let originalConfig = CommonConfigManager.shared.config
+        try setPrivacyProxyPolicy("always")
+        defer { CommonConfigManager.shared.config = originalConfig }
+
+        let loader = FakeMediaGalleryImageLoader()
+        let cell = PhotoGalleryForChatViewController.GalleryPhotoItemCell(
+            frame: CGRect(x: 0, y: 0, width: 120, height: 120), imageLoader: loader
+        )
+        let request = MediaGalleryImageRequest(
+            url: try XCTUnwrap(URL(string: "https://external.test/image.jpg")),
+            displaySize: cell.bounds.size, scale: 2, owner: "photo-gallery-consent@example.test"
+        )
+
+        cell.configure(primary: "external", request: request, thumb: nil, isSensitive: false)
+        loader.completeLoad(at: 0, outcome: .failure)
+
+        XCTAssertEqual(cell.failurePlaceholderPrimary, "external")
+        XCTAssertFalse(cell.contentView.subviews.contains {
+            $0.accessibilityIdentifier == "chat.media.photo.show-external" && !$0.isHidden
+        })
+    }
+
+    private func setPrivacyProxyPolicy(_ policy: String) throws {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "common_config", withExtension: "plist"))
+        let data = try Data(contentsOf: url)
+        let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+        var values = try XCTUnwrap(plist as? [String: Any])
+        values["privacy_proxy_policy"] = policy
+        let config = try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0)
+        CommonConfigManager.shared.config = try PropertyListDecoder().decode(CommonConfigManager.CommonConfig.self, from: config)
+    }
+
     private func makeCoordinator(
         datasource: [BaseMediaGalleryForChatViewController.Datasource],
         factory: FakeMediaGalleryImagePrefetchTaskFactory

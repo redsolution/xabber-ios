@@ -276,11 +276,19 @@ private final class MediaGalleryThumbnailPrefetchTask: MediaGalleryImagePrefetch
 
 private final class KingfisherMediaGalleryImagePrefetchTask: MediaGalleryImagePrefetchTask {
     private let prefetcher: ImagePrefetcher
+    private let networkTask: KingfisherChatThumbnailLoadTask
 
     init(request: MediaGalleryImageRequest) {
+        let task = KingfisherChatThumbnailLoadTask()
+        networkTask = task
+        let modifier = PrivacyProxyImageRequestModifier(
+            owner: request.owner,
+            onResolution: task.updateResolution,
+            onDownloadTaskStarted: task.update
+        )
         prefetcher = ImagePrefetcher(
             resources: [request.resource],
-            options: request.kingfisherOptions
+            options: request.kingfisherOptions + modifier.options
         )
     }
 
@@ -289,6 +297,7 @@ private final class KingfisherMediaGalleryImagePrefetchTask: MediaGalleryImagePr
     }
 
     func stop() {
+        networkTask.cancel()
         prefetcher.stop()
     }
 }

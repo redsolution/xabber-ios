@@ -59,23 +59,26 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     }()
     
     private var imageGeneration = UUID()
-    private var imageResolutionTask: Task<Void, Never>?
+    private var networkImageTask: KingfisherChatThumbnailLoadTask?
+    private lazy var showExternalImageButton = ExternalImageConsentButton(in: contentView)
 
     override func prepareForReuse() {
         super.prepareForReuse()
         cancelImageLoad()
+        selectedImageView.isHidden = true
         imageView.image = nil
         errorImageView.removeFromSuperview()
         selectedImageView.removeFromSuperview()
     }
     
     internal func setup(photoUrls urls: (thumb: String?, url: String), owner: String) {
-        addSubview(imageView)
+        if imageView.superview == nil {
+            contentView.insertSubview(imageView, at: 0)
+            makeConstraints()
+        }
         imageView.addSubview(selectedImageView)
         selectedImageView.frame = CGRect(x: contentView.frame.width - 28, y: 4, width: 22, height: 22)
         selectedImageView.layer.cornerRadius = selectedImageView.frame.height / 2
-        contentView.bringSubviewToFront(selectedImageView)
-        makeConstraints()
         imageView.layer.cornerRadius = 3
         addImage(urls: (thumb: urls.thumb, url: urls.url), owner: owner)
     }
@@ -83,22 +86,24 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     
     internal func makeConstraints() {
         NSLayoutConstraint.activate([
-            imageView.leftAnchor.constraint(equalTo: self.leftAnchor),
-            imageView.topAnchor.constraint(equalTo: self.topAnchor),
-            imageView.rightAnchor.constraint(equalTo: self.rightAnchor),
-            imageView.bottomAnchor.constraint(equalTo: self.bottomAnchor),
+            imageView.leftAnchor.constraint(equalTo: contentView.leftAnchor),
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            imageView.rightAnchor.constraint(equalTo: contentView.rightAnchor),
+            imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
     
     private func cancelImageLoad() {
         imageGeneration = UUID()
-        imageResolutionTask?.cancel()
-        imageResolutionTask = nil
+        networkImageTask?.cancel()
+        networkImageTask = nil
         imageView.kf.cancelDownloadTask()
+        showExternalImageButton.reset()
     }
 
     private func addImage(urls: (thumb: String?, url: String), owner: String) {
         cancelImageLoad()
+        errorImageView.removeFromSuperview()
         let generation = imageGeneration
         let original = URL(string: urls.url)
         let thumbnail = urls.thumb.flatMap(URL.init(string:))
@@ -110,22 +115,46 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
         loadImage(source, fallback: fallback, owner: owner, generation: generation)
     }
 
-    private func loadImage(_ source: URL, fallback: URL?, owner: String, generation: UUID) {
-        let modifier = PrivacyProxyImageRequestModifier(owner: owner, onResolution: { [weak self] task in
-            guard let self, self.imageGeneration == generation else { task.cancel(); return }
-            self.imageResolutionTask = task
-        })
+    private func loadImage(_ source: URL, fallback: URL?, owner: String, generation: UUID, previous: URL? = nil) {
+        let task = KingfisherChatThumbnailLoadTask()
+        networkImageTask = task
+        let modifier = PrivacyProxyImageRequestModifier(
+            owner: owner,
+            onResolution: task.updateResolution,
+            onDownloadTaskStarted: task.update
+        )
         imageView.kf.setImage(with: source, options: modifier.options) { [weak self] result in
-            guard let self, self.imageGeneration == generation else { return }
-            self.imageResolutionTask = nil
+            guard let self, !task.isCancelled, self.imageGeneration == generation else { return }
+            self.networkImageTask = nil
             if case .failure = result {
                 if let fallback {
-                    self.loadImage(fallback, fallback: nil, owner: owner, generation: generation)
+                    self.loadImage(fallback, fallback: nil, owner: owner, generation: generation, previous: source)
+                } else if let candidate = [source, previous].compactMap({ $0 }).first(where: {
+                    PrivacyProxyMediaRouter.shared.canRequestDirectImage($0, owner: owner)
+                }) {
+                    self.offerExternalImageConsent(candidate, owner: owner, generation: generation)
                 } else {
                     self.activateErrorImage()
                     self.infoScreenDelegate?.passCellToFooter(cell: self)
                 }
             }
+        }
+    }
+
+    private func offerExternalImageConsent(_ url: URL, owner: String, generation: UUID) {
+        showExternalImageButton.isHidden = !selectedImageView.isHidden
+        let retry: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.cancelImageLoad()
+            self.loadImage(url, fallback: nil, owner: owner, generation: self.imageGeneration)
+        }
+        showExternalImageButton.retryWhenProxyRecovers(for: owner, retry: retry)
+        showExternalImageButton.onTap = { [weak self] in
+            guard let self else { return }
+            ExternalImageConsent.present(for: url, owner: owner, from: self, shouldGrant: { [weak self] in
+                guard let self else { return false }
+                return self.window != nil && self.imageGeneration == generation && self.selectedImageView.isHidden
+            }, onGranted: retry)
         }
     }
 
@@ -142,10 +171,12 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
     
     func editModeEnabled() {
         selectedImageView.isHidden = false
+        showExternalImageButton.isHidden = true
     }
     
     func editModeDisabled() {
         selectedImageView.isHidden = true
+        showExternalImageButton.isHidden = showExternalImageButton.onTap == nil
         deselect()
     }
     
