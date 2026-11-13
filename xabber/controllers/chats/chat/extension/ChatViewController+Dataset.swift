@@ -6816,7 +6816,8 @@ extension ChatViewController {
             subforwards: attachment.subforwards.compactMap {
                 return mapAttachment($0, context: context, formatters: formatters)
             },
-            forwardCard: attachment.forwardCard
+            forwardCard: attachment.forwardCard,
+            owner: context.owner
         )
     }
 

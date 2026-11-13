@@ -358,8 +358,8 @@ class InlineMessageAttachmentView: ModernContainerView {
             resetAttachmentContent()
         }
         self.messagePrimary = message.primary
-        imagesView.updateContent(message.images, representedBy: message.primary)
-        videosView.updateContent(message.videos, representedBy: message.primary)
+        imagesView.updateContent(message.images, representedBy: message.primary, owner: message.owner)
+        videosView.updateContent(message.videos, representedBy: message.primary, owner: message.owner)
         locationsView.updateContent(message.locations, representedBy: message.primary)
         contactsView.updateContent(
             message.contacts,

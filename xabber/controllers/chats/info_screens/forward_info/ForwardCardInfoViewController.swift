@@ -10,6 +10,7 @@ final class ForwardCardInfoViewController: UIViewController {
     private let onOpenGroup: () -> Void
 
     var refreshTask: Task<Void, Never>?
+    private var avatarLoad: AvatarHTTPImageLoad?
 
     let headerView = InfoScreenHeaderView(frame: .zero)
     let tableView = UITableView(frame: .zero, style: .insetGrouped)
@@ -190,12 +191,9 @@ final class ForwardCardInfoViewController: UIViewController {
     }
 
     private func resetAvatarLoad(placeholder: UIImage?) {
-        headerView.imageButton.kf.cancelImageDownloadTask()
-        // A cached-image lookup can complete after cancellation. An empty
-        // Kingfisher source also invalidates its previous task identifier.
-        headerView.imageButton.kf.setImage(
-            with: nil as KF.ImageResource?, for: .normal, placeholder: placeholder
-        )
+        avatarLoad?.cancel()
+        avatarLoad = nil
+        headerView.imageButton.setImage(placeholder, for: .normal)
     }
 
     private func layoutHeader(force: Bool = false) {
@@ -223,14 +221,17 @@ final class ForwardCardInfoViewController: UIViewController {
         resetAvatarLoad(placeholder: placeholder)
         if let url = snapshot.avatarURL {
             // The URL-specific key keeps this asserted photo out of JID caches.
-            let resource = KF.ImageResource(
-                downloadURL: url, cacheKey: "forward-card-snapshot:\(url.absoluteString)"
-            )
-            headerView.imageButton.kf.setImage(
-                with: resource, for: .normal, placeholder: placeholder,
-                options: [.processor(DownsamplingImageProcessor(size: CGSize(width: 112, height: 112))),
-                          .scaleFactor(UIScreen.main.scale)]
-            )
+            avatarLoad = AvatarHTTPImageLoad(
+                url: url, cacheKey: "forward-card-snapshot:\(url.absoluteString)", owner: snapshot.owner,
+                options: [
+                    .processor(DownsamplingImageProcessor(size: CGSize(width: 112, height: 112))),
+                    .scaleFactor(UIScreen.main.scale)
+                ]
+            ) { [weak self] image in
+                if let image {
+                    self?.headerView.imageButton.setImage(image, for: .normal)
+                }
+            }
         }
         sourceGroupButton = makeSourceGroupButton()
         layoutHeader(force: true)

@@ -454,9 +454,11 @@ class InlineVideosGridView: InlineAttachmentView {
     
     func configure(
         _ attachments: [VideoAttachment],
-        representedBy containerPrimary: String = ""
+        representedBy containerPrimary: String = "",
+        owner: String = ""
     ) {
         resetState()
+        mediaOwner = owner
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let view = InlineMessageVideoView(
@@ -486,16 +488,18 @@ class InlineVideosGridView: InlineAttachmentView {
 
     func updateContent(
         _ attachments: [VideoAttachment],
-        representedBy containerPrimary: String = ""
+        representedBy containerPrimary: String = "",
+        owner: String = ""
     ) {
         if attachments.isEmpty {
             resetState()
             return
         }
 
+        mediaOwner = owner
         guard self.views.map(\.primary) == attachments.map(\.primary),
               self.views.count == attachments.count else {
-            configure(attachments, representedBy: containerPrimary)
+            configure(attachments, representedBy: containerPrimary, owner: owner)
             return
         }
 
@@ -517,6 +521,8 @@ class InlineVideosGridView: InlineAttachmentView {
         refreshThumbnailBindings()
     }
 
+    private var mediaOwner = ""
+
     func refreshThumbnailBindings() {
         let scale = Double(window?.screen.scale ?? UIScreen.main.scale)
         let style = ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
@@ -535,7 +541,8 @@ class InlineVideosGridView: InlineAttachmentView {
                     height: Double(view.frame.height)
                 ),
                 scale: scale,
-                traitStyle: style
+                traitStyle: style,
+                owner: mediaOwner
             )
             let consumer = ChatThumbnailConsumer(
                 identity: ChatCollectionPrefetchIdentity(

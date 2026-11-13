@@ -368,7 +368,11 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
     private func openGalleryVideo(_ item: Datasource) {
         resolveGalleryMedia([item], selectedPrimary: item.primary) { [weak self] _, local in
             guard let self, self.canPresentGalleryMedia else { return }
-            self.playVideo(at: local)
+            if !local.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: self.owner) {
+                self.downloadGalleryMedia(local) { [weak self] in self?.playVideo(at: $0) }
+            } else {
+                self.playVideo(at: local)
+            }
         }
     }
 

@@ -68,6 +68,31 @@ final class ChatEncryptedAttachmentReceiverTests: XCTestCase {
         XCTAssertEqual(file.fileURL.pathExtension, "txt")
         XCTAssertEqual(EncryptedAttachmentURLProtocol.requestCount, 1)
     }
+    func testResolvedProxyIsUsedOnlyForNetworkAndKeepsOriginalCacheIdentity() throws {
+        let value = descriptor()
+        let proxy = try XCTUnwrap(URL(string: "https://proxy.example.test/download"))
+        receiver = ChatEncryptedAttachmentReceiver(session: session, cacheDirectory: directory, resolveMediaURL: { url, owner in
+            XCTAssertEqual(url, value.sourceURL)
+            XCTAssertEqual(owner, value.owner)
+            return proxy
+        })
+
+        let file = try XCTUnwrap(validFile(value))
+        XCTAssertEqual(file.cacheIdentity, value.cacheIdentity)
+        XCTAssertEqual(EncryptedAttachmentURLProtocol.requestURLs, [proxy])
+    }
+
+    func testFailedProxyResolutionDoesNotFetchOriginalCiphertext() {
+        receiver = ChatEncryptedAttachmentReceiver(session: session, cacheDirectory: directory, resolveMediaURL: { _, _ in
+            throw URLError(.cannotConnectToHost)
+        })
+
+        guard case .failure(.downloadFailed)? = receive(descriptor()) else {
+            return XCTFail("Expected proxy resolution failure")
+        }
+        XCTAssertEqual(EncryptedAttachmentURLProtocol.requestCount, 0)
+    }
+
     func testCiphertextHashIsVerifiedBeforeDecryption() {
         guard case let .failure(error)? = receive(descriptor(["hash": String(repeating: "0", count: 64)])) else { return XCTFail("Expected hash rejection") }
         XCTAssertEqual(error, .ciphertextHashMismatch)
@@ -309,14 +334,17 @@ private final class EncryptedAttachmentURLProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var body = Data()
     private static var status = 200
-    private static var count = 0
+    private static var urls = [URL]()
     private static var finishes = true
-    static var requestCount: Int { lock.lock(); defer { lock.unlock() }; return count }
-    static func reset(data: Data, status: Int = 200, finishes: Bool = true) { lock.lock(); body = data; self.status = status; self.finishes = finishes; count = 0; lock.unlock() }
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "encrypted.example.test" }
+    static var requestCount: Int { lock.lock(); defer { lock.unlock() }; return urls.count }
+    static func reset(data: Data, status: Int = 200, finishes: Bool = true) { lock.lock(); body = data; self.status = status; self.finishes = finishes; urls = []; lock.unlock() }
+    static var requestURLs: [URL] { lock.lock(); defer { lock.unlock() }; return urls }
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "encrypted.example.test" || request.url?.host == "proxy.example.test"
+    }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        Self.lock.lock(); Self.count += 1; let body = Self.body; let status = Self.status; let finishes = Self.finishes; Self.lock.unlock()
+        Self.lock.lock(); if let url = request.url { Self.urls.append(url) }; let body = Self.body; let status = Self.status; let finishes = Self.finishes; Self.lock.unlock()
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: body)

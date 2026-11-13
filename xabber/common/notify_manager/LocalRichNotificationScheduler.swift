@@ -229,7 +229,17 @@ final class LocalRichNotificationScheduler {
             for: plan.mediaItems,
             includePlayableMedia: request.includePlayableMedia
         )
-        let attachmentLease = await attachmentLoader.attachmentLease(for: candidates)
+        let owner = plan.route.owner
+        let router = PrivacyProxyMediaRouter.shared
+        let policy = CommonConfigManager.shared.config.privacyProxyPolicy
+        let route: ((URL) async -> URL?)? = router.restrictsRedirects(owner: owner)
+            ? { url in
+                // A notification must keep its short staging deadline. The
+                // foreground app can authorize and resolve the URL on open.
+                PrivacyProxyPushRouting.live.route(url, owner: owner, requiresPremium: policy == .payed)
+            }
+            : nil
+        let attachmentLease = await attachmentLoader.attachmentLease(for: candidates, route: route)
         defer { attachmentLease.release() }
         let attachments = attachmentLease.attachments
         guard !Task.isCancelled else { return }

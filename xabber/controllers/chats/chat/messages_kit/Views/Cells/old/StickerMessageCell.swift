@@ -101,6 +101,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         updateWarning(with: message)
         switch message.kind {
         case .sticker(let attachment):
+            stickerOwner = message.owner
             represent(attachment, messagePrimary: message.primary)
             refreshStickerBinding()
         default: break
@@ -173,6 +174,8 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         )
     }
 
+    private var stickerOwner = ""
+
     private func acquireSticker(
         _ attachment: ImageAttachment,
         messagePrimary: String,
@@ -192,7 +195,9 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
                 height: Double(displaySize.height)
             ),
             scale: scale,
-            traitStyle: traitStyle
+            traitStyle: traitStyle,
+            encryptedAttachment: attachment.encryptedAttachment,
+            owner: stickerOwner
         )
         let consumer = ChatThumbnailConsumer(
             identity: ChatCollectionPrefetchIdentity(

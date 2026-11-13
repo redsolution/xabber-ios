@@ -1101,7 +1101,7 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             withBackplate: usesTimeMarkerBackplate(for: message)
         )
         if reuseInlineViews {
-            self.imagesView.updateContent(message.images, representedBy: message.primary)
+            self.imagesView.updateContent(message.images, representedBy: message.primary, owner: message.owner)
             self.locationsView.updateContent(message.locations, representedBy: message.primary)
             self.contactsView.updateContent(
                 message.contacts,
@@ -1114,7 +1114,7 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
                 representedBy: message.primary
             )
         } else {
-            self.imagesView.configure(message.images, representedBy: message.primary)
+            self.imagesView.configure(message.images, representedBy: message.primary, owner: message.owner)
             self.locationsView.configure(message.locations, representedBy: message.primary)
             self.contactsView.configure(
                 message.contacts,
@@ -1131,11 +1131,11 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         if reuseInlineViews {
             self.audiosView.updateContent(message.audios, palette: palette)
             self.forwardsContainer.updateContent(message.forwards, palette: palette, delegate: delegate)
-            self.videosView.updateContent(message.videos, representedBy: message.primary)
+            self.videosView.updateContent(message.videos, representedBy: message.primary, owner: message.owner)
         } else {
             self.audiosView.configure(message.audios, palette: palette)
             self.forwardsContainer.configure(message.forwards, palette: palette, delegate: delegate)
-            self.videosView.configure(message.videos, representedBy: message.primary)
+            self.videosView.configure(message.videos, representedBy: message.primary, owner: message.owner)
         }
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
 
@@ -1189,7 +1189,8 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
                 : message.owner,
             displaySize: ChatCollectionPrefetchSize(width: 32, height: 32),
             scale: Double(window?.screen.scale ?? UIScreen.main.scale),
-            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle),
+            owner: message.owner
         )
         let identity = TextMessageCellAvatarIdentity(
             messagePrimary: message.primary,

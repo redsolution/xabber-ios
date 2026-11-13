@@ -29,7 +29,7 @@ open class SettingManager: NSObject {
 
     static let clientSynchronizationRegularDeletionTombstonesKey =
         "regular_conversation_deletion_tombstones_v1"
-    static let privacyProxyEnabledKey = "privacy_proxy_enabled"
+    static let privacyProxyEnabledKey = PrivacyProxyPushRouting.preferenceName
 
     open class var shared: SettingManager {
         struct SettingsManagerSingleton {
@@ -516,6 +516,7 @@ open class SettingManager: NSObject {
     }
 
     public final func clear(for jid: String) {
+        PrivacyProxyPushRouting.live.clear(owner: jid)
         removeItem(for: jid, scope: .security, key: Self.privacyProxyEnabledKey)
         removeItem(for: jid, scope: .clientSynchronization, key: "version")
         removeItem(

@@ -58,14 +58,18 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
         return view
     }()
     
+    private var imageGeneration = UUID()
+    private var imageResolutionTask: Task<Void, Never>?
+
     override func prepareForReuse() {
         super.prepareForReuse()
+        cancelImageLoad()
         imageView.image = nil
         errorImageView.removeFromSuperview()
         selectedImageView.removeFromSuperview()
     }
     
-    internal func setup(photoUrls urls: (thumb: String?, url: String)) {
+    internal func setup(photoUrls urls: (thumb: String?, url: String), owner: String) {
         addSubview(imageView)
         imageView.addSubview(selectedImageView)
         selectedImageView.frame = CGRect(x: contentView.frame.width - 28, y: 4, width: 22, height: 22)
@@ -73,7 +77,7 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
         contentView.bringSubviewToFront(selectedImageView)
         makeConstraints()
         imageView.layer.cornerRadius = 3
-        addImage(urls: (thumb: urls.thumb, url: urls.url))
+        addImage(urls: (thumb: urls.thumb, url: urls.url), owner: owner)
     }
     
     
@@ -86,41 +90,45 @@ class PhotosMediaCollectionCell: UICollectionViewCell {
         ])
     }
     
-    internal func addImage(urls: (thumb: String?, url: String)) {
-        func setImageWithKf(url: URL, originalUrl: URL = URL(fileURLWithPath: "")) {
-            imageView.kf.setImage(with: url, placeholder: nil, options: []) { result in
-                switch result {
-                case .success(_):
-                    break
-                case .failure(let value):
-                    if url.absoluteString.contains("thumb") {
-                        setImageWithKf(url: originalUrl)
-                    } else {
-                        self.activateErrorImage()
-                        self.infoScreenDelegate?.passCellToFooter(cell: self)
-                        DDLogDebug("PhotosMediaCollectionCell: \(#function). \(value.localizedDescription)")
-                    }
+    private func cancelImageLoad() {
+        imageGeneration = UUID()
+        imageResolutionTask?.cancel()
+        imageResolutionTask = nil
+        imageView.kf.cancelDownloadTask()
+    }
+
+    private func addImage(urls: (thumb: String?, url: String), owner: String) {
+        cancelImageLoad()
+        let generation = imageGeneration
+        let original = URL(string: urls.url)
+        let thumbnail = urls.thumb.flatMap(URL.init(string:))
+        guard let source = thumbnail ?? original else {
+            activateErrorImage()
+            return
+        }
+        let fallback = thumbnail != nil && thumbnail != original ? original : nil
+        loadImage(source, fallback: fallback, owner: owner, generation: generation)
+    }
+
+    private func loadImage(_ source: URL, fallback: URL?, owner: String, generation: UUID) {
+        let modifier = PrivacyProxyImageRequestModifier(owner: owner, onResolution: { [weak self] task in
+            guard let self, self.imageGeneration == generation else { task.cancel(); return }
+            self.imageResolutionTask = task
+        })
+        imageView.kf.setImage(with: source, options: modifier.options) { [weak self] result in
+            guard let self, self.imageGeneration == generation else { return }
+            self.imageResolutionTask = nil
+            if case .failure = result {
+                if let fallback {
+                    self.loadImage(fallback, fallback: nil, owner: owner, generation: generation)
+                } else {
+                    self.activateErrorImage()
+                    self.infoScreenDelegate?.passCellToFooter(cell: self)
                 }
             }
         }
-        
-        guard let downloadUrl = URL(string: urls.url) else {
-            guard let thumbUrl = URL(string: urls.thumb ?? "") else {
-                activateErrorImage()
-                return
-            }
-            setImageWithKf(url: thumbUrl)
-            return
-        }
-        
-        //Checks whether thumb url is valid; if not, uses original image url
-        guard let thumbUrl = URL(string: urls.thumb ?? "") else {
-            setImageWithKf(url: downloadUrl)
-            return
-        }
-        setImageWithKf(url: thumbUrl, originalUrl: downloadUrl)
     }
-    
+
     func activateErrorImage() {
         imageView.addSubview(errorImageView)
         errorImageView.image = imageLiteral("badge-blocked")?.withRenderingMode(.alwaysTemplate)

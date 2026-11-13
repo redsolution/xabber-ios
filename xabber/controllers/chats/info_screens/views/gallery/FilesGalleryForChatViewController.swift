@@ -183,10 +183,14 @@ final class DefaultMediaGalleryFileActionRouter: MediaGalleryFileActionRouting {
             message: url.lastPathComponent,
             yesText: "Open".localizeString(id: "open", arguments: []),
             noText: "Cancel".localizeString(id: "cancel", arguments: []),
-            animated: true
+            animated: true, confirmAfterDismissal: true
         ) { confirmed in
-            guard confirmed else { return }
-            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            guard confirmed, let gallery = presenter as? FilesGalleryForChatViewController else { return }
+            guard PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: gallery.owner) else {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+                return
+            }
+            gallery.downloadGalleryMedia(url) { [weak gallery] in gallery?.previewAuthenticatedFile($0) }
         }
     }
 

@@ -8,10 +8,56 @@
 
 import XCTest
 import UIKit
+import Kingfisher
 @testable import xabber
 
 @MainActor
 final class ChatNavigationBarStateTests: XCTestCase {
+    func testAvatarCacheHitDoesNotResolveRemoteURL() async throws {
+        let cache = ImageCache(name: "avatar-routing-\(UUID())")
+        let originalURL = try XCTUnwrap(URL(string: "https://avatars.example.net/photo.png"))
+        let key = originalURL.absoluteString
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        cache.store(image, forKey: key, options: KingfisherParsedOptionsInfo([]), toDisk: false)
+        let loaded = expectation(description: "cached avatar delivered")
+
+        let load = AvatarHTTPImageLoad(
+            url: originalURL, cacheKey: key, owner: "alice@example.com", options: [.targetCache(cache)],
+            resolve: { _, _ in
+                XCTFail("A cached avatar must not resolve a network URL")
+                throw URLError(.cannotConnectToHost)
+            },
+            completion: { result in
+                XCTAssertTrue(result === image)
+                loaded.fulfill()
+            }
+        )
+        await fulfillment(of: [loaded], timeout: 1)
+        load.cancel()
+    }
+
+    func testAvatarRouteFailureCompletesWithFallback() async throws {
+        let cache = ImageCache(name: "avatar-routing-\(UUID())")
+        let originalURL = try XCTUnwrap(URL(string: "https://avatars.example.net/photo.png"))
+        let failed = expectation(description: "avatar returned fallback")
+
+        let load = AvatarHTTPImageLoad(
+            url: originalURL, cacheKey: originalURL.absoluteString, owner: "alice@example.com",
+            options: [.targetCache(cache)],
+            resolve: { url, owner in
+                XCTAssertEqual(url, originalURL)
+                XCTAssertEqual(owner, "alice@example.com")
+                throw URLError(.cannotConnectToHost)
+            },
+            completion: { result in
+                XCTAssertNil(result)
+                failed.fulfill()
+            }
+        )
+        await fulfillment(of: [failed], timeout: 1)
+        load.cancel()
+    }
+
     private final class TraitWindow: UIWindow {
         private let horizontalSizeClass: UIUserInterfaceSizeClass
 

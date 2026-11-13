@@ -176,6 +176,7 @@ private final class RichNotificationBoundedDownloader: NSObject,
     private let deadline: Date
     private let contentTypeValidator: ContentTypeValidator
     private let diagnostics: ((String) -> Void)?
+    private let restrictRedirects: Bool
 
     private let stateLock = NSLock()
     private var continuation: CheckedContinuation<RichNotificationDownloadedFile?, Never>?
@@ -198,7 +199,8 @@ private final class RichNotificationBoundedDownloader: NSObject,
         requestTimeout: TimeInterval,
         deadline: Date,
         contentTypeValidator: @escaping ContentTypeValidator,
-        diagnostics: ((String) -> Void)? = nil
+        diagnostics: ((String) -> Void)? = nil,
+        restrictRedirects: Bool = false
     ) {
         self.sourceURL = sourceURL
         self.configuration = (configuration.copy() as? URLSessionConfiguration)
@@ -209,7 +211,8 @@ private final class RichNotificationBoundedDownloader: NSObject,
         self.requestTimeout = requestTimeout
         self.deadline = deadline
         self.contentTypeValidator = contentTypeValidator
-        self.diagnostics = diagnostics
+        self.diagnostics = restrictRedirects ? nil : diagnostics
+        self.restrictRedirects = restrictRedirects
     }
 
     func download() async -> RichNotificationDownloadedFile? {
@@ -235,6 +238,11 @@ private final class RichNotificationBoundedDownloader: NSObject,
             ?? self.configuration
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
+        if restrictRedirects {
+            configuration.httpShouldSetCookies = false
+            configuration.httpCookieStorage = nil
+            configuration.urlCredentialStorage = nil
+        }
         let transferTimeout = max(0.1, min(requestTimeout, remaining))
         configuration.timeoutIntervalForRequest = transferTimeout
         configuration.timeoutIntervalForResource = transferTimeout
@@ -295,7 +303,8 @@ private final class RichNotificationBoundedDownloader: NSObject,
         diagnostics?("http_redirect status=\(response.statusCode) headers=\(response.allHeaderFields) url=\(request.url?.absoluteString ?? "")")
         guard deadline.timeIntervalSinceNow > 0,
               let url = request.url,
-              PushNotificationMediaURLPolicy.remoteURLString(url.absoluteString) != nil else {
+              PushNotificationMediaURLPolicy.remoteURLString(url.absoluteString) != nil,
+              !restrictRedirects || PrivacyProxyPushRouting.allowsRedirect(from: sourceURL, to: url) else {
             completionHandler(nil)
             finish(result: nil, cancelTask: true)
             return
@@ -564,9 +573,16 @@ final class RichNotificationAttachmentLoader {
     /// Reuses the bounded HTTPS transfer and image normalization used for media,
     /// returning owned bytes for INPerson rather than adding an attachment.
     func avatarImageData(from source: String) async -> Data? {
+        await avatarImageData(from: source, route: nil)
+    }
+
+    func avatarImageData(from source: String, route: ((URL) async -> URL?)?) async -> Data? {
+        let deadline = Date().addingTimeInterval(limits.totalDeadline)
         guard !Task.isCancelled,
               let safeURL = PushNotificationMediaURLPolicy.remoteURLString(source),
-              let url = URL(string: safeURL) else { return nil }
+              let original = URL(string: safeURL),
+              let url = await routedURL(original, route: route),
+              deadline.timeIntervalSinceNow > 0, !Task.isCancelled else { return nil }
         let directory = rootDirectory.appendingPathComponent("avatar-\(UUID().uuidString)", isDirectory: true)
         let activity = directoryRegistry.acquire(directory: directory)
         defer {
@@ -576,7 +592,6 @@ final class RichNotificationAttachmentLoader {
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch { return nil }
-        let deadline = Date().addingTimeInterval(limits.totalDeadline)
         let downloader = RichNotificationBoundedDownloader(
             sourceURL: url,
             configuration: sessionConfiguration,
@@ -586,7 +601,8 @@ final class RichNotificationAttachmentLoader {
             requestTimeout: limits.requestTimeout,
             deadline: deadline,
             contentTypeValidator: { [weak self] in self?.contentType(for: .image, mimeType: $0) },
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            restrictRedirects: route != nil
         )
         guard let downloaded = await downloader.download(),
               !Task.isCancelled,
@@ -614,7 +630,8 @@ final class RichNotificationAttachmentLoader {
     /// Preferred API. Keep the lease alive through `UNUserNotificationCenter.add`
     /// or notification-service content completion, then call `release()`.
     func attachmentLease(
-        for candidates: [RichNotificationAttachmentCandidate]
+        for candidates: [RichNotificationAttachmentCandidate],
+        route: ((URL) async -> URL?)? = nil
     ) async -> RichNotificationAttachmentLease {
         guard limits.maximumAttachmentCount > 0,
               limits.maximumTotalBytes > 0,
@@ -669,7 +686,8 @@ final class RichNotificationAttachmentLoader {
                 for: candidate,
                 requestDirectory: requestDirectory,
                 deadline: deadline,
-                remainingBytes: remainingBytes
+                remainingBytes: remainingBytes,
+                route: route
             ) {
                 result.append(staged.attachment)
                 let addition = consumedBytes.addingReportingOverflow(staged.size)
@@ -695,7 +713,8 @@ final class RichNotificationAttachmentLoader {
         for candidate: RichNotificationAttachmentCandidate,
         requestDirectory: URL,
         deadline: Date,
-        remainingBytes: Int64
+        remainingBytes: Int64,
+        route: ((URL) async -> URL?)?
     ) async -> StagedAttachment? {
         if let attachment = await stagedAttachment(
             kind: candidate.kind,
@@ -704,7 +723,8 @@ final class RichNotificationAttachmentLoader {
             mediaType: candidate.mediaType,
             requestDirectory: requestDirectory,
             deadline: deadline,
-            remainingBytes: remainingBytes
+            remainingBytes: remainingBytes,
+            route: route
         ) {
             return attachment
         }
@@ -722,7 +742,8 @@ final class RichNotificationAttachmentLoader {
             mediaType: nil,
             requestDirectory: requestDirectory,
             deadline: deadline,
-            remainingBytes: remainingBytes
+            remainingBytes: remainingBytes,
+            route: route
         )
     }
 
@@ -733,7 +754,8 @@ final class RichNotificationAttachmentLoader {
         mediaType: String?,
         requestDirectory: URL,
         deadline: Date,
-        remainingBytes: Int64
+        remainingBytes: Int64,
+        route: ((URL) async -> URL?)?
     ) async -> StagedAttachment? {
         guard !Task.isCancelled,
               deadline.timeIntervalSinceNow > 0 else {
@@ -765,7 +787,9 @@ final class RichNotificationAttachmentLoader {
         }
 
         guard let safeURLString = PushNotificationMediaURLPolicy.remoteURLString(source),
-              let url = URL(string: safeURLString) else {
+              let original = URL(string: safeURLString),
+              let url = await routedURL(original, route: route),
+              deadline.timeIntervalSinceNow > 0, !Task.isCancelled else {
             return nil
         }
         let maximumTransferBytes = min(maximumBytes(for: kind), remainingBytes)
@@ -780,7 +804,8 @@ final class RichNotificationAttachmentLoader {
             contentTypeValidator: { [weak self] mimeType in
                 self?.contentType(for: kind, mimeType: mimeType)
             },
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            restrictRedirects: route != nil
         )
         guard let downloaded = await downloader.download() else {
             return nil
@@ -801,6 +826,13 @@ final class RichNotificationAttachmentLoader {
             size: downloaded.size,
             deadline: deadline
         )
+    }
+
+    private func routedURL(_ url: URL, route: ((URL) async -> URL?)?) async -> URL? {
+        guard let route else { return url }
+        guard let routed = await route(url),
+              PushNotificationMediaURLPolicy.remoteURLString(routed.absoluteString) != nil else { return nil }
+        return routed
     }
 
     private func stagedLocalAttachment(

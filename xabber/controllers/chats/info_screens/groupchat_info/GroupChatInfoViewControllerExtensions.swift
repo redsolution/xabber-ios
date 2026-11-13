@@ -29,13 +29,9 @@ extension GroupchatInfoViewController: InfoVCDelegate {
     }
     
     func presentYesNoPresenter(with url: URL) {
-        YesNoPresenter().present(in: self, title: "Open this file".localizeString(id: "open_file_message", arguments: []), message: url.lastPathComponent, yesText: "Open".localizeString(id: "open", arguments: []), noText: "Cancel".localizeString(id: "cancel", arguments: []), animated: true) { (value) in
-            if value {
-                UIApplication.shared.open(url, options: [:]) { (_) in }
-            }
-        }
+        presentInfoMediaFile(url, owner: owner, from: self)
     }
-    
+
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int) {
 //        let gallery = PhotoGallery(urls: urls,
 //                                   senders: senders,

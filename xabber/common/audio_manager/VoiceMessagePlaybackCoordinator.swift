@@ -40,6 +40,7 @@ enum VoiceMessagePlaybackState: Equatable {
 }
 
 struct VoiceMessageDescriptor: Equatable {
+    let owner: String
     let referencePrimary: String
     let containerMessagePrimary: String
     let remoteURL: URL?
@@ -63,8 +64,10 @@ struct VoiceMessageDescriptor: Equatable {
         sentDate: Date,
         archivedId: String? = nil,
         encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
-        authenticatedAttachmentCacheIdentity: String? = nil
+        authenticatedAttachmentCacheIdentity: String? = nil,
+        owner: String = ""
     ) {
+        self.owner = owner
         self.referencePrimary = referencePrimary
         self.containerMessagePrimary = containerMessagePrimary
         self.remoteURL = remoteURL
@@ -83,7 +86,13 @@ struct VoiceMessageDescriptor: Equatable {
             return encryptedAttachment.state == .encrypted && downloaded && decodedURL?.isFileURL == true &&
                 authenticatedAttachmentCacheIdentity == encryptedAttachment.cacheIdentity
         }
-        return downloaded || decodedURL != nil
+        if let decodedURL {
+            return decodedURL.isFileURL || AudioManager.shared.isCached(decodedURL)
+        }
+        if let remoteURL, !remoteURL.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: owner) {
+            return AudioManager.shared.isCached(remoteURL)
+        }
+        return downloaded
     }
 }
 
@@ -504,7 +513,8 @@ final class VoiceMessagePlaybackCoordinator {
                 sentDate: descriptor.sentDate,
                 archivedId: descriptor.archivedId,
                 encryptedAttachment: descriptor.encryptedAttachment,
-                authenticatedAttachmentCacheIdentity: file.authenticatedAttachmentCacheIdentity
+                authenticatedAttachmentCacheIdentity: file.authenticatedAttachmentCacheIdentity,
+                owner: descriptor.owner
             )
             descriptors[descriptor.referencePrimary] = downloadedDescriptor
             setState(.downloaded, for: downloadedDescriptor)
@@ -784,6 +794,25 @@ final class URLSessionVoiceMessageDownloader: NSObject, VoiceMessageDownloading 
             return URLSessionVoiceDownloadTask(cancelHandler: {})
         }
 
+        if !remoteURL.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: descriptor.owner) {
+            let task = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let localFile = try await PrivacyProxyMediaRouter.shared.download(remoteURL, owner: descriptor.owner)
+                    try Task.checkCancellation()
+                    let decoded = try self.prepareDownloadedVoice(location: localFile, descriptor: descriptor,
+                        preserveSource: true, shouldContinue: { !Task.isCancelled })
+                    try Task.checkCancellation()
+                    progress(1)
+                    completion(.success(decoded))
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    completion(.failure(error))
+                }
+            }
+            return URLSessionVoiceDownloadTask { task.cancel() }
+        }
+
         let task = session.downloadTask(with: remoteURL)
         lock.lock()
         contexts[task.taskIdentifier] = Context(descriptor: descriptor, progress: progress, completion: completion)
@@ -947,7 +976,14 @@ final class AudioManagerVoiceMessagePlayer: NSObject, VoiceMessagePlaying {
 
     @discardableResult
     func start(url: URL, referencePrimary: String, at time: TimeInterval) throws -> TimeInterval {
-        let data = try AudioManager.shared.load(url) ?? Data(contentsOf: url)
+        let data: Data
+        if let cached = try AudioManager.shared.load(url) {
+            data = cached
+        } else if url.isFileURL {
+            data = try Data(contentsOf: url)
+        } else {
+            throw AudioMessageReceiverError.urlNotFound
+        }
         AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
         AudioManager.shared.loadMetadata(reference: referencePrimary)
         let duration = AudioManager.shared.player?.duration ?? 0

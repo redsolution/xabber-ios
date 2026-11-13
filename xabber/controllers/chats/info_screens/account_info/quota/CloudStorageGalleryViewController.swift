@@ -590,7 +590,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
         case .image, .avatar:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotosMediaCollectionCell.cellName, for: indexPath) as! PhotosMediaCollectionCell
             guard let uri = item.uri else { return cell }
-            cell.setup(photoUrls: (thumb: item.thumbnail, url: uri))
+            cell.setup(photoUrls: (thumb: item.thumbnail, url: uri), owner: owner)
             if collectionView.isEditing {
                 if cell.isSelected {
                     cell.select()
@@ -900,16 +900,13 @@ extension CloudStorageGalleryViewController: InfoVCDelegate {
     }
     
     func presentYesNoPresenter(with url: URL) {
-        YesNoPresenter().present(in: self, title: "Open this file".localizeString(id: "open_file_message", arguments: []), message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true) { (value) in
-            if value {
-                UIApplication.shared.open(url, options: [:]) { (_) in }
-            }
-        }
+        presentInfoMediaFile(url, owner: owner, from: self)
     }
-    
+
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int) {
         guard urls.indices.contains(page) else { return }
         let gallery = CloudPhotoGallery(urls: urls, from: urls[page])
+        gallery.mediaOwner = owner
         gallery.senders = normalizedMetadata(senders, count: urls.count)
         gallery.dates = normalizedMetadata(dates, count: urls.count)
         gallery.times = normalizedMetadata(times, count: urls.count)

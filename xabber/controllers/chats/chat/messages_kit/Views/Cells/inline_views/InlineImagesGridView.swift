@@ -286,10 +286,12 @@ class InlineImagesGridView: InlineAttachmentView {
     
     func configure(
         _ attachments: [ImageAttachment],
-        representedBy containerPrimary: String = ""
+        representedBy containerPrimary: String = "",
+        owner: String = ""
     ) {
 //        subviews.forEach { $0.removeFromSuperview() }
         resetState()
+        mediaOwner = owner
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let item = attachments[index]
@@ -317,16 +319,18 @@ class InlineImagesGridView: InlineAttachmentView {
 
     func updateContent(
         _ attachments: [ImageAttachment],
-        representedBy containerPrimary: String = ""
+        representedBy containerPrimary: String = "",
+        owner: String = ""
     ) {
         if attachments.isEmpty {
             resetState()
             return
         }
 
+        mediaOwner = owner
         guard self.views.map(\.primary) == attachments.map(\.primary),
               self.views.count == attachments.count else {
-            configure(attachments, representedBy: containerPrimary)
+            configure(attachments, representedBy: containerPrimary, owner: owner)
             return
         }
 
@@ -352,6 +356,8 @@ class InlineImagesGridView: InlineAttachmentView {
         refreshThumbnailBindings()
     }
 
+    private var mediaOwner = ""
+
     func refreshThumbnailBindings() {
         let scale = Double(window?.screen.scale ?? UIScreen.main.scale)
         let style = ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle)
@@ -370,7 +376,8 @@ class InlineImagesGridView: InlineAttachmentView {
                 ),
                 scale: scale,
                 traitStyle: style,
-                encryptedAttachment: url == view.sourceURL ? view.encryptedAttachment : nil
+                encryptedAttachment: url == view.sourceURL ? view.encryptedAttachment : nil,
+                owner: mediaOwner
             )
             let consumer = ChatThumbnailConsumer(
                 identity: ChatCollectionPrefetchIdentity(

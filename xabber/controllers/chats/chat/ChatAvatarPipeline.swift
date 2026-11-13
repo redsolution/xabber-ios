@@ -19,6 +19,7 @@ struct ChatGeneratedAvatarRequest: Hashable {
 struct ChatAvatarRequest: Hashable {
     let entityIdentity: String
     let remoteURL: URL?
+    let owner: String
     let displayName: String
     let colorKey: String
     let displaySize: ChatCollectionPrefetchSize
@@ -32,10 +33,12 @@ struct ChatAvatarRequest: Hashable {
         colorKey: String,
         displaySize: ChatCollectionPrefetchSize,
         scale: Double,
-        traitStyle: ChatThumbnailTraitStyle
+        traitStyle: ChatThumbnailTraitStyle,
+        owner: String = ""
     ) {
         self.entityIdentity = entityIdentity
         self.remoteURL = remoteURL
+        self.owner = owner
         self.displayName = displayName
         self.colorKey = colorKey
         self.displaySize = ChatCollectionPrefetchSize(
@@ -52,7 +55,8 @@ struct ChatAvatarRequest: Hashable {
                 url: $0,
                 displaySize: displaySize,
                 scale: scale,
-                traitStyle: traitStyle
+                traitStyle: traitStyle,
+                owner: owner
             )
         }
     }

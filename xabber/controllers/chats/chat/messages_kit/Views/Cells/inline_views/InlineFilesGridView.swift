@@ -543,7 +543,8 @@ class InlineContactsGridView: InlineAttachmentView {
                 colorKey: contact.jid.isNotEmpty ? contact.jid : contact.owner,
                 displaySize: ChatCollectionPrefetchSize(width: 36, height: 36),
                 scale: screenScale,
-                traitStyle: traitStyle
+                traitStyle: traitStyle,
+                owner: contact.owner
             )
             if representedAvatarRequest == request {
                 if isAvatarWorkEnabled, avatarNeedsResume {

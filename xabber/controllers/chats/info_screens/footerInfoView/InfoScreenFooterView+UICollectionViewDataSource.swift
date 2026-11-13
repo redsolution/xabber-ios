@@ -66,7 +66,7 @@ extension InfoScreenFooterView: UICollectionViewDataSource {
             switch selectedKind {
             case .images:
                 let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotosMediaCollectionCell.cellName, for: indexPath) as! PhotosMediaCollectionCell
-                cell.setup(photoUrls: (thumb: data.thumbnail, url: data.uri))
+                cell.setup(photoUrls: (thumb: data.thumbnail, url: data.uri), owner: data.owner)
                 cell.infoScreenDelegate = self
                 return cell
                 

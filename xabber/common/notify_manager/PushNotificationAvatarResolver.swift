@@ -25,7 +25,18 @@ final class PushNotificationAvatarResolver {
         self.diagnostics = diagnostics
     }
 
-    static func live(diagnostics: ((String) -> Void)? = nil) -> PushNotificationAvatarResolver {
+    static func live(
+        owner: String? = nil,
+        diagnostics: ((String) -> Void)? = nil
+    ) -> PushNotificationAvatarResolver {
+        let routing = PrivacyProxyPushRouting.live
+        let proxyPolicy = CommonConfigManager.shared.config.privacyProxyPolicy
+        let route: ((URL) async -> URL?)?
+        if let owner, routing.needsProxy(owner: owner, policy: proxyPolicy) {
+            route = { routing.route($0, owner: owner, requiresPremium: proxyPolicy == .payed) }
+        } else {
+            route = nil
+        }
         let loader = RichNotificationAttachmentLoader(
             limits: .init(
                 maximumAttachmentCount: 1,
@@ -56,7 +67,7 @@ final class PushNotificationAvatarResolver {
                     jid: identity.entityJid
                 ).avatarOriginalUrl].compactMap { $0 }
             },
-            download: { await loader.avatarImageData(from: $0) },
+            download: { await loader.avatarImageData(from: $0, route: route) },
             diagnostics: diagnostics
         )
     }

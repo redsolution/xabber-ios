@@ -51,7 +51,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
         case .image, .avatar:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotosMediaCollectionCell.cellName, for: indexPath) as! PhotosMediaCollectionCell
             if let uri = item.uri {
-                cell.setup(photoUrls: (thumb: nil, url: uri))
+                cell.setup(photoUrls: (thumb: nil, url: uri), owner: owner)
             }
             return cell
         case .video:

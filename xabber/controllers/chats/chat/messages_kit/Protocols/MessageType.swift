@@ -309,6 +309,7 @@ class AudioAttachment {
 }
 
 class MessageAttachment {
+    let owner: String
     var forwardCard: ForwardCardSnapshot?
     var primary: String
     var author: String
@@ -324,7 +325,8 @@ class MessageAttachment {
     var timeMarker: NSAttributedString
     var subforwards: [MessageAttachment]
     
-    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], contacts: [ContactAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment], forwardCard: ForwardCardSnapshot? = nil) {
+    init(primary: String, author: String, jid: String, outgoing: Bool, textMessage: NSAttributedString?, images: [ImageAttachment], videos: [VideoAttachment], locations: [LocationAttachment] = [], contacts: [ContactAttachment] = [], files: [FileAttachment], audios: [AudioAttachment], timeMarker: NSAttributedString, subforwards: [MessageAttachment], forwardCard: ForwardCardSnapshot? = nil, owner: String = "") {
+        self.owner = owner
         self.forwardCard = forwardCard
         self.primary = primary
         self.author = author

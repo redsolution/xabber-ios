@@ -151,6 +151,7 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
     var mediaGalleryPresentationForTesting: ((ChatMediaOpeningKind, [URL], URL) -> Void)?
     private var galleryMediaGeneration = UUID()
     private var galleryMediaTasks: [ChatEncryptedAttachmentReceiveTask] = []
+    private var galleryDownloadTask: Task<Void, Never>?
 
     override var owner: String { didSet { if owner != oldValue { cancelGalleryMediaOpening() } } }
     override var jid: String { didSet { if jid != oldValue { cancelGalleryMediaOpening() } } }
@@ -159,6 +160,8 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         galleryMediaGeneration = UUID()
         galleryMediaTasks.forEach { $0.cancel() }
         galleryMediaTasks.removeAll()
+        galleryDownloadTask?.cancel()
+        galleryDownloadTask = nil
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -241,7 +244,30 @@ class BaseMediaGalleryForChatViewController: SimpleBaseViewController {
         return true
     }
 
-    deinit { galleryMediaTasks.forEach { $0.cancel() } }
+    func downloadGalleryMedia(_ url: URL, completion: @escaping (URL) -> Void) {
+        galleryDownloadTask?.cancel()
+        let generation = galleryMediaGeneration
+        let capturedOwner = owner
+        galleryDownloadTask = Task { [weak self] in
+            do {
+                let local = try await PrivacyProxyMediaRouter.shared.download(url, owner: capturedOwner)
+                guard let self, !Task.isCancelled, self.galleryMediaGeneration == generation,
+                      self.canPresentGalleryMedia else { return }
+                self.galleryDownloadTask = nil
+                completion(local)
+            } catch {
+                guard let self, !Task.isCancelled, self.galleryMediaGeneration == generation,
+                      self.canPresentGalleryMedia else { return }
+                self.galleryDownloadTask = nil
+                self.view.makeToast(L10n.text("chat_attachment_status_file_transfer_unavailable_title", fallback: "File transfer unavailable"))
+            }
+        }
+    }
+
+    deinit {
+        galleryMediaTasks.forEach { $0.cancel() }
+        galleryDownloadTask?.cancel()
+    }
 
     internal var datasource: [Datasource] = []
     internal var revealedSensitiveMediaPrimaries: Set<String> = Set<String>()

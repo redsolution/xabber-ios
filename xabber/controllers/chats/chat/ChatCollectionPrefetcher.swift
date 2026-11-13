@@ -370,7 +370,8 @@ enum ChatCollectionPrefetchPlanner {
                         height: Double(renderedSize.height)
                     ),
                     context: context,
-                    encryptedAttachment: sticker.encryptedAttachment
+                    encryptedAttachment: sticker.encryptedAttachment,
+                    owner: item.owner
                 )
             ))
         }
@@ -384,7 +385,8 @@ enum ChatCollectionPrefetchPlanner {
                     url: url,
                     displaySize: displaySize(at: index, in: imageFrames, fallback: context.mediaContainerSize),
                     context: context,
-                    encryptedAttachment: url == image.url ? image.encryptedAttachment : nil
+                    encryptedAttachment: url == image.url ? image.encryptedAttachment : nil,
+                    owner: item.owner
                 )
             ))
         }
@@ -397,7 +399,7 @@ enum ChatCollectionPrefetchPlanner {
             guard let url = video.previewURL else { return }
             resources.insert(.videoPreview(
                 identity: identity(.videoPreview, messagePrimary: item.messagePrimary, referencePrimary: video.primary),
-                request: imageRequest(url: url, displaySize: displaySize(at: index, in: videoFrames, fallback: context.mediaContainerSize), context: context)
+                request: imageRequest(url: url, displaySize: displaySize(at: index, in: videoFrames, fallback: context.mediaContainerSize), context: context, owner: item.owner)
             ))
         }
 
@@ -411,7 +413,8 @@ enum ChatCollectionPrefetchPlanner {
                     colorKey: item.avatarEntityIdentity.isNotEmpty ? item.avatarEntityIdentity : item.owner,
                     displaySize: context.avatarSize,
                     scale: context.screenScale,
-                    traitStyle: context.traitStyle
+                    traitStyle: context.traitStyle,
+                    owner: item.owner
                 )
             ))
         }
@@ -426,7 +429,8 @@ enum ChatCollectionPrefetchPlanner {
                     colorKey: contact.colorKey,
                     displaySize: context.contactAvatarSize,
                     scale: context.screenScale,
-                    traitStyle: context.traitStyle
+                    traitStyle: context.traitStyle,
+                    owner: contact.owner
                 )
             ))
         }
@@ -453,14 +457,16 @@ enum ChatCollectionPrefetchPlanner {
         url: URL,
         displaySize: ChatCollectionPrefetchSize,
         context: ChatCollectionPrefetchContext,
-        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
+        owner: String
     ) -> ChatCollectionPrefetchImageRequest {
         ChatCollectionPrefetchImageRequest(
             url: url,
             displaySize: displaySize,
             scale: context.screenScale,
             traitStyle: context.traitStyle,
-            encryptedAttachment: encryptedAttachment
+            encryptedAttachment: encryptedAttachment,
+            owner: owner
         )
     }
 

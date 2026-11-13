@@ -41,6 +41,8 @@ extension ChatViewController {
         mediaOpenGeneration = UUID()
         mediaOpenTasks.forEach { $0.cancel() }
         mediaOpenTasks.removeAll()
+        mediaDownloadTask?.cancel()
+        mediaDownloadTask = nil
     }
 
     private func boundMediaReference(url: URL, primary: String? = nil) -> ChatBoundMediaReference? {
@@ -86,7 +88,25 @@ extension ChatViewController {
         }
         var resolved = requested
         var remaining = bindings.filter { $0.descriptor.requiresAuthentication }.count
-        guard remaining > 0 else { presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex], referencePrimary: bindings[selectedIndex].primary); return }
+        guard remaining > 0 else {
+            if kind == .video, !url.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: capturedOwner) {
+                mediaDownloadTask = Task { [weak self] in
+                    do {
+                        let local = try await PrivacyProxyMediaRouter.shared.download(url, owner: capturedOwner)
+                        guard let self, !Task.isCancelled, current(self) else { return }
+                        self.mediaDownloadTask = nil
+                        self.presentBoundMedia(kind: kind, urls: [local], url: local, referencePrimary: bindings[selectedIndex].primary)
+                    } catch {
+                        guard let self, !Task.isCancelled, current(self) else { return }
+                        self.mediaDownloadTask = nil
+                        self.view.makeToast(L10n.text("chat_attachment_status_file_transfer_unavailable_title", fallback: "File transfer unavailable"))
+                    }
+                }
+            } else {
+                presentBoundMedia(kind: kind, urls: resolved, url: resolved[selectedIndex], referencePrimary: bindings[selectedIndex].primary)
+            }
+            return
+        }
         for (index, binding) in bindings.enumerated() where binding.descriptor.requiresAuthentication {
             guard mediaOpenGeneration == generation else { break }
             let task = mediaAttachmentReceive(binding.descriptor) { [weak self] result in
@@ -125,7 +145,7 @@ extension ChatViewController {
                 preview.view.accessibilityIdentifier = "chat.media.file.viewer.\(referencePrimary.map { Data($0.utf8).base64EncodedString() } ?? "unbound")"
                 preview.dataSource = self
                 present(preview, animated: true)
-            } else { openUnencryptedFile(url) }
+            } else { openUnencryptedFile(url, referencePrimary: referencePrimary) }
         }
     }
 }
@@ -857,6 +877,7 @@ extension ChatViewController: MessageCellDelegate {
     
     func showGallery(urls: [URL], from url: URL, referencePrimary: String? = nil) {
         let gallery = PhotoGallery(urls: urls, from: url)
+        gallery.mediaOwner = owner
         gallery.representedReferencePrimary = referencePrimary
         gallery.chatVCDelegate = self
         
@@ -1056,14 +1077,31 @@ extension ChatViewController: MessageCellDelegate {
         openBoundMedia(kind: .file, url: url, urls: [url])
     }
 
-    internal func openUnencryptedFile(_ url: URL?) {
+    internal func openUnencryptedFile(_ url: URL?, referencePrimary: String? = nil) {
         guard let url = url,
             UIApplication.shared.canOpenURL(url) else {
                 return
         }
-        YesNoPresenter().present(in: self, title: L10n.text("open_file_message", fallback: "Open this file"), message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true) { (value) in
-            if value {
-                UIApplication.shared.open(url, options: [:]) { (_) in }
+        let generation = mediaOpenGeneration
+        let owner = self.owner
+        YesNoPresenter().present(in: self, title: L10n.text("open_file_message", fallback: "Open this file"), message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true, confirmAfterDismissal: true) { [weak self] confirmed in
+            guard confirmed, let self, self.owner == owner, self.mediaOpenGeneration == generation else { return }
+            guard PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: owner) else {
+                UIApplication.shared.open(url, options: [:])
+                return
+            }
+            self.mediaDownloadTask = Task { [weak self] in
+                do {
+                    let local = try await PrivacyProxyMediaRouter.shared.download(url, owner: owner)
+                    guard let self, !Task.isCancelled, self.owner == owner, self.mediaOpenGeneration == generation,
+                          self.boundMediaReference(url: url, primary: referencePrimary)?.descriptor.state == .plaintext else { return }
+                    self.mediaDownloadTask = nil
+                    self.presentBoundMedia(kind: .file, urls: [local], url: local, referencePrimary: referencePrimary)
+                } catch {
+                    guard let self, !Task.isCancelled, self.owner == owner, self.mediaOpenGeneration == generation else { return }
+                    self.mediaDownloadTask = nil
+                    self.view.makeToast(L10n.text("chat_attachment_status_file_transfer_unavailable_title", fallback: "File transfer unavailable"))
+                }
             }
         }
     }

@@ -23,7 +23,6 @@ import UIKit
 import RealmSwift
 import RxRealm
 import RxSwift
-import Kingfisher
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
@@ -69,23 +68,12 @@ enum DefaultChatNavigationAvatarImageLoader {
             return
         }
 
-        let resource = Kingfisher.ImageResource(
-            downloadURL: downloadURL,
-            cacheKey: url
-        )
-        KingfisherManager.shared.retrieveImage(
-            with: resource,
-            options: [
-                .cacheOriginalImage,
-                .alsoPrefetchToMemory,
-                .callbackQueue(.mainCurrentOrAsync)
-            ]
-        ) { result in
-            switch result {
-            case .success(let value):
-                completion(.loaded(value.image))
-            case .failure:
-                completion(.failed)
+        Task { @MainActor in
+            _ = AvatarHTTPImageLoad(
+                url: downloadURL, cacheKey: url, owner: owner,
+                options: [.cacheOriginalImage, .alsoPrefetchToMemory]
+            ) { image in
+                completion(image.map(ChatNavigationAvatarLoadResult.loaded) ?? .failed)
             }
         }
     }

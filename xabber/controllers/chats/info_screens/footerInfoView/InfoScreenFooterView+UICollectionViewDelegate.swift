@@ -63,13 +63,24 @@ extension InfoScreenFooterView: UICollectionViewDelegateFlowLayout {
                                                          messageIds: messageIds,
                                                          page: indexPath.item)
             case .videos:
-                if let url = URL(string: datasource[indexPath.item].uri) {
-                    let player = AVPlayer(url: url)
-                    let controller = AVPlayerViewController()
-                    controller.player = player
-                    
-                    infoVCDelegate?.presentVC(vc: controller)
-                    player.play()
+                let item = datasource[indexPath.item]
+                if let url = URL(string: item.uri) {
+                    if !url.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: item.owner) {
+                        Task { [weak self] in
+                            do {
+                                let local = try await PrivacyProxyMediaRouter.shared.download(url, owner: item.owner)
+                                guard let self, self.window != nil, self.owner == item.owner,
+                                      self.selectedKind == .videos, self.datasource.indices.contains(indexPath.item),
+                                      self.datasource[indexPath.item].primary == item.primary else { return }
+                                self.presentMediaVideo(local)
+                            } catch {
+                                guard let self, self.window != nil, self.owner == item.owner else { return }
+                                self.makeToast(L10n.text("chat_attachment_status_file_transfer_unavailable_title", fallback: "File transfer unavailable"))
+                            }
+                        }
+                    } else {
+                        presentMediaVideo(url)
+                    }
                 }
             case .files:
                 guard let url = URL(string: datasource[indexPath.item].uri),
@@ -99,6 +110,14 @@ extension InfoScreenFooterView: UICollectionViewDelegateFlowLayout {
             }
         }
         previousSelectedCellIndex = indexPath
+    }
+
+    private func presentMediaVideo(_ url: URL) {
+        let player = AVPlayer(url: url)
+        let controller = AVPlayerViewController()
+        controller.player = player
+        infoVCDelegate?.presentVC(vc: controller)
+        player.play()
     }
 }
 

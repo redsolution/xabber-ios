@@ -41,6 +41,7 @@ enum SensitiveMediaAnalysisError: Error, LocalizedError {
     case disabled
     case unsupportedMedia
     case missingMediaURL
+    case encryptedRemoteImageRequiresLocalFile
     case encryptedRemoteVideoRequiresLocalFile
     case imageDecodeFailed
     case emptyAnalysisResult
@@ -56,6 +57,8 @@ enum SensitiveMediaAnalysisError: Error, LocalizedError {
             return L10n.text("sensitive_media_analysis__localized_error_description__unsupported_media_type_for_sensitivecontentanalysis", fallback: "Unsupported media type for SensitiveContentAnalysis.")
         case .missingMediaURL:
             return L10n.text("sensitive_media_analysis__localized_error_description__missing_media_url_for_sensitivecontentanalysis", fallback: "Missing media URL for SensitiveContentAnalysis.")
+        case .encryptedRemoteImageRequiresLocalFile:
+            return L10n.text("sensitive_media_analysis__encrypted_remote_image_requires_local_file", fallback: "Encrypted remote image requires a local decrypted file before analysis.")
         case .encryptedRemoteVideoRequiresLocalFile:
             return L10n.text("sensitive_media_analysis__localized_error_description__encrypted_remote_video_requires_a_local_decrypted_file_before_analysis", fallback: "Encrypted remote video requires a local decrypted file before analysis.")
         case .imageDecodeFailed:
@@ -638,7 +641,8 @@ final class SensitiveMediaAnalysisService {
                 mediaType: metadata?["media-type"] as? String,
                 localFileURL: reference.localFileUrl,
                 downloadURL: reference.downloadUrl,
-                remoteURLIsEncrypted: metadata?["encryption-key"] as? String != nil,
+                remoteURLIsEncrypted: ChatEncryptedAttachmentDescriptor(metadata: metadata,
+                    url: reference.downloadUrl, owner: reference.owner, referenceIdentity: reference.primary).requiresAuthentication,
                 failedAt: reference.sensitivityAnalysisFailedAt,
                 isSensitiveChecked: reference.isSensitiveChecked
             )
@@ -665,6 +669,13 @@ final class SensitiveMediaAnalysisService {
             return try await analyzer.analyzeImageFile(at: downloadURL)
         }
 
+        if snapshot.remoteURLIsEncrypted {
+            throw SensitiveMediaAnalysisError.encryptedRemoteImageRequiresLocalFile
+        }
+        if PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: snapshot.owner) {
+            let local = try await PrivacyProxyMediaRouter.shared.download(downloadURL, owner: snapshot.owner)
+            return try await analyzer.analyzeImageFile(at: local)
+        }
         let cgImage = try await fileProvider.downloadImageCGImage(from: downloadURL)
         return try await analyzer.analyzeImage(cgImage)
     }
@@ -690,6 +701,10 @@ final class SensitiveMediaAnalysisService {
             throw SensitiveMediaAnalysisError.encryptedRemoteVideoRequiresLocalFile
         }
 
+        if PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: snapshot.owner) {
+            let local = try await PrivacyProxyMediaRouter.shared.download(downloadURL, owner: snapshot.owner)
+            return try await analyzer.analyzeVideoFile(at: local)
+        }
         let localFile = try await fileProvider.localVideoFile(from: downloadURL)
         defer {
             if localFile.shouldDeleteAfterUse {

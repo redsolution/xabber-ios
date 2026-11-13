@@ -33,6 +33,72 @@ import LetterAvatarKit
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 
+/// Keeps the avatar's cache identity while resolving only cache misses.
+@MainActor
+final class AvatarHTTPImageLoad {
+    private var cancelled = false
+    private var resolutionTask: Task<Void, Never>?
+    private var downloadTask: DownloadTask?
+
+    init(
+        url: URL,
+        cacheKey: String,
+        owner: String,
+        options: KingfisherOptionsInfo = [],
+        resolve: @escaping (URL, String) async throws -> URL = { url, owner in
+            try await PrivacyProxyMediaRouter.shared.resolve(url, owner: owner)
+        },
+        completion: @escaping (UIImage?) -> Void
+    ) {
+        let resource = KF.ImageResource(downloadURL: url, cacheKey: cacheKey)
+        let options = options + [.callbackQueue(.mainCurrentOrAsync)]
+        KingfisherManager.shared.retrieveImage(with: resource, options: options + [.onlyFromCache]) { result in
+            // Keep this request alive until its asynchronous work finishes, even
+            // for callers that do not need to hold a cancellation handle.
+            guard !self.cancelled else { return }
+            if case .success(let cached) = result {
+                completion(cached.image)
+                return
+            }
+            self.resolutionTask = Task {
+                let resolved = try? await resolve(url, owner)
+                self.resolutionTask = nil
+                guard !self.cancelled else { return }
+                guard let resolved else {
+                    completion(nil)
+                    return
+                }
+                let routedResource = KF.ImageResource(downloadURL: resolved, cacheKey: cacheKey)
+                let routedOptions = options + Self.routingOptions(for: url, resolvedURL: resolved, owner: owner)
+                self.downloadTask = KingfisherManager.shared.retrieveImage(
+                    with: routedResource, options: routedOptions
+                ) { result in
+                    self.downloadTask = nil
+                    guard !self.cancelled else { return }
+                    completion(try? result.get().image)
+                }
+            }
+        }
+    }
+
+    func cancel() {
+        cancelled = true
+        resolutionTask?.cancel()
+        downloadTask?.cancel()
+        resolutionTask = nil
+        downloadTask = nil
+    }
+
+    private static func routingOptions(
+        for originalURL: URL, resolvedURL: URL, owner: String
+    ) -> KingfisherOptionsInfo {
+        guard let handler = PrivacyProxyMediaRouter.redirectHandler(
+            for: originalURL, resolvedURL: resolvedURL, owner: owner
+        ) else { return [] }
+        return [.downloader(PrivacyProxyMediaRouter.protectedImageDownloader), .redirectHandler(handler)]
+    }
+}
+
 enum PushAvatarSnapshotRevision {
     static func make(
         sourceKeys: [String],
@@ -560,13 +626,13 @@ class DefaultAvatarManager: NSObject {
                 guard let urlUnwr = URL(string: url) else {
                     return
                 }
-                ImageDownloader.default.downloadImage(with: urlUnwr, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
-                    switch result {
-                        case .success(let image):
-                            ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-                            self.pushAvatarPublisher.publish(image.image, token: token)
-                        default:
-                            break
+                Task { @MainActor in
+                    _ = AvatarHTTPImageLoad(
+                        url: urlUnwr, cacheKey: url, owner: owner,
+                        options: [.cacheOriginalImage, .alsoPrefetchToMemory]
+                    ) { image in
+                        guard let image else { return }
+                        self.pushAvatarPublisher.publish(image, token: token)
                     }
                 }
             }
@@ -612,35 +678,33 @@ class DefaultAvatarManager: NSObject {
         guard let urlUnwr = URL(string: url) else {
             return
         }
-        ImageDownloader.default.downloadImage(with: urlUnwr, options: KingfisherParsedOptionsInfo([.cacheOriginalImage, .keepCurrentImageWhileLoading, .alsoPrefetchToMemory, .callbackQueue(.untouch)])) { result in
-            switch result {
-                case .success(let image):
-                    ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-                    self.pushAvatarPublisher.publish(image.image, token: token)
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                        do {
-                            let realm = try WRealm.safe()
-                            let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
-                            if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
-                                try realm.write {
-                                    instance.updatedTS = Date().timeIntervalSince1970
-                                    collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
-                                }
+        Task { @MainActor in
+            _ = AvatarHTTPImageLoad(
+                url: urlUnwr, cacheKey: url, owner: owner,
+                options: [.cacheOriginalImage, .alsoPrefetchToMemory]
+            ) { image in
+                guard let image else { return }
+                self.pushAvatarPublisher.publish(image, token: token)
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                    do {
+                        let realm = try WRealm.safe()
+                        let collectionChats = realm.objects(LastChatsStorageItem.self).filter("jid == %@ AND owner == %@", jid, owner)
+                        if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
+                            try realm.write {
+                                instance.updatedTS = Date().timeIntervalSince1970
+                                collectionChats.forEach { $0.updateTS = Date().timeIntervalSince1970 }
                             }
-                            if jid == owner {
-                                if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
-                                    try realm.write {
-                                        instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
-                                    }
-                                }
-                            }
-
-                        } catch {
-                            DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
                         }
+                        if jid == owner,
+                           let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+                            try realm.write {
+                                instance.avatarUpdatedTS = Double(Date().timeIntervalSince1970)
+                            }
+                        }
+                    } catch {
+                        DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
                     }
-                default:
-                    break
+                }
             }
         }
     }

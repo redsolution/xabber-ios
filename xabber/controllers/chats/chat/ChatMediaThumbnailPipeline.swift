@@ -25,13 +25,15 @@ struct ChatThumbnailRequest: Hashable {
     let scale: Double
     let traitStyle: ChatThumbnailTraitStyle
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
+    let owner: String
 
     init(
         url: URL,
         displaySize: ChatCollectionPrefetchSize,
         scale: Double,
         traitStyle: ChatThumbnailTraitStyle = .unspecified,
-        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
+        owner: String = ""
     ) {
         self.url = url
         self.displaySize = ChatCollectionPrefetchSize(
@@ -41,6 +43,7 @@ struct ChatThumbnailRequest: Hashable {
         self.scale = max(1, scale)
         self.traitStyle = traitStyle
         self.encryptedAttachment = encryptedAttachment
+        self.owner = owner
     }
 
     var pixelSize: ChatCollectionPrefetchSize {
@@ -504,6 +507,7 @@ private final class KingfisherChatThumbnailLoadTask: ChatThumbnailLoadTask {
     private let lock = NSLock()
     private var task: DownloadTask?
     private var attachmentTask: ChatEncryptedAttachmentReceiveTask?
+    private var resolution: Task<Void, Never>?
     private var cancelled = false
 
     var isCancelled: Bool {
@@ -534,6 +538,14 @@ private final class KingfisherChatThumbnailLoadTask: ChatThumbnailLoadTask {
         lock.unlock()
     }
 
+    func updateResolution(_ task: Task<Void, Never>) {
+        lock.lock()
+        let shouldCancel = cancelled
+        if !shouldCancel { resolution = task }
+        lock.unlock()
+        if shouldCancel { task.cancel() }
+    }
+
     func cancel() {
         lock.lock()
         cancelled = true
@@ -541,7 +553,10 @@ private final class KingfisherChatThumbnailLoadTask: ChatThumbnailLoadTask {
         let attachmentTask = attachmentTask
         self.task = nil
         self.attachmentTask = nil
+        let resolution = resolution
+        self.resolution = nil
         lock.unlock()
+        resolution?.cancel()
         task?.cancel()
         attachmentTask?.cancel()
     }
@@ -617,17 +632,26 @@ final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
         completion: @escaping (Result<ChatThumbnailImage, ChatThumbnailPipelineError>) -> Void
     ) {
         guard !token.isCancelled else { return }
+        var options: KingfisherOptionsInfo = [
+            .backgroundDecode,
+            .callbackQueue(.mainCurrentOrAsync),
+            .memoryCacheExpiration(Self.memoryExpiration),
+            .processor(ChatThumbnailDownsamplingProcessor(request: request)),
+            .scaleFactor(CGFloat(request.scale)),
+            .waitForCache
+        ]
+        if case .network = source {
+            let modifier = PrivacyProxyImageRequestModifier(
+                owner: request.owner,
+                onResolution: token.updateResolution,
+                onDownloadTaskStarted: token.update
+            )
+            options += modifier.options
+        }
         let task = KingfisherManager.shared.retrieveImage(
             with: source,
-            options: [
-                .backgroundDecode,
-                .callbackQueue(.mainCurrentOrAsync),
-                .memoryCacheExpiration(Self.memoryExpiration),
-                .processor(ChatThumbnailDownsamplingProcessor(request: request)),
-                .scaleFactor(CGFloat(request.scale)),
-                .waitForCache
-            ],
-            downloadTaskUpdated: { token.update($0) }
+            options: options,
+            downloadTaskUpdated: { if let task = $0 { token.update(task) } }
         ) { result in
             guard !token.isCancelled else { return }
             switch result {
@@ -650,6 +674,56 @@ final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
                 completion(.failure(.loadFailed))
             }
         }
-        token.update(task)
+        if let task { token.update(task) }
+    }
+}
+
+/// Resolves only when Kingfisher needs a network request, preserving its cache key.
+final class PrivacyProxyImageRequestModifier: AsyncImageDownloadRequestModifier {
+    private let owner: String
+    private let onResolution: ((Task<Void, Never>) -> Void)?
+    let onDownloadTaskStarted: ((DownloadTask?) -> Void)?
+
+    init(
+        owner: String,
+        onResolution: ((Task<Void, Never>) -> Void)? = nil,
+        onDownloadTaskStarted: ((DownloadTask?) -> Void)? = nil
+    ) {
+        self.owner = owner
+        self.onResolution = onResolution
+        self.onDownloadTaskStarted = onDownloadTaskStarted
+    }
+
+    var options: KingfisherOptionsInfo {
+        guard PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: owner) else { return [] }
+        return [
+            .requestModifier(self),
+            .downloader(PrivacyProxyMediaRouter.protectedImageDownloader),
+            .redirectHandler(AnyRedirectHandler { _, response, request, completion in
+                guard let from = response.url, let to = request.url,
+                      PrivacyProxyMediaRouter.allowsRedirect(from: from, to: to) else {
+                    completion(nil)
+                    return
+                }
+                completion(request)
+            })
+        ]
+    }
+
+    func modified(for request: URLRequest, reportModified: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url else { reportModified(nil); return }
+        let resolution = Task { [owner] in
+            do {
+                let resolved = try await PrivacyProxyMediaRouter.shared.resolve(url, owner: owner)
+                try Task.checkCancellation()
+                var routedRequest = request
+                routedRequest.url = resolved
+                routedRequest.httpShouldHandleCookies = false
+                reportModified(routedRequest)
+            } catch {
+                reportModified(nil)
+            }
+        }
+        onResolution?(resolution)
     }
 }

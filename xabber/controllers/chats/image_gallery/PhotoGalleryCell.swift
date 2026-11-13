@@ -53,6 +53,8 @@ class PhotoGalleryCell: UICollectionViewCell {
 
     private var imageLoadGeneration = UUID()
     private var localImageWork: DispatchWorkItem?
+    private var imageResolutionTask: Task<Void, Never>?
+    var mediaOwner = ""
 
     var imageUrl: URL? {
         didSet {
@@ -165,6 +167,9 @@ class PhotoGalleryCell: UICollectionViewCell {
     func configureForNewImageUrl(animated: Bool = true) {
         localImageWork?.cancel()
         localImageWork = nil
+        imageResolutionTask?.cancel()
+        imageResolutionTask = nil
+        imageView.kf.cancelDownloadTask()
         imageLoadGeneration = UUID()
         let generation = imageLoadGeneration
         imageView.image = nil
@@ -194,10 +199,33 @@ class PhotoGalleryCell: UICollectionViewCell {
             guard let self, self.imageLoadGeneration == generation, self.imageUrl == url else { return }
             self.imageView.kf.indicatorType = .none
             switch result {
-            case .success(let value): self.applyGalleryImage(value.image)
+            case .success(let value):
+                if let image = value.image {
+                    self.applyGalleryImage(image)
+                } else if PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: self.mediaOwner) {
+                    self.downloadImage(url, generation: generation)
+                } else {
+                    self.activateErrorImage()
+                }
             case .failure(let error):
                 self.activateErrorImage()
                 DDLogDebug("PhotoGalleryCell: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func downloadImage(_ url: URL, generation: UUID) {
+        imageView.kf.indicatorType = .activity
+        let modifier = PrivacyProxyImageRequestModifier(owner: mediaOwner, onResolution: { [weak self] task in
+            self?.imageResolutionTask = task
+        })
+        imageView.kf.setImage(with: url, options: modifier.options) { [weak self] result in
+            guard let self, self.imageLoadGeneration == generation, self.imageUrl == url else { return }
+            self.imageResolutionTask = nil
+            self.imageView.kf.indicatorType = .none
+            switch result {
+            case .success(let value): self.applyGalleryImage(value.image)
+            case .failure: self.activateErrorImage()
             }
         }
     }
@@ -250,6 +278,9 @@ class PhotoGalleryCell: UICollectionViewCell {
         imageLoadGeneration = UUID()
         localImageWork?.cancel()
         localImageWork = nil
+        imageResolutionTask?.cancel()
+        imageResolutionTask = nil
+        imageView.kf.cancelDownloadTask()
         imageUrl = nil
         imageView.image = nil
         accessibilityIdentifier = nil

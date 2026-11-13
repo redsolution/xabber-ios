@@ -3298,7 +3298,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 sentDate: reference.sentDate,
                 encryptedAttachment: ChatEncryptedAttachmentDescriptor(metadata: reference.metadata,
                     url: reference.downloadUrl, owner: reference.owner, referenceIdentity: reference.primary),
-                authenticatedAttachmentCacheIdentity: reference.metadata?["authenticated-media-cache-identity"] as? String
+                authenticatedAttachmentCacheIdentity: reference.metadata?["authenticated-media-cache-identity"] as? String,
+                owner: reference.owner
             )
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")

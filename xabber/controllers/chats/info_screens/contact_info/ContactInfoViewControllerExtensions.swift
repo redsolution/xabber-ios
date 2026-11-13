@@ -21,6 +21,7 @@
 import Foundation
 import UIKit
 import XMPPFramework
+import QuickLook
 
 //MARK: - Protocols
 protocol InfoVCDelegate {
@@ -28,6 +29,60 @@ protocol InfoVCDelegate {
     func presentYesNoPresenter(with url: URL)
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int)
     func scrollToMediaGallery()
+}
+
+/// Retains its own data source while previewing a staged media file.
+final class InfoMediaFilePreviewController: QLPreviewController, QLPreviewControllerDataSource {
+    private let fileURL: URL
+
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+        super.init(nibName: nil, bundle: nil)
+        dataSource = self
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+        fileURL as NSURL
+    }
+}
+
+@MainActor
+func presentInfoMediaFile(_ url: URL, owner: String, from presenter: BaseViewController) {
+    YesNoPresenter().present(
+        in: presenter,
+        title: L10n.text("open_file_message", fallback: "Open this file"),
+        message: url.lastPathComponent,
+        yesText: L10n.text("common__action__open", fallback: "Open"),
+        noText: L10n.text("common__action__cancel", fallback: "Cancel"),
+        animated: true, confirmAfterDismissal: true
+    ) { [weak presenter] confirmed in
+        guard confirmed, let presenter, presenter.owner == owner else { return }
+        guard !url.isFileURL, PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: owner) else {
+            if url.isFileURL {
+                presenter.present(InfoMediaFilePreviewController(fileURL: url), animated: true)
+            } else {
+                UIApplication.shared.open(url, options: [:])
+            }
+            return
+        }
+        Task { [weak presenter] in
+            do {
+                let local = try await PrivacyProxyMediaRouter.shared.download(url, owner: owner)
+                guard let presenter, presenter.owner == owner,
+                      presenter.viewIfLoaded?.window != nil, presenter.presentedViewController == nil else { return }
+                presenter.present(InfoMediaFilePreviewController(fileURL: local), animated: true)
+            } catch {
+                guard let presenter, presenter.owner == owner, presenter.viewIfLoaded?.window != nil else { return }
+                presenter.view.makeToast(L10n.text("chat_attachment_status_file_transfer_unavailable_title", fallback: "File transfer unavailable"))
+            }
+        }
+    }
 }
 
 class XMPPIDInfoScreenYableViewCell: UITableViewCell {
@@ -123,14 +178,9 @@ extension ContactInfoViewController: InfoVCDelegate {
     }
     
     func presentYesNoPresenter(with url: URL) {
-        YesNoPresenter().present(in: self, title: "Open this file".localizeString(id: "open_file_message", arguments: []),
-                                 message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true) { (value) in
-            if value {
-                UIApplication.shared.open(url, options: [:]) { (_) in }
-            }
-        }
+        presentInfoMediaFile(url, owner: owner, from: self)
     }
-    
+
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int) {
 //        let gallery = PhotoGallery(urls: urls,
 //                                   senders: senders,

@@ -12,7 +12,6 @@ import RxSwift
 import RxCocoa
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import Kingfisher
 
 class GroupchatJoinViewController: BaseViewController {
 
@@ -23,6 +22,7 @@ class GroupchatJoinViewController: BaseViewController {
     
     internal var username: BehaviorRelay<String> = BehaviorRelay<String>(value: "")
     internal var avatarKey: BehaviorRelay<String> = BehaviorRelay<String>(value: "")
+    private var avatarLoad: AvatarHTTPImageLoad?
     
     internal var inJoinMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
@@ -173,11 +173,19 @@ class GroupchatJoinViewController: BaseViewController {
         
         avatarKey
             .asObservable()
-            .subscribe(onNext: { (value) in
-                if value.isNotEmpty, let url = URL(string: value) {
-                    self.avatarView.kf.setImage(
-                        with: ImageResource(downloadURL: url, cacheKey: value)
-                    )
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] value in
+                guard let self else { return }
+                self.avatarLoad?.cancel()
+                self.avatarLoad = nil
+                self.avatarView.image = UIImageView.getDefaultAvatar(
+                    for: self.username.value, owner: self.owner, size: Self.avatarSize
+                )
+                guard value.isNotEmpty, let url = URL(string: value) else { return }
+                self.avatarLoad = AvatarHTTPImageLoad(url: url, cacheKey: value, owner: self.owner) { [weak self] image in
+                    if let image {
+                        self?.avatarView.image = image
+                    }
                 }
             })
             .disposed(by: bag)
@@ -309,6 +317,8 @@ class GroupchatJoinViewController: BaseViewController {
     
     internal func unsubscribe() {
         bag = DisposeBag()
+        avatarLoad?.cancel()
+        avatarLoad = nil
     }
     
     internal func activateConstraints() {

@@ -63,7 +63,8 @@ final class ChatCollectionPrefetchTests: XCTestCase {
                 colorKey: "owner@example.com",
                 displaySize: avatarSize,
                 scale: screenScale,
-                traitStyle: .unspecified
+                traitStyle: .unspecified,
+                owner: "owner@example.com"
             )
         )))
         XCTAssertTrue(resources.contains(.avatar(
@@ -75,7 +76,8 @@ final class ChatCollectionPrefetchTests: XCTestCase {
                 colorKey: "friend@example.com",
                 displaySize: contactAvatarSize,
                 scale: screenScale,
-                traitStyle: .unspecified
+                traitStyle: .unspecified,
+                owner: "owner@example.com"
             )
         )))
         XCTAssertTrue(resources.contains(.locationSnapshot(
@@ -346,7 +348,7 @@ final class ChatCollectionPrefetchTests: XCTestCase {
         size: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 220, height: 220),
         scale: Double = 2
     ) -> ChatCollectionPrefetchImageRequest {
-        ChatCollectionPrefetchImageRequest(url: url, displaySize: size, scale: scale)
+        ChatCollectionPrefetchImageRequest(url: url, displaySize: size, scale: scale, owner: "owner@example.com")
     }
 
     private func mediaReference(primary: String, localURL: URL, remoteURL: URL?) -> MessageReferenceStorageItem {

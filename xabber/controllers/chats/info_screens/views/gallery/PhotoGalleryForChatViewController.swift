@@ -74,7 +74,7 @@ final class KingfisherMediaGalleryImageLoader: MediaGalleryImageLoading {
         completion: @escaping (MediaGalleryImageLoadOutcome) -> Void
     ) {
         cancelLoad(in: imageView)
-        if request.encryptedAttachment?.requiresAuthentication == true {
+        if request.encryptedAttachment?.requiresAuthentication == true || PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: request.owner) {
             let identifier = ObjectIdentifier(imageView), generation = UUID()
             generations[identifier] = generation
             let subscription = thumbnailPipeline.acquire(request.thumbnailRequest,
@@ -333,6 +333,7 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
             guard let self, self.canPresentGalleryMedia else { return }
             if let callback = self.mediaGalleryPresentationForTesting { callback(.photo, urls, selected); return }
             let gallery = PhotoGallery(urls: urls, from: selected)
+            gallery.mediaOwner = self.owner
             let navigationController = UINavigationController(rootViewController: gallery)
             navigationController.modalPresentationStyle = .fullScreen
             gallery.initialPage = urls.firstIndex(of: selected) ?? 0

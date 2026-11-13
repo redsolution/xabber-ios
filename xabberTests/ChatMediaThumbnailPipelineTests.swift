@@ -23,7 +23,8 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
             url: url,
             displaySize: renderedSize,
             scale: 3,
-            traitStyle: .dark
+            traitStyle: .dark,
+            owner: "owner@example.com"
         )
 
         XCTAssertEqual(prefetched, visible)
@@ -45,7 +46,7 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
             duration: 4,
             downloaded: true
         )
-        grid.configure([video], representedBy: "message")
+        grid.configure([video], representedBy: "message", owner: "owner@example.com")
         let visible = try XCTUnwrap(serving.requests.first)
         let resources = ChatCollectionPrefetchPlanner.resources(
             for: ChatCollectionPrefetchItem(

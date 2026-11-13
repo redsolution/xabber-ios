@@ -149,6 +149,7 @@ public class PhotoGallery: UIViewController {
 
     public lazy var imageCollectionView: UICollectionView = self.setupCollectionView()
 
+    var mediaOwner = ""
     open var imageUrls: [URL] = []
     open var senders: [String] = []
     open var dates: [String] = []
@@ -533,6 +534,7 @@ extension PhotoGallery: UICollectionViewDataSource {
                                  for: indexPath) as? PhotoGalleryCell else {
             fatalError()
         }
+        cell.mediaOwner = mediaOwner
         cell.imageUrl = getImageUrl(currentPage: indexPath.item)
         
         return cell
@@ -543,9 +545,11 @@ extension PhotoGallery: UICollectionViewDataSource {
 
         switch kind {
         case UICollectionView.elementKindSectionFooter:
+            cell.mediaOwner = mediaOwner
             cell.imageUrl = getImageUrl(currentPage: currentPage)
         case UICollectionView.elementKindSectionHeader:
             cell = collectionView.dequeueReusableSupplementaryView(ofKind: UICollectionView.elementKindSectionHeader, withReuseIdentifier: "PhotoGalleryCell", for: indexPath) as! PhotoGalleryCell
+            cell.mediaOwner = mediaOwner
             cell.imageUrl = getImageUrl(currentPage: currentPage)
         default:
             assertionFailure("Unexpected element kind")

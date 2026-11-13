@@ -523,6 +523,7 @@ extension Account: XMPPStreamDelegate {
             DDLogDebug("ignore stale primary stream disconnect jid=\(self.jid)")
             return
         }
+        PrivacyProxyClient.shared.streamDidDisconnect(sender, owner: self.jid)
         self.cancelPendingGracefulDisconnect()
         DDLogDebug("primary stream didDisconnect jid=\(self.jid) error=\(self.disconnectErrorDescription(error)) phase=\(self.connectionGate.snapshot().phase.rawValue)")
         self.cancelStartupTrafficOrdering()
@@ -653,6 +654,7 @@ extension Account: XMPPStreamDelegate {
             case self.devices.read(withIQ: iq, on: sender):
                 self.omemo.checkInfo()
                 break
+            case sender === self.xmppStream && PrivacyProxyClient.shared.read(iq, from: sender, owner: self.jid): break
             case XabberAccountManager.shared.read(sender, with: iq): break
             case self.cloudStorage.read(withIQ: iq): break
             case self.xTokens.read(withIQ: iq): break

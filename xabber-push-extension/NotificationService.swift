@@ -836,7 +836,16 @@ extension NotificationService: PushPayloadDelegate {
             for: plan.mediaItems,
             includePlayableMedia: false
         )
-        let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates)
+        let proxyRouting = PrivacyProxyPushRouting.live
+        let owner = plan.route.owner
+        let route: ((URL) async -> URL?)?
+        let proxyPolicy = CommonConfigManager.shared.config.privacyProxyPolicy
+        if proxyRouting.needsProxy(owner: owner, policy: proxyPolicy) {
+            route = { proxyRouting.route($0, owner: owner, requiresPremium: proxyPolicy == .payed) }
+        } else {
+            route = nil
+        }
+        let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates, route: route)
         trace("attachments_loaded", "candidates=\(candidates) attachments=\(attachmentLease.attachments)")
         defer { attachmentLease.release() }
         let attachments = attachmentLease.attachments
@@ -912,7 +921,7 @@ extension NotificationService: PushPayloadDelegate {
             return
         }
         let requestID = identifier
-        let resolver = PushNotificationAvatarResolver.live { message in
+        let resolver = PushNotificationAvatarResolver.live(owner: plan.route.owner) { message in
             PushExtensionDiagnostics.log("event=avatar request=\(requestID) \(message)")
         }
         let imageData = await resolver.imageData(

@@ -4426,6 +4426,7 @@ final class Account: NSObject {
     }
     
     func resetStream() {
+        PrivacyProxyClient.shared.streamDidDisconnect(self.xmppStream, owner: self.jid)
         self.cancelStartupTrafficOrdering()
         self.cancelPendingGracefulDisconnect()
         self.logConnectionDiagnostics(event: "reset_stream_requested")

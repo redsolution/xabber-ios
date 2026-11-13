@@ -2765,6 +2765,7 @@ class ChatViewController: MessagesViewController {
     internal var mediaPresentationForTesting: ((ChatMediaOpeningKind, [URL], URL) -> Void)?
     internal var mediaOpenTasks: [ChatEncryptedAttachmentReceiveTask] = []
     internal var mediaOpenGeneration = UUID()
+    internal var mediaDownloadTask: Task<Void, Never>?
     internal var documentPreviewURL: URL?
 
 #if DEBUG
@@ -8898,6 +8899,7 @@ class ChatViewController: MessagesViewController {
     
     deinit {
         self.mediaOpenTasks.forEach { $0.cancel() }
+        self.mediaDownloadTask?.cancel()
         // Do not initialize lazy coordinators while the object is already in
         // deallocation. Normal disappearance runs the complete policy above;
         // this fallback touches only resources that already exist eagerly.
@@ -9085,13 +9087,14 @@ extension ChatViewController {
         let fallback = VoiceMessageDescriptor(
             referencePrimary: audio.primary,
             containerMessagePrimary: containerPrimary,
-            remoteURL: audio.encryptedAttachment?.sourceURL,
+            remoteURL: audio.encryptedAttachment?.sourceURL ?? audio.url,
             decodedURL: audio.encryptedAttachment?.requiresAuthentication == true ? nil : audio.url,
             duration: TimeInterval(audio.duration),
             downloaded: audio.encryptedAttachment?.requiresAuthentication == true ? false : (audio.downloaded || audio.url != nil),
             pcm: audio.pcm,
             sentDate: sentDate,
-            encryptedAttachment: audio.encryptedAttachment
+            encryptedAttachment: audio.encryptedAttachment,
+            owner: owner
         )
         return voiceMessageDescriptorFromRealm(
             referencePrimary: audio.primary,
@@ -9137,7 +9140,8 @@ extension ChatViewController {
                 pcm: reference.meteringLevels ?? fallback?.pcm ?? [],
                 sentDate: sentDate == Date.distantPast ? reference.sentDate : sentDate,
                 encryptedAttachment: attachment.requiresAuthentication ? attachment : nil,
-                authenticatedAttachmentCacheIdentity: authenticatedCacheIdentity
+                authenticatedAttachmentCacheIdentity: authenticatedCacheIdentity,
+                owner: reference.owner
             )
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")

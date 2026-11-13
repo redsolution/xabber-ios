@@ -94,7 +94,8 @@ enum MediaGalleryVoiceDescriptorMapper {
             sentDate: item.date,
             archivedId: normalized(item.archiveId),
             encryptedAttachment: protection.0,
-            authenticatedAttachmentCacheIdentity: protection.1
+            authenticatedAttachmentCacheIdentity: protection.1,
+            owner: item.owner
         )
     }
 

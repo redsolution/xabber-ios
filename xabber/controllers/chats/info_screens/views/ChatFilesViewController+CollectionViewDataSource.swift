@@ -37,7 +37,7 @@ extension ChatFilesViewController: UICollectionViewDataSource {
                 return UICollectionViewCell(frame: .zero)
             }
             
-            cell.setup(photoUrls: (thumb: item.thumbnail, url: item.uri))
+            cell.setup(photoUrls: (thumb: item.thumbnail, url: item.uri), owner: item.owner)
             cell.infoScreenDelegate = self
             return cell
             

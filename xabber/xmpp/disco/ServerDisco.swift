@@ -714,6 +714,7 @@ class ServerDiscoManager: AbstractXMPPManager {
         Self.cloudDiscoveryDidConsumeTerminalTestingHandler?(terminal)
         if didChangePrivacyProxy {
             let ownerSnapshot = owner
+            PrivacyProxyMediaRouter.shared.publishPushRouting(owner: ownerSnapshot)
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
                     name: .privacyProxyDiscoveryDidChange,

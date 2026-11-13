@@ -717,6 +717,40 @@ final class LocalNotificationRichContentTests: XCTestCase {
                       "Request-local avatar bytes must not leave staged notification files")
     }
 
+    func testRemoteAttachmentUsesRoutedURLAndSkipsUnavailableRoute() async throws {
+        let original = try XCTUnwrap(URL(string: "https://external.example.com/photo.png"))
+        let proxied = try XCTUnwrap(URL(string: "https://proxy.example.com/proxy/files/123/"))
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).pngData { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        }
+        let transfer = expectation(description: "Only the proxy receives the media request")
+        transfer.assertForOverFulfill = true
+        RichNotificationLoaderURLProtocol.install { request, transport in
+            XCTAssertEqual(request.url, proxied)
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            transfer.fulfill()
+            transport.succeed(data: image, mimeType: "image/png", contentLength: image.count)
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RichNotificationLoaderURLProtocol.self]
+        let loader = RichNotificationAttachmentLoader(configuration: configuration)
+        let candidate = RichNotificationAttachmentCandidate(
+            kind: .image, sourceURL: original.absoluteString, filename: "photo.png", mediaType: "image/png"
+        )
+
+        let unavailable = await loader.attachmentLease(for: [candidate], route: { _ in nil })
+        XCTAssertTrue(unavailable.attachments.isEmpty)
+        unavailable.release()
+        let available = await loader.attachmentLease(for: [candidate], route: { url in
+            XCTAssertEqual(url, original)
+            return proxied
+        })
+        defer { available.release() }
+        await fulfillment(of: [transfer], timeout: 1)
+        XCTAssertEqual(available.attachments.count, 1)
+    }
+
     func testRemoteAvatarRejectsInvalidImageBody() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

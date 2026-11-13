@@ -68,12 +68,14 @@ final class MediaGalleryThreeColumnFlowLayout: UICollectionViewFlowLayout {
 
 struct MediaGalleryImageRequest: Hashable {
     let url: URL
+    let owner: String
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     let displaySize: CGSize
     let scale: CGFloat
 
-    init(url: URL, displaySize: CGSize, scale: CGFloat, encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil) {
+    init(url: URL, displaySize: CGSize, scale: CGFloat, encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil, owner: String = "") {
         self.url = url
+        self.owner = owner
         self.encryptedAttachment = encryptedAttachment
         self.displaySize = CGSize(
             width: max(1, displaySize.width),
@@ -100,7 +102,7 @@ struct MediaGalleryImageRequest: Hashable {
     var thumbnailRequest: ChatThumbnailRequest {
         ChatThumbnailRequest(url: url,
             displaySize: ChatCollectionPrefetchSize(width: Double(displaySize.width), height: Double(displaySize.height)),
-            scale: Double(scale), encryptedAttachment: encryptedAttachment)
+            scale: Double(scale), encryptedAttachment: encryptedAttachment, owner: owner)
     }
 
     var thumbnailConsumer: ChatThumbnailConsumer {
@@ -163,7 +165,8 @@ enum MediaGalleryImageRequestPlanner {
             url: url,
             displaySize: displaySize,
             scale: scale,
-            encryptedAttachment: url == item.url ? item.encryptedAttachment : nil
+            encryptedAttachment: url == item.url ? item.encryptedAttachment : nil,
+            owner: item.owner
         )
     }
 }
@@ -248,14 +251,14 @@ final class KingfisherMediaGalleryImagePrefetchTaskFactory: MediaGalleryImagePre
         self.thumbnailPipeline = thumbnailPipeline
     }
     func makeTask(for request: MediaGalleryImageRequest) -> MediaGalleryImagePrefetchTask {
-        if request.encryptedAttachment?.requiresAuthentication == true {
-            return AuthenticatedMediaGalleryImagePrefetchTask(request: request, pipeline: thumbnailPipeline)
+        if request.encryptedAttachment?.requiresAuthentication == true || PrivacyProxyMediaRouter.shared.restrictsRedirects(owner: request.owner) {
+            return MediaGalleryThumbnailPrefetchTask(request: request, pipeline: thumbnailPipeline)
         }
         return KingfisherMediaGalleryImagePrefetchTask(request: request)
     }
 }
 
-private final class AuthenticatedMediaGalleryImagePrefetchTask: MediaGalleryImagePrefetchTask {
+private final class MediaGalleryThumbnailPrefetchTask: MediaGalleryImagePrefetchTask {
     private let request: MediaGalleryImageRequest
     private let pipeline: ChatThumbnailServing
     private var subscription: ChatThumbnailSubscription?
@@ -387,6 +390,7 @@ enum MediaGalleryDatasourceMapper {
             metadata["preview_local_url"],
             metadata["thumbnail"],
             metadata["preview_url"],
+            metadata["thumbnail-uri"],
             metadata["video_preview_key"]
         )
         let decodedURL = url(from: firstNonEmptyString(

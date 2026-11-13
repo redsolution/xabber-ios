@@ -24,10 +24,21 @@ import UIKit
 struct YesNoPresenter {
     
     
-    func present(in view: UIViewController, style: UIAlertController.Style = .actionSheet, title: String?, message: String, yesText: String, dangerYes: Bool = false, showCancelAction: Bool = true, noText: String, animated: Bool, completion: @escaping ((Bool)->Void)) {
+    func present(in view: UIViewController, style: UIAlertController.Style = .actionSheet, title: String?, message: String, yesText: String, dangerYes: Bool = false, showCancelAction: Bool = true, noText: String, animated: Bool, confirmAfterDismissal: Bool = false, completion: @escaping ((Bool)->Void)) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: style)
-        alert.addAction(UIAlertAction(title: yesText, style: dangerYes ? .destructive : .default, handler: { (_) in
-            completion(true)
+        alert.addAction(UIAlertAction(title: yesText, style: dangerYes ? .destructive : .default, handler: { [weak alert] _ in
+            guard confirmAfterDismissal, let alert, alert.presentingViewController != nil else {
+                completion(true)
+                return
+            }
+            if alert.isBeingDismissed,
+               let coordinator = alert.transitionCoordinator,
+               coordinator.animate(alongsideTransition: nil, completion: { context in
+                   if !context.isCancelled { completion(true) }
+               }) {
+                return
+            }
+            alert.dismiss(animated: animated) { completion(true) }
         }))
         if showCancelAction {
             alert.addAction(UIAlertAction(title: noText, style: .cancel, handler: { (_) in

@@ -2814,6 +2814,9 @@ class SubscribtionsManager: NSObject {
 
     private func postPremiumEntitlementDidChange(for jid: String) {
         guard jid.isNotEmpty else { return }
+        if CommonConfigManager.shared.config.privacyProxyPolicy == .payed {
+            PrivacyProxyPushRouting.live.publishPremiumExpiration(getExpiresDate(for: jid), owner: jid)
+        }
         NotificationCenter.default.post(
             name: .premiumEntitlementDidChange,
             object: self,
