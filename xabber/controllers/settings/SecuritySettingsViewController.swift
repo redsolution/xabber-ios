@@ -174,24 +174,277 @@ final class SecuritySettingsViewController: BaseViewController, UITableViewDataS
     }
 
     private func informationCell(at row: Int) -> UITableViewCell {
+        if row == 1 { return PrivacyProxyDiagramCell() }
+
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.selectionStyle = .none
         var content = cell.defaultContentConfiguration()
         content.textProperties.numberOfLines = 0
-        content.secondaryTextProperties.numberOfLines = 0
-        if row == 0 {
-            content.text = L10n.text(
-                "settings__proxy__explanation",
-                fallback: "Messages often carry media hosted on other sites: link previews, pictures, videos, voice and video messages, attached files. Contacts' avatars are media too. Loading any of it directly tells that site your IP address and roughly when you read the message. A privacy proxy shields your IP address from being exposed: it fetches the media for you, so the site only ever sees the proxy."
-            )
-        } else {
-            content.text = L10n.text("settings__proxy__how_it_works", fallback: "How it works")
-            content.secondaryText = L10n.text(
+        content.text = L10n.text(
+            "settings__proxy__explanation",
+            fallback: "Messages often carry media hosted on other sites: link previews, pictures, videos, voice and video messages, attached files. Contacts' avatars are media too. Loading any of it directly tells that site your IP address and roughly when you read the message. A privacy proxy shields your IP address from being exposed: it fetches the media for you, so the site only ever sees the proxy."
+        )
+        cell.contentConfiguration = content
+        return cell
+    }
+}
+
+private final class PrivacyProxyDiagramCell: UITableViewCell {
+    private let routes = UIStackView()
+
+    init() {
+        super.init(style: .default, reuseIdentifier: nil)
+        selectionStyle = .none
+        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16)
+
+        let title = UILabel()
+        title.text = L10n.text("settings__proxy__how_it_works", fallback: "How it works")
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.adjustsFontForContentSizeCategory = true
+        title.numberOfLines = 0
+        title.accessibilityTraits.insert(.header)
+
+        routes.axis = .vertical
+        routes.spacing = 12
+        routes.addArrangedSubview(PrivacyProxyRouteCard(usesProxy: false))
+        routes.addArrangedSubview(PrivacyProxyRouteCard(usesProxy: true))
+
+        let stack = UIStackView(arrangedSubviews: [title, routes])
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stack)
+        let margins = contentView.layoutMarginsGuide
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: margins.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: margins.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: margins.trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: margins.bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        updateRouteLayout(for: bounds.width)
+        super.layoutSubviews()
+    }
+
+    override func systemLayoutSizeFitting(
+        _ targetSize: CGSize,
+        withHorizontalFittingPriority horizontalFittingPriority: UILayoutPriority,
+        verticalFittingPriority: UILayoutPriority
+    ) -> CGSize {
+        updateRouteLayout(for: targetSize.width)
+        return super.systemLayoutSizeFitting(
+            targetSize,
+            withHorizontalFittingPriority: horizontalFittingPriority,
+            verticalFittingPriority: verticalFittingPriority
+        )
+    }
+
+    private func updateRouteLayout(for cellWidth: CGFloat) {
+        let margins = contentView.directionalLayoutMargins
+        let availableWidth = cellWidth - margins.leading - margins.trailing
+        let fitsSideBySide = availableWidth >= 2 * 240 + routes.spacing
+            && !traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        let axis: NSLayoutConstraint.Axis = fitsSideBySide ? .horizontal : .vertical
+        guard routes.axis != axis else { return }
+        routes.axis = axis
+        routes.distribution = fitsSideBySide ? .fillEqually : .fill
+    }
+}
+
+private final class PrivacyProxyRouteCard: UIView {
+    private static let proxyOrange = UIColor(red: 1, green: 0.34, blue: 0.13, alpha: 1)
+    private static let exposureColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 1, green: 0.72, blue: 0.30, alpha: 1)
+            : UIColor(red: 0.60, green: 0.34, blue: 0, alpha: 1)
+    }
+
+    init(usesProxy: Bool) {
+        super.init(frame: .zero)
+        let title = usesProxy
+            ? L10n.text("settings__proxy__route_proxied", fallback: "With a privacy proxy")
+            : L10n.text("settings__proxy__route_direct", fallback: "Without a proxy")
+        let caption = usesProxy
+            ? L10n.text(
                 "settings__proxy__route_explanation",
                 fallback: "The site sees only the proxy. The proxy, named by your server, sees your address instead."
             )
+            : L10n.text(
+                "settings__proxy__direct_explanation",
+                fallback: "The site sees your IP address, and when and how often you opened its media."
+            )
+
+        let heading = Self.label(title, style: .subheadline, color: .label)
+        heading.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: 15, weight: .semibold))
+        let explanation = Self.label(caption, style: .footnote)
+        let flow = UIStackView()
+        flow.alignment = .top
+        flow.addArrangedSubview(Self.node(
+            L10n.text("settings__proxy__node_you", fallback: "You"), symbol: "person.fill"
+        ))
+        if usesProxy {
+            let userAddress = Self.arrow(L10n.text("settings__proxy__arrow_user", fallback: "your IP"))
+            let proxyAddress = Self.arrow(L10n.text("settings__proxy__arrow_proxy", fallback: "proxy’s address"))
+            flow.addArrangedSubview(userAddress)
+            flow.addArrangedSubview(Self.node(
+                L10n.text("settings__proxy__node_proxy", fallback: "Proxy"),
+                symbol: "lock.shield.fill", background: Self.proxyOrange
+            ))
+            flow.addArrangedSubview(proxyAddress)
+            userAddress.widthAnchor.constraint(equalTo: proxyAddress.widthAnchor).isActive = true
+        } else {
+            flow.addArrangedSubview(Self.arrow(
+                L10n.text("settings__proxy__arrow_direct", fallback: "your IP address"), exposed: true
+            ))
         }
-        cell.contentConfiguration = content
-        return cell
+        flow.addArrangedSubview(Self.node(
+            L10n.text("settings__proxy__node_site", fallback: "Other site"), symbol: "globe"
+        ))
+
+        let stack = UIStackView(arrangedSubviews: [heading, flow, explanation])
+        stack.axis = .vertical
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12)
+        ])
+
+        layer.cornerRadius = 8
+        layer.borderWidth = 1
+        updateBorderColor()
+        isAccessibilityElement = true
+        accessibilityIdentifier = usesProxy ? "settings.security.proxy.route.proxied" : "settings.security.proxy.route.direct"
+        accessibilityLabel = title
+        accessibilityValue = caption
+        accessibilityTraits = .staticText
+        stack.accessibilityElementsHidden = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            updateBorderColor()
+        }
+    }
+
+    private func updateBorderColor() {
+        layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
+    }
+
+    private static func label(
+        _ text: String, style: UIFont.TextStyle, color: UIColor = .secondaryLabel
+    ) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .preferredFont(forTextStyle: style)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = color
+        label.numberOfLines = 0
+        return label
+    }
+
+    private static func node(_ text: String, symbol: String, background: UIColor = .systemGray) -> UIView {
+        let dot = UIView()
+        dot.backgroundColor = background
+        dot.layer.cornerRadius = 20
+        let icon = UIImageView(image: UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 22)))
+        icon.tintColor = .white
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        dot.addSubview(icon)
+
+        let caption = diagramLabel(text)
+        let node = UIStackView(arrangedSubviews: [dot, caption])
+        node.axis = .vertical
+        node.alignment = .center
+        node.spacing = 4
+        let preferredWidth = node.widthAnchor.constraint(equalToConstant: 56)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            preferredWidth,
+            node.widthAnchor.constraint(greaterThanOrEqualTo: dot.widthAnchor),
+            dot.widthAnchor.constraint(equalToConstant: 40),
+            dot.heightAnchor.constraint(equalTo: dot.widthAnchor),
+            icon.centerXAnchor.constraint(equalTo: dot.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: dot.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 24),
+            icon.heightAnchor.constraint(equalTo: icon.widthAnchor),
+            caption.widthAnchor.constraint(lessThanOrEqualTo: node.widthAnchor)
+        ])
+        return node
+    }
+
+    private static func arrow(_ text: String, exposed: Bool = false) -> UIView {
+        let line = PrivacyProxyRouteArrow(color: exposed ? exposureColor : .systemGray)
+        let caption = diagramLabel(text, color: exposed ? exposureColor : .secondaryLabel)
+        let arrow = UIStackView(arrangedSubviews: [line, caption])
+        arrow.axis = .vertical
+        arrow.spacing = 3
+        line.heightAnchor.constraint(equalToConstant: 27).isActive = true
+        let minimumWidth = arrow.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        minimumWidth.priority = UILayoutPriority(751)
+        minimumWidth.isActive = true
+        return arrow
+    }
+
+    private static func diagramLabel(_ text: String, color: UIColor = .secondaryLabel) -> UILabel {
+        let label = label(text, style: .caption2, color: color)
+        label.font = UIFontMetrics(forTextStyle: .caption2).scaledFont(
+            for: .systemFont(ofSize: 11), maximumPointSize: 17
+        )
+        label.textAlignment = .center
+        return label
+    }
+}
+
+private final class PrivacyProxyRouteArrow: UIView {
+    private let color: UIColor
+
+    init(color: UIColor) {
+        self.color = color
+        super.init(frame: .zero)
+        isOpaque = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        let isRTL = effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let tail = isRTL ? bounds.width : 0
+        let tip = isRTL ? 0 : bounds.width
+        let shoulder = tip + (isRTL ? 6 : -6)
+        let arrow = UIBezierPath()
+        arrow.move(to: CGPoint(x: tail, y: 19))
+        arrow.addLine(to: CGPoint(x: shoulder, y: 19))
+        arrow.addLine(to: CGPoint(x: shoulder, y: 15))
+        arrow.addLine(to: CGPoint(x: tip, y: 20))
+        arrow.addLine(to: CGPoint(x: shoulder, y: 25))
+        arrow.addLine(to: CGPoint(x: shoulder, y: 21))
+        arrow.addLine(to: CGPoint(x: tail, y: 21))
+        arrow.close()
+        color.setFill()
+        arrow.fill()
     }
 }

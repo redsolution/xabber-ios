@@ -102697,6 +102697,132 @@
         }
       }
     },
+    "settings__proxy__arrow_direct": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنوان IP الخاص بك"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your IP address"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tu dirección IP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "votre adresse IP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ваш IP-адрес"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的 IP 地址"
+          }
+        }
+      }
+    },
+    "settings__proxy__arrow_proxy": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنوان الوكيل"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "proxy’s address"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dirección del proxy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "adresse du proxy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "адрес прокси"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的地址"
+          }
+        }
+      }
+    },
+    "settings__proxy__arrow_user": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عنوان IP الخاص بك"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your IP"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tu IP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "votre IP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ваш IP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的 IP"
+          }
+        }
+      }
+    },
     "settings__proxy__checking": {
       "comment": "Privacy Proxy options in Settings → Security.",
       "extractionState": "manual",
@@ -102777,6 +102903,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 未响应。"
+          }
+        }
+      }
+    },
+    "settings__proxy__direct_explanation": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرى الموقع عنوان IP الخاص بك ويعرف متى فتحت وسائطه وكم مرة فعلت ذلك."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The site sees your IP address, and when and how often you opened its media."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El sitio ve tu dirección IP y sabe cuándo y con qué frecuencia abriste su contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le site voit votre adresse IP et sait quand et à quelle fréquence vous avez ouvert ses médias."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сайт видит ваш IP-адрес и узнаёт, когда и как часто вы открывали его медиа."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网站可以看到您的 IP 地址，也知道您何时打开过它的媒体，以及打开的频率。"
           }
         }
       }
@@ -102903,6 +103071,132 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作原理"
+          }
+        }
+      }
+    },
+    "settings__proxy__node_proxy": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكيل"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прокси"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理"
+          }
+        }
+      }
+    },
+    "settings__proxy__node_site": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موقع آخر"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other site"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autre site"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другой сайт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他网站"
+          }
+        }
+      }
+    },
+    "settings__proxy__node_you": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنت"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tú"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您"
           }
         }
       }
@@ -103117,6 +103411,48 @@
         }
       }
     },
+    "settings__proxy__route_direct": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدون وكيل"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Without a proxy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin proxy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans proxy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без прокси"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不使用代理"
+          }
+        }
+      }
+    },
     "settings__proxy__route_explanation": {
       "comment": "Privacy Proxy options in Settings → Security.",
       "extractionState": "manual",
@@ -103155,6 +103491,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "网站只能看到代理。您的服务器指定的代理可以看到您的地址。"
+          }
+        }
+      }
+    },
+    "settings__proxy__route_proxied": {
+      "comment": "Privacy Proxy route diagram in Settings → Security.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عبر وكيل الخصوصية"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With a privacy proxy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con un proxy de privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec un proxy de confidentialité"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С прокси конфиденциальности"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用隐私代理"
           }
         }
       }

@@ -32,6 +32,55 @@ final class SecuritySettingsViewControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testRouteCardsRemainReadableAtCompactAndWideWidths() throws {
+        let controller = SecuritySettingsViewController(owners: []) { _ in
+            XCTFail("The illustration does not require an account")
+            return makeSettings(discovery: .notAdvertised)
+        }
+        controller.loadViewIfNeeded()
+        let indexPath = IndexPath(row: 1, section: controller.numberOfSections(in: controller.tableView) - 1)
+        let cell = controller.tableView(controller.tableView, cellForRowAt: indexPath)
+        let direct = try XCTUnwrap(descendant(in: cell, identifiedBy: "settings.security.proxy.route.direct"))
+        let proxied = try XCTUnwrap(descendant(in: cell, identifiedBy: "settings.security.proxy.route.proxied"))
+        XCTAssertTrue(direct.isAccessibilityElement)
+        XCTAssertTrue(proxied.isAccessibilityElement)
+        XCTAssertFalse(direct.accessibilityValue?.isEmpty ?? true)
+        XCTAssertFalse(proxied.accessibilityValue?.isEmpty ?? true)
+
+        layout(cell, atWidth: 300)
+        XCTAssertGreaterThan(direct.bounds.width, 0)
+        XCTAssertGreaterThanOrEqual(proxied.convert(proxied.bounds, to: cell).minY,
+                                    direct.convert(direct.bounds, to: cell).maxY)
+
+        layout(cell, atWidth: 600)
+        let directFrame = direct.convert(direct.bounds, to: cell)
+        let proxiedFrame = proxied.convert(proxied.bounds, to: cell)
+        XCTAssertEqual(directFrame.minY, proxiedFrame.minY, accuracy: 1)
+        XCTAssertFalse(directFrame.intersects(proxiedFrame))
+    }
+
+    @MainActor
+    private func layout(_ cell: UITableViewCell, atWidth width: CGFloat) {
+        let size = cell.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        cell.frame = CGRect(origin: .zero, size: CGSize(width: width, height: size.height))
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+    }
+
+    @MainActor
+    private func descendant(in view: UIView, identifiedBy identifier: String) -> UIView? {
+        if view.accessibilityIdentifier == identifier { return view }
+        for child in view.subviews {
+            if let match = descendant(in: child, identifiedBy: identifier) { return match }
+        }
+        return nil
+    }
+
+    @MainActor
     func testReachableProxyShowsOneSwitchAndSavesTheLocalChoice() async throws {
         var preference = false
         let settings = makeSettings(
