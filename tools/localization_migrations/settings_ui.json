@@ -589,22 +589,6 @@
     },
     {
       "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
-      "sink": "makeToast",
-      "value": "Touch Id not supported",
-      "key": "passcode__biometrics__unsupported_toast",
-      "fallback": "Touch ID is not supported.",
-      "comment": "Passcode and biometrics toast; canonical English should use Apple's 'Touch ID' spelling.",
-      "translations": {
-        "en": "Touch ID is not supported.",
-        "ru": "Touch ID не поддерживается.",
-        "fr": "Touch ID n’est pas pris en charge.",
-        "es": "Touch ID no es compatible.",
-        "ar": "Touch ID غير مدعوم.",
-        "zh-Hans": "不支持 Touch ID。"
-      }
-    },
-    {
-      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
       "sink": "text",
       "value": "Enter passcode",
       "key": "passcode__content__enter_passcode",
@@ -616,21 +600,6 @@
         "es": "Introduce el código",
         "ar": "أدخل رمز الدخول",
         "zh-Hans": "输入密码"
-      }
-    },
-    {
-      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
-      "sink": "title",
-      "value": "OK",
-      "key": "common__action__ok",
-      "comment": "Passcode and biometrics: visible title or action.",
-      "translations": {
-        "en": "OK",
-        "ru": "ОК",
-        "fr": "OK",
-        "es": "Aceptar",
-        "ar": "حسناً",
-        "zh-Hans": "确定"
       }
     },
     {

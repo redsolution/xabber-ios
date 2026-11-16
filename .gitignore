@@ -11,7 +11,6 @@ xabber/subscribtions_secret.plist
 xabber.xcworkspace
 build
 Pods
-Podfile.lock
 !xabber.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 OptimizationProfiles
 

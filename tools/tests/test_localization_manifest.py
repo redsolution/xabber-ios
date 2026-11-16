@@ -3058,30 +3058,24 @@ objects = {{
         expected = {
             "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
             "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+            "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
             "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+            "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
             "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+            "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
         }
 
-        configured = {
-            entry["path"] for entry in config.get("nonTargetSources", [])
-        }
-        self.assertTrue(expected <= configured)
         self.assertNotIn("excludedPaths", config)
         audit_config = dict(config)
         audit_config["hardcodedUIExclusionFiles"] = []
         audit_config["hardcodedUIExclusions"] = []
         audit_config["requireZeroUnclassifiedHardcodedUI"] = False
         document = manifest.build_manifest(repository_root, audit_config)
-        inventoried_paths = {
-            candidate["path"] for candidate in document["hardcodedCandidates"]
-        }
-        # Non-target files remain visible to the UI-copy audit while their
-        # localization calls cannot pollute the active key registry.
-        self.assertIn(
-            "xabber/xmpp/omemo/OmemoManagerTest.swift",
-            inventoried_paths,
+        self.assertEqual(
+            {entry["path"] for entry in document["nonTargetSources"]},
+            expected,
         )
-        self.assertEqual(document["summary"]["nonTargetSources"], 8)
+        self.assertEqual(document["summary"]["nonTargetSources"], len(expected))
 
     def test_repository_config_loads_every_reviewed_ui_mapping_deterministically(self):
         repository_root = TOOLS_ROOT.parent

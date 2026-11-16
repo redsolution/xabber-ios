@@ -1,12 +1,6 @@
 {
   "exclusions": [
     {
-      "path": "xabber-push-extension/NotificationService.swift",
-      "reason": "Internal enum raw value used for notification/message routing; not presented to the user.",
-      "sink": "message",
-      "value": "message"
-    },
-    {
       "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
       "reason": "System notification category identifier; stable routing token must not be localized.",
       "sink": "message",
@@ -15,12 +9,6 @@
     {
       "path": "xabber/common/notify_manager/ShowedNotificationRequests.swift",
       "reason": "Internal enum raw value used for notification/message routing; not presented to the user.",
-      "sink": "message",
-      "value": "message"
-    },
-    {
-      "path": "xabber/common/xabber_account/XabberAccountManager.swift",
-      "reason": "Codable JSON field name for a server response; wire-format key must not be localized.",
       "sink": "message",
       "value": "message"
     },
@@ -1031,14 +1019,15 @@
       "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
       "sink": "footer",
       "translations": {
-        "ar": "اعرض اللافتات وشغّل أصوات الإشعارات المفعّلة أثناء فتح Xabber.",
-        "en": "Show banners and play enabled notification sounds while Xabber is open.",
-        "es": "Muestra banners y reproduce los sonidos de notificación activados mientras Xabber está abierto.",
-        "fr": "Affichez des bannières et jouez les sons de notification activés lorsque Xabber est ouvert.",
-        "ru": "Показывать баннеры и воспроизводить включённые звуки уведомлений, пока Xabber открыт.",
-        "zh-Hans": "Xabber 打开时显示横幅并播放已启用的通知声音。"
+        "ar": "اعرض اللافتات وشغّل أصوات الإشعارات المفعّلة أثناء فتح %1$@.",
+        "en": "Show banners and play enabled notification sounds while %1$@ is open.",
+        "es": "Muestra banners y reproduce los sonidos de notificación activados mientras %1$@ está abierto.",
+        "fr": "Affichez des bannières et jouez les sons de notification activés lorsque %1$@ est ouvert.",
+        "ru": "Показывать баннеры и воспроизводить включённые звуки уведомлений, пока %1$@ открыт.",
+        "zh-Hans": "%1$@ 打开时显示横幅并播放已启用的通知声音。"
       },
-      "value": "Show banners and play enabled notification sounds while Xabber is open."
+      "value": "Show banners and play enabled notification sounds while Xabber is open.",
+      "fallback": "Show banners and play enabled notification sounds while %1$@ is open."
     },
     {
       "comment": "Notification settings section title or explanatory footer shown in Settings.",

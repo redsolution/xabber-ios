@@ -38,7 +38,10 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
 
         XCTAssertEqual(premium, IndexPath(row: 0, section: 1))
         XCTAssertEqual(controller.datasource[premium.section].count, 1)
-        XCTAssertEqual(controller.datasource[premium.section][premium.row].title, "Xabber Premium")
+        XCTAssertEqual(
+            controller.datasource[premium.section][premium.row].title,
+            "\(CommonConfigManager.shared.config.app_name) Premium"
+        )
         XCTAssertEqual(controller.datasource[0].first?.key, "chat")
         XCTAssertEqual(controller.datasource[0].last?.key, "settings")
     }
@@ -59,7 +62,8 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         let path = try premiumIndexPath(in: controller)
 
         let cell = controller.tableView(controller.tableView, cellForRowAt: path)
-        let title = try XCTUnwrap(labels(in: cell).first { $0.text == "Xabber Premium" })
+        let titleText = "\(CommonConfigManager.shared.config.app_name) Premium"
+        let title = try XCTUnwrap(labels(in: cell).first { $0.text == titleText })
         let description = try XCTUnwrap(labels(in: cell).first { $0.text == premiumDescription })
         let goldenIcons = descendants(of: cell).compactMap { $0 as? UIImageView }
             .filter { $0.image != nil && $0.tintColor == .systemYellow }
@@ -72,7 +76,7 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
         XCTAssertEqual(cell.accessibilityIdentifier, "left_menu_premium_row")
         XCTAssertTrue(cell.isAccessibilityElement)
         XCTAssertTrue(cell.accessibilityTraits.contains(.button))
-        XCTAssertTrue(cell.accessibilityLabel?.contains("Xabber Premium") == true)
+        XCTAssertTrue(cell.accessibilityLabel?.contains(titleText) == true)
         XCTAssertTrue(cell.accessibilityLabel?.contains(premiumDescription) == true)
     }
 
@@ -135,6 +139,10 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
     }
 
     func testPremiumCopyChangesLanguageWhileBrandRemainsFixed() throws {
+        let originalAppName = CommonConfigManager.shared.config.app_name
+        let configuredAppName = "Sample"
+        CommonConfigManager.shared.config.app_name = configuredAppName
+        defer { CommonConfigManager.shared.config.app_name = originalAppName }
         var descriptions: [String] = []
         for language in [SupportedLanguage.english, .russian] {
             selectLanguage(language)
@@ -142,8 +150,8 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
             let path = try premiumIndexPath(in: controller)
             let cell = controller.tableView(controller.tableView, cellForRowAt: path)
 
-            XCTAssertEqual(controller.datasource[path.section][path.row].title, "Xabber Premium")
-            XCTAssertFalse(premiumDescription.isEmpty)
+            XCTAssertEqual(controller.datasource[path.section][path.row].title, "\(configuredAppName) Premium")
+            XCTAssertTrue(premiumDescription.contains(configuredAppName))
             XCTAssertTrue(labels(in: cell).contains { $0.text == premiumDescription })
             descriptions.append(premiumDescription)
             try attachScreenshot(of: controller, language: language.rawValue)
@@ -319,7 +327,11 @@ final class LeftMenuGlassPremiumTests: XCTestCase {
     }
 
     private var premiumDescription: String {
-        L10n.text("left_menu__premium__description", fallback: "")
+        L10n.format(
+            "left_menu__premium__description",
+            fallback: "",
+            arguments: [CommonConfigManager.shared.config.app_name]
+        )
     }
 
     private func selectLanguage(_ language: SupportedLanguage) {

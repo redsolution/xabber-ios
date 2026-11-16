@@ -458,12 +458,6 @@
       "reason": "OMEMO XML namespace/payload field token; not UI copy."
     },
     {
-      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
-      "sink": "message",
-      "value": "Test crypto message",
-      "reason": "Non-target OMEMO test fixture message; not production UI copy."
-    },
-    {
       "path": "xabber/xmpp/presence/PresenceManager.swift",
       "sink": "parseStatusMessage",
       "value": "status",
@@ -480,12 +474,6 @@
       "sink": "text",
       "value": "urn:ietf:params:xml:ns:xmpp-stanzas",
       "reason": "XMPP/VoIP stanza field or namespace token; not UI copy."
-    },
-    {
-      "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
-      "sink": "body",
-      "value": "FAIL 0",
-      "reason": "VoIP wire-protocol token or diagnostic body; not UI copy."
     },
     {
       "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
@@ -558,6 +546,96 @@
       "sink": "reason",
       "value": "reason",
       "reason": "OMEMO2 opt-out reason XML local name used for expanded QName selection; stable wire token, not displayed UI copy."
+    },
+    {
+      "path": "xabber-push-extension/NotificationService.swift",
+      "sink": "message",
+      "value": "dispatch",
+      "reason": "Notification service trace event name consumed by diagnostics."
+    },
+    {
+      "path": "xabber-push-extension/NotificationService.swift",
+      "sink": "message",
+      "value": "mode=summary outgoing=%@",
+      "reason": "Notification service trace metadata consumed by diagnostics."
+    },
+    {
+      "path": "xabber/common/media/ChatEncryptedAttachmentReceiver.swift",
+      "sink": "description",
+      "value": "ChatEncryptedAttachmentDescriptor(%@)",
+      "reason": "Debug representation of an encrypted attachment descriptor."
+    },
+    {
+      "path": "xabber/common/notify_manager/PushArchiveHTTPClient.swift",
+      "sink": "message",
+      "value": "HTTP_ARCHIVE ",
+      "reason": "Prefix for archive transport diagnostic events."
+    },
+    {
+      "path": "xabber/common/notify_manager/PushArchiveHTTPClient.swift",
+      "sink": "body",
+      "value": "encoding=base64 bytes=%@\n%@",
+      "reason": "Diagnostic rendering of a non-UTF-8 archive HTTP body."
+    },
+    {
+      "path": "xabber/common/notify_manager/PushArchiveHTTPClient.swift",
+      "sink": "body",
+      "value": "encoding=utf8 bytes=%@\n%@",
+      "reason": "Diagnostic rendering of a UTF-8 archive HTTP body."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/OMEMOThreeClientDiagnostics.swift",
+      "sink": "text",
+      "value": "37a4be8e8dd6c7fcb7af2a306909b658075b9a00fe1ab8c02be4b64a7d3877d0",
+      "reason": "Expected digest of the diagnostic text-file fixture."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/OMEMOThreeClientDiagnostics.swift",
+      "sink": "text",
+      "value": "QA3-document.txt",
+      "reason": "Fixed filename identifying the diagnostic text-file fixture."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/OMEMOThreeClientDiagnostics.swift",
+      "sink": "text",
+      "value": "text/plain",
+      "reason": "MIME type of the diagnostic text-file fixture."
+    },
+    {
+      "path": "xabber/xmpp/messages/message_archive/engine/AccountArchiveEngine.swift",
+      "sink": "message",
+      "value": "Archive page made no progress",
+      "reason": "Archive engine retry-state diagnostic. The recovery UI selects separate localized copy based on the recovery action."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OMEMO2BundleCodec.swift",
+      "sink": "reason",
+      "value": "invalidBase64OrKeyLength",
+      "reason": "Stable diagnostic reason code for a rejected OMEMO bundle."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OMEMO2BundleCodec.swift",
+      "sink": "reason",
+      "value": "invalidBundleStructure",
+      "reason": "Stable diagnostic reason code for a rejected OMEMO bundle."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OMEMO2BundleCodec.swift",
+      "sink": "reason",
+      "value": "invalidKeyID",
+      "reason": "Stable diagnostic reason code for a rejected OMEMO bundle."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OMEMO2BundleCodec.swift",
+      "sink": "reason",
+      "value": "publicKeyValidationOrStorage",
+      "reason": "Stable diagnostic reason code for a rejected OMEMO bundle."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OMEMO2BundleCodec.swift",
+      "sink": "reason",
+      "value": "unsupportedProfile",
+      "reason": "Stable diagnostic reason code for a rejected OMEMO bundle."
     }
   ]
 }

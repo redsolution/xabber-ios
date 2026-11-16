@@ -2984,7 +2984,7 @@
       }
     },
     {
-      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+Flow.swift",
+      "path": "xabber/controllers/alerts/QuitAccountPresenter.swift",
       "sink": "message",
       "value": "Please try again.",
       "key": "devices__list__please_try_again",
@@ -3015,7 +3015,7 @@
       }
     },
     {
-      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+Flow.swift",
+      "path": "xabber/controllers/alerts/QuitAccountPresenter.swift",
       "sink": "title",
       "value": "Account data could not be deleted",
       "key": "devices__list__account_data_could_not_be_deleted",
@@ -3045,7 +3045,7 @@
       }
     },
     {
-      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+Flow.swift",
+      "path": "xabber/controllers/alerts/QuitAccountPresenter.swift",
       "sink": "title",
       "value": "OK",
       "key": "common__action__ok",
@@ -3264,13 +3264,14 @@
       "key": "device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for",
       "comment": "Device Detail / screen: user-visible alert or toast message. Argument 1 is the verified certificate subject. Security-sensitive copy: preserve identity and trust semantics.",
       "translations": {
-        "en": "Encryption key verified by certificate issued by Clandestino for %@",
-        "ru": "Ключ шифрования проверен сертификатом Clandestino, выданным для %@",
-        "fr": "La clé de chiffrement est vérifiée par un certificat Clandestino émis pour %@",
-        "es": "La clave de cifrado está verificada por un certificado de Clandestino emitido para %@",
-        "ar": "تم التحقق من مفتاح التشفير بشهادة صادرة من Clandestino إلى %@",
-        "zh-Hans": "加密密钥已由 Clandestino 颁发给 %@ 的证书验证"
-      }
+        "en": "Encryption key verified by certificate issued by %1$@ for %2$@",
+        "ru": "Ключ шифрования проверен сертификатом %1$@, выданным для %2$@",
+        "fr": "La clé de chiffrement est vérifiée par un certificat %1$@ émis pour %2$@",
+        "es": "La clave de cifrado está verificada por un certificado de %1$@ emitido para %2$@",
+        "ar": "تم التحقق من مفتاح التشفير بشهادة صادرة من %1$@ إلى %2$@",
+        "zh-Hans": "加密密钥已由 %1$@ 颁发给 %2$@ 的证书验证"
+      },
+      "fallback": "Encryption key verified by certificate issued by %1$@ for %2$@"
     },
     {
       "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
@@ -4988,16 +4989,16 @@
       "path": "xabber/controllers/chats/info_screens/views/InfoScreenHeaderView.swift",
       "sink": "title",
       "value": "Xabber account",
-      "fallback": "Xabber Account",
+      "fallback": "%1$@ Account",
       "key": "settings__menu_item__xabber_account",
       "comment": "Info Screen / header: user-visible screen, row, or action title.",
       "translations": {
-        "en": "Xabber Account",
-        "ru": "Аккаунт Xabber",
-        "fr": "Compte Xabber",
-        "es": "Cuenta de Xabber",
-        "ar": "حساب Xabber",
-        "zh-Hans": "Xabber 账户"
+        "en": "%1$@ Account",
+        "ru": "Аккаунт %1$@",
+        "fr": "Compte %1$@",
+        "es": "Cuenta de %1$@",
+        "ar": "حساب %1$@",
+        "zh-Hans": "%1$@ 账户"
       }
     },
     {

@@ -1454,21 +1454,6 @@
       "value": "Deleting…"
     },
     {
-      "comment": "Hard-coded yesText copy used by CloudStorageGalleryViewController. Shown to the user or exposed through accessibility/error presentation.",
-      "key": "common__action__open",
-      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageGalleryViewController.swift",
-      "sink": "yesText",
-      "translations": {
-        "ar": "فتح",
-        "en": "Open",
-        "es": "Abrir",
-        "fr": "Ouvrir",
-        "ru": "Открыть",
-        "zh-Hans": "打开"
-      },
-      "value": "Open"
-    },
-    {
       "comment": "Hard-coded body copy used by CloudStorageViewController. Shown to the user or exposed through accessibility/error presentation.",
       "key": "cloud_storage__body__buy_external_storage_space_100_gb_for_5",
       "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
@@ -2506,14 +2491,15 @@
       "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
       "sink": "alertMessage",
       "translations": {
-        "ar": "أدخل كلمة المرور لحذف %@ نهائيًا من Clandestino.\n\nلا يمكن التراجع عن هذا الإجراء.",
-        "en": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone.",
-        "es": "Introduce tu contraseña para eliminar permanentemente %@ de Clandestino.\n\nEsta acción no se puede deshacer.",
-        "fr": "Saisissez votre mot de passe pour supprimer définitivement %@ de Clandestino.\n\nCette action est irréversible.",
-        "ru": "Введите пароль, чтобы навсегда удалить %@ из Clandestino.\n\nЭто действие нельзя отменить.",
-        "zh-Hans": "输入密码以从 Clandestino 中永久删除 %@。\n\n此操作无法撤销。"
+        "ar": "أدخل كلمة المرور لحذف %2$@ نهائيًا من %1$@.\n\nلا يمكن التراجع عن هذا الإجراء.",
+        "en": "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone.",
+        "es": "Introduce tu contraseña para eliminar permanentemente %2$@ de %1$@.\n\nEsta acción no se puede deshacer.",
+        "fr": "Saisissez votre mot de passe pour supprimer définitivement %2$@ de %1$@.\n\nCette action est irréversible.",
+        "ru": "Введите пароль, чтобы навсегда удалить %2$@ из %1$@.\n\nЭто действие нельзя отменить.",
+        "zh-Hans": "输入密码以从 %1$@ 中永久删除 %2$@。\n\n此操作无法撤销。"
       },
-      "value": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone."
+      "value": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone.",
+      "fallback": "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone."
     },
     {
       "api": "format",
@@ -2749,14 +2735,15 @@
       "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
       "sink": "presentationCall",
       "translations": {
-        "ar": "حول XABBER PREMIUM",
-        "en": "ABOUT XABBER PREMIUM",
-        "es": "ACERCA DE XABBER PREMIUM",
-        "fr": "À PROPOS DE XABBER PREMIUM",
-        "ru": "О XABBER PREMIUM",
-        "zh-Hans": "关于 XABBER PREMIUM"
+        "ar": "حول %1$@ PREMIUM",
+        "en": "ABOUT %1$@ PREMIUM",
+        "es": "ACERCA DE %1$@ PREMIUM",
+        "fr": "À PROPOS DE %1$@ PREMIUM",
+        "ru": "О %1$@ PREMIUM",
+        "zh-Hans": "关于 %1$@ PREMIUM"
       },
-      "value": "ABOUT XABBER PREMIUM"
+      "value": "ABOUT XABBER PREMIUM",
+      "fallback": "ABOUT %1$@ PREMIUM"
     },
     {
       "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
@@ -2862,21 +2849,6 @@
         "zh-Hans": "分析加密的远程视频前，需要先取得本地解密文件。"
       },
       "value": "Encrypted remote video requires a local decrypted file before analysis."
-    },
-    {
-      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
-      "key": "sensitive_media_analysis__localized_error_description__image_could_not_be_decoded_for_sensitivecontentanalysis",
-      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
-      "sink": "localizedErrorDescription",
-      "translations": {
-        "ar": "تعذر فك ترميز الصورة من أجل SensitiveContentAnalysis.",
-        "en": "Image could not be decoded for SensitiveContentAnalysis.",
-        "es": "No se pudo decodificar la imagen para SensitiveContentAnalysis.",
-        "fr": "L’image n’a pas pu être décodée pour SensitiveContentAnalysis.",
-        "ru": "Не удалось декодировать изображение для SensitiveContentAnalysis.",
-        "zh-Hans": "无法为 SensitiveContentAnalysis 解码图像。"
-      },
-      "value": "Image could not be decoded for SensitiveContentAnalysis."
     },
     {
       "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
@@ -3102,36 +3074,7 @@
         "zh-Hans": "创建 OMEMO 会话失败"
       },
       "value": "OMEMO session creation failed"
-    },
-    {
-      "comment": "Hard-coded localizedErrorDescription copy used by XabberAxolotlStorage. Shown to the user or exposed through accessibility/error presentation.",
-      "key": "xabber_axolotl_storage__localized_error_description__local_omemo_identity_key_pair_is_unavailable",
-      "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
-      "sink": "localizedErrorDescription",
-      "translations": {
-        "ar": "زوج مفاتيح هوية OMEMO المحلي غير متاح",
-        "en": "Local OMEMO identity key pair is unavailable",
-        "es": "El par de claves de identidad OMEMO local no está disponible",
-        "fr": "La paire de clés d’identité OMEMO locale est indisponible",
-        "ru": "Локальная пара ключей идентификации OMEMO недоступна",
-        "zh-Hans": "本地 OMEMO 身份密钥对不可用"
-      },
-      "value": "Local OMEMO identity key pair is unavailable"
-    },
-    {
-      "comment": "Hard-coded localizedErrorDescription copy used by XabberAxolotlStorage. Shown to the user or exposed through accessibility/error presentation.",
-      "key": "xabber_axolotl_storage__localized_error_description__local_omemo_key_material_is_unavailable",
-      "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
-      "sink": "localizedErrorDescription",
-      "translations": {
-        "ar": "مادة مفاتيح OMEMO المحلية غير متاحة",
-        "en": "Local OMEMO key material is unavailable",
-        "es": "El material de claves OMEMO local no está disponible",
-        "fr": "Le matériel de clé OMEMO local est indisponible",
-        "ru": "Локальные ключевые данные OMEMO недоступны",
-        "zh-Hans": "本地 OMEMO 密钥材料不可用"
-      },
-      "value": "Local OMEMO key material is unavailable"
+
     }
   ]
 }

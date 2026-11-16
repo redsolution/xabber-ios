@@ -35,18 +35,10 @@ class ExcludedPathLocalizationTests(unittest.TestCase):
             self.entries,
         )
 
-        self.assertEqual(result["files"], 8)
-        self.assertEqual(result["catalogKeys"], 39)
+        self.assertEqual(result["files"], 7)
+        self.assertEqual(result["catalogKeys"], 37)
 
     def test_reviewed_sources_have_no_unresolved_or_unclassified_visible_copy(self):
-        allowed_technical_candidates = {
-            (
-                "xabber/xmpp/omemo/OmemoManagerTest.swift",
-                "message",
-                "Test crypto message",
-            )
-        }
-
         for relative_path in self.paths:
             with self.subTest(path=relative_path):
                 source = (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
@@ -58,17 +50,7 @@ class ExcludedPathLocalizationTests(unittest.TestCase):
 
                 self.assertEqual(result["unresolved"], [])
                 self.assertEqual(result["directLookups"], [])
-                unexpected = [
-                    candidate
-                    for candidate in result["hardcodedCandidates"]
-                    if (
-                        candidate["path"],
-                        candidate["sink"],
-                        candidate["value"],
-                    )
-                    not in allowed_technical_candidates
-                ]
-                self.assertEqual(unexpected, [])
+                self.assertEqual(result["hardcodedCandidates"], [])
 
 
 if __name__ == "__main__":

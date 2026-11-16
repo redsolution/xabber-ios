@@ -1,0 +1,172 @@
+PODS:
+  - Alamofire (5.11.1)
+  - Cache (7.4.0)
+  - CocoaAsyncSocket (7.6.5)
+  - CocoaLumberjack (3.7.4):
+    - CocoaLumberjack/Core (= 3.7.4)
+  - CocoaLumberjack/Core (3.7.4)
+  - CocoaLumberjack/Swift (3.7.4):
+    - CocoaLumberjack/Core
+  - CryptoSwift (1.8.1)
+  - DeepDiff (2.3.1)
+  - Kingfisher (7.12.0):
+    - CryptoSwift
+  - KissXML (5.3.1):
+    - KissXML/All (= 5.3.1)
+  - KissXML/Additions (5.3.1):
+    - KissXML/Core
+  - KissXML/All (5.3.1):
+    - KissXML/Additions
+    - KissXML/Core
+  - KissXML/Core (5.3.1)
+  - LetterAvatarKit (1.2.3)
+  - libidn (1.35)
+  - MaterialComponents/Palettes (124.2.0)
+  - OpenSSL-Universal (3.3.3001)
+  - Punycode (3.0.0)
+  - Realm (10.46.0):
+    - Realm/Headers (= 10.46.0)
+  - Realm/Headers (10.46.0)
+  - RealmSwift (10.46.0):
+    - Realm (= 10.46.0)
+  - RxCocoa (6.9.0):
+    - RxRelay (= 6.9.0)
+    - RxSwift (= 6.9.0)
+  - RxRealm (5.0.5.5):
+    - RealmSwift (~> 10.46.0)
+    - RxCocoa (~> 6.5)
+    - RxSwift (~> 6.5)
+  - RxRelay (6.9.0):
+    - RxSwift (= 6.9.0)
+  - RxSwift (6.9.0)
+  - SwiftKeychainWrapper (4.0.1)
+  - WebRTC-SDK (137.7151.12)
+  - XMPPFramework/default (5.0.0):
+    - CocoaAsyncSocket (~> 7.6.5)
+    - CocoaLumberjack (~> 3.7.2)
+    - KissXML (~> 5.3.1)
+    - libidn (~> 1.35)
+  - XMPPFramework/Swift (5.0.0):
+    - CocoaLumberjack/Swift
+    - XMPPFramework/default
+  - YubiKit (4.7.0)
+
+DEPENDENCIES:
+  - Alamofire
+  - Cache (from `https://github.com/hyperoslo/Cache.git`, branch `master`, tag `7.4.0`)
+  - CocoaAsyncSocket (from `https://github.com/robbiehanson/CocoaAsyncSocket`, branch `master`)
+  - CryptoSwift (from `https://github.com/krzyzanowskim/CryptoSwift.git`, tag `1.8.1`)
+  - DeepDiff
+  - Kingfisher (from `https://github.com/redsolution/Klingfisher.git`)
+  - KissXML
+  - LetterAvatarKit (= 1.2.3)
+  - MaterialComponents/Palettes
+  - OpenSSL-Universal
+  - Punycode
+  - RealmSwift (from `https://github.com/realm/realm-swift.git`, tag `v10.46.0`)
+  - RxCocoa
+  - RxRealm (from `https://github.com/redsolution/RxRealm.git`, branch `update_podspec`)
+  - RxSwift
+  - SwiftKeychainWrapper
+  - WebRTC-SDK
+  - XMPPFramework/Swift (from `https://github.com/redsolution/XMPPFramework.git`, commit `2b4ecd8f8af9866ecd16f43d3f3ea1655982ec73`)
+  - YubiKit (from `https://github.com/Yubico/yubikit-ios.git`)
+
+SPEC REPOS:
+  trunk:
+    - Alamofire
+    - CocoaLumberjack
+    - DeepDiff
+    - KissXML
+    - LetterAvatarKit
+    - libidn
+    - MaterialComponents
+    - OpenSSL-Universal
+    - Punycode
+    - Realm
+    - RxCocoa
+    - RxRelay
+    - RxSwift
+    - SwiftKeychainWrapper
+    - WebRTC-SDK
+
+EXTERNAL SOURCES:
+  Cache:
+    :branch: master
+    :git: https://github.com/hyperoslo/Cache.git
+    :tag: 7.4.0
+  CocoaAsyncSocket:
+    :branch: master
+    :git: https://github.com/robbiehanson/CocoaAsyncSocket
+  CryptoSwift:
+    :git: https://github.com/krzyzanowskim/CryptoSwift.git
+    :tag: 1.8.1
+  Kingfisher:
+    :git: https://github.com/redsolution/Klingfisher.git
+  RealmSwift:
+    :git: https://github.com/realm/realm-swift.git
+    :tag: v10.46.0
+  RxRealm:
+    :branch: update_podspec
+    :git: https://github.com/redsolution/RxRealm.git
+  XMPPFramework:
+    :commit: 2b4ecd8f8af9866ecd16f43d3f3ea1655982ec73
+    :git: https://github.com/redsolution/XMPPFramework.git
+  YubiKit:
+    :git: https://github.com/Yubico/yubikit-ios.git
+
+CHECKOUT OPTIONS:
+  Cache:
+    :commit: 86165db6a184874611c532a7422511270b2f549a
+    :git: https://github.com/hyperoslo/Cache.git
+    :tag: 7.4.0
+  CocoaAsyncSocket:
+    :commit: 5ddba5e72f38e56010dbfac08b44478ee5000c0c
+    :git: https://github.com/robbiehanson/CocoaAsyncSocket
+  CryptoSwift:
+    :git: https://github.com/krzyzanowskim/CryptoSwift.git
+    :tag: 1.8.1
+  Kingfisher:
+    :commit: 5712a6bc35446738d8bd89aedb67f3e854c90599
+    :git: https://github.com/redsolution/Klingfisher.git
+  RealmSwift:
+    :git: https://github.com/realm/realm-swift.git
+    :tag: v10.46.0
+  RxRealm:
+    :commit: ba2e5b0ef96244632ec6ded6b30c878d424eee6b
+    :git: https://github.com/redsolution/RxRealm.git
+  XMPPFramework:
+    :commit: 2b4ecd8f8af9866ecd16f43d3f3ea1655982ec73
+    :git: https://github.com/redsolution/XMPPFramework.git
+  YubiKit:
+    :commit: 805cab56042303254070f46414dbef24e0fa2abc
+    :git: https://github.com/Yubico/yubikit-ios.git
+
+SPEC CHECKSUMS:
+  Alamofire: eec6cd8f73b242b59e34153a606a909eb9864b14
+  Cache: 11fe825910b467bf12931fc12624a2f380b3e09b
+  CocoaAsyncSocket: 065fd1e645c7abab64f7a6a2007a48038fdc6a99
+  CocoaLumberjack: 543c79c114dadc3b1aba95641d8738b06b05b646
+  CryptoSwift: b9c701d6f5011df23794dbf7f2e480a77835d83d
+  DeepDiff: e5ae6c50d0321568e4508cec5930b9f10bb293fc
+  Kingfisher: 5289206819c0c84d7efd52a51e023605c640b7c1
+  KissXML: 5c8e0f2e8b9f071d3e1ae123dec3eb5da615c10c
+  LetterAvatarKit: f1c77efaae125a6f39e15210847eeefed57ad204
+  libidn: e4576a956b797c584c77aaedfc6e3dd639b61bdc
+  MaterialComponents: 1a9b2d9d45b1601ae544de85089adc4c464306d4
+  OpenSSL-Universal: 6082b0bf950e5636fe0d78def171184e2b3899c2
+  Punycode: 65adf3d7c0aba6f70e82680607beafa33c639742
+  Realm: 699b80d8e5fc66acafd2d530199e77781a2d69d3
+  RealmSwift: 3230b8fc63759433a6938a0dd2a5dc0dc2b15760
+  RxCocoa: ac16414696ae706516be3e1ab00fcce5bdc9be8a
+  RxRealm: 428bc7a9f7171dc0d0afc6dcd3b8f0eeafe0e75e
+  RxRelay: 6b0c930e5cef57d5fe2032571e5e65b78e3cbdb1
+  RxSwift: 31649ace6aceeb422e16ff71c60804f9c3281ed9
+  SwiftKeychainWrapper: 807ba1d63c33a7d0613288512399cd1eda1e470c
+  WebRTC-SDK: 1762e2de812354d27a8407d1b2c532064ec39fce
+  XMPPFramework: 31741d8412731d26eb3ec339329d319f126077ed
+  YubiKit: 26450c9926db26ed6b005307f56c01e6b0b74c19
+
+PODFILE CHECKSUM: 53abc125f4d29c1f96f9c0b9a18cdf5b854769f8
+
+COCOAPODS: 1.16.2

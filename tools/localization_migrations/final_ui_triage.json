@@ -148,12 +148,6 @@
       "reason": "Persisted group-message metadata field name used as the author-name fallback; the token itself is never displayed."
     },
     {
-      "path": "xabber-push-extension/NetworkManager/NetworkManager.swift",
-      "sink": "getGrouchatUserNickname",
-      "value": "nickname",
-      "reason": "Group-message XML element name used to read the server-provided author nickname for a notification; the token itself is never displayed."
-    },
-    {
       "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentDraftModels.swift",
       "sink": "displayName",
       "value": "Image",

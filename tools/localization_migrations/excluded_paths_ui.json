@@ -141,21 +141,6 @@
       }
     },
     {
-      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
-      "sink": "message",
-      "value": "Encrypted chat created",
-      "key": "encrypted_chat_created",
-      "comment": "System message shown when an encrypted chat is created.",
-      "translations": {
-        "ar": "تم إنشاء محادثة مشفّرة",
-        "en": "Encrypted chat created",
-        "es": "Chat cifrado creado",
-        "fr": "Discussion chiffrée créée",
-        "ru": "Создан зашифрованный чат",
-        "zh-Hans": "已创建加密聊天"
-      }
-    },
-    {
       "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
       "sink": "setTitle",
       "value": "Join",
@@ -575,21 +560,6 @@
         "fr": "Erreur interne",
         "ru": "Внутренняя ошибка",
         "zh-Hans": "内部错误"
-      }
-    },
-    {
-      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
-      "sink": "body",
-      "value": "Message cannot be decrypted",
-      "key": "otr_not_decrypted_message",
-      "comment": "Fallback body shown when an encrypted message cannot be decrypted.",
-      "translations": {
-        "ar": "لا يمكن فك تشفير الرسالة",
-        "en": "Message cannot be decrypted",
-        "es": "El mensaje no se ha podido descifrar",
-        "fr": "Le message n'a pas pu être déchiffré",
-        "ru": "Сообщение не может быть расшифровано",
-        "zh-Hans": "无法解密信息"
       }
     }
   ]

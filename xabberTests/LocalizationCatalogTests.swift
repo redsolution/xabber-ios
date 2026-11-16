@@ -80,6 +80,11 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    func testPlaceholderSignatureIgnoresEscapedPercents() {
+        XCTAssertEqual(placeholderSignature("Free up %@%% of space"), ["@"])
+        XCTAssertEqual(placeholderSignature("%%d; value %%%d"), ["d"])
+    }
+
     func testResolvedCatalogConflictsUseCanonicalValues() throws {
         let english = try strings(locale: SupportedLanguage.english.rawValue)
 
@@ -341,6 +346,7 @@ final class LocalizationCatalogTests: XCTestCase {
             "device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for",
             "dialog_jingle_message__message_sign_up",
             "intro_saved_messages_link",
+            "left_menu__premium__description",
             "notifications_settings__in_app__footer",
             "premium__about__open_source_and_subscription_support",
             "premium__brand__title",
@@ -693,22 +699,22 @@ final class LocalizationCatalogTests: XCTestCase {
                 count: 2,
                 fallback: "Invitations sent"
             ),
-            "Invitations sent"
+            "Invitations envoyées"
         )
     }
 
-    func testLastChatAttachmentPluralsUseEnglishRussianAndEnglishFallback() {
+    func testLastChatAttachmentPluralsUseEnglishRussianAndFrench() {
         let english = localizationService(language: .english)
         let russian = localizationService(language: .russian)
         let french = localizationService(language: .french)
         let cases = [
-            ("chat_list__attachment_preview__photos_count", "2 Photos", "2 фото"),
-            ("chat_list__attachment_preview__videos_count", "2 Videos", "2 видео"),
-            ("chat_list__attachment_preview__files_count", "2 Files", "2 файла"),
-            ("chat_list__attachment_preview__voice_messages_count", "2 Voice messages", "2 голосовых сообщения")
+            ("chat_list__attachment_preview__photos_count", "2 Photos", "2 фото", "2 photos"),
+            ("chat_list__attachment_preview__videos_count", "2 Videos", "2 видео", "2 vidéos"),
+            ("chat_list__attachment_preview__files_count", "2 Files", "2 файла", "2 fichiers"),
+            ("chat_list__attachment_preview__voice_messages_count", "2 Voice messages", "2 голосовых сообщения", "2 messages vocaux")
         ]
 
-        for (key, englishValue, russianValue) in cases {
+        for (key, englishValue, russianValue, frenchValue) in cases {
             XCTAssertEqual(
                 english.plural(key: key, count: 2, fallback: englishValue),
                 englishValue,
@@ -721,7 +727,7 @@ final class LocalizationCatalogTests: XCTestCase {
             )
             XCTAssertEqual(
                 french.plural(key: key, count: 2, fallback: englishValue),
-                englishValue,
+                frenchValue,
                 key
             )
         }
@@ -1170,7 +1176,7 @@ final class LocalizationCatalogTests: XCTestCase {
             (.english, 2, "Friends, 2 contacts"),
             (.russian, 2, "Friends, 2 контакта"),
             (.russian, 5, "Friends, 5 контактов"),
-            (.arabic, 2, "Friends، 2 جهتا اتصال"),
+            (.arabic, 2, "\u{2066}Friends\u{2069}، 2 جهتا اتصال"),
             (.simplifiedChinese, 2, "Friends，2 位联系人")
         ]
 
@@ -1285,13 +1291,13 @@ final class LocalizationCatalogTests: XCTestCase {
                 "appearance__content__chats": "Discussions",
                 "privacy__title__incognito_mode": "Mode incognito",
                 "premium__entitlement__next_renewal": "prochain renouvellement",
-                "premium__cta__upgrade_format": "Passer à l’offre supérieure %@",
-                "premium__cta__downgrade_format": "Passer à l’offre inférieure %@",
+                "premium__cta__upgrade_format": "Passer à %@",
+                "premium__cta__downgrade_format": "Passer à %@",
                 "voice": "Messages vocaux"
             ],
             "ru": [
                 "common__action__done": "Готово",
-                "chat__reply__reply_to": "Ответить пользователю %@",
+                "chat__reply__reply_to": "Ответить %@",
                 "group_member__menu__manage": "Управлять",
                 "notifications__item__mentioned_you_format": "%@ упоминает вас",
                 "premium__cta__upgrade_format": "Повысить тариф до %@",
@@ -1353,7 +1359,7 @@ final class LocalizationCatalogTests: XCTestCase {
                 "registration__error__internal_retry_later": "Erreur interne. Réessayez plus tard.",
                 "appearance__bubble_style__no_tail": "Sans pointe",
                 "appearance__theme__classic": "Classique",
-                "appearance__wallpaper__aliens": "Extraterrestres",
+                "appearance__wallpaper__aliens": "Aliens",
                 "settings_account__qr_theme__accessibility_label_format": "%1$@, %2$@"
             ],
             "ru": [
@@ -1709,7 +1715,7 @@ final class LocalizationCatalogTests: XCTestCase {
     }
 
     private func placeholderSignature(_ value: String) -> [String] {
-        let pattern = #"%(?!%)(?:\d+\$)?[-+ #0']*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|q|z|t|j|L)?([@diuoxXfFeEgGaAcCsSp])"#
+        let pattern = #"%%|%(?:\d+\$)?[-+ #0']*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|q|z|t|j|L)?([@diuoxXfFeEgGaAcCsSp])"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else {
             return []
         }

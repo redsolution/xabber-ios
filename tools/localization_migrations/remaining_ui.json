@@ -212,13 +212,14 @@
       "key": "premium__brand__title",
       "comment": "Premium screen navigation title. Xabber Premium is a product name and remains unchanged across locales.",
       "translations": {
-        "en": "Xabber Premium",
-        "ru": "Xabber Premium",
-        "fr": "Xabber Premium",
-        "es": "Xabber Premium",
-        "ar": "Xabber Premium",
-        "zh-Hans": "Xabber Premium"
-      }
+        "en": "%1$@ Premium",
+        "ru": "%1$@ Premium",
+        "fr": "%1$@ Premium",
+        "es": "%1$@ Premium",
+        "ar": "%1$@ Premium",
+        "zh-Hans": "%1$@ Premium"
+      },
+      "fallback": "%1$@ Premium"
     },
     {
       "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
@@ -227,13 +228,14 @@
       "key": "premium__brand__title",
       "comment": "Premium marketing header. Xabber Premium is a product name and remains unchanged across locales.",
       "translations": {
-        "en": "Xabber Premium",
-        "ru": "Xabber Premium",
-        "fr": "Xabber Premium",
-        "es": "Xabber Premium",
-        "ar": "Xabber Premium",
-        "zh-Hans": "Xabber Premium"
-      }
+        "en": "%1$@ Premium",
+        "ru": "%1$@ Premium",
+        "fr": "%1$@ Premium",
+        "es": "%1$@ Premium",
+        "ar": "%1$@ Premium",
+        "zh-Hans": "%1$@ Premium"
+      },
+      "fallback": "%1$@ Premium"
     },
     {
       "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",

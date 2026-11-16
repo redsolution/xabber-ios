@@ -2,13 +2,21 @@ import UIKit
 
 enum LeftMenuPremiumContent {
     static let key = "premium"
-    static let title = "Xabber Premium"
     static let iconName = "star.fill"
 
+    static var title: String {
+        L10n.format(
+            "premium__brand__title",
+            fallback: "%1$@ Premium",
+            arguments: [CommonConfigManager.shared.config.app_name]
+        )
+    }
+
     static var description: String {
-        L10n.text(
+        L10n.format(
             "left_menu__premium__description",
-            fallback: "More cloud storage and customisation. Support Xabber development."
+            fallback: "More cloud storage and customisation. Support %1$@ development.",
+            arguments: [CommonConfigManager.shared.config.app_name]
         )
     }
 

@@ -18,6 +18,54 @@
       "sink": "body",
       "value": "body",
       "reason": "Encrypted VoIP push-payload dictionary key; a stable wire-format token, not user-visible copy."
+    },
+    {
+      "path": "xabber/common/notify_manager/PushArchiveHTTPClient.swift",
+      "sink": "message",
+      "value": "message",
+      "reason": "XMPP XML stanza element name read by the archive HTTP client."
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuGlassTableViewCell.swift",
+      "sink": "subtitle",
+      "value": "archive",
+      "reason": "Sidebar datasource identifier used to select the archive badge color."
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuGlassTableViewCell.swift",
+      "sink": "subtitle",
+      "value": "left_menu_%@_row",
+      "reason": "Stable accessibility identifier format used by UI automation."
+    },
+    {
+      "path": "xabber/xmpp/forward/ForwardSendPlanner.swift",
+      "sink": "body",
+      "value": "body",
+      "reason": "XMPP XML element name or namespace used to copy forwarded message bodies verbatim."
+    },
+    {
+      "path": "xabber/xmpp/forward/ForwardSendPlanner.swift",
+      "sink": "body",
+      "value": "jabber:client",
+      "reason": "XMPP XML element name or namespace used to copy forwarded message bodies verbatim."
+    },
+    {
+      "path": "xabber/xmpp/forward/ForwardSendPlanner.swift",
+      "sink": "text",
+      "value": "body",
+      "reason": "XMPP XML element name or namespace used to copy forwarded message bodies verbatim."
+    },
+    {
+      "path": "xabber/xmpp/forward/ForwardSendPlanner.swift",
+      "sink": "text",
+      "value": "jabber:client",
+      "reason": "XMPP XML element name or namespace used to copy forwarded message bodies verbatim."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageReferenceParser.swift",
+      "sink": "body",
+      "value": "&gt;",
+      "reason": "XML entity used when parsing escaped message-body content."
     }
   ]
 }
