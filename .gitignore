@@ -16,3 +16,4 @@ OptimizationProfiles
 
 # Xcode editor and window state is local to each developer.
 *.xcuserstate
+/$CODEX_HOME/automations/auto-reports/
