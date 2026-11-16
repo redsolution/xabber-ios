@@ -151,7 +151,7 @@ class CommonConfigManager: NSObject {
         var support_subscribtions: Bool
         var show_text_logo: Bool
         var default_privacy_level: String
-        private var privacy_proxy_policy: String?
+        var privacy_proxy_policy: String?
         var auto_delete_messages_interval: Int
         var locked_account_color: String
         var locked_background: String
