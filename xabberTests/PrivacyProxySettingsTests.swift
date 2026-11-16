@@ -5,6 +5,21 @@ import XCTest
 final class PrivacyProxySettingsTests: XCTestCase {
     private let endpoint = URL(string: "https://proxy.example.net/")!
 
+    func testServerDiscoveryDeallocatesWithPrivacyProxyEnabled() {
+        let config = CommonConfigManager.shared
+        let previousPolicy = config.config.privacy_proxy_policy
+        config.config.privacy_proxy_policy = CommonConfigManager.PrivacyProxyPolicy.manual.rawValue
+        defer { config.config.privacy_proxy_policy = previousPolicy }
+
+        var manager: ServerDiscoManager? = ServerDiscoManager(withOwner: "proxy-teardown@example.test")
+        weak var releasedManager = manager
+        XCTAssertNotNil(releasedManager)
+
+        manager = nil
+
+        XCTAssertNil(releasedManager)
+    }
+
     func testConnectionProbesAdvertisedProxyBeforeSettingsOpenAndRetriesFailureOnce() async {
         var calls: [URL] = []
         let firstResult = expectation(description: "First connection publishes failure")

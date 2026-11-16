@@ -109,6 +109,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     private var accountOwnerCapabilityGeneration: UInt64 = 0
     private var accountOwnerCapabilityDiscovery: AccountOwnerCapabilityDiscovery?
     private weak var accountOwnerCapabilityStream: XMPPStream?
+    private var isDeinitializing = false
 
     var accountOwnerCapabilityGraceInterval = ServerDiscoManager.defaultAccountOwnerCapabilityGraceInterval
 
@@ -144,6 +145,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     deinit {
+        isDeinitializing = true
         cloudDiscoveryLock.lock()
         let timeoutWorkItem = activeCloudDiscoveryQuery?.timeoutWorkItem
         let graceWorkItem = accountOwnerCapabilityDiscovery?.graceWorkItem
@@ -1288,6 +1290,9 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     override func clearSession() {
+        // The base deinitializer reaches this override after teardown has started.
+        // Scheduling disconnect work here would form a weak reference to a deallocating object.
+        guard !isDeinitializing else { return }
         cancelCloudDiscoveryForDisconnect()
         queryIds.removeAll()
     }
