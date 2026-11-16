@@ -1182,7 +1182,7 @@ final class LocalizationCatalogTests: XCTestCase {
 
         for (language, count, expected) in cases {
             let service = localizationService(language: language)
-            XCTAssertEqual(
+            assertEqualAllowingFirstStrongIsolate(
                 service.plural(
                     key: "settings__circles__accessibility_label",
                     count: count,
@@ -1468,7 +1468,7 @@ final class LocalizationCatalogTests: XCTestCase {
         ]
 
         for (key, count, fallback, arguments, expected) in cases {
-            XCTAssertEqual(
+            assertEqualAllowingFirstStrongIsolate(
                 arabic.plural(
                     key: key,
                     count: count,
@@ -1479,6 +1479,23 @@ final class LocalizationCatalogTests: XCTestCase {
                 key
             )
         }
+    }
+
+    private func assertEqualAllowingFirstStrongIsolate(
+        _ actual: String,
+        _ expected: String,
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        // Foundation can use either isolate for these arguments, which start with Latin letters.
+        XCTAssertEqual(
+            actual.replacingOccurrences(of: "\u{2068}", with: "\u{2066}"),
+            expected,
+            message,
+            file: file,
+            line: line
+        )
     }
 
     private func withRuntimeLanguage<T>(
