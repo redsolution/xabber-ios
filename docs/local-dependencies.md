@@ -4,7 +4,7 @@ Since 2026-10-14, Xabber iOS uses [XabberCryptoSwift](https://github.com/redsolu
 
 SignalProtocolC and SignalProtocolObjC Pods, their preparation script/manifest/patches and the external ObjC crypto test source have been removed. The unused WhisperSystems-derived Curve25519Kit Pod and import are also removed from the app, tests and notification extension. Older reports mentioning those dependencies describe the historical backend.
 
-The remaining local XMPPFramework Pod keeps its existing checkout in `XABBER_DEPS_ROOT` (default `../../../../../deps`). No new local cryptographic checkout or preparation is needed.
+CocoaPods downloads XMPPFramework from the Redsolution GitHub fork at the commit pinned in the `Podfile`. See [the Stream Management dependency and verification](stream-management-cold-resume.md).
 
 Use `pod install --no-repo-update` to update installed Pods. Xcode resolves the pinned package using the committed `xabber.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved`; the cached wrapper preserves package/DerivedData caches. Introducing a new dependency requires one explicit resolution before returning to locked verification.
 

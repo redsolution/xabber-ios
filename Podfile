@@ -20,10 +20,6 @@
 source 'https://cdn.cocoapods.org'
 source 'https://github.com/webrtc-sdk/Specs.git'
 
-XABBER_DEPENDENCIES_ROOT = File.expand_path(
-    ENV.fetch('XABBER_DEPS_ROOT', '../../../../../deps'), __dir__
-).freeze
-
 platform :ios, '15.0'
 
 use_frameworks!
@@ -44,8 +40,7 @@ def main_pods
     pod 'LetterAvatarKit', '=1.2.3'
     pod 'DeepDiff'
     pod 'Punycode'
-    # Preserve the local XMPPFramework source already active in the original lock/install.
-    pod 'XMPPFramework/Swift', :path => File.join(XABBER_DEPENDENCIES_ROOT, 'XMPPFramework')
+    pod 'XMPPFramework/Swift', :git => 'https://github.com/redsolution/XMPPFramework.git', :commit => '2b4ecd8f8af9866ecd16f43d3f3ea1655982ec73'
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
     pod 'OpenSSL-Universal'
     pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git'

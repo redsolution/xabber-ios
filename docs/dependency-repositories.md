@@ -30,7 +30,7 @@
 
 ## Существующие локальные forks
 
-До этой задачи существовали `XMPPFramework`, `RxRealm`, `Klingfisher` с origin в `whspr`. Их прежние origin и ветки сохранены. Источники подключений RxRealm/Kingfisher указывают redsolution; уже активный локальный XMPPFramework использует whspr checkout. Эти forks не получают новых рабочих веток в рамках подготовки OMEMO.
+Локальные копии `XMPPFramework`, `RxRealm` и `Klingfisher` создавались с origin в `whspr`. В `Podfile` все три зависимости подключены из репозиториев redsolution. Для XMPPFramework закреплён SHA коммита с поддержкой возобновления сессии после перезапуска. [Описание XEP-0198](stream-management-cold-resume.md)
 
 ## Бинарные движки и встроенный код
 

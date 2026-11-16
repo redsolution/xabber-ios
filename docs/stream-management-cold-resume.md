@@ -1,6 +1,6 @@
 # Stream Management after relaunch
 
-Xabber loads a protected checkpoint for the primary account before opening the connection. After TLS and SASL, the local XMPPFramework tries XEP-0198 resumption before resource binding. A valid result restores the previous server-bound full JID and existing presence, and the app prepares its local modules without requesting a startup sync. A server rejection or an expired or missing checkpoint takes the normal bind and synchronization path.
+Xabber loads a protected checkpoint for the primary account before opening the connection. After TLS and SASL, XMPPFramework tries XEP-0198 resumption before resource binding. A valid result restores the previous server-bound full JID and existing presence, and the app prepares its local modules without requesting a startup sync. A server rejection or an expired or missing checkpoint takes the normal bind and synchronization path.
 
 On a cold launch, Chats and Unread show the skeleton from the first frame while any enabled launch account is awaiting readiness. An accepted cold checkpoint releases that account immediately. A fresh bind waits for the first correlated server sync page to be applied, including an empty page. A server without XEP-SYNC uses the matched successful initial roster result. Request failure or cancellation leaves the account awaiting readiness. An in-process resume can continue an interrupted fallback sync, which still requires its first page.
 
@@ -12,7 +12,7 @@ The client retains stored contact presence while the primary stream is connectin
 
 This version does not journal pending wire XML. An interrupted or busy suspension without a usable checkpoint can require a normal bind. Existing delivery receipts and archive catch-up remain responsible for business-level recovery.
 
-The CocoaPods dependency still uses the local checkout in `XABBER_DEPS_ROOT`. The required XMPPFramework revision is `2b4ecd8` (`codex/ios-sm-cold-resume`).
+The `Podfile` pins the XMPPFramework revision with cold resumption. [XMPPFramework commit `2b4ecd8`](https://github.com/redsolution/XMPPFramework/commit/2b4ecd8f8af9866ecd16f43d3f3ea1655982ec73)
 
 The original checkpoint work passed 164 isolated hosted tests on iOS 26 Simulator, including loopback XMPP coverage for resumption before bind, rejection, resource and counter restoration, retries, and checkpoint eligibility.
 
