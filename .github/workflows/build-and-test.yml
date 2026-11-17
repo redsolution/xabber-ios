@@ -16,7 +16,7 @@ jobs:
 
   steps:
   - name: Checkout core repo
-    uses: actions/checkout@v4
+    uses: actions/checkout@v7.0.1
     with:
      persist-credentials: false
 
@@ -59,7 +59,7 @@ jobs:
 
   steps:
   - name: Checkout core repo
-    uses: actions/checkout@v4
+    uses: actions/checkout@v7.0.1
     with:
      persist-credentials: false
 
@@ -206,7 +206,7 @@ jobs:
      ditto -c -k --keepParent "$app_path" "$RUNNER_TEMP/xabber.app.zip"
 
   - name: Upload simulator app artifact
-    uses: actions/upload-artifact@v4
+    uses: actions/upload-artifact@v7.0.2
     with:
      name: xabber-simulator-app
      path: ${{ runner.temp }}/xabber.app.zip
