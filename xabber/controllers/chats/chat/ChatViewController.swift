@@ -4578,6 +4578,7 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
     internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
     internal var currentChatKeyboardVisibleHeight: CGFloat = 0
+    private var isReconcilingFocusedComposerLayout = false
     internal var composerFirstFocusRecoveryState =
         ChatComposerFirstFocusRecoveryState()
     internal var composerFirstFocusRecoveryWorkItem: DispatchWorkItem?
@@ -5492,6 +5493,12 @@ class ChatViewController: MessagesViewController {
         super.viewDidLayoutSubviews()
         commitPendingWidthTransitionLayoutRemapIfReady()
         recordWidthTransitionLayoutFinalizationObservationIfNeeded()
+        if !isNavigationTransitionActive,
+           !isPreparingStackedNavigationPresentation {
+            reconcileChatComposerLayout(
+                isComposerFirstResponder: xabberInputView?.textField.isFirstResponder == true
+            )
+        }
         synchronizeReadVisibleGeometryEpoch()
         updateFloatingControlsFrames(animated: false, ensureComposerLayout: false)
         updateInitialMessageOverlayFrame()
@@ -6790,11 +6797,64 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView?.heightConstraint?.constant ??
             self.xabberInputView?.bounds.height ??
             ModernXabberInputView.defaultBarHeight
-        return ChatComposerKeyboardLayoutMetrics.make(
+        let metrics = ChatComposerKeyboardLayoutMetrics.make(
             visualHeight: visualHeight,
             visibleKeyboardHeight: self.currentChatKeyboardVisibleHeight,
             bottomSafeAreaHeight: self.view.safeAreaInsets.bottom,
             searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
+        )
+        guard !self.isChatSearchInputKeyboardOwned,
+              let inputView = self.xabberInputView,
+              inputView.textField.isFirstResponder,
+              inputView.superview === self.view,
+              inputView.frame.height > 0 else {
+            return metrics
+        }
+        let actualObstruction = max(0, self.view.bounds.maxY - inputView.frame.minY)
+        return ChatComposerKeyboardLayoutMetrics(
+            visualHeight: metrics.visualHeight,
+            collectionObstructionHeight: max(metrics.collectionObstructionHeight, actualObstruction)
+        )
+    }
+
+    internal func reconcileChatComposerLayout(isComposerFirstResponder: Bool) {
+        guard !isChatSearchInputKeyboardOwned else {
+            isReconcilingFocusedComposerLayout = false
+            return
+        }
+        guard isComposerFirstResponder || isReconcilingFocusedComposerLayout else {
+            return
+        }
+        if isComposerFirstResponder {
+            isReconcilingFocusedComposerLayout = true
+        }
+        reconcileChatCollectionInsetsWithVisibleComposer()
+        if !isComposerFirstResponder && currentChatKeyboardVisibleHeight == 0 {
+            isReconcilingFocusedComposerLayout = false
+        }
+    }
+
+    internal func reconcileChatCollectionInsetsWithVisibleComposer() {
+        guard !self.isChatSearchInputKeyboardOwned,
+              let inputView = self.xabberInputView,
+              inputView.superview === self.view,
+              inputView.frame.height > 0 else {
+            return
+        }
+        let actualObstruction = max(0, self.view.bounds.maxY - inputView.frame.minY)
+        let lowerObstruction = max(0, self.view.bounds.maxY - inputView.frame.maxY)
+        self.currentChatKeyboardVisibleHeight = lowerObstruction > self.view.safeAreaInsets.bottom + 0.5
+            ? lowerObstruction : 0
+        let expectedBottomInset = actualObstruction + ChatFloatingHeaderLayoutPolicy.composerMessageSpacing
+        guard abs(self.messagesCollectionView.contentInset.bottom - expectedBottomInset) > 0.5 else {
+            return
+        }
+        let wasNearBottom = self.isNearBottom()
+        self.applyChatComposerFrameUpdate(
+            inputHeight: actualObstruction,
+            source: .keyboardFrame,
+            wasNearBottom: wasNearBottom,
+            visibleAnchor: nil
         )
     }
 
@@ -8263,6 +8323,7 @@ class ChatViewController: MessagesViewController {
             return
         }
         self.chatSearchObserverRemovalCount += 1
+        self.isReconcilingFocusedComposerLayout = false
         self.lastAppliedChatKeyboardLayoutSignature = nil
         self.composerFirstFocusRecoveryWorkItem?.cancel()
         self.composerFirstFocusRecoveryWorkItem = nil

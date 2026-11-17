@@ -1284,6 +1284,92 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         }
     }
 
+    func testComposerFrameRepairsMissingKeyboardInsetAndKeepsLatestMessageVisible() throws {
+        let controller = makeController()
+        let messages = (0..<5).map { makeDatasource(primary: "keyboard-visible-\($0)") }
+        controller.applyChatDatasource(
+            messages,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine
+        )
+        controller.scrollToBottom(animated: false)
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.xabberInputViewKeyboardTopConstraint?.isActive = false
+        controller.xabberInputView.frame = CGRect(x: 16, y: 461, width: 358, height: 44)
+        controller.currentChatKeyboardVisibleHeight = 0 // Missing or stale keyboard notification.
+
+        controller.reconcileChatCollectionInsetsWithVisibleComposer()
+
+        XCTAssertGreaterThanOrEqual(
+            controller.messagesCollectionView.contentInset.bottom,
+            controller.view.bounds.maxY - controller.xabberInputView.frame.minY
+        )
+        let newest = IndexPath(item: 0, section: messages.count - 1)
+        let frame = try XCTUnwrap(
+            controller.messagesCollectionView.layoutAttributesForItem(at: newest)?.frame
+        )
+        let visibleMaxY = frame.maxY - controller.messagesCollectionView.contentOffset.y
+        XCTAssertLessThanOrEqual(visibleMaxY, controller.xabberInputView.frame.minY + 1)
+    }
+
+    func testComposerFrameRepairsMissingKeyboardInsetOnIPad() {
+        let controller = makeController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 765, height: 820)
+        controller.view.layoutIfNeeded()
+        controller.xabberInputViewKeyboardTopConstraint?.isActive = false
+        controller.xabberInputView.frame = CGRect(x: 16, y: 350, width: 733, height: 44)
+        controller.currentChatKeyboardVisibleHeight = 0
+
+        controller.reconcileChatCollectionInsetsWithVisibleComposer()
+
+        XCTAssertGreaterThanOrEqual(
+            controller.messagesCollectionView.contentInset.bottom,
+            controller.view.bounds.maxY - controller.xabberInputView.frame.minY
+        )
+    }
+
+    func testComposerFrameReconciliationPreservesReadingPositionAndRestoresAfterKeyboardCloses() {
+        let controller = makeController()
+        let messages = (0..<40).map { makeDatasource(primary: "keyboard-reading-\($0)") }
+        controller.applyChatDatasource(
+            messages,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine
+        )
+        controller.xabberInputViewKeyboardTopConstraint?.isActive = false
+        installDetachedComposerGeometry(in: controller)
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 10), at: .top, animated: false
+        )
+        let originalFrame = controller.xabberInputView.frame
+        let originalInset = controller.messagesCollectionView.contentInset.bottom
+        let originalOffset = controller.messagesCollectionView.contentOffset.y
+        XCTAssertFalse(controller.isNearBottom())
+
+        controller.xabberInputView.frame.origin.y -= 300
+        controller.reconcileChatComposerLayout(isComposerFirstResponder: true)
+
+        let openedInset = controller.messagesCollectionView.contentInset.bottom
+        XCTAssertEqual(openedInset - originalInset, 300, accuracy: 1)
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y - originalOffset,
+            300, accuracy: 1
+        )
+
+        controller.xabberInputView.frame = originalFrame
+        XCTAssertFalse(controller.xabberInputView.textField.isFirstResponder)
+        XCTAssertGreaterThan(controller.currentChatKeyboardVisibleHeight, 0)
+        controller.reconcileChatComposerLayout(isComposerFirstResponder: false)
+
+        XCTAssertEqual(controller.messagesCollectionView.contentInset.bottom, originalInset, accuracy: 1)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, originalOffset, accuracy: 1)
+        XCTAssertEqual(controller.currentChatKeyboardVisibleHeight, 0, accuracy: 1)
+    }
+
     func testControllerKeyboardInsetAndIncomingAppendPreserveAnchorAtomically() throws {
         let controller = makeController()
         let initialItems = (0..<40).map { makeDatasource(primary: "m\($0)") }
