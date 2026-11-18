@@ -11,6 +11,11 @@ protocol ChatAttachmentPickerViewControllerDelegate: AnyObject {
     )
     func chatAttachmentSheetViewController(
         _ sheet: ChatAttachmentPickerViewController,
+        didRequestSchedule drafts: [AttachmentDraft],
+        captionState: ChatAttachmentCaptionState
+    )
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
         didRequestPremiumFor owner: String
     )
     func chatAttachmentSheetViewController(
@@ -29,6 +34,12 @@ extension ChatAttachmentPickerViewControllerDelegate {
     func chatAttachmentSheetViewControllerDidRequestDismiss(_ sheet: ChatAttachmentPickerViewController) {
         sheet.dismiss(animated: true)
     }
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
+        didRequestSchedule drafts: [AttachmentDraft],
+        captionState: ChatAttachmentCaptionState
+    ) {}
 
     func chatAttachmentSheetViewController(
         _ sheet: ChatAttachmentPickerViewController,
@@ -600,6 +611,7 @@ final class ChatAttachmentPickerViewController: UIViewController {
     private let sourceControllerFactory: ChatAttachmentSourceControllerFactory
     private let mediaPreparationCoordinator: ChatAttachmentMediaPreparing
     private let sourceBarConfiguration: ChatAttachmentSourceBarConfiguration
+    private let isAddingToSchedule: Bool
     private let previewPresentationHandler: PreviewPresentationHandler
     private let previewDismissalHandler: PreviewDismissalHandler
     private var sourceControllers: [ChatAttachmentSource: ChatAttachmentSourceControlling] = [:]
@@ -613,6 +625,10 @@ final class ChatAttachmentPickerViewController: UIViewController {
     private var sendFeedbackViewModel: ChatAttachmentStatusBannerViewModel?
     private var shouldShowPreparationStatus = false
     private var isPreparingSend = false
+    private var isExecutingScheduledOperation = false
+    private var scheduledReview: ((UIViewController) -> Void)?
+
+    var isScheduleAvailable: (() -> Bool)?
 
     private(set) var activeSource: ChatAttachmentSource = .gallery
     private(set) var selectedItemCount: Int = 0
@@ -626,6 +642,7 @@ final class ChatAttachmentPickerViewController: UIViewController {
         sourceControllerFactory: ChatAttachmentSourceControllerFactory,
         mediaPreparationCoordinator: ChatAttachmentMediaPreparing = ChatAttachmentMediaPreparationCoordinator(),
         sourceBarConfiguration: ChatAttachmentSourceBarConfiguration = .default,
+        isAddingToSchedule: Bool = false,
         previewPresentationHandler: @escaping PreviewPresentationHandler = { presenter, preview, animated, completion in
             presenter.present(preview, animated: animated, completion: completion)
         },
@@ -637,6 +654,7 @@ final class ChatAttachmentPickerViewController: UIViewController {
         self.sourceControllerFactory = sourceControllerFactory
         self.mediaPreparationCoordinator = mediaPreparationCoordinator
         self.sourceBarConfiguration = sourceBarConfiguration
+        self.isAddingToSchedule = isAddingToSchedule
         self.previewPresentationHandler = previewPresentationHandler
         self.previewDismissalHandler = previewDismissalHandler
         super.init(nibName: nil, bundle: nil)
@@ -692,7 +710,12 @@ final class ChatAttachmentPickerViewController: UIViewController {
             for: .touchUpInside
         )
         statusBannerView.onRetryTapped = { [weak self] in
-            self?.retryUnavailableDraftsAndSend()
+            guard let self else { return }
+            if let review = self.scheduledReview {
+                review(self)
+            } else {
+                self.retryUnavailableDraftsAndSend()
+            }
         }
         statusBannerView.onRemoveTapped = { [weak self] in
             self?.removeUnavailableDrafts()
@@ -833,6 +856,7 @@ final class ChatAttachmentPickerViewController: UIViewController {
         selectionComposerBarView.updateMode(.caption)
         selectionComposerBarView.updateCaptionText("")
         sendFeedbackViewModel = nil
+        scheduledReview = nil
         shouldShowPreparationStatus = false
         currentPreparationTask?.cancel()
         currentPreparationTask = nil
@@ -928,9 +952,11 @@ final class ChatAttachmentPickerViewController: UIViewController {
     }
 
     private func updateSelectedAttachmentDrafts(_ drafts: [AttachmentDraft]) {
+        guard !isExecutingScheduledOperation else { return }
         let didChangeDrafts = selectedAttachmentDrafts != drafts
         if didChangeDrafts {
             sendFeedbackViewModel = nil
+            scheduledReview = nil
             shouldShowPreparationStatus = drafts.contains { draft in
                 if case .unavailable = draft.preparationState {
                     return true
@@ -972,9 +998,63 @@ final class ChatAttachmentPickerViewController: UIViewController {
     }
 
     func applySendBlockedReason(_ reason: ChatAttachmentSendBlockReason) {
+        scheduledReview = nil
         sendFeedbackViewModel = ChatAttachmentSendFeedbackPolicy.viewModel(for: reason)
         updateStatusBanner()
         previewViewController?.applySendFeedback(sendFeedbackViewModel ?? .hidden)
+    }
+
+    func showScheduledProgress(completed: Int, total: Int) {
+        let progress = total > 0 ? Float(completed) / Float(total) : 0
+        showScheduledActivity(
+            title: L10n.text("scheduled_message_uploading_attachments", fallback: "Uploading attachments…"),
+            message: ChatAttachmentLocalization.string(.statusReadyCountMessage, arguments: ["\(completed)", "\(total)"]),
+            progress: progress
+        )
+    }
+
+    func showScheduleSubmissionProgress() {
+        showScheduledActivity(
+            title: L10n.text("scheduled_messages_working", fallback: "Updating scheduled messages…"),
+            progress: nil
+        )
+    }
+
+    private func showScheduledActivity(title: String, message: String = "", progress: Float?) {
+        isExecutingScheduledOperation = true
+        scheduledReview = nil
+        sourceContainerView.isUserInteractionEnabled = false
+        selectionComposerBarView.isUserInteractionEnabled = false
+        sourceBarView.isUserInteractionEnabled = false
+        navigationController?.isModalInPresentation = true
+        sendFeedbackViewModel = ChatAttachmentStatusBannerViewModel(
+            kind: .preparing, title: title, message: message, progress: progress, blockedItemCount: 0,
+            showsRetryAction: false, showsRemoveAction: false, blocksSend: true
+        )
+        updateBottomControls()
+        updateStatusBanner()
+    }
+
+    func endScheduledProgress() {
+        isExecutingScheduledOperation = false
+        sourceContainerView.isUserInteractionEnabled = true
+        selectionComposerBarView.isUserInteractionEnabled = true
+        sourceBarView.isUserInteractionEnabled = true
+        navigationController?.isModalInPresentation = false
+        sendFeedbackViewModel = nil
+        updateBottomControls()
+        updateStatusBanner()
+    }
+
+    func showScheduledFailure(title: String, message: String, review: ((UIViewController) -> Void)? = nil) {
+        scheduledReview = review
+        let feedback = ChatAttachmentStatusBannerViewModel(
+            kind: .attentionRequired, title: title, message: message, progress: nil, blockedItemCount: 0,
+            showsRetryAction: review != nil, showsRemoveAction: false, blocksSend: false
+        )
+        sendFeedbackViewModel = feedback
+        updateStatusBanner()
+        previewViewController?.applySendFeedback(feedback)
     }
 
     private func synchronizeSourceSelections(with drafts: [AttachmentDraft]) {
@@ -993,6 +1073,10 @@ final class ChatAttachmentPickerViewController: UIViewController {
         } else {
             selectionComposerBarView.updateMode(.caption)
             selectionComposerBarView.updateCaptionText(captionState.rawText)
+            if isAddingToSchedule {
+                selectionComposerBarView.captionInputView.isHidden = true
+                selectionComposerBarView.captionInputView.isUserInteractionEnabled = false
+            }
         }
     }
 
@@ -1012,8 +1096,46 @@ final class ChatAttachmentPickerViewController: UIViewController {
         selectionComposerBarView.update(
             selectedCount: selectedItemCount,
             isSendEnabled: ChatAttachmentSendabilityPolicy.canRequestSend(drafts: selectedAttachmentDrafts)
-                && !isPreparingSend
+                && !isPreparingSend && !isExecutingScheduledOperation
         )
+        updateScheduledSendMenu()
+    }
+
+    private func updateScheduledSendMenu() {
+        let sendButton = selectionComposerBarView.sendButton
+        if isAddingToSchedule {
+            let title = L10n.text("common__action__add", fallback: "Add")
+            sendButton.accessibilityLabel = title
+            sendButton.configuration?.image = UIImage(systemName: "plus")
+        }
+        guard !isPreparingSend, !isExecutingScheduledOperation, isScheduleAvailable?() == true,
+              ScheduledAttachmentUpload.supports(selectedAttachmentDrafts, context: context) else {
+            sendButton.menu = nil
+            sendButton.accessibilityCustomActions = nil
+            return
+        }
+        let title = L10n.text("schedule_message_action", fallback: "Schedule Message")
+        sendButton.menu = UIMenu(children: [
+            UIAction(title: title, image: UIImage(systemName: "calendar.badge.clock")) { [weak self] _ in
+                self?.requestScheduledSend()
+            }
+        ])
+        sendButton.showsMenuAsPrimaryAction = false
+        sendButton.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: title) { [weak self] _ in
+                self?.requestScheduledSend() ?? false
+            }
+        ]
+    }
+
+    @discardableResult
+    private func requestScheduledSend() -> Bool {
+        guard !isExecutingScheduledOperation, isScheduleAvailable?() == true,
+              ScheduledAttachmentUpload.supports(selectedAttachmentDrafts, context: context) else { return false }
+        delegate?.chatAttachmentSheetViewController(
+            self, didRequestSchedule: selectedAttachmentDrafts, captionState: captionState
+        )
+        return true
     }
 
     @objc
@@ -1109,6 +1231,10 @@ final class ChatAttachmentPickerViewController: UIViewController {
             ?? preparationStatusViewModel()
         let shouldShow = viewModel.kind != .hidden && viewModel.kind != .ready
         statusBannerView.apply(shouldShow ? viewModel : .hidden)
+        let retryTitle = scheduledReview == nil ? ChatAttachmentLocalization.string(.actionRetry)
+            : L10n.text("scheduled_messages_review", fallback: "Review pending actions")
+        statusBannerView.retryButton.configuration?.title = retryTitle
+        statusBannerView.retryButton.accessibilityLabel = retryTitle
         statusBannerHeightConstraint?.constant = statusBannerView.isHidden ? 0 : 74
     }
 
@@ -1131,12 +1257,13 @@ final class ChatAttachmentPickerViewController: UIViewController {
     }
 
     private func sendSelectedDraftsFromSheet() {
-        guard !isPreparingSend else {
+        guard !isPreparingSend, !isExecutingScheduledOperation else {
             return
         }
 
         shouldShowPreparationStatus = true
         sendFeedbackViewModel = nil
+        scheduledReview = nil
         let originalDrafts = selectedAttachmentDrafts
         guard ChatAttachmentSendabilityPolicy.canRequestSend(drafts: originalDrafts) else {
             prepareSelectedDraftsIfNeeded(showStatus: true)
@@ -1325,7 +1452,9 @@ extension ChatAttachmentPickerViewController: ChatAttachmentPreviewViewControlle
         _ preview: ChatAttachmentPreviewViewController,
         didRequestSend drafts: [AttachmentDraft]
     ) {
+        guard !isExecutingScheduledOperation else { return }
         sendFeedbackViewModel = nil
+        scheduledReview = nil
         preview.applySendFeedback(.hidden)
         updateStatusBanner()
         delegate?.chatAttachmentSheetViewController(

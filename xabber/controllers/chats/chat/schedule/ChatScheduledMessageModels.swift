@@ -234,6 +234,27 @@ struct ChatScheduledMessageSendRequest: Equatable {
     let body: String
     let references: [MessageReferenceStorageItem]
     let forwardedMessagePrimaries: [String]
+    let groupMentionIntent: GroupMessageMentionIntent
+    let groupMentionSenderRole: GroupMemberRole?
+    let groupMentionAllCapabilityGranted: Bool
+
+    init(
+        owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType,
+        deliverAt: Date, body: String, references: [MessageReferenceStorageItem], forwardedMessagePrimaries: [String],
+        groupMentionIntent: GroupMessageMentionIntent = .absent, groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) {
+        self.owner = owner
+        self.conversation = conversation
+        self.conversationType = conversationType
+        self.deliverAt = deliverAt
+        self.body = body
+        self.references = references
+        self.forwardedMessagePrimaries = forwardedMessagePrimaries
+        self.groupMentionIntent = groupMentionIntent
+        self.groupMentionSenderRole = groupMentionSenderRole
+        self.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+    }
 
     static func == (lhs: ChatScheduledMessageSendRequest, rhs: ChatScheduledMessageSendRequest) -> Bool {
         lhs.owner == rhs.owner
@@ -242,12 +263,19 @@ struct ChatScheduledMessageSendRequest: Equatable {
             && lhs.deliverAt == rhs.deliverAt
             && lhs.body == rhs.body
             && lhs.forwardedMessagePrimaries == rhs.forwardedMessagePrimaries
+            && lhs.groupMentionIntent == rhs.groupMentionIntent
+            && lhs.groupMentionSenderRole == rhs.groupMentionSenderRole
+            && lhs.groupMentionAllCapabilityGranted == rhs.groupMentionAllCapabilityGranted
             && lhs.references.map(\.primary) == rhs.references.map(\.primary)
     }
 }
 
 protocol ChatScheduledMessageServicing: AnyObject {
     func isScheduleAvailable(owner: String) -> Bool
+
+    func validateScheduledAttachmentRoute(
+        owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType
+    ) -> XMPPMessageScheduleManager.ScheduleError?
 
     @discardableResult
     func schedulePlaintextMessage(
@@ -283,6 +311,16 @@ protocol ChatScheduledMessageServicing: AnyObject {
         callback: XMPPMessageScheduleManager.ScheduleCallback?
     ) -> String?
 
+    @discardableResult
+    func schedulePreparedMessage(
+        _ payload: XMPPMessage,
+        owner: String,
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        deliverAt: Date,
+        callback: XMPPMessageScheduleManager.ScheduleCallback?
+    ) -> String?
+
     func sendScheduledMessageNow(
         _ payload: XMPPMessage,
         for item: ScheduledMessageListItem,
@@ -291,6 +329,13 @@ protocol ChatScheduledMessageServicing: AnyObject {
 }
 
 extension ChatScheduledMessageServicing {
+    func validateScheduledAttachmentRoute(
+        owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType
+    ) -> XMPPMessageScheduleManager.ScheduleError? {
+        guard !conversationType.isEncrypted else { return .forbidden }
+        return isScheduleAvailable(owner: owner) ? nil : .unavailable
+    }
+
     func validateScheduledAction(
         _ action: ScheduledMessageAction,
         on item: ScheduledMessageListItem
@@ -302,6 +347,21 @@ extension ChatScheduledMessageServicing {
     func schedulePreparedMessage(
         _ payload: XMPPMessage,
         for item: ScheduledMessageListItem,
+        deliverAt: Date,
+        callback: XMPPMessageScheduleManager.ScheduleCallback?
+    ) -> String? {
+        schedulePreparedMessage(
+            payload, owner: item.owner, conversation: item.conversation, conversationType: item.conversationType,
+            deliverAt: deliverAt, callback: callback
+        )
+    }
+
+    @discardableResult
+    func schedulePreparedMessage(
+        _ payload: XMPPMessage,
+        owner: String,
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
         deliverAt: Date,
         callback: XMPPMessageScheduleManager.ScheduleCallback?
     ) -> String? {
@@ -321,6 +381,18 @@ extension ChatScheduledMessageServicing {
 final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
     func isScheduleAvailable(owner: String) -> Bool {
         AccountManager.shared.find(for: owner)?.messageSchedule.isAvailable == true
+    }
+
+    func validateScheduledAttachmentRoute(
+        owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType
+    ) -> XMPPMessageScheduleManager.ScheduleError? {
+        guard [.regular, .group, .saved].contains(conversationType),
+              XMPPJID(string: conversation)?.bare == conversation else { return .forbidden }
+        guard let user = AccountManager.shared.find(for: owner) else { return .sendRejected }
+        return validateScheduleTransport(for: owner, user: user) ?? validatePlaintextRoute(
+            conversation: conversation, conversationType: conversationType, user: user,
+            hasMedia: true, mentions: .absent
+        )
     }
 
     func validateScheduledAction(
@@ -359,6 +431,24 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
         conversationType: ClientSynchronizationManager.ConversationType,
         user: Account
     ) -> XMPPMessageScheduleManager.ScheduleError? {
+        guard !SCEReceivePolicy.containsOMEMO2(payload) else { return .forbidden }
+        let references = SCEReceivePolicy.children(
+            of: payload, named: "reference", xmlns: "https://xabber.com/protocol/references"
+        )
+        let hasMedia = references.contains { ["media", "voice"].contains(getReferenceType($0) ?? "") }
+        return validatePlaintextRoute(
+            conversation: conversation, conversationType: conversationType, user: user,
+            hasMedia: hasMedia, mentions: GroupMessageMentionsCodec.decode(from: payload)
+        )
+    }
+
+    private func validatePlaintextRoute(
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        user: Account,
+        hasMedia: Bool,
+        mentions: GroupMessageMentionIntent
+    ) -> XMPPMessageScheduleManager.ScheduleError? {
         guard !conversationType.isEncrypted else { return .forbidden }
         guard OMEMO2OptOutPolicy.allowsMessage(
             owner: user.jid, jid: conversation, storage: user.omemo.omemo2Storage
@@ -367,10 +457,8 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
             guard let realm = try? WRealm.safe(),
                   let group = try? GroupRepository(realm: realm).projection(owner: user.jid, groupJID: conversation),
                   group.state.isActive, !group.state.isDeleted, group.capabilities.sendMessages else { return .forbidden }
-            let references = SCEReceivePolicy.children(of: payload, named: "reference", xmlns: "https://xabber.com/protocol/references")
-            if references.contains(where: { ["media", "voice"].contains(getReferenceType($0) ?? "") }),
-               !group.capabilities.sendMedia { return .forbidden }
-            switch GroupMessageMentionsCodec.decode(from: payload) {
+            if hasMedia, !group.capabilities.sendMedia { return .forbidden }
+            switch mentions {
             case .all:
                 let role = group.state.members.first { $0.id == group.selfMemberID }?.role
                 guard role == .admin || role == .owner else { return .forbidden }
@@ -384,26 +472,27 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
     @discardableResult
     func schedulePreparedMessage(
         _ payload: XMPPMessage,
-        for item: ScheduledMessageListItem,
+        owner: String,
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
         deliverAt: Date,
         callback: XMPPMessageScheduleManager.ScheduleCallback?
     ) -> String? {
-        guard let user = AccountManager.shared.find(for: item.owner),
-              user.jid == item.owner else {
+        guard let user = AccountManager.shared.find(for: owner), user.jid == owner else {
             callback?(.failure(.sendRejected))
             return nil
         }
         var queryId: String?
         user.unsafeAction { user, stream in
-            if let error = self.validateScheduleTransport(for: item.owner, user: user) ??
-                self.validatePlaintextPayload(payload, conversation: item.conversation,
-                                              conversationType: item.conversationType, user: user) {
+            if let error = self.validateScheduleTransport(for: owner, user: user) ??
+                self.validatePlaintextPayload(payload, conversation: conversation,
+                                              conversationType: conversationType, user: user) {
                 callback?(.failure(error))
             } else if deliverAt <= Date() {
                 callback?(.failure(.notAcceptable))
             } else {
                 queryId = user.messageSchedule.scheduleMessage(
-                    stream, conversation: item.conversation, conversationType: item.conversationType,
+                    stream, conversation: conversation, conversationType: conversationType,
                     deliverAt: deliverAt, payload: payload, callback: callback
                 )
             }
@@ -453,9 +542,16 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
 
         var queryId: String?
         account.unsafeAction { user, stream in
+            let mentions = request.conversationType == .group
+                ? GroupMessageMentionsCodec.encode(
+                    request.groupMentionIntent,
+                    capabilityGranted: request.groupMentionAllCapabilityGranted,
+                    senderRole: request.groupMentionSenderRole
+                ) : nil
             let payload = user.messageSchedule.makePlaintextMessagePayload(
                 to: request.conversation, body: request.body, conversationType: request.conversationType,
-                references: request.references, forwardedMessagePrimaries: request.forwardedMessagePrimaries
+                references: request.references, forwardedMessagePrimaries: request.forwardedMessagePrimaries,
+                additionalChildren: mentions.map { [$0] } ?? []
             )
             if let error = self.validatePlaintextPayload(
                 payload, conversation: request.conversation, conversationType: request.conversationType, user: user
@@ -527,6 +623,56 @@ final class ChatScheduledMessageSendCoordinator {
 
     init(service: ChatScheduledMessageServicing) {
         self.service = service
+    }
+
+    func scheduleAttachments(
+        _ references: [MessageReferenceStorageItem],
+        caption: ChatAttachmentCaptionState,
+        context: ChatAttachmentFlowContext,
+        deliverAt: Date,
+        completion: @escaping (Result<Void, XMPPMessageScheduleManager.ScheduleError>) -> Void
+    ) {
+        guard deliverAt > Date() else {
+            completion(.failure(.notAcceptable))
+            return
+        }
+        if let error = service.validateScheduledAttachmentRoute(
+            owner: context.owner, conversation: context.jid, conversationType: context.conversationType
+        ) {
+            completion(.failure(error))
+            return
+        }
+        guard !references.isEmpty, references.allSatisfy({
+            $0.owner == context.owner && $0.jid == context.jid && $0.isUploaded
+                && [.media, .voice].contains($0.kind)
+        }) else {
+            completion(.failure(.malformedPayload))
+            return
+        }
+        var body = caption.isEmpty ? "" : caption.rawText
+        var children: [DDXMLElement] = []
+        if !context.forwardedMessageIds.isEmpty {
+            guard let realm = try? WRealm.safe(),
+                  let sources = try? ForwardSourceLoader.load(ids: context.forwardedMessageIds, owner: context.owner, realm: realm),
+                  let units = try? ForwardSendPlanner.plan(sources: sources, comment: body, intent: context.forwardIntent),
+                  units.count == 1, let unit = units.first else {
+                completion(.failure(.malformedPayload))
+                return
+            }
+            body = unit.body
+            children = unit.refs
+        }
+        guard let payload = ScheduledMessageContent.makeMessage(
+            owner: context.owner, conversation: context.jid, conversationType: context.conversationType,
+            body: body, references: references, additionalChildren: children
+        ) else {
+            completion(.failure(.malformedPayload))
+            return
+        }
+        service.schedulePreparedMessage(
+            payload, owner: context.owner, conversation: context.jid, conversationType: context.conversationType,
+            deliverAt: deliverAt, callback: { result in completion(result.map { _ in () }) }
+        )
     }
 
     @discardableResult
@@ -618,7 +764,9 @@ enum ScheduledMessagesListModel {
                     scheduledId: $0.scheduledId,
                     deliverAt: $0.deliverAt,
                     status: $0.status,
-                    bodyPreview: ScheduledMessageXMLPreviewParser.bodyPreview(from: $0.messageXML),
+                    bodyPreview: ScheduledMessageContent.read(
+                        messageXML: $0.messageXML, owner: owner, conversation: conversation
+                    )?.body ?? ScheduledMessageXMLPreviewParser.bodyPreview(from: $0.messageXML),
                     owner: $0.owner,
                     conversation: $0.conversation,
                     conversationType: $0.conversationType,

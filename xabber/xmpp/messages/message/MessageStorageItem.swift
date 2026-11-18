@@ -1866,9 +1866,12 @@ class MessageStorageItem: Object {
         self.archivedId = getStanzaId(messageContainer, owner: self.owner)
         self.previousId = getPreviousId(messageContainer)
         updatePrimary()
-        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner, sourceDate: date))
+        let content = !isEncrypted && messageContainer.element(
+            forName: "deferred", xmlns: XMPPMessageScheduleManager.namespace
+        ) != nil ? ScheduledMessageContent.normalizeWebRanges(messageContainer) : messageContainer
+        self.references.append(objectsIn: parseReferences(content, primary: self.primary, jid: opponent, owner: owner, sourceDate: date))
         self.groupMentionIntent = GroupMessageMentionsCodec.decode(from: messageContainer)
-        self.body = normalizedIncomingTextBody(from: messageContainer)
+        self.body = normalizedIncomingTextBody(from: content)
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
         }
@@ -1894,7 +1897,7 @@ class MessageStorageItem: Object {
 //            self.conversationType = .omemo
 //        }
         
-        self.inlineForwards.append(objectsIn: parseInlineMessages(messageContainer, parentId: primary, jid: opponent, owner: owner))
+        self.inlineForwards.append(objectsIn: parseInlineMessages(content, parentId: primary, jid: opponent, owner: owner))
         updateDisplayMode()
         self.references.forEach { $0.messageId = self.primary }
 //        if self.displayAs == .text && self.createRefBody([:]).string.isEmpty {

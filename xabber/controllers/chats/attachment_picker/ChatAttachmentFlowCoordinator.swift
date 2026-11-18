@@ -100,6 +100,23 @@ final class UIKitChatAttachmentCloudStorageQuotaAlertPresenter: ChatAttachmentCl
     }
 }
 
+enum ChatAttachmentScheduledMode {
+    typealias Submission = (
+        [MessageReferenceStorageItem],
+        ChatAttachmentCaptionState,
+        Date,
+        @escaping (Result<Void, XMPPMessageScheduleManager.ScheduleError>) -> Void
+    ) -> Void
+
+    case schedule(
+        canSchedule: () -> Bool,
+        submit: Submission,
+        didSchedule: () -> Void,
+        review: ((UIViewController) -> Void)? = nil
+    )
+    case addToScheduledMessage(([MessageReferenceStorageItem]) -> Void)
+}
+
 final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinating {
     typealias PresentationHandler = (
         UIViewController,
@@ -134,6 +151,9 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
     private let quotaRefresher: ChatAttachmentQuotaRefreshing
     private let quotaAlertPresenter: ChatAttachmentCloudStorageQuotaAlertPresenting
     private let cloudStoragePresentationHandler: CloudStoragePresentationHandler
+    private let scheduledMode: ChatAttachmentScheduledMode?
+    private let scheduledUpload: ScheduledAttachmentUpload
+    private var scheduledOperationID: UUID?
 
     private(set) var pickerViewController: ChatAttachmentPickerViewController?
     private(set) var pickerNavigationController: UINavigationController?
@@ -145,9 +165,11 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
     init(
         presentingViewController: UIViewController,
         context: ChatAttachmentFlowContext,
+        scheduledMode: ChatAttachmentScheduledMode? = nil,
         sourceControllerFactory: ChatAttachmentSourceControllerFactory = DefaultChatAttachmentSourceControllerFactory(),
         sendCoordinator: ChatAttachmentSendCoordinating = ChatAttachmentSendPipeline(),
         mediaPreparationCoordinator: ChatAttachmentMediaPreparing = ChatAttachmentMediaPreparationCoordinator(),
+        scheduledUpload: ScheduledAttachmentUpload = ScheduledAttachmentUpload(),
         quotaRefresher: ChatAttachmentQuotaRefreshing = CloudStorageQuotaRefreshCoordinatorAdapter(),
         quotaAlertPresenter: ChatAttachmentCloudStorageQuotaAlertPresenting = UIKitChatAttachmentCloudStorageQuotaAlertPresenter(),
         presentationHandler: @escaping PresentationHandler = { presenter, sheet, animated, completion in
@@ -180,6 +202,8 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
     ) {
         self.presentingViewController = presentingViewController
         self.context = context
+        self.scheduledMode = scheduledMode
+        self.scheduledUpload = scheduledUpload
         self.sourceControllerFactory = sourceControllerFactory
         self.sendCoordinator = sendCoordinator
         self.mediaPreparationCoordinator = mediaPreparationCoordinator
@@ -219,11 +243,21 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
         }
 
         let loadStartedAt = CFAbsoluteTimeGetCurrent()
+        let isAddingToSchedule: Bool
+        if case .addToScheduledMessage = scheduledMode { isAddingToSchedule = true }
+        else { isAddingToSchedule = false }
         let picker = ChatAttachmentPickerViewController(
             context: context,
             sourceControllerFactory: sourceControllerFactory,
-            mediaPreparationCoordinator: mediaPreparationCoordinator
+            mediaPreparationCoordinator: mediaPreparationCoordinator,
+            sourceBarConfiguration: isAddingToSchedule
+                ? ChatAttachmentSourceBarConfiguration(sourceAvailability: [.gallery: .available, .file: .available])
+                : .default,
+            isAddingToSchedule: isAddingToSchedule
         )
+        if case .schedule(let canSchedule, _, _, _) = scheduledMode {
+            picker.isScheduleAvailable = canSchedule
+        }
         picker.delegate = self
         picker.navigationItem.largeTitleDisplayMode = .never
         picker.loadViewIfNeeded()
@@ -278,6 +312,7 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
             return
         }
 
+        scheduledOperationID = nil
         picker.delegate = nil
         picker.releaseSourceControllers()
         pickerViewController = nil
@@ -307,6 +342,78 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
             self.finishDismissal(notifyDelegate: false)
             self.delegate?.chatAttachmentFlowCoordinatorDidSend(self)
         }
+    }
+
+    private func prepareScheduledFiles(
+        from picker: ChatAttachmentPickerViewController,
+        drafts: [AttachmentDraft],
+        allow: @escaping () -> Bool,
+        onPrepared: @escaping (UUID, [MessageReferenceStorageItem]) -> Void
+    ) {
+        guard scheduledOperationID == nil, pickerViewController === picker else { return }
+        guard allow() else {
+            showScheduledError(.routeUnavailable, on: picker)
+            return
+        }
+        let operationID = UUID()
+        scheduledOperationID = operationID
+        picker.showScheduledProgress(completed: 0, total: drafts.count)
+        scheduledUpload.prepare(
+            drafts: drafts,
+            context: context,
+            canContinue: { [weak self, weak picker] in
+                guard let self, let picker, self.scheduledOperationID == operationID,
+                      self.pickerViewController === picker else { return false }
+                return allow()
+            },
+            progress: { [weak picker] completed, total in
+                picker?.showScheduledProgress(completed: completed, total: total)
+            },
+            completion: { [weak self, weak picker] result in
+                guard let self, let picker, self.scheduledOperationID == operationID else { return }
+                switch result {
+                case .success(let references):
+                    onPrepared(operationID, references)
+                case .failure(let error):
+                    self.scheduledOperationID = nil
+                    picker.endScheduledProgress()
+                    self.showScheduledError(error, on: picker)
+                }
+            }
+        )
+    }
+
+    private func finishScheduledOperation(
+        in picker: ChatAttachmentPickerViewController,
+        action: @escaping () -> Void
+    ) {
+        let controller = pickerNavigationController ?? picker
+        picker.delegate = nil
+        endEditingHandler(picker, controller)
+        dismissalHandler(controller, true) { [weak self] in
+            guard let self else { return }
+            self.finishDismissal(notifyDelegate: true)
+            action()
+        }
+    }
+
+    private func showScheduledError(
+        _ error: ScheduledAttachmentUploadError,
+        on picker: ChatAttachmentPickerViewController
+    ) {
+        let reason: ChatAttachmentSendBlockReason
+        switch error {
+        case .quotaExceeded:
+            presentCloudStorageQuotaExceededAlert(owner: context.owner)
+            return
+        case .cloudUnavailable: reason = .cloudStorageUnavailable
+        case .cloudPending: reason = .cloudStoragePending
+        case .routeUnavailable: reason = .accountUnavailable
+        case .invalidSelection, .localFileUnavailable: reason = .referenceBuildFailed
+        case .invalidResponse, .uploadFailed: reason = .sendFailed
+        }
+        let feedback = ChatAttachmentSendFeedbackPolicy.viewModel(for: reason)
+        picker.showScheduledFailure(title: feedback.title, message: feedback.message)
     }
 
     private func refreshCloudStorageStatsOnOpen() {
@@ -339,6 +446,7 @@ final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinat
 
 extension ChatAttachmentFlowCoordinator: ChatAttachmentPickerViewControllerDelegate {
     func chatAttachmentSheetViewControllerDidRequestDismiss(_ sheet: ChatAttachmentPickerViewController) {
+        guard scheduledOperationID == nil else { return }
         dismiss(animated: true)
     }
 
@@ -355,6 +463,14 @@ extension ChatAttachmentFlowCoordinator: ChatAttachmentPickerViewControllerDeleg
         didRequestSend drafts: [AttachmentDraft],
         captionState: ChatAttachmentCaptionState
     ) {
+        if case .addToScheduledMessage(let accept) = scheduledMode {
+            prepareScheduledFiles(from: sheet, drafts: drafts, allow: { true }) { [weak self, weak sheet] _, references in
+                guard let self, let sheet else { return }
+                self.finishScheduledOperation(in: sheet) { accept(references) }
+            }
+            return
+        }
+        guard scheduledOperationID == nil else { return }
         delegate?.chatAttachmentFlowCoordinatorWillSend(self)
         sendCoordinator.send(
             drafts: drafts,
@@ -388,6 +504,59 @@ extension ChatAttachmentFlowCoordinator: ChatAttachmentPickerViewControllerDeleg
                 DispatchQueue.main.async(execute: complete)
             }
         }
+    }
+
+    func chatAttachmentSheetViewController(
+        _ sheet: ChatAttachmentPickerViewController,
+        didRequestSchedule drafts: [AttachmentDraft],
+        captionState: ChatAttachmentCaptionState
+    ) {
+        guard scheduledOperationID == nil, pickerViewController === sheet, sheet.presentedViewController == nil,
+              case .schedule(let canSchedule, let submit, let didSchedule, let review) = scheduledMode,
+              ScheduledAttachmentUpload.supports(drafts, context: context), canSchedule() else { return }
+        sheet.view.endEditing(true)
+        let datePicker = ScheduledMessageDatePickerViewController { [weak self, weak sheet] date in
+            guard let self, let sheet,
+                  sheet.selectedAttachmentDrafts == drafts, sheet.captionState == captionState else { return }
+            self.prepareScheduledFiles(from: sheet, drafts: drafts, allow: canSchedule) { [weak self, weak sheet] operationID, references in
+                guard let self, let sheet else { return }
+                sheet.showScheduleSubmissionProgress()
+                submit(references, captionState, date) { result in
+                    let complete = { [weak self, weak sheet] in
+                        guard let self, let sheet, self.scheduledOperationID == operationID else { return }
+                        switch result {
+                        case .success:
+                            self.finishScheduledOperation(in: sheet, action: didSchedule)
+                        case .failure(let error):
+                            self.scheduledOperationID = nil
+                            sheet.endScheduledProgress()
+                            let title = L10n.text("schedule_send_failed_error", fallback: "Could not schedule message.")
+                            switch error {
+                            case .timeout, .disconnected, .invalidResponse:
+                                let message = L10n.text(
+                                    "scheduled_message_unknown_outcome",
+                                    fallback: "The server may have accepted the message. Check Scheduled Messages before trying again."
+                                )
+                                sheet.showScheduledFailure(title: title, message: message, review: review)
+                            case .notAcceptable:
+                                let message = L10n.text("scheduled_messages_time_error", fallback: "Choose a valid future send time.")
+                                sheet.showScheduledFailure(title: title, message: message)
+                            case .unavailable, .forbidden:
+                                self.showScheduledError(.routeUnavailable, on: sheet)
+                            default:
+                                sheet.showScheduledFailure(
+                                    title: title,
+                                    message: ChatAttachmentLocalization.string(.statusSendFailedMessage)
+                                )
+                            }
+                        }
+                    }
+                    if Thread.isMainThread { complete() }
+                    else { DispatchQueue.main.async(execute: complete) }
+                }
+            }
+        }
+        sheet.present(datePicker, animated: true)
     }
 
     func chatAttachmentSheetViewController(

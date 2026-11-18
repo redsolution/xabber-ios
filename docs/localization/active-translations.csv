@@ -4057,15 +4057,20 @@ schedule_send_on,Send on %@,Отправить %@,Envoyer le %@,Enviar el %@,ا�
 schedule_send_today_at,Send today at %@,Отправить сегодня в %@,Envoyer aujourd’hui à %@,Enviar hoy a las %@,الإرسال اليوم في %@,今天 %@ 发送
 schedule_send_tomorrow_at,Send tomorrow at %@,Отправить завтра в %@,Envoyer demain à %@,Enviar mañana a las %@,الإرسال غدًا في %@,明天 %@ 发送
 schedule_unavailable_error,Scheduled messages are unavailable on this server.,Отложенные сообщения недоступны на этом сервере.,Les messages programmés sont indisponibles sur ce serveur.,Los mensajes programados no están disponibles en este servidor.,الرسائل المجدولة غير متاحة على هذا الخادم.,此服务器不支持定时消息。
+scheduled_message_add_attachments,Add Attachments,Добавить вложения,Ajouter des pièces jointes,Añadir adjuntos,إضافة مرفقات,添加附件
+scheduled_message_attachment,Attachment,Вложение,Pièce jointe,Adjunto,مرفق,附件
 scheduled_message_due_now,Due now,Отправка сейчас,À envoyer,Hora de enviar,حان وقت الإرسال,已到发送时间
 scheduled_message_edit_body,Message text,Текст сообщения,Texte du message,Texto del mensaje,نص الرسالة,消息文本
+scheduled_message_open_attachment,Open %@,Открыть %@,Ouvrir %@,Abrir %@,فتح %@,打开 %@
 scheduled_message_preview_fallback,Scheduled message,Отложенное сообщение,Message programmé,Mensaje programado,رسالة مجدولة,定时消息
+scheduled_message_replace_attachment,Replace Attachment,Заменить вложение,Remplacer la pièce jointe,Reemplazar adjunto,استبدال المرفق,替换附件
 scheduled_message_reschedule,Reschedule,Перенести,Replanifier,Reprogramar,تغيير الموعد,更改时间
 scheduled_message_send_now,Send Now,Отправить сейчас,Envoyer maintenant,Enviar ahora,إرسال الآن,立即发送
 scheduled_message_status_failed,Failed,Ошибка,Échec,Error,فشل,失败
 scheduled_message_tomorrow,Tomorrow,Завтра,Demain,Mañana,غدًا,明天
 scheduled_message_under_minute,In less than a minute,Меньше чем через минуту,Dans moins d’une minute,En menos de un minuto,خلال أقل من دقيقة,不到一分钟后
 scheduled_message_unknown_outcome,The server may have accepted the message. Check Scheduled Messages before trying again.,Сервер мог запланировать сообщение. Проверьте список отложенных сообщений перед повторной попыткой.,Le serveur a peut-être accepté le message. Consultez les messages planifiés avant de réessayer.,Es posible que el servidor haya aceptado el mensaje. Revisa los mensajes programados antes de volver a intentarlo.,ربما قبِل الخادم الرسالة. تحقّق من الرسائل المجدولة قبل إعادة المحاولة.,服务器可能已接受消息。重试前请查看定时消息。
+scheduled_message_uploading_attachments,Uploading attachments…,Загружаем вложения…,Téléversement en cours…,Subiendo adjuntos…,جارٍ رفع المرفقات…,正在上传附件…
 scheduled_messages_action_error,Could not update the scheduled message.,Не удалось изменить отложенное сообщение.,Impossible de modifier le message planifié.,No se pudo actualizar el mensaje programado.,تعذّر تعديل الرسالة المجدولة.,无法更新定时消息。
 scheduled_messages_batch_error,Some actions could not be completed.,Не все действия удалось выполнить.,Certaines actions ont échoué.,No se pudieron completar algunas acciones.,تعذّر إكمال بعض الإجراءات.,部分操作未能完成。
 scheduled_messages_changed,The scheduled message changed. Review the updated list.,Отложенное сообщение изменилось. Проверьте обновлённый список.,Le message planifié a changé. Consultez la liste actualisée.,El mensaje programado cambió. Revisa la lista actualizada.,تغيّرت الرسالة المجدولة. راجع القائمة المحدّثة.,定时消息已更改。请查看更新后的列表。

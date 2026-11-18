@@ -5,6 +5,7 @@ import XMPPFramework
 enum ScheduledMessageAction: Codable, Equatable {
     case delete
     case edit(String)
+    case editContent(body: String, retainedAttachmentIDs: [Int], addedAttachmentXML: [String])
     case reschedule(Date)
     case sendNow
 }
@@ -155,7 +156,7 @@ final class ScheduledMessageActionCoordinator {
 
     private func deliveryDate(_ action: ScheduledMessageAction, item: ScheduledMessageListItem) -> Date? {
         switch action {
-        case .edit: return item.deliverAt
+        case .edit, .editContent: return item.deliverAt
         case .reschedule(let date): return date
         case .delete, .sendNow: return nil
         }
@@ -265,14 +266,16 @@ enum ScheduledMessageActionPayload {
         let originalBody = bodies.first?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         switch action {
         case .edit(let text):
-            let edited = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let body = bodies.first, !originalBody.isEmpty, !edited.isEmpty,
-                  children.allSatisfy(isPlainTextChild) else { return nil }
-            body.stringValue = edited
+            return ScheduledMessageContent.edited(message, body: text, retainedAttachmentIDs: nil, addedAttachmentXML: [])
+        case .editContent(let text, let retainedIDs, let addedXML):
+            return ScheduledMessageContent.edited(message, body: text, retainedAttachmentIDs: retainedIDs, addedAttachmentXML: addedXML)
         case .reschedule:
             guard !originalBody.isEmpty || children.contains(where: { !isPlainTextChild($0) }) else { return nil }
         case .sendNow:
-            guard !originalBody.isEmpty, (try? MessageManager.validatePreparedContentSize(message)) != nil else { return nil }
+            let normalized = ScheduledMessageContent.normalizeWebRanges(message)
+            guard let body = normalized.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  (try? MessageManager.validatePreparedContentSize(normalized)) != nil else { return nil }
+            return normalized
         case .delete:
             return nil
         }

@@ -171,13 +171,44 @@ extension ChatViewController {
             return
         }
         NSLog("ATTACHMENT_TAP event=coordinator_create")
+        let context = self.makeAttachmentFlowContext()
         let coordinator = ChatAttachmentFlowCoordinator(
             presentingViewController: self,
-            context: self.makeAttachmentFlowContext()
+            context: context,
+            scheduledMode: .schedule(
+                canSchedule: { [weak self] in
+                    guard let self, self.isCurrentScheduleAttachmentContext(context) else { return false }
+                    return self.scheduledMessageService.validateScheduledAttachmentRoute(
+                        owner: context.owner, conversation: context.jid, conversationType: context.conversationType
+                    ) == nil
+                },
+                submit: { [weak self] references, caption, date, completion in
+                    guard let self, self.isCurrentScheduleAttachmentContext(context) else {
+                        completion(.failure(.sendRejected))
+                        return
+                    }
+                    ChatScheduledMessageSendCoordinator(service: self.scheduledMessageService).scheduleAttachments(
+                        references, caption: caption, context: context, deliverAt: date, completion: completion
+                    )
+                },
+                didSchedule: { [weak self] in
+                    guard let self, self.isCurrentScheduleAttachmentContext(context) else { return }
+                    self.refreshScheduledMessagesComposerButtonState()
+                    self.presentScheduledMessagesIfVisible()
+                },
+                review: { [weak self] presenter in
+                    guard let self, self.isCurrentScheduleAttachmentContext(context) else { return }
+                    self.openScheduledMessagesModal(from: presenter)
+                }
+            )
         )
         coordinator.delegate = self
         self.chatAttachmentFlowCoordinator = coordinator
         coordinator.start()
+    }
+
+    private func isCurrentScheduleAttachmentContext(_ context: ChatAttachmentFlowContext) -> Bool {
+        self.owner == context.owner && self.jid == context.jid && self.conversationType == context.conversationType
     }
 
     private func presentChatAttachmentError(_ message: String) {

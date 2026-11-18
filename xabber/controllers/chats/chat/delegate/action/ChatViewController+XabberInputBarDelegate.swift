@@ -949,7 +949,10 @@ extension ChatViewController: XabberInputBarDelegate {
             deliverAt: deliverAt,
             body: payload.body,
             references: payload.references,
-            forwardedMessagePrimaries: self.attachedMessagesIds.value
+            forwardedMessagePrimaries: self.attachedMessagesIds.value,
+            groupMentionIntent: payload.groupMentionIntent,
+            groupMentionSenderRole: payload.groupMentionSenderRole,
+            groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
         )
         self.isComposerSendAdmissionInFlight = true
         let complete: (Result<XMPPMessageScheduleManager.ScheduledEntry, XMPPMessageScheduleManager.ScheduleError>) -> Void = { [weak self] result in
@@ -1003,12 +1006,12 @@ extension ChatViewController: XabberInputBarDelegate {
         self.presentScheduledMessagesIfVisible()
     }
 
-    private func presentScheduledMessagesIfVisible() {
+    internal func presentScheduledMessagesIfVisible() {
         guard self.viewIfLoaded?.window != nil, self.presentedViewController == nil else { return }
         self.openScheduledMessagesModal()
     }
 
-    private func openScheduledMessagesModal() {
+    internal func openScheduledMessagesModal(from presenter: UIViewController? = nil) {
         let vc = ScheduledMessagesViewController()
         vc.owner = self.owner
         vc.jid = self.jid
@@ -1018,7 +1021,7 @@ extension ChatViewController: XabberInputBarDelegate {
         vc.onDidDisappear = { [weak self] in
             self?.refreshScheduledMessagesComposerButtonState()
         }
-        showModal(vc, parent: self)
+        showModal(vc, parent: presenter ?? self)
     }
 
     private func scheduleErrorMessage(for reason: ChatSendOptionsDisabledReason?) -> String {

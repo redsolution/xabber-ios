@@ -19,6 +19,155 @@ final class ScheduledMessageActionsTests: XCTestCase {
         XCTAssertEqual(service.payload?.body, "Changed & ready")
     }
 
+    func testPreparesAttachmentOnlyMessageWithoutChangingTheCallerReference() throws {
+        let file = uploadedFile("https://files.example.test/a?p=one&other=two")
+        let message = try XCTUnwrap(ScheduledMessageContent.makeMessage(
+            owner: "alice@example.test", conversation: "bob@example.test", conversationType: .regular,
+            body: "", references: [file]
+        ))
+        let content = try XCTUnwrap(ScheduledMessageContent.read(makeItem(message: message)))
+
+        XCTAssertEqual(message.body, file.fileSharingURI)
+        XCTAssertEqual(content.body, "")
+        XCTAssertEqual(content.attachments.map { $0.reference.fileSharingURI }, [file.fileSharingURI])
+        XCTAssertEqual(file.begin, 0)
+        XCTAssertEqual(file.end, 0)
+    }
+
+    func testWebUTF16DecorationAndFileFallbackSurviveUnicodeAndEscaping() throws {
+        let item = try webScheduledFile()
+        let content = try XCTUnwrap(ScheduledMessageContent.read(item))
+        let markup = try XCTUnwrap(content.references.first { $0.kind == .markup })
+
+        XCTAssertEqual(content.body, "🙂 & bold")
+        XCTAssertEqual((content.body as NSString).substring(with: markup.range), "bold")
+        XCTAssertEqual(markup.metadata?["styles"] as? [String], ["bold", "uri"])
+        XCTAssertEqual(content.attachments.first?.reference.fileSharingURI, "https://files.example.test/a?t=x&value=y")
+    }
+
+    func testEditedMarkupAndLinkRangesMoveWithTheirText() async throws {
+        let service = Service()
+        let item = try webScheduledFile()
+        let initial = try XCTUnwrap(ScheduledMessageContent.read(item))
+        let coordinator = makeCoordinator(service)
+
+        try await coordinator.perform(.editContent(
+            body: "New 🙂 & bold!",
+            retainedAttachmentIDs: initial.attachments.map(\.id),
+            addedAttachmentXML: []
+        ), on: item).get()
+
+        let message = try XCTUnwrap(service.payload)
+        let content = try XCTUnwrap(ScheduledMessageContent.read(makeItem(message: message)))
+        let markup = try XCTUnwrap(content.references.first { $0.kind == .markup })
+        XCTAssertEqual(content.body, "New 🙂 & bold!")
+        XCTAssertEqual((content.body as NSString).substring(with: markup.range), "bold")
+        XCTAssertEqual(markup.fileSharingURI, "https://example.test/style")
+        XCTAssertEqual(content.attachments.count, 1)
+        XCTAssertEqual(message.element(forName: "custom", xmlns: "urn:example:future")?.stringValue, "retained")
+        XCTAssertEqual(service.scheduledDate, item.deliverAt)
+    }
+
+    func testRemovingAnEditedGroupMentionAlsoRemovesItsNotificationTarget() throws {
+        let message = try XMPPMessage(xmlString: """
+            <message xmlns='jabber:client' type='chat' to='room@example.test' id='original'>
+              <body>@Anna and @Bob</body>
+              <mentions xmlns='https://xabber.com/protocol/groups'><user id='anna'/><user id='bob'/></mentions>
+              <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='0' end='5'>
+                <mention xmlns='https://xabber.com/protocol/markup'>xmpp:room@example.test?members;id=anna</mention>
+              </reference>
+              <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='10' end='14'>
+                <mention xmlns='https://xabber.com/protocol/markup'>xmpp:room@example.test?members;id=bob</mention>
+              </reference>
+            </message>
+            """)
+        let edited = try XCTUnwrap(ScheduledMessageContent.edited(
+            message, body: "Hello @Anna", retainedAttachmentIDs: [], addedAttachmentXML: []
+        ))
+
+        XCTAssertEqual(GroupMessageMentionsCodec.decode(from: edited), .members(["anna"]))
+        let parsed = parseReferences(edited, primary: "", jid: "room@example.test", owner: "alice@example.test")
+        XCTAssertEqual(GroupMessageMentionsCodec.memberIDs(from: parsed), ["anna"])
+    }
+
+    func testEditingInsideTwoIndependentStyledRangesPreservesBothStyles() throws {
+        let message = try XMPPMessage(xmlString: """
+            <message xmlns='jabber:client' type='chat' to='bob@example.test' id='original'>
+              <body>abc / xyz</body>
+              <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='0' end='3'>
+                <bold xmlns='https://xabber.com/protocol/markup'/>
+              </reference>
+              <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='6' end='9'>
+                <italic xmlns='https://xabber.com/protocol/markup'/>
+              </reference>
+            </message>
+            """)
+        let result = try XCTUnwrap(ScheduledMessageContent.edited(
+            message, body: "aBBc / xYYz", retainedAttachmentIDs: [], addedAttachmentXML: []
+        ))
+        let content = try XCTUnwrap(ScheduledMessageContent.read(makeItem(message: result)))
+        let styled = content.references.filter { $0.kind == .markup }
+
+        XCTAssertEqual(styled.map { (content.body as NSString).substring(with: $0.range) }, ["aBBc", "xYYz"])
+        XCTAssertEqual(styled.map { $0.metadata?["styles"] as? [String] ?? [] }, [["bold"], ["italic"]])
+    }
+
+    func testWebStickerCanBeMovedAndSentButCannotBeEdited() throws {
+        let item = makeItem(extra: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='0'>
+              <sticker xmlns='https://xabber.com/protocol/stickers' name='Wave'/>
+            </reference>
+            """)
+        XCTAssertFalse(ScheduledMessageActionCoordinator.supports(.edit("Changed"), on: item))
+        XCTAssertTrue(ScheduledMessageActionCoordinator.supports(.reschedule(now.addingTimeInterval(3600)), on: item))
+        XCTAssertTrue(ScheduledMessageActionCoordinator.supports(.sendNow, on: item))
+    }
+
+    func testExplicitlyRemovingAllFilesDoesNotRestoreOmittedAttachments() async throws {
+        let service = Service()
+        let item = try webScheduledFile()
+        let coordinator = makeCoordinator(service)
+
+        try await coordinator.perform(.editContent(body: "Image removed", retainedAttachmentIDs: [],
+                                                    addedAttachmentXML: []), on: item).get()
+
+        let message = try XCTUnwrap(service.payload)
+        let content = try XCTUnwrap(ScheduledMessageContent.read(makeItem(message: message)))
+        XCTAssertEqual(message.body, "Image removed")
+        XCTAssertTrue(content.attachments.isEmpty)
+    }
+
+    func testReplacementCanAddAnAlreadyUploadedFileWithoutTheOriginal() async throws {
+        let service = Service()
+        let item = try webScheduledFile()
+        let added = uploadedFile("https://files.example.test/new")
+        let newXML = try XCTUnwrap(ScheduledMessageContent.attachmentXML([added]))
+        let coordinator = makeCoordinator(service)
+
+        try await coordinator.perform(.editContent(body: "", retainedAttachmentIDs: [], addedAttachmentXML: newXML),
+                                      on: item).get()
+
+        let message = try XCTUnwrap(service.payload)
+        let content = try XCTUnwrap(ScheduledMessageContent.read(makeItem(message: message)))
+        XCTAssertEqual(message.body, added.fileSharingURI)
+        XCTAssertEqual(content.attachments.map { $0.reference.fileSharingURI }, [added.fileSharingURI])
+    }
+
+    func testFileAndDecorationsAreNormalizedForImmediateNativeSend() async throws {
+        let service = Service()
+        let item = try webScheduledFile()
+        let coordinator = makeCoordinator(service)
+
+        try await coordinator.perform(.sendNow, on: item).get()
+
+        let message = try XCTUnwrap(service.payload)
+        let parsed = parseReferences(message, primary: "", jid: item.conversation, owner: item.owner)
+        let markup = try XCTUnwrap(parsed.first { $0.kind == .markup })
+        let body = MessageStorageItem().normalizedIncomingTextBody(from: message)
+        XCTAssertEqual(body, "🙂 & bold")
+        XCTAssertEqual((body as NSString).substring(with: markup.range), "bold")
+    }
+
     func testReschedulePreservesUnknownExtensionAndBody() async throws {
         let service = Service()
         let item = makeItem(extra: "<custom xmlns='urn:example:future'><a>opaque</a></custom>")
@@ -229,6 +378,44 @@ final class ScheduledMessageActionsTests: XCTestCase {
         )
     }
 
+    private func makeItem(message: XMPPMessage) -> ScheduledMessageListItem {
+        ScheduledMessageListItem(
+            scheduledId: "first", deliverAt: now.addingTimeInterval(600), status: .pending,
+            bodyPreview: message.body ?? "", owner: "alice@example.test", conversation: "bob@example.test",
+            conversationType: .regular, messageXML: message.xmlString
+        )
+    }
+
+    private func uploadedFile(_ url: String) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.isUploaded = true
+        reference.url = url
+        reference.metadata = ["uri": url, "name": "Photo.jpg", "media-type": "image/jpeg"]
+        return reference
+    }
+
+    private func webScheduledFile() throws -> ScheduledMessageListItem {
+        let message = try XMPPMessage(xmlString: """
+            <message xmlns='jabber:client' to='bob@example.test' type='chat'>
+              <body>🙂 &amp; bold
+            https://files.example.test/a?t=x&amp;value=y</body>
+              <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='9' end='13'>
+                <bold xmlns='https://xabber.com/protocol/markup'/>
+                <link xmlns='https://xabber.com/protocol/markup'>https://example.test/style</link>
+              </reference>
+              <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='14' end='58'>
+                <file-sharing xmlns='https://xabber.com/protocol/files'>
+                  <file><name>Photo.jpg</name><media-type>image/jpeg</media-type></file>
+                  <sources><uri>https://files.example.test/a?t=x&amp;value=y</uri></sources>
+                </file-sharing>
+              </reference>
+              <custom xmlns='urn:example:future'>retained</custom>
+            </message>
+            """)
+        return makeItem(message: message)
+    }
+
     @discardableResult
     private func assertFailure(
         _ result: Result<Void, ScheduledMessageActionFailure>,
@@ -286,6 +473,7 @@ final class ScheduledMessageActionsTests: XCTestCase {
         func sendScheduledMessageNow(_ payload: XMPPMessage, for item: ScheduledMessageListItem,
                                      completion: @escaping (Result<Void, Manager.ScheduleError>) -> Void) {
             events.append("send:\(item.owner):\(item.scheduledId)")
+            self.payload = payload
             completion(.success(()))
         }
 

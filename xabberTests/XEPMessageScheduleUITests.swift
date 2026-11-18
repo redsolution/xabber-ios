@@ -33,6 +33,74 @@ final class XEPMessageScheduleUITests: XCTestCase {
 
     private var previousRealmConfiguration: Realm.Configuration!
 
+    @MainActor
+    func testScheduledAttachmentPreviewUsesVisibleBodyAndExistingMarkup() throws {
+        let item = richScheduledItem()
+
+        let content = ScheduledMessageDisplayContent(item: item)
+
+        XCTAssertEqual(content.body, "Important")
+        XCTAssertEqual(content.attachments.map(\.title), ["report.pdf"])
+        XCTAssertEqual(content.attachments.first?.kind, .file)
+        let body = content.attributedBody(font: .systemFont(ofSize: 17), color: .label, mentionColor: .systemBlue)
+        let font = try XCTUnwrap(body.attribute(.font, at: 0, effectiveRange: nil) as? UIFont)
+        XCTAssertTrue(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+    }
+
+    @MainActor
+    func testRemovingAllAttachmentsFromAnEditedCaptionProducesAnExplicitEmptySelection() throws {
+        let content = try XCTUnwrap(ScheduledMessageContent.read(richScheduledItem()))
+        var draft = ScheduledMessageEditDraft(content: content)
+        let original = try XCTUnwrap(draft.attachments.first)
+
+        draft.remove(original.id)
+
+        XCTAssertTrue(draft.canSave)
+        XCTAssertEqual(draft.action, .editContent(body: "Important", retainedAttachmentIDs: [], addedAttachmentXML: []))
+
+        draft.body = " "
+        XCTAssertFalse(draft.canSave)
+    }
+
+    @MainActor
+    func testScheduledAttachmentPreviewRejectsLocalURLsAndProtectedMetadata() {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.url = "file:///private/secret.pdf"
+        XCTAssertNil(ScheduledMessageAttachmentPresentation(reference: reference).url)
+
+        reference.url = "https://example.test/secret.pdf"
+        reference.metadata = ["encryption-key": "malformed"]
+        XCTAssertNil(ScheduledMessageAttachmentPresentation(reference: reference).url)
+    }
+
+    private func richScheduledItem() -> ScheduledMessageListItem {
+        let uri = "https://example.test/report.pdf"
+        return ScheduledMessageListItem(
+            scheduledId: "rich",
+            deliverAt: Date(),
+            status: .pending,
+            bodyPreview: "Important\n\(uri)",
+            owner: "me@example.test",
+            conversation: "peer@example.test",
+            messageXML: """
+            <message xmlns='jabber:client' to='peer@example.test' type='chat'>
+              <body>Important
+            \(uri)</body>
+              <reference xmlns='https://xabber.com/protocol/references' type='decoration' begin='0' end='9'>
+                <bold xmlns='https://xabber.com/protocol/markup'/>
+              </reference>
+              <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='10' end='\(10 + uri.count)'>
+                <file-sharing xmlns='https://xabber.com/protocol/files'>
+                  <file><name>report.pdf</name><media-type>application/pdf</media-type><size>125</size></file>
+                  <sources><uri>\(uri)</uri></sources>
+                </file-sharing>
+              </reference>
+            </message>
+            """
+        )
+    }
+
     override func setUp() {
         super.setUp()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration

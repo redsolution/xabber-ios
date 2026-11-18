@@ -1,9 +1,87 @@
 import XCTest
 import UIKit
+import XMPPFramework
 @testable import xabber
 
 @MainActor
 final class ScheduledComposerSubmissionTests: XCTestCase {
+    func testUploadedFileWithoutCaptionMakesAScheduleWithTheExactChatRoute() throws {
+        let service = ScheduleService()
+        let context = ChatAttachmentFlowContext(
+            owner: "second@example.com", jid: "peer@example.com", conversationType: .regular,
+            forwardedMessageIds: []
+        )
+        let attachment = makeUploadedFile(owner: context.owner, jid: context.jid)
+        let date = Date().addingTimeInterval(3600)
+        var accepted = false
+
+        ChatScheduledMessageSendCoordinator(service: service).scheduleAttachments(
+            [attachment], caption: .init(), context: context, deliverAt: date
+        ) { result in
+            if case .success = result { accepted = true }
+        }
+
+        XCTAssertTrue(accepted)
+        XCTAssertTrue(service.requests.isEmpty)
+        let submitted = try XCTUnwrap(service.preparedRequest)
+        XCTAssertEqual(submitted.owner, context.owner)
+        XCTAssertEqual(submitted.conversation, context.jid)
+        XCTAssertEqual(submitted.type, context.conversationType)
+        XCTAssertEqual(submitted.deliverAt, date)
+        XCTAssertEqual(submitted.payload.body, attachment.fileSharingURI)
+        XCTAssertTrue(submitted.payload.xmlString.contains("file-sharing"))
+    }
+
+    func testUnuploadedOrExpiredAttachmentNeverReachesScheduleService() {
+        let service = ScheduleService()
+        let context = ChatAttachmentFlowContext(
+            owner: "second@example.com", jid: "peer@example.com", conversationType: .regular,
+            forwardedMessageIds: []
+        )
+        let attachment = makeUploadedFile(owner: context.owner, jid: context.jid)
+        let coordinator = ChatScheduledMessageSendCoordinator(service: service)
+        var failures: [XMPPMessageScheduleManager.ScheduleError] = []
+        func record(_ result: Result<Void, XMPPMessageScheduleManager.ScheduleError>) {
+            if case .failure(let error) = result { failures.append(error) }
+        }
+
+        coordinator.scheduleAttachments([attachment], caption: .init(), context: context,
+                                         deliverAt: Date().addingTimeInterval(-60), completion: record)
+        attachment.isUploaded = false
+        coordinator.scheduleAttachments([attachment], caption: .init(), context: context,
+                                         deliverAt: Date().addingTimeInterval(3600), completion: record)
+
+        XCTAssertEqual(failures, [.notAcceptable, .malformedPayload])
+        XCTAssertNil(service.preparedRequest)
+    }
+
+    func testNativeScheduledComposerPreservesMemberMentionIntent() {
+        let (controller, service) = makeController()
+        controller.conversationType = .group
+        let payload = ComposerMessagePayload(
+            body: "Hello @Lena", references: [], groupMentionIntent: .members(["member-lena"]),
+            groupMentionSenderRole: .member
+        )
+
+        controller.sendScheduledMessage(payload: payload, deliverAt: Date().addingTimeInterval(3600))
+
+        XCTAssertEqual(service.requests.first?.groupMentionIntent, .members(["member-lena"]))
+    }
+
+    private func makeUploadedFile(owner: String, jid: String) -> MessageReferenceStorageItem {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.owner = owner
+        reference.jid = jid
+        reference.isUploaded = true
+        reference.metadata = [
+            "uri": "https://files.example.com/report.pdf",
+            "filename": "report.pdf", "name": "report.pdf",
+            "media-type": "application/pdf", "size": 100
+        ]
+        return reference
+    }
+
     func testLateConfirmationPreservesADifferentDraftAndPreventsDuplicateSubmission() {
         let (controller, service) = makeController()
         let payload = controller.xabberInputView.currentPayload()
@@ -105,6 +183,10 @@ final class ScheduledComposerSubmissionTests: XCTestCase {
 private final class ScheduleService: ChatScheduledMessageServicing {
     private(set) var requests: [ChatScheduledMessageSendRequest] = []
     private var callback: XMPPMessageScheduleManager.ScheduleCallback?
+    private(set) var preparedRequest: (
+        payload: XMPPMessage, owner: String, conversation: String,
+        type: ClientSynchronizationManager.ConversationType, deliverAt: Date
+    )?
 
     func isScheduleAvailable(owner: String) -> Bool { true }
 
@@ -115,6 +197,22 @@ private final class ScheduleService: ChatScheduledMessageServicing {
         requests.append(request)
         self.callback = callback
         return "request"
+    }
+
+    func schedulePreparedMessage(
+        _ payload: XMPPMessage,
+        owner: String,
+        conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        deliverAt: Date,
+        callback: XMPPMessageScheduleManager.ScheduleCallback?
+    ) -> String? {
+        preparedRequest = (payload, owner, conversation, conversationType, deliverAt)
+        callback?(.success(.init(
+            scheduledId: "prepared-id", conversation: conversation, conversationType: conversationType,
+            deliverAt: deliverAt, status: .pending, messageXML: payload.xmlString
+        )))
+        return "prepared-query"
     }
 
     func confirm() {

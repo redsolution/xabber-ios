@@ -250,6 +250,11 @@ final class PrivacyProxyMediaRouter {
         return try await download(from: resolved, originalURL: url)
     }
 
+    func downloadImage(_ url: URL, owner: String) async throws -> URL {
+        let resolved = try await resolveImage(url, owner: owner)
+        return try await download(from: resolved, originalURL: url)
+    }
+
     private func download(from resolved: URL, originalURL url: URL) async throws -> URL {
         let (temporary, response) = try await Self.downloadSession.download(
             for: URLRequest(url: resolved), delegate: RedirectDelegate(source: resolved)

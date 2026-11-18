@@ -2707,12 +2707,13 @@ class XabberUploadManager: AbstractXMPPManager {
             ("mimeType", mimeType),
             ("galleryHost", context.baseURL.host)
         ]
+        var slotRejection: Int?
         preflightUploadSlot(
             data: data,
             filename: filename,
             context: context,
             traceDetails: traceDetails,
-            errorCallback: { _ in }
+            errorCallback: { slotRejection = $0 }
         ) { [weak self] shouldContinue in
             guard let self = self else { return }
             guard shouldContinue, self.isCurrent(context) else {
@@ -2721,7 +2722,7 @@ class XabberUploadManager: AbstractXMPPManager {
                     ("filename", filename),
                     ("reason", shouldContinue ? "staleContext" : "slotRejected")
                 ])
-                completion(.failure(statusCode: 409, error: nil))
+                completion(.failure(statusCode: shouldContinue ? 409 : (slotRejection ?? 409), error: nil))
                 return
             }
             let uploadContext = self.uploadContext(for: mimeType, metadata: metadata)

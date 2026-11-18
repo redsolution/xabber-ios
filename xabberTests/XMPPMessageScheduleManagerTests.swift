@@ -4,6 +4,32 @@ import XMPPFramework
 @testable import xabber
 
 final class XMPPMessageScheduleManagerTests: XCTestCase {
+    func testDeliveredWebAttachmentUsesNativeDisplayRangesAndKeepsOriginalXML() throws {
+        let url = "https://files.example.com/report.pdf"
+        let message = try XMPPMessage(xmlString: """
+        <message xmlns='jabber:client' type='chat' id='delivered' from='other@example.com' to='owner@example.com'>
+          <body>😀 &amp; Hi
+        \(url)</body>
+          <reference xmlns='https://xabber.com/protocol/references' begin='12' end='\(12 + url.utf16.count)' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file><name>report.pdf</name><media-type>application/pdf</media-type><size>100</size></file>
+              <sources><uri>\(url)</uri></sources>
+            </file-sharing>
+          </reference>
+          <deferred xmlns='https://xabber.com/protocol/schedule' id='record' deliver-at='2026-06-10T10:00:00Z'/>
+        </message>
+        """)
+        let wire = message.xmlString
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(message, owner: "owner@example.com", opponent: "other@example.com",
+                                      outgoing: false, isRead: false, date: Date())
+
+        XCTAssertEqual(item.body, "😀 & Hi")
+        XCTAssertEqual(item.references.first?.fileSharingURI, url)
+        XCTAssertEqual(item.originalStanza?.xmlString, wire)
+    }
+
     private var previousRealmConfiguration: Realm.Configuration!
     private var owner: String!
 
