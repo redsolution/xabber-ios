@@ -4655,29 +4655,67 @@ final class ChatVerificationTopBarStyleTests: XCTestCase {
         }
     }
 
-    func testIncomingVerificationPanelIsContentOnlyFortyFourPointLayout() throws {
-        let viewController = ChatViewController()
+    func testIncomingVerificationPanelMatchesComposerLayout() throws {
+        let viewController = makeChatForBannerLayout()
         let panel = viewController.makeRequestingVerificationPanel(isActionEnabled: true)
-        let bubble = ChatFloatingGlassBubbleView(contentHeight: NativeGlassBarStyle.minimumHeight)
+        viewController.showTopPanelBubble(with: panel)
+        viewController.view.layoutIfNeeded()
 
-        bubble.setHostedView(panel, contentHeight: NativeGlassBarStyle.minimumHeight)
-        bubble.frame = CGRect(x: 0, y: 0, width: 320, height: NativeGlassBarStyle.minimumHeight)
-        bubble.layoutIfNeeded()
-
-        let effectView = try XCTUnwrap(visualEffectViews(in: bubble).first)
         let actionButton = try XCTUnwrap(button(configuredTitle: "Accept verification request", in: panel))
+        let effectView = try XCTUnwrap(visualEffectViews(in: panel).first { actionButton.isDescendant(of: $0.contentView) })
+        let iconButton = try XCTUnwrap(buttons(in: panel).first {
+            $0 !== panel.closeButton && $0.superview === panel.closeButton.superview
+        })
 
-        XCTAssertTrue(panel.isDescendant(of: effectView.contentView))
-        XCTAssertFalse(panel.translatesAutoresizingMaskIntoConstraints)
-        XCTAssertEqual(panel.intrinsicContentSize.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertEqual(panel.frame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
-        XCTAssertEqual(panel.frame.minX, 10, accuracy: 0.001)
-        XCTAssertEqual(effectView.contentView.bounds.maxX - panel.frame.maxX, 10, accuracy: 0.001)
-        XCTAssertEqual(visualEffectViews(in: panel).count, 0)
-        XCTAssertEqual(panel.layer.borderWidth, 0, accuracy: 0.001)
-        XCTAssertEqual(panel.layer.shadowOpacity, 0, accuracy: 0.001)
+        let rowFrame = panel.convert(panel.bounds, to: viewController.view)
+        let safeArea = viewController.view.safeAreaLayoutGuide.layoutFrame
+        XCTAssertEqual(rowFrame.minX - safeArea.minX, ModernXabberInputView.edgeHorizontalInset, accuracy: 0.001)
+        XCTAssertEqual(safeArea.maxX - rowFrame.maxX, ModernXabberInputView.edgeHorizontalInset, accuracy: 0.001)
+        XCTAssertEqual(rowFrame.height, NativeGlassBarStyle.minimumHeight, accuracy: 0.001)
+        XCTAssertEqual(viewController.floatingBubblesHeight, rowFrame.height, accuracy: 0.001)
+        XCTAssertEqual(iconButton.frame.size, CGSize(width: 44, height: 44))
+        XCTAssertEqual(panel.closeButton.frame.size, iconButton.frame.size)
+        XCTAssertEqual(effectView.frame.minX - iconButton.frame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
+        XCTAssertEqual(panel.closeButton.frame.minX - effectView.frame.maxX, NativeGlassBarStyle.interItemSpacing, accuracy: 0.001)
+        XCTAssertTrue(actionButton.isDescendant(of: effectView.contentView))
+        XCTAssertEqual(actionButton.bounds.width, effectView.bounds.width - 2 * NativeGlassBarStyle.contentInset, accuracy: 0.001)
+        XCTAssertFalse(iconButton.isUserInteractionEnabled)
+        XCTAssertEqual(panel.closeButton.accessibilityLabel, "Close".localizeString(id: "close", arguments: []))
         XCTAssertTrue(actionButton.isEnabled)
         XCTAssertEqual(actionButton.titleLabel?.lineBreakMode, .byTruncatingTail)
+
+        panel.closeButton.sendActions(for: .touchUpInside)
+        XCTAssertEqual(viewController.floatingBubblesHeight, 0)
+    }
+
+    func testSubscriptionPanelSizesActionsProportionallyWithMinimumTouchTargets() throws {
+        let viewController = makeChatForBannerLayout()
+        viewController.applyAllowSubscribtion()
+        let bannerStack = viewController.floatingBubblesStackView
+        let allow = try XCTUnwrap(button(
+            configuredTitle: "Incoming subscription request".localizeString(id: "incoming_subscription_request", arguments: []),
+            in: bannerStack
+        ))
+        let block = try XCTUnwrap(button(
+            configuredTitle: "Block".localizeString(id: "contact_bar_block", arguments: []),
+            in: bannerStack
+        ))
+        let totalIntrinsicWidth = allow.intrinsicContentSize.width + block.intrinsicContentSize.width
+        let blockShare = block.intrinsicContentSize.width / totalIntrinsicWidth
+        let minimum = NativeGlassBarStyle.buttonSize
+
+        for width: CGFloat in [320, 632] {
+            viewController.view.frame.size.width = width
+            viewController.view.layoutIfNeeded()
+
+            let availableWidth = width - 2 * (
+                ModernXabberInputView.edgeHorizontalInset + minimum +
+                NativeGlassBarStyle.interItemSpacing + NativeGlassBarStyle.contentInset
+            )
+            let expectedBlockWidth = min(max(availableWidth * blockShare, minimum), availableWidth - minimum)
+            XCTAssertEqual(block.bounds.width, expectedBlockWidth, accuracy: 1)
+            XCTAssertEqual(allow.bounds.width + block.bounds.width, availableWidth, accuracy: 1)
+        }
     }
 
     func testIncomingVerificationActionTargetsExistingFlow() throws {
@@ -4703,6 +4741,14 @@ final class ChatVerificationTopBarStyleTests: XCTestCase {
         let actionButton = try XCTUnwrap(button(configuredTitle: "Accept verification request", in: panel))
 
         XCTAssertFalse(actionButton.isEnabled)
+    }
+
+    private func makeChatForBannerLayout() -> ChatViewController {
+        let viewController = ChatViewController()
+        viewController.view = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 640))
+        viewController.xabberInputView = ModernXabberInputView(frame: .zero)
+        viewController.setupFloatingGlassBubbles()
+        return viewController
     }
 
     private func button(configuredTitle title: String, in view: UIView) -> UIButton? {

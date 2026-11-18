@@ -1410,43 +1410,27 @@ final class ChatFloatingGlassBubbleView: UIView {
 }
 
 final class ChatFloatingActionPanelView: UIView {
-    private enum Metrics {
-        static let height: CGFloat = NativeGlassBarStyle.minimumHeight
-        static let iconSize: CGFloat = NativeGlassBarStyle.iconSize
-        static let buttonSize: CGFloat = NativeGlassBarStyle.buttonSize
-    }
-
-    private let iconView: UIImageView = {
-        let imageView = UIImageView(frame: .zero)
-        imageView.contentMode = .scaleAspectFit
-        imageView.tintColor = .tintColor
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        return imageView
-    }()
-
     private let contentStack: UIStackView = {
-        let stack = UIStackView(frame: .zero)
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = 8
+        let stack = UIStackView()
+        stack.distribution = .fillProportionally
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
 
     let closeButton: UIButton = {
         let button = UIButton(type: .system)
-        NativeGlassBarStyle.applyIconButtonStyle(
+        NativeGlassBarStyle.applyDetachedIconButtonStyle(
             to: button,
             tintColor: .secondaryLabel,
-            image: UIImage(systemName: "xmark"),
-            prefersNativeGlass: false
+            image: UIImage(systemName: "xmark")
         )
+        button.configuration?.cornerStyle = .capsule
+        button.accessibilityLabel = "Close".localizeString(id: "close", arguments: [])
         return button
     }()
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: Metrics.height)
+        CGSize(width: UIView.noIntrinsicMetric, height: NativeGlassBarStyle.minimumHeight)
     }
 
     init(icon: UIImage?, tintColor: UIColor, showsCloseButton: Bool = true) {
@@ -1462,40 +1446,45 @@ final class ChatFloatingActionPanelView: UIView {
     private func setup(icon: UIImage?, tintColor: UIColor, showsCloseButton: Bool) {
         backgroundColor = .clear
         isOpaque = false
-        layer.borderWidth = 0
-        layer.borderColor = nil
-        layer.shadowColor = nil
-        layer.shadowOpacity = 0
-        layer.shadowRadius = 0
-        layer.shadowOffset = .zero
-        layer.shadowPath = nil
-        iconView.image = icon?.withRenderingMode(.alwaysTemplate)
-        iconView.tintColor = tintColor
-        contentStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        addSubview(iconView)
-        addSubview(contentStack)
-        addSubview(closeButton)
+        let surface = UIVisualEffectView()
+        NativeGlassBarStyle.applySurface(
+            to: surface,
+            role: .clearInputSurface,
+            cornerStyle: .fixed(NativeGlassBarStyle.cornerRadius)
+        )
+        surface.contentView.addSubview(contentStack)
 
-        closeButton.isHidden = !showsCloseButton
+        let row = UIStackView()
+        row.spacing = NativeGlassBarStyle.interItemSpacing
+        row.translatesAutoresizingMaskIntoConstraints = false
 
+        if let icon {
+            let iconButton = UIButton(type: .system)
+            NativeGlassBarStyle.applyDetachedIconButtonStyle(to: iconButton, tintColor: tintColor, image: icon)
+            iconButton.configuration?.cornerStyle = .capsule
+            iconButton.isUserInteractionEnabled = false
+            iconButton.isAccessibilityElement = false
+            row.addArrangedSubview(iconButton)
+            iconButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize).isActive = true
+        }
+        row.addArrangedSubview(surface)
+        if showsCloseButton {
+            row.addArrangedSubview(closeButton)
+            closeButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize).isActive = true
+        }
+
+        addSubview(row)
+        let inset = NativeGlassBarStyle.contentInset
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Metrics.height),
-
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
-
-            contentStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            contentStack.topAnchor.constraint(equalTo: topAnchor),
-            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            closeButton.leadingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: 8),
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: Metrics.buttonSize),
-            closeButton.heightAnchor.constraint(equalToConstant: Metrics.buttonSize)
+            row.leadingAnchor.constraint(equalTo: leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: surface.contentView.leadingAnchor, constant: inset),
+            contentStack.trailingAnchor.constraint(equalTo: surface.contentView.trailingAnchor, constant: -inset),
+            contentStack.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor)
         ])
     }
 
@@ -4599,7 +4588,10 @@ class ChatViewController: MessagesViewController {
         return stack
     }()
 
-    internal let topPanelBubbleView = ChatFloatingGlassBubbleView(contentHeight: 44)
+    private let topPanelHostView = UIView()
+    private lazy var topPanelHeightConstraint = topPanelHostView.heightAnchor.constraint(
+        equalToConstant: NativeGlassBarStyle.minimumHeight
+    )
     internal let pinnedMessageBubbleView = ChatFloatingGlassBubbleView(contentHeight: ChatPinnedMessageBarHeightPolicy.minimumHeight)
     internal var pinnedMessagePanelView: ChatPinnedMessagePanelView? = nil
     internal var sharedAudioPlayerHeightConstraint: NSLayoutConstraint? = nil
@@ -6565,7 +6557,9 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        floatingBubblesStackView.addArrangedSubview(topPanelBubbleView)
+        floatingBubblesStackView.addArrangedSubview(topPanelHostView)
+        topPanelHeightConstraint.priority = .defaultHigh
+        topPanelHeightConstraint.isActive = true
         floatingBubblesStackView.addArrangedSubview(pinnedMessageBubbleView)
         if let sharedAudioPlayerPanel {
             floatingBubblesStackView.addArrangedSubview(sharedAudioPlayerPanel)
@@ -6573,7 +6567,7 @@ class ChatViewController: MessagesViewController {
             sharedAudioPlayerHeightConstraint?.isActive = true
         }
 
-        topPanelBubbleView.isHidden = true
+        topPanelHostView.isHidden = true
         pinnedMessageBubbleView.isHidden = true
         sharedAudioPlayerPanel?.isHidden = true
 
@@ -6585,14 +6579,30 @@ class ChatViewController: MessagesViewController {
         ])
     }
 
-    internal func showTopPanelBubble(with view: UIView, contentHeight: CGFloat = 44) {
-        topPanelBubbleView.setHostedView(view, contentHeight: contentHeight)
-        topPanelBubbleView.isHidden = false
+    internal func showTopPanelBubble(with panel: UIView, contentHeight: CGFloat = NativeGlassBarStyle.minimumHeight) {
+        let safeArea = view.safeAreaLayoutGuide
+        setupFloatingGlassBubbles()
+        if panel.superview !== topPanelHostView {
+            topPanelHostView.subviews.first?.removeFromSuperview()
+            panel.translatesAutoresizingMaskIntoConstraints = false
+            topPanelHostView.addSubview(panel)
+
+            let inset = ModernXabberInputView.edgeHorizontalInset
+            NSLayoutConstraint.activate([
+                panel.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: inset),
+                panel.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -inset),
+                panel.topAnchor.constraint(equalTo: topPanelHostView.topAnchor),
+                panel.bottomAnchor.constraint(equalTo: topPanelHostView.bottomAnchor)
+            ])
+        }
+
+        topPanelHeightConstraint.constant = contentHeight
+        topPanelHostView.isHidden = false
         updateFloatingBubblesVisibility(animated: true)
     }
 
     internal func hideTopPanelBubble(animated: Bool) {
-        topPanelBubbleView.isHidden = true
+        topPanelHostView.isHidden = true
         updateFloatingBubblesVisibility(animated: animated)
     }
 
@@ -6620,6 +6630,9 @@ class ChatViewController: MessagesViewController {
         let visibleHeights = floatingBubblesStackView.arrangedSubviews
             .filter { !$0.isHidden }
             .map { view -> CGFloat in
+                if view === topPanelHostView {
+                    return topPanelHeightConstraint.constant
+                }
                 if let bubble = view as? ChatFloatingGlassBubbleView {
                     return bubble.measuredHeight()
                 }

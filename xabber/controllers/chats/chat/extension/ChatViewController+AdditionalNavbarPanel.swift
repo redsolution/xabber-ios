@@ -94,7 +94,7 @@ extension ChatViewController {
         button.contentHorizontalAlignment = .center
         button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        button.heightAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize).isActive = true
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: NativeGlassBarStyle.buttonSize).isActive = true
         button.addTarget(self, action: action, for: .touchUpInside)
         return button
     }
