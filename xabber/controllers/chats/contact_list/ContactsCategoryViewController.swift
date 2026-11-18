@@ -349,7 +349,7 @@ extension ContactsCategoryViewController: UITableViewDataSource {
             cell.configure(title: item.title, subtitle: item.subtitle, icon: item.icon, color: item.color, withCircle: true)
 
             cell.configureAsInformationalHeader()
-            cell.applyContinuousSplitStaticGlassBackground()
+            cell.applyPlainGroupedSystemBackground(selectedColor: nil)
 
             return cell
         } else {
@@ -370,7 +370,7 @@ extension ContactsCategoryViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if section == 3 {
+        if section == 3, datasource.indices.contains(section), !datasource[section].isEmpty {
             return L10n.text("contact_circle", fallback: "Circles")
         }
         return nil

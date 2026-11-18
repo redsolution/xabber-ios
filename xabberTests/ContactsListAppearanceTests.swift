@@ -1132,6 +1132,40 @@ final class ContactsListAppearanceTests: XCTestCase {
         XCTAssertEqual(spy.categoryFilters, ["all"])
     }
 
+    func testCategoryCirclesHeaderAppearsOnlyWhenSectionHasRows() {
+        for isGroup in [false, true] {
+            let controller = ContactsCategoryViewController()
+            controller.isGroup = isGroup
+            controller.loadViewIfNeeded()
+            controller.datasource[3] = []
+
+            XCTAssertNil(controller.tableView(controller.tableView, titleForHeaderInSection: 3))
+
+            controller.datasource[3] = [ContactsCategoryViewController.Datasource(
+                title: "Friends", icon: "tag", key: "Friends", subtitle: "0",
+                color: .tintColor, isImportant: false, value: 0, isHeader: false
+            )]
+            XCTAssertEqual(
+                controller.tableView(controller.tableView, titleForHeaderInSection: 3),
+                L10n.text("contact_circle", fallback: "Circles")
+            )
+            XCTAssertNil(controller.tableView(controller.tableView, titleForHeaderInSection: 2))
+        }
+    }
+
+    func testContactsAndGroupsIntroCardsUseSystemBackground() {
+        for isGroup in [false, true] {
+            let controller = ContactsCategoryViewController()
+            controller.isGroup = isGroup
+            controller.loadViewIfNeeded()
+            let cell = controller.tableView(controller.tableView, cellForRowAt: IndexPath(row: 0, section: 0))
+
+            XCTAssertEqual(cell.backgroundColor, .systemBackground)
+            XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+            assertInformationalHeaderDoesNotAcceptSelectionFeedback(cell)
+        }
+    }
+
     func testContactsCategoryCircleSelectionKeepsPlainSelectedBackground() {
         let owner = "contacts-circle-\(UUID().uuidString)@example.com"
         registerAccountColor(owner: owner, colorKey: "orange")
