@@ -474,6 +474,17 @@ final class NotificationsListAppearanceTests: XCTestCase {
         )
     }
 
+    func testNotificationsCategoryIntroCardUsesSystemBackground() {
+        let controller = NotificationsCategoriesViewController()
+        controller.loadViewIfNeeded()
+
+        let cell = controller.tableView(controller.tableView, cellForRowAt: IndexPath(row: 0, section: 0))
+
+        XCTAssertEqual(cell.backgroundColor, .systemBackground)
+        XCTAssertNil(cell.backgroundConfiguration?.visualEffect)
+        assertInformationalHeaderDoesNotAcceptSelectionFeedback(cell)
+    }
+
     func testNotificationsCompactSplitUsesBottomBarAndClearsNavbarDuplicates() throws {
         let controller = NotificationsListViewController()
         let navigationController = UINavigationController(rootViewController: controller)

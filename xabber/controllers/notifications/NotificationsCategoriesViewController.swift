@@ -319,7 +319,7 @@ extension NotificationsCategoriesViewController: UITableViewDataSource {
             cell.configure(title: item.title, subtitle: item.subtitle, icon: item.icon, color: item.color, withCircle: true)
 
             cell.configureAsInformationalHeader()
-            cell.applyContinuousSplitStaticGlassBackground()
+            cell.applyPlainGroupedSystemBackground(selectedColor: nil)
 
             return cell
         } else {

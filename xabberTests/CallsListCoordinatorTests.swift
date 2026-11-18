@@ -835,6 +835,8 @@ final class CallsVisualStyleTests: XCTestCase {
         )
 
         let headerCell = controller.tableView(controller.tableView, cellForRowAt: headerIndexPath)
+        XCTAssertEqual(headerCell.backgroundColor, .systemBackground)
+        XCTAssertNil(headerCell.backgroundConfiguration?.visualEffect)
         assertInformationalHeaderDoesNotAcceptSelectionFeedback(headerCell)
 
         controller.tableView(controller.tableView, didSelectRowAt: headerIndexPath)
