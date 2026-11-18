@@ -79,9 +79,10 @@ final class PrivacyProxyMediaRouter {
         pushRouting?.publish(endpoint: current.endpoint, trustedHosts: current.trustedHosts, owner: owner)
     }
 
-    func canRequestDirectImage(_ url: URL, owner: String) -> Bool {
+    func canRequestDirectImage(_ url: URL, owner: String, installedStickerPack: URL? = nil) -> Bool {
         guard let jid = XMPPJID(string: owner), jid.user != nil, Self.isHTTPImageURL(url) else { return false }
         let current = context(jid.bare)
+        if !current.usesProxy, Self.matchesInstalledStickerOrigin(url, manifest: installedStickerPack) { return false }
         return mayApproveImage(url, jid: jid, context: current)
     }
 
@@ -141,6 +142,11 @@ final class PrivacyProxyMediaRouter {
         return url.user == nil && url.password == nil
     }
 
+    private static func matchesInstalledStickerOrigin(_ url: URL, manifest: URL?) -> Bool {
+        guard let manifest, manifest.scheme?.lowercased() == "https", isHTTPImageURL(manifest) else { return false }
+        return allowsRedirect(from: manifest, to: url)
+    }
+
     func resolveImage(_ url: URL, owner: String, installedStickerPack: URL? = nil) async throws -> URL {
         try await resolveImage(url, owner: owner, allowsConsent: true, installedStickerPack: installedStickerPack)
     }
@@ -161,8 +167,7 @@ final class PrivacyProxyMediaRouter {
         if current.policy != .always, allowsConsent, hasImageConsent(url, owner: jid.bare) { return url }
         guard current.usesProxy else {
             // Installing a pack requests content from its HTTPS origin.
-            if allowsConsent, let pack = installedStickerPack, pack.scheme?.lowercased() == "https",
-               Self.isHTTPImageURL(pack), Self.allowsRedirect(from: pack, to: url) {
+            if allowsConsent, Self.matchesInstalledStickerOrigin(url, manifest: installedStickerPack) {
                 return url
             }
             throw RoutingError.imageConsentRequired

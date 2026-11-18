@@ -92,6 +92,7 @@ class ImageAttachment {
     var isSensitiveRevealed: Bool
     var encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     let inlineThumbnail: Data?
+    let outgoingStickerPackURL: URL?
     
     init(
         primary: String,
@@ -101,7 +102,8 @@ class ImageAttachment {
         isSensitive: Bool = false,
         isSensitiveRevealed: Bool = false,
         encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
-        inlineThumbnail: Data? = nil
+        inlineThumbnail: Data? = nil,
+        outgoingStickerPackURL: URL? = nil
     ) {
         self.primary = primary
         self.url = url
@@ -111,6 +113,7 @@ class ImageAttachment {
         self.isSensitiveRevealed = isSensitiveRevealed
         self.encryptedAttachment = encryptedAttachment
         self.inlineThumbnail = inlineThumbnail
+        self.outgoingStickerPackURL = outgoingStickerPackURL
     }
     
 }

@@ -38,11 +38,12 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         view.contentMode = .scaleAspectFit
         view.clipsToBounds = true
         view.isUserInteractionEnabled = true
-        view.backgroundColor = ChatStickerPlaceholder.color
+        view.backgroundColor = .clear
         return view
     }()
 
     var thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
+    var stickerCatalogue = ChatStickerCatalogue.shared
     private lazy var showExternalImageButton = ExternalImageConsentButton(in: imageView)
     private(set) var representedStickerPrimary: String?
     private var representedMessagePrimary: String?
@@ -98,7 +99,6 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         representedThumbnailConsumer = nil
         deliveryState = .idle
         imageView.image = nil
-        imageView.backgroundColor = ChatStickerPlaceholder.color
         warningLabel.text = nil
         warningLabel.isHidden = true
     }
@@ -111,7 +111,6 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         deliveryState = .idle
         showExternalImageButton.reset()
         imageView.image = nil
-        imageView.backgroundColor = ChatStickerPlaceholder.color
     }
 
     func resumeOnscreenWork() {
@@ -120,36 +119,34 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
 
     override func setupSubviews() {
         super.setupSubviews()
+        messageContainerView.bubble.isHidden = true
         self.messageContainerView.addSubview(imageView)
         self.messageContainerView.addSubview(warningLabel)
     }
 
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
-        updateWarning(with: message)
-        switch message.kind {
-        case .sticker(let attachment):
-            represent(attachment, messagePrimary: message.primary, owner: message.owner)
-            refreshStickerBinding()
-        default: break
-        }
+        updateStickerContent(with: message)
     }
 
     override func reconfigureContent(with message: MessageType, at indexPath: IndexPath,
         and messagesCollectionView: MessagesCollectionView) {
         super.reconfigureContent(with: message, at: indexPath, and: messagesCollectionView)
-        updateWarning(with: message)
+        updateStickerContent(with: message)
     }
 
     override func reconfigureContent(with message: MessageType, at indexPath: IndexPath,
         and messagesCollectionView: MessagesCollectionView, changeMask: ChatMessageChangeMask) {
         super.reconfigureContent(with: message, at: indexPath, and: messagesCollectionView, changeMask: changeMask)
-        updateWarning(with: message)
+        updateStickerContent(with: message)
     }
 
-    private func updateWarning(with message: MessageType) {
+    private func updateStickerContent(with message: MessageType) {
         warningLabel.text = message.messageWarningText
         warningLabel.isHidden = message.messageWarningText == nil
+        guard case .sticker(let attachment) = message.kind else { return }
+        represent(attachment, messagePrimary: message.primary, owner: message.owner)
+        refreshStickerBinding()
     }
 
     func bindSticker(
@@ -180,6 +177,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             representedMessagePrimary != messagePrimary ||
             representedAttachment?.url != attachment.url ||
             representedAttachment?.inlineThumbnail != attachment.inlineThumbnail ||
+            representedAttachment?.outgoingStickerPackURL != attachment.outgoingStickerPackURL ||
             representedAttachment?.encryptedAttachment != attachment.encryptedAttachment ||
             stickerOwner != owner {
             cancelOffscreenWork()
@@ -229,7 +227,8 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             scale: scale,
             traitStyle: traitStyle,
             encryptedAttachment: attachment.encryptedAttachment,
-            owner: stickerOwner
+            owner: stickerOwner,
+            installedStickerPack: stickerCatalogue.installedManifest(for: attachment, owner: stickerOwner)
         )
         let consumer = ChatThumbnailConsumer(
             identity: ChatCollectionPrefetchIdentity(
@@ -251,7 +250,6 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         deliveryState = .loading
         showExternalImageButton.reset()
         imageView.image = attachment.inlineThumbnail.flatMap { UIImage(data: $0) }
-        imageView.backgroundColor = imageView.image == nil ? ChatStickerPlaceholder.color : .clear
         thumbnailSubscription = thumbnailPipeline.acquire(
             request,
             consumer: consumer
@@ -265,9 +263,12 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             case .success(let delivery):
                 self.deliveryState = .loaded
                 self.imageView.image = delivery.image
-                self.imageView.backgroundColor = .clear
             case .failure(let error):
-                if error == .loadFailed, PrivacyProxyMediaRouter.shared.canRequestDirectImage(url, owner: request.owner) {
+                if error == .loadFailed, self.imageView.image != nil {
+                    self.deliveryState = .loaded
+                } else if error == .loadFailed, PrivacyProxyMediaRouter.shared.canRequestDirectImage(
+                    url, owner: request.owner, installedStickerPack: request.installedStickerPack
+                ) {
                     self.deliveryState = .awaitingConsent
                     self.showExternalImageButton.isHidden = false
                     self.showExternalImageButton.onTap = { [weak self] in

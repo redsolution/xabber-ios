@@ -300,7 +300,3 @@ enum ChatStickerLayoutPolicy {
         )
     }
 }
-
-enum ChatStickerPlaceholder {
-    static let color = UIColor.secondarySystemFill
-}

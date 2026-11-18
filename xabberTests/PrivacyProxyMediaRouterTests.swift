@@ -76,6 +76,8 @@ final class PrivacyProxyMediaRouterTests: XCTestCase {
 
         let routed = try await router.resolveImage(external, owner: owner, installedStickerPack: packURL)
         XCTAssertEqual(routed, external)
+        XCTAssertFalse(router.canRequestDirectImage(external, owner: owner, installedStickerPack: packURL))
+        XCTAssertTrue(router.canRequestDirectImage(external, owner: owner))
 
         do {
             _ = try await router.resolveImage(external, owner: owner)

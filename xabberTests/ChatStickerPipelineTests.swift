@@ -26,6 +26,21 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertEqual(ChatStickerWireCodec.inlineThumbnail(in: message), thumbnailData)
         let attachment = try XCTUnwrap(ChatViewController.stickerAttachment(from: [ChatMessageReferenceSnapshot(reference)]))
         XCTAssertEqual(attachment.size, CGSize(width: 512, height: 256))
+        XCTAssertNil(attachment.outgoingStickerPackURL)
+    }
+
+    func testPackProvenanceIsProjectedOnlyForOwnOriginalSticker() throws {
+        let message = try XMPPMessage(xmlString: webScheduledStickerXML)
+        let owner = "sender@example.test"
+        let reference = try XCTUnwrap(parseReferences(
+            message, primary: "message", jid: "receiver@example.test", owner: owner
+        ).first)
+        let snapshot = ChatMessageReferenceSnapshot(reference)
+
+        let own = try XCTUnwrap(ChatViewController.stickerAttachment(from: [snapshot], ownOriginalSticker: true))
+        XCTAssertEqual(own.outgoingStickerPackURL?.absoluteString, "https://files.example.test/party/pack.xml")
+        let received = try XCTUnwrap(ChatViewController.stickerAttachment(from: [snapshot]))
+        XCTAssertNil(received.outgoingStickerPackURL)
     }
 
     func testStickerPayloadRoundTripsThroughOneDecorationForRegularAndEncryptedPreparation() throws {
@@ -105,6 +120,7 @@ final class ChatStickerPipelineTests: XCTestCase {
     func testStickerShowsEmbeddedMiniatureWhileFullImageIsLoading() throws {
         let cell = StickerMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
         cell.thumbnailPipeline = RecordingStickerThumbnailServing()
+        assertStickerSurfaceIsTransparent(cell)
         let attachment = ImageAttachment(
             primary: "embedded", url: URL(string: "https://files.example.test/party/party.webp"),
             size: CGSize(width: 192, height: 192), inlineThumbnail: thumbnailData
@@ -116,9 +132,83 @@ final class ChatStickerPipelineTests: XCTestCase {
         )
 
         XCTAssertNotNil(cell.imageView.image)
-        XCTAssertEqual(cell.imageView.backgroundColor, .clear)
+        assertStickerSurfaceIsTransparent(cell)
         cell.prepareForReuse()
         XCTAssertNil(cell.imageView.image)
+        assertStickerSurfaceIsTransparent(cell)
+    }
+
+    func testEmbeddedMiniatureRemainsVisibleWithoutConsentButtonWhenFullImageFails() throws {
+        let serving = RecordingStickerThumbnailServing()
+        let cell = StickerMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
+        cell.thumbnailPipeline = serving
+        let attachment = ImageAttachment(
+            primary: "embedded", url: URL(string: "https://outside.example.org/sticker.png"),
+            size: CGSize(width: 192, height: 192), inlineThumbnail: thumbnailData
+        )
+        cell.bindSticker(
+            attachment, messagePrimary: "message", displaySize: CGSize(width: 192, height: 192),
+            scale: 2, traitStyle: .light, owner: "owner@example.com"
+        )
+        let miniature = try XCTUnwrap(cell.imageView.image)
+
+        try XCTUnwrap(serving.subscriptions.first).emit(.failure(.loadFailed))
+
+        XCTAssertTrue(cell.imageView.image === miniature)
+        XCTAssertFalse(cell.imageView.subviews.contains {
+            $0.accessibilityIdentifier == "chat.media.photo.show-external" && !$0.isHidden
+        })
+        assertStickerSurfaceIsTransparent(cell)
+    }
+
+    func testOwnStickerUsesInstalledRouteOnlyForExactPackImageAndOwner() async throws {
+        let suite = "ChatStickerPipelineTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let manifest = try XCTUnwrap(URL(string: "https://files.example.test/party/pack.xml"))
+        let expectedImage = try XCTUnwrap(URL(string: "https://files.example.test/party/party.webp"))
+        let owner = "owner@example.com"
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in
+            Data("""
+            <sticker-pack name="Party"><stickers><sticker name="Party">
+              <file><name>party.webp</name></file>
+            </sticker></stickers></sticker-pack>
+            """.utf8)
+        }
+        try await catalogue.install(manifest, owner: owner)
+        let serving = RecordingStickerThumbnailServing()
+        let cell = StickerMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
+        cell.thumbnailPipeline = serving
+        cell.stickerCatalogue = catalogue
+        let unknownImage = expectedImage.deletingLastPathComponent().appendingPathComponent("other.webp")
+        let uninstalledManifest = manifest.deletingLastPathComponent().appendingPathComponent("other.xml")
+        let cases: [(String, URL, URL?, URL?)] = [
+            (owner, expectedImage, manifest, manifest),
+            (owner, unknownImage, manifest, nil),
+            ("other@example.com", expectedImage, manifest, nil),
+            (owner, expectedImage, uninstalledManifest, nil),
+            (owner, expectedImage, nil, nil)
+        ]
+        let size = CGSize(width: 192, height: 192)
+
+        for (index, sample) in cases.enumerated() {
+            let (account, image, pack, expectedRoute) = sample
+            cell.bindSticker(
+                ImageAttachment(primary: "sticker-\(index)", url: image, size: size, outgoingStickerPackURL: pack),
+                messagePrimary: "message-\(index)", displaySize: size,
+                scale: 2, traitStyle: .light, owner: account
+            )
+            let request = try XCTUnwrap(serving.requests.last)
+            XCTAssertEqual(request.installedStickerPack, expectedRoute, "case \(index)")
+        }
+        XCTAssertEqual(serving.requests.count, cases.count)
+
+        try catalogue.remove(manifest, owner: owner)
+        cell.bindSticker(
+            ImageAttachment(primary: "removed", url: expectedImage, size: size, outgoingStickerPackURL: manifest),
+            messagePrimary: "removed", displaySize: size, scale: 2, traitStyle: .light, owner: owner
+        )
+        XCTAssertNil(serving.requests.last?.installedStickerPack)
     }
 
     private var thumbnailData: Data {
@@ -226,7 +316,7 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertEqual(serving.requests.count, 2)
         XCTAssertEqual(cell.representedStickerPrimary, "b")
         XCTAssertNil(cell.imageView.image)
-        XCTAssertEqual(cell.imageView.backgroundColor, ChatStickerPlaceholder.color)
+        assertStickerSurfaceIsTransparent(cell)
 
         firstSubscription.emit(.success(delivery(color: .red, size: 384)))
 
@@ -235,6 +325,7 @@ final class ChatStickerPipelineTests: XCTestCase {
 
         serving.subscriptions[1].emit(.success(delivery(color: .green, size: 384)))
         XCTAssertNotNil(cell.imageView.image)
+        assertStickerSurfaceIsTransparent(cell)
     }
 
     func testStickerIdentityChangeCancelsOldRequestBeforeNewGeometryExists() throws {
@@ -262,7 +353,7 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertEqual(oldSubscription.cancelCount, 1)
         XCTAssertEqual(cell.representedStickerPrimary, "b")
         XCTAssertNil(cell.imageView.image)
-        XCTAssertEqual(cell.imageView.backgroundColor, ChatStickerPlaceholder.color)
+        assertStickerSurfaceIsTransparent(cell)
         XCTAssertEqual(serving.requests.count, 1)
     }
 
@@ -314,7 +405,7 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertEqual(firstSubscription.cancelCount, 1)
         XCTAssertEqual(serving.activeSubscriptionCount, 0)
         XCTAssertNil(cell.imageView.image)
-        XCTAssertEqual(cell.imageView.backgroundColor, ChatStickerPlaceholder.color)
+        assertStickerSurfaceIsTransparent(cell)
 
         cell.resumeOnscreenWork()
         cell.resumeOnscreenWork()
@@ -345,10 +436,12 @@ final class ChatStickerPipelineTests: XCTestCase {
         cell.prepareForReuse()
 
         XCTAssertFalse(cell.imageView.subviews.contains { !$0.isHidden })
+        assertStickerSurfaceIsTransparent(cell)
     }
 
     func testStickerPrefetchUsesSameBoundedRequestAsVisibleBindingAndNoDocumentResource() throws {
         let url = try XCTUnwrap(URL(string: "https://files.example.com/sticker.png"))
+        let manifest = try XCTUnwrap(URL(string: "https://files.example.com/pack.xml"))
         let item = ChatCollectionPrefetchItem(
             messagePrimary: "message",
             owner: "owner@example.com",
@@ -357,7 +450,8 @@ final class ChatStickerPipelineTests: XCTestCase {
             sticker: ChatCollectionPrefetchImageReference(
                 primary: "sticker",
                 url: url,
-                size: ChatCollectionPrefetchSize(width: 8_192, height: 4_096)
+                size: ChatCollectionPrefetchSize(width: 8_192, height: 4_096),
+                installedStickerPack: manifest
             ),
             images: [],
             videos: [],
@@ -385,6 +479,7 @@ final class ChatStickerPipelineTests: XCTestCase {
 
         XCTAssertEqual(request.displaySize, .init(width: 192, height: 96))
         XCTAssertEqual(request.pixelSize, .init(width: 576, height: 288))
+        XCTAssertEqual(request.installedStickerPack, manifest)
         XCTAssertEqual(resources.filter(\.isFullDocumentResource).count, 0)
     }
 
@@ -399,18 +494,27 @@ final class ChatStickerPipelineTests: XCTestCase {
         reference.metadata = [
             "width": 512,
             "height": 256,
-            "name": "Memoji"
+            "name": "Memoji",
+            ChatStickerWireCodec.packMetadataKey: "https://files.example.com/pack.xml"
         ]
 
         let attachment = try XCTUnwrap(
             ChatViewController.stickerAttachment(
-                from: [ChatMessageReferenceSnapshot(reference)]
+                from: [ChatMessageReferenceSnapshot(reference)], ownOriginalSticker: true
             )
         )
 
         XCTAssertEqual(attachment.primary, "sticker-reference")
         XCTAssertEqual(attachment.url?.absoluteString, "https://files.example.com/sticker.png")
         XCTAssertEqual(attachment.size, CGSize(width: 512, height: 256))
+        XCTAssertNil(attachment.outgoingStickerPackURL)
+    }
+
+    private func assertStickerSurfaceIsTransparent(
+        _ cell: StickerMessageCell, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        XCTAssertTrue(cell.messageContainerView.bubble.isHidden, file: file, line: line)
+        XCTAssertEqual(cell.imageView.backgroundColor, .clear, file: file, line: line)
     }
 
     private func sticker(primary: String, path: String, size: CGSize) -> ImageAttachment {
