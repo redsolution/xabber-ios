@@ -385,6 +385,7 @@ final class ChatStickerSuggestionStrip: UIScrollView {
 }
 
 final class ChatStickerThumbnailView: UIView {
+    private let thumbnails: ChatThumbnailServing
     private let imageView = UIImageView()
     private let placeholder = UILabel()
     private var subscription: ChatThumbnailSubscription?
@@ -393,8 +394,9 @@ final class ChatStickerThumbnailView: UIView {
     private var displaySize: CGFloat = 1
     private var binding = UUID()
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(thumbnails: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared) {
+        self.thumbnails = thumbnails
+        super.init(frame: .zero)
         isUserInteractionEnabled = false
         isAccessibilityElement = false
         imageView.contentMode = .scaleAspectFit
@@ -459,14 +461,15 @@ final class ChatStickerThumbnailView: UIView {
         let request = ChatThumbnailRequest(
             url: sticker.imageURL, displaySize: ChatCollectionPrefetchSize(width: Double(size), height: Double(size)),
             scale: Double(window?.screen.scale ?? UIScreen.main.scale),
-            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle), owner: owner
+            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle), owner: owner,
+            installedStickerPack: sticker.packURL
         )
         let consumer = ChatThumbnailConsumer(
             identity: ChatCollectionPrefetchIdentity(kind: .sticker, messagePrimary: owner,
                                                      referencePrimary: sticker.imageURL.absoluteString),
             role: .visible(id)
         )
-        subscription = ChatMediaThumbnailPipeline.shared.acquire(request, consumer: consumer) { [weak self] result in
+        subscription = thumbnails.acquire(request, consumer: consumer) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self, self.binding == id, case .success(let thumbnail) = result else { return }
                 self.imageView.image = thumbnail.image

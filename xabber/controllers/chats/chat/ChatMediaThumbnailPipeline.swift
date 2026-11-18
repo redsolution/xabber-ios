@@ -27,6 +27,7 @@ struct ChatThumbnailRequest: Hashable {
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     let owner: String
     let allowsImageConsent: Bool
+    let installedStickerPack: URL?
 
     init(
         url: URL,
@@ -35,7 +36,8 @@ struct ChatThumbnailRequest: Hashable {
         traitStyle: ChatThumbnailTraitStyle = .unspecified,
         encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
         owner: String = "",
-        allowsImageConsent: Bool = true
+        allowsImageConsent: Bool = true,
+        installedStickerPack: URL? = nil
     ) {
         self.url = url
         self.displaySize = ChatCollectionPrefetchSize(
@@ -47,6 +49,7 @@ struct ChatThumbnailRequest: Hashable {
         self.encryptedAttachment = encryptedAttachment
         self.owner = owner
         self.allowsImageConsent = allowsImageConsent
+        self.installedStickerPack = installedStickerPack
     }
 
     var pixelSize: ChatCollectionPrefetchSize {
@@ -66,6 +69,8 @@ struct ChatThumbnailRequest: Hashable {
         let resource: String
         if let descriptor = encryptedAttachment, descriptor.requiresAuthentication {
             resource = "\(descriptor.state):\(descriptor.cacheIdentity)"
+        } else if let manifest = installedStickerPack?.absoluteString {
+            resource = "installed-sticker:\(owner.utf8.count):\(owner):\(manifest.utf8.count):\(manifest):\(url.absoluteString)"
         } else {
             resource = url.absoluteString
         }
@@ -650,6 +655,7 @@ final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
             let modifier = PrivacyProxyImageRequestModifier(
                 owner: request.owner,
                 allowsConsent: request.allowsImageConsent,
+                installedStickerPack: request.installedStickerPack,
                 onResolution: token.updateResolution,
                 onDownloadTaskStarted: token.update
             )
@@ -689,17 +695,20 @@ final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
 final class PrivacyProxyImageRequestModifier: AsyncImageDownloadRequestModifier {
     private let owner: String
     private let allowsConsent: Bool
+    private let installedStickerPack: URL?
     private let onResolution: ((Task<Void, Never>) -> Void)?
     let onDownloadTaskStarted: ((DownloadTask?) -> Void)?
 
     init(
         owner: String,
         allowsConsent: Bool = true,
+        installedStickerPack: URL? = nil,
         onResolution: ((Task<Void, Never>) -> Void)? = nil,
         onDownloadTaskStarted: ((DownloadTask?) -> Void)? = nil
     ) {
         self.owner = owner
         self.allowsConsent = allowsConsent
+        self.installedStickerPack = installedStickerPack
         self.onResolution = onResolution
         self.onDownloadTaskStarted = onDownloadTaskStarted
     }
@@ -721,11 +730,11 @@ final class PrivacyProxyImageRequestModifier: AsyncImageDownloadRequestModifier 
 
     func modified(for request: URLRequest, reportModified: @escaping (URLRequest?) -> Void) {
         guard let url = request.url else { reportModified(nil); return }
-        let resolution = Task { [owner, allowsConsent] in
+        let resolution = Task { [owner, allowsConsent, installedStickerPack] in
             do {
                 let router = PrivacyProxyMediaRouter.shared
                 let resolved = try await (allowsConsent
-                    ? router.resolveImage(url, owner: owner)
+                    ? router.resolveImage(url, owner: owner, installedStickerPack: installedStickerPack)
                     : router.resolveAutomaticImage(url, owner: owner))
                 try Task.checkCancellation()
                 var routedRequest = request

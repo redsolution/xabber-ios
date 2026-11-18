@@ -141,15 +141,17 @@ final class PrivacyProxyMediaRouter {
         return url.user == nil && url.password == nil
     }
 
-    func resolveImage(_ url: URL, owner: String) async throws -> URL {
-        try await resolveImage(url, owner: owner, allowsConsent: true)
+    func resolveImage(_ url: URL, owner: String, installedStickerPack: URL? = nil) async throws -> URL {
+        try await resolveImage(url, owner: owner, allowsConsent: true, installedStickerPack: installedStickerPack)
     }
 
     func resolveAutomaticImage(_ url: URL, owner: String) async throws -> URL {
         try await resolveImage(url, owner: owner, allowsConsent: false)
     }
 
-    private func resolveImage(_ url: URL, owner: String, allowsConsent: Bool) async throws -> URL {
+    private func resolveImage(
+        _ url: URL, owner: String, allowsConsent: Bool, installedStickerPack: URL? = nil
+    ) async throws -> URL {
         try Task.checkCancellation()
         if url.isFileURL || url.scheme?.lowercased() == "data" { return url }
         guard let jid = XMPPJID(string: owner), jid.user != nil else { throw RoutingError.invalidOwner }
@@ -157,7 +159,14 @@ final class PrivacyProxyMediaRouter {
         let current = context(jid.bare)
         if isTrustedImage(url, jid: jid, context: current) { return url }
         if current.policy != .always, allowsConsent, hasImageConsent(url, owner: jid.bare) { return url }
-        guard current.usesProxy else { throw RoutingError.imageConsentRequired }
+        guard current.usesProxy else {
+            // Installing a pack requests content from its HTTPS origin.
+            if allowsConsent, let pack = installedStickerPack, pack.scheme?.lowercased() == "https",
+               Self.isHTTPImageURL(pack), Self.allowsRedirect(from: pack, to: url) {
+                return url
+            }
+            throw RoutingError.imageConsentRequired
+        }
         do {
             return try await resolveUsingProxy(url, jid: jid, current: current)
         } catch {

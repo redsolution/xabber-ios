@@ -67,6 +67,78 @@ final class PrivacyProxyMediaRouterTests: XCTestCase {
         XCTAssertEqual(direct, trusted)
     }
 
+    func testInstalledStickerPackLoadsSameOriginWithoutGrantingChatImageConsent() async throws {
+        let packURL = URL(string: "https://files.example.org:443/stickers/pack.xml")!
+        let router = makeRouter(policy: .manual, enabled: false) { _, _ in
+            XCTFail("The disabled proxy should not receive a pack image request")
+            return self.resolved
+        }
+
+        let routed = try await router.resolveImage(external, owner: owner, installedStickerPack: packURL)
+        XCTAssertEqual(routed, external)
+
+        do {
+            _ = try await router.resolveImage(external, owner: owner)
+            XCTFail("Opening an installed pack must not grant the image to a chat")
+        } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {}
+    }
+
+    func testInstalledStickerPackKeepsConsentForOtherImageOrigins() async throws {
+        let urls = try [
+            "https://other.example.org/stickers/pack.xml",
+            "https://files.example.org:8443/stickers/pack.xml",
+            "http://files.example.org/stickers/pack.xml",
+            "https://user:password@files.example.org/stickers/pack.xml"
+        ].map { try XCTUnwrap(URL(string: $0)) }
+        let router = makeRouter(policy: .never, enabled: false) { _, _ in
+            XCTFail("This account does not use a proxy")
+            return self.resolved
+        }
+
+        for packURL in urls {
+            do {
+                _ = try await router.resolveImage(external, owner: owner, installedStickerPack: packURL)
+                XCTFail("An unrelated or invalid manifest origin must not allow a direct thumbnail request")
+            } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {}
+        }
+    }
+
+    func testInstalledStickerPackStillRequiresActiveProxy() async throws {
+        let packURL = URL(string: "https://files.example.org/stickers/pack.xml")!
+        let mandatory = makeRouter(policy: .always, enabled: false) { url, owner in
+            XCTAssertEqual(url, self.external)
+            XCTAssertEqual(owner, self.owner)
+            return self.resolved
+        }
+        let unavailable = makeRouter(policy: .always, enabled: false, advertised: false) { _, _ in
+            XCTFail("The proxy endpoint is unavailable")
+            return self.resolved
+        }
+
+        let routed = try await mandatory.resolveImage(external, owner: owner, installedStickerPack: packURL)
+        XCTAssertEqual(routed, resolved)
+        do {
+            _ = try await unavailable.resolveImage(external, owner: owner, installedStickerPack: packURL)
+            XCTFail("An installed pack must not use the external host when the mandatory proxy is unavailable")
+        } catch PrivacyProxyMediaRouter.RoutingError.unavailable {}
+    }
+
+    func testInstalledStickerPackCanUseExplicitConsentAfterOptionalProxyFailure() async throws {
+        let packURL = URL(string: "https://files.example.org/stickers/pack.xml")!
+        let router = makeRouter(policy: .manual, enabled: true) { _, _ in
+            throw URLError(.cannotConnectToHost)
+        }
+
+        do {
+            _ = try await router.resolveImage(external, owner: owner, installedStickerPack: packURL)
+            XCTFail("A failed optional proxy cannot implicitly authorize a direct request")
+        } catch PrivacyProxyMediaRouter.RoutingError.imageConsentRequired {}
+
+        XCTAssertTrue(router.grantDirectImage(external, owner: owner))
+        let approved = try await router.resolveImage(external, owner: owner, installedStickerPack: packURL)
+        XCTAssertEqual(approved, external)
+    }
+
     func testManualOffAndNeverKeepExistingURLs() async throws {
         for policy in [CommonConfigManager.PrivacyProxyPolicy.manual, .never] {
             let router = makeRouter(policy: policy, enabled: false) { _, _ in

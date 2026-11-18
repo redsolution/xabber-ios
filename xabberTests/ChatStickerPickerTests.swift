@@ -60,6 +60,54 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertTrue(ChatStickerSuggestion.matches(text: "x", packs: [pack]).isEmpty)
     }
 
+    func testInstalledStickerThumbnailReplacesEmojiAndCarriesPackOrigin() async throws {
+        let pack = try ChatStickerPackManifest.parse(Data(xml(version: 1).utf8), url: manifestURL)
+        let entry = try XCTUnwrap(pack.stickers.first)
+        let pipeline = PickerThumbnailPipeline()
+        let view = ChatStickerThumbnailView(thumbnails: pipeline)
+
+        view.load(entry, owner: owner, size: 72)
+
+        let request = try XCTUnwrap(pipeline.request)
+        XCTAssertEqual(request.url, entry.imageURL)
+        XCTAssertEqual(request.owner, owner)
+        XCTAssertEqual(request.installedStickerPack, pack.manifestURL)
+        XCTAssertNil(view.inlineThumbnail(for: entry))
+        let placeholder = try XCTUnwrap(view.subviews.compactMap { $0 as? UILabel }.first)
+        XCTAssertEqual(placeholder.text, "🦉")
+        XCTAssertFalse(placeholder.isHidden)
+
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        pipeline.complete(image)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+
+        XCTAssertTrue(placeholder.isHidden)
+        XCTAssertNotNil(view.inlineThumbnail(for: entry))
+    }
+
+    func testInstalledStickerThumbnailCacheIsSeparateFromChatOtherAccountsAndOtherPacks() throws {
+        let pack = try ChatStickerPackManifest.parse(Data(xml(version: 1).utf8), url: manifestURL)
+        let imageURL = try XCTUnwrap(pack.stickers.first?.imageURL)
+        let size = ChatCollectionPrefetchSize(width: 72, height: 72)
+        let chat = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner)
+        let installed = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner,
+                                             installedStickerPack: manifestURL)
+        let secondAccount = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2,
+                                                 owner: "second@example.com", installedStickerPack: manifestURL)
+        let otherPackURL = URL(string: "https://stickers.example.com/monsters/pack.xml")!
+        let otherPack = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner,
+                                             installedStickerPack: otherPackURL)
+
+        XCTAssertNotEqual(installed.cacheKey, chat.cacheKey)
+        XCTAssertNotEqual(installed.cacheKey, secondAccount.cacheKey)
+        XCTAssertNotEqual(installed.cacheKey, otherPack.cacheKey)
+    }
+
     func testUninstallFencesAPendingInstallResponse() async throws {
         let key = "ChatStickerPickerTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
@@ -116,6 +164,30 @@ final class ChatStickerPickerTests: XCTestCase {
           </stickers>
         </sticker-pack>
         """
+    }
+
+    private final class PickerThumbnailPipeline: ChatThumbnailServing {
+        private(set) var request: ChatThumbnailRequest?
+        private var completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
+
+        func acquire(
+            _ request: ChatThumbnailRequest,
+            consumer: ChatThumbnailConsumer,
+            completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
+        ) -> ChatThumbnailSubscription {
+            self.request = request
+            self.completion = completion
+            return Subscription()
+        }
+
+        func complete(_ image: UIImage) {
+            completion?(.success(ChatThumbnailDelivery(image: image,
+                pixelSize: ChatCollectionPrefetchSize(width: 8, height: 8), source: .loader)))
+        }
+
+        private final class Subscription: ChatThumbnailSubscription {
+            func cancel() {}
+        }
     }
 
     private final class StickerComposerDelegate: XabberInputBarDelegate {
