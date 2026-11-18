@@ -268,8 +268,12 @@ final class ChatStickerPipelineTests: XCTestCase {
         )
 
         XCTAssertEqual(renderedSize, CGSize(width: 192, height: 96))
-        XCTAssertEqual(layout.messageContainerSize, renderedSize)
-        XCTAssertEqual(layout.cellSize.height, renderedSize.height + layout.messageContainerMargin.vertical)
+        XCTAssertEqual(layout.imagesInlineViewSize, renderedSize)
+        XCTAssertEqual(layout.messageContainerSize.width, renderedSize.width)
+        XCTAssertGreaterThan(layout.timeMarkerSize.height, 0)
+        XCTAssertEqual(layout.timeMarkerIndicator, .none)
+        XCTAssertGreaterThanOrEqual(layout.messageContainerSize.height, renderedSize.height + layout.timeMarkerSize.height + 2)
+        XCTAssertEqual(layout.cellSize.height, layout.messageContainerSize.height + layout.messageContainerMargin.vertical)
         XCTAssertEqual(request.pixelSize, ChatCollectionPrefetchSize(width: 576, height: 288))
         XCTAssertTrue(request.accepts(pixelSize: .init(width: 576, height: 288)))
         XCTAssertFalse(request.accepts(pixelSize: .init(width: 8_192, height: 4_096)))
@@ -287,6 +291,81 @@ final class ChatStickerPipelineTests: XCTestCase {
         )
         XCTAssertEqual(ChatMessageLayoutKey(message: message, context: context), identicalKey)
         XCTAssertNotEqual(identicalKey.revision, changedKey.revision)
+    }
+
+    func testStickerTimeMarkerStaysBelowImageAndWarningWithOwnBackplate() {
+        var message = datasource(sticker: ImageAttachment(primary: "small", size: CGSize(width: 6, height: 12)))
+        message.messageWarningText = "Warning"
+        message.timeMarkerText = NSAttributedString(
+            string: "12:00:00",
+            attributes: [.font: UIFont.systemFont(ofSize: 24)]
+        )
+        let controller = ChatViewController()
+        defer { _ = controller }
+        controller.owner = message.owner
+        controller.jid = message.jid
+        let collection = MessagesCollectionView()
+        collection.messagesDataSource = controller
+        let indexPath = IndexPath(item: 0, section: 0)
+        let layout = ChatMessageLayoutCalculator.measure(message, stickerLayoutContext)
+        let attributes = MessagesCollectionViewLayoutAttributes(forCellWith: indexPath)
+        layout.apply(to: attributes)
+        let cell = StickerMessageCell(frame: CGRect(origin: .zero, size: layout.cellSize))
+
+        cell.configure(with: message, at: indexPath, and: collection)
+        cell.apply(attributes)
+
+        XCTAssertGreaterThan(layout.timeMarkerSize.width, layout.imagesInlineViewSize.width)
+        XCTAssertGreaterThanOrEqual(layout.messageContainerSize.width, layout.timeMarkerSize.width)
+        XCTAssertGreaterThan(layout.warningInlineViewSize.height, 0)
+        XCTAssertGreaterThanOrEqual(cell.warningLabel.frame.minY, cell.imageView.frame.maxY)
+        XCTAssertGreaterThanOrEqual(cell.timeMarker.frame.minY, cell.warningLabel.frame.maxY + 2)
+        XCTAssertTrue(cell.messageContainerView.bounds.contains(cell.timeMarker.frame))
+        XCTAssertTrue(cell.bounds.contains(cell.messageContainerView.frame))
+        XCTAssertEqual(cell.timeMarker.textLabel.attributedText?.string, "12:00:00")
+        XCTAssertNil(cell.timeMarker.indicatorView.image(for: .normal))
+        XCTAssertFalse(cell.timeMarker.isHidden)
+        XCTAssertTrue(layout.timeMarkerWithBackplate)
+        XCTAssertEqual(cell.timeMarker.backgroundColor, UIColor.black.withAlphaComponent(0.25))
+        let photoRadius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp
+            .getRadiusFor(index: attributes.cornerRadius).leftBottom
+        XCTAssertEqual(cell.timeMarker.layer.cornerRadius, photoRadius)
+        assertStickerSurfaceIsTransparent(cell)
+    }
+
+    func testOutgoingStickerTimeAndDeliveryIndicatorUpdateOnChromeReconfiguration() throws {
+        var message = datasource(sticker: ImageAttachment(primary: "sticker", size: CGSize(width: 120, height: 120)))
+        message.outgoing = true
+        message.isOutgoing = true
+        message.indicator = .sending
+        let controller = ChatViewController()
+        defer { _ = controller }
+        controller.owner = message.owner
+        controller.jid = message.jid
+        let collection = MessagesCollectionView()
+        collection.messagesDataSource = controller
+        let indexPath = IndexPath(item: 0, section: 0)
+        let layout = ChatMessageLayoutCalculator.measure(message, stickerLayoutContext)
+        let attributes = MessagesCollectionViewLayoutAttributes(forCellWith: indexPath)
+        layout.apply(to: attributes)
+        let cell = StickerMessageCell(frame: CGRect(origin: .zero, size: layout.cellSize))
+
+        cell.configure(with: message, at: indexPath, and: collection)
+        cell.apply(attributes)
+        let sendingImage = try XCTUnwrap(cell.timeMarker.indicatorView.image(for: .normal))
+        XCTAssertEqual(layout.timeMarkerIndicator, .sending)
+        XCTAssertEqual(cell.timeMarker.superview, cell.messageContainerView)
+        XCTAssertGreaterThanOrEqual(cell.timeMarker.frame.minY, cell.imageView.frame.maxY + 2)
+
+        message.indicator = .read
+        message.timeMarkerText = NSAttributedString(string: "12:01")
+        cell.reconfigureContent(with: message, at: indexPath, and: collection, changeMask: [.chrome])
+
+        let readImage = try XCTUnwrap(cell.timeMarker.indicatorView.image(for: .normal))
+        XCTAssertFalse(readImage.isEqual(sendingImage))
+        XCTAssertEqual(cell.timeMarker.textLabel.attributedText?.string, "12:01")
+        XCTAssertEqual(cell.timeMarker.backgroundColor, UIColor.black.withAlphaComponent(0.25))
+        assertStickerSurfaceIsTransparent(cell)
     }
 
     func testStickerBindingCancelsOldRequestAndRejectsDelayedReuseCompletion() throws {
@@ -522,6 +601,18 @@ final class ChatStickerPipelineTests: XCTestCase {
             primary: primary,
             url: URL(string: "https://files.example.com/\(path)"),
             size: size
+        )
+    }
+
+    private var stickerLayoutContext: ChatMessageLayoutContext {
+        ChatMessageLayoutContext(
+            width: 390,
+            contentSizeCategory: UIContentSizeCategory.large.rawValue,
+            localeIdentifier: "en_US",
+            interfaceStyleRawValue: UIUserInterfaceStyle.light.rawValue,
+            messageStyle: "bubble",
+            cornerRadius: "16",
+            avatarMode: "bottom"
         )
     }
 

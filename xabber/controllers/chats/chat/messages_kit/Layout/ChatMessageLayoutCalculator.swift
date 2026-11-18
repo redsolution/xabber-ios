@@ -272,32 +272,50 @@ enum ChatMessageLayoutCalculator {
             } else {
                 sourceSize = CGSize(square: ChatStickerLayoutPolicy.maximumSide)
             }
+            let maxWidth = messageContainerMaxWidth()
             let renderedSize = ChatStickerLayoutPolicy.renderedSize(
                 sourceSize: sourceSize,
-                availableWidth: messageContainerMaxWidth()
+                availableWidth: maxWidth
             )
             let margin = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+            let hasTimeMarker = message.timeMarkerText.length > 0 || message.indicator != .none
+            let timeMarkerInsets = UIEdgeInsets(top: hasTimeMarker ? 2 : 0, left: 0, bottom: 0, right: 0)
+            let timeMarkerSize: CGSize
+            if hasTimeMarker {
+                let horizontalPadding: CGFloat = message.indicator == .none ? 10 : 24
+                let label = labelSize(for: TimeMarkerView.backplateText(message.timeMarkerText),
+                                      maxWidth: max(1, maxWidth - horizontalPadding))
+                timeMarkerSize = CGSize(width: min(maxWidth, label.width + horizontalPadding),
+                                        height: max(16, label.height + 2))
+            } else {
+                timeMarkerSize = .zero
+            }
+            let warningSize = warningLabelSize(text: message.messageWarningText, maxWidth: maxWidth)
+            let containerSize = CGSize(
+                width: max(renderedSize.width, warningSize.width, timeMarkerSize.width),
+                height: renderedSize.height + warningSize.height + timeMarkerInsets.top + timeMarkerSize.height
+            )
             var layout = ChatMessageLayout.empty(
                 cellSize: CGSize(
                     width: context.normalizedWidth,
-                    height: renderedSize.height + margin.vertical
+                    height: containerSize.height + margin.vertical
                 )
             )
             layout.messagePrimary = message.primary
-            let warningSize = warningLabelSize(text: message.messageWarningText,
-                maxWidth: messageContainerMaxWidth())
             layout.imagesInlineViewSize = renderedSize
             layout.warningInlineViewSize = warningSize
-            layout.messageContainerSize = CGSize(width: max(renderedSize.width, warningSize.width),
-                height: renderedSize.height + warningSize.height)
-            layout.cellSize.height += warningSize.height
+            layout.messageContainerSize = containerSize
             layout.messageContainerMargin = margin
             layout.messageContainerPadding = .zero
             layout.messageLabelInsets = .zero
             layout.side = message.isOutgoing ? .right : .left
-            layout.tail = "none"
+            layout.tail = message.tailed ? context.messageStyle : "no_tail"
             layout.cornerRadius = context.cornerRadius
             layout.isImageMessage = true
+            layout.timeMarkerSize = timeMarkerSize
+            layout.timeMarkerIndicator = message.indicator
+            layout.timeMarkerInsets = timeMarkerInsets
+            layout.timeMarkerWithBackplate = hasTimeMarker
             if message.reservesAvatarSpace {
                 layout.avatarSize = CGSize(square: 32)
             }

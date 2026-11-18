@@ -22,7 +22,7 @@ final class OMEMO2NormativeIncomingTrustRenderingTests: XCTestCase {
         let warned = ChatMessageLayoutCalculator.measure(datasource(warning: warning), context)
         XCTAssertGreaterThan(warned.warningInlineViewSize.height, 0)
         XCTAssertGreaterThan(warned.warningInlineViewSize.width, 0)
-        XCTAssertEqual(warned.imagesInlineViewSize, plain.messageContainerSize)
+        XCTAssertEqual(warned.imagesInlineViewSize, plain.imagesInlineViewSize)
         XCTAssertEqual(warned.messageContainerSize.height,
             plain.messageContainerSize.height + warned.warningInlineViewSize.height)
         XCTAssertEqual(warned.cellSize.height,

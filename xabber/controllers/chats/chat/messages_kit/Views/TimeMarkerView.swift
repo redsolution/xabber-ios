@@ -33,22 +33,20 @@ class TimeMarkerView: UIView {
         addSubview(textLabel)
         addSubview(indicatorView)
     }
+
+    nonisolated static func backplateText(_ text: NSAttributedString) -> NSAttributedString {
+        NSAttributedString(
+            string: text.string,
+            attributes: [
+                .foregroundColor: UIColor.white,
+                .font: UIFont.systemFont(ofSize: 11, weight: .regular)
+            ]
+        )
+    }
     
     func configure(text: NSAttributedString, indicator: IndicatorType, withBackplate: Bool) {
         self.textLabel.textColor = UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
-        if withBackplate {
-            let timeMarkerString = NSAttributedString(
-                string: text.string,
-                attributes: [
-                    NSAttributedString.Key.foregroundColor: UIColor.white,
-                    NSAttributedString.Key.font: UIFont.systemFont(ofSize: 11, weight: .regular)
-                ]
-            )
-            
-            self.textLabel.attributedText = timeMarkerString
-        } else {
-            self.textLabel.attributedText = text
-        }
+        self.textLabel.attributedText = withBackplate ? Self.backplateText(text) : text
         switch indicator {
             case .none:
                 self.indicatorView.setImage(nil, for: .normal)
@@ -74,6 +72,22 @@ class TimeMarkerView: UIView {
             self.backgroundColor = .clear
         }
     }
+
+    func updateImageStyle(frame: CGRect, indicator: IndicatorType, tail: String, cornerRadius: String) {
+        let bubbles = CommonConfigManager.shared.messageStyleConfig.messageBubbles
+        let timestamp: MessageStyleConfig.MessageRadius
+        switch MessageStyleConfig.MessageBubbleContainer.CodingKeys(rawValue: tail) {
+        case .smooth: timestamp = bubbles.smooth.image.timestamp
+        case .bubble: timestamp = bubbles.bubble.image.timestamp
+        case .bubbles: timestamp = bubbles.bubbles.image.timestamp
+        case .curvy: timestamp = bubbles.curvy.image.timestamp
+        case .stripes: timestamp = bubbles.stripes.image.timestamp
+        case .transparent: timestamp = bubbles.transparent.image.timestamp
+        case .wedge: timestamp = bubbles.wedge.image.timestamp
+        default: timestamp = bubbles.noTail.image.timestamp
+        }
+        update(frame: frame, indicator: indicator, radius: timestamp.getRadiusFor(index: cornerRadius).leftBottom)
+    }
     
     func update(frame: CGRect, indicator: IndicatorType, radius rad: CGFloat) {
         switch indicator {
@@ -83,7 +97,6 @@ class TimeMarkerView: UIView {
                 self.indicatorWidth = 12
         }
         self.frame = frame
-        let radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.timestamp.getRadiusFor(index: "16")
         self.layer.cornerRadius = rad
         self.layer.masksToBounds = true
 //        self.textLabel.textColor = UIColor.white

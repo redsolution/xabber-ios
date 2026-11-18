@@ -571,68 +571,12 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
                 size: attributes.timeMarkerSize
             )
         }
-        var radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-        switch attributes.tail {
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue:
-//                if attributes.isImageMessage {
-                    //radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.noTail.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.smooth.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubble.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.bubbles.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.curvy.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.stripes.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.transparent.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            case MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue:
-//                if attributes.isImageMessage {
-//                    
-//                } else {
-                    radius = CommonConfigManager.shared.messageStyleConfig.messageBubbles.wedge.image.timestamp.getRadiusFor(index: attributes.cornerRadius)
-//                }
-                
-            default:
-                break
-        }
-        self.timeMarker.update(frame: frame, indicator: attributes.timeMarkerIndicator, radius: radius.leftBottom)
+        timeMarker.updateImageStyle(
+            frame: frame,
+            indicator: attributes.timeMarkerIndicator,
+            tail: attributes.tail,
+            cornerRadius: attributes.cornerRadius
+        )
     }
     
     func layoutForwardsContainer(with attributes: MessagesCollectionViewLayoutAttributes) {

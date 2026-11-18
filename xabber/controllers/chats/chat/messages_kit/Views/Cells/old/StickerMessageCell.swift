@@ -24,6 +24,7 @@ import MaterialComponents.MDCPalettes
 
 class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     let warningLabel = MessageContentCell.makeMessageWarningLabel()
+    let timeMarker = TimeMarkerView()
     private enum DeliveryState {
         case idle
         case loading
@@ -82,9 +83,23 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
             let imageSize = attributes.imagesInlineViewSize == .zero
                 ? attributes.messageContainerSize : attributes.imagesInlineViewSize
-            imageView.frame = CGRect(origin: .zero, size: imageSize)
-            warningLabel.frame = CGRect(origin: CGPoint(x: 0, y: imageSize.height),
-                size: attributes.warningInlineViewSize)
+            func alignedX(for width: CGFloat) -> CGFloat {
+                attributes.side == .right ? attributes.messageContainerSize.width - width : 0
+            }
+            imageView.frame = CGRect(x: alignedX(for: imageSize.width), y: 0,
+                                     width: imageSize.width, height: imageSize.height)
+            let warningSize = attributes.warningInlineViewSize
+            warningLabel.frame = CGRect(x: alignedX(for: warningSize.width), y: imageView.frame.maxY,
+                                         width: warningSize.width, height: warningSize.height)
+            let markerSize = attributes.timeMarkerSize
+            timeMarker.isHidden = markerSize == .zero
+            if !timeMarker.isHidden {
+                let markerFrame = CGRect(x: alignedX(for: markerSize.width),
+                                         y: warningLabel.frame.maxY + attributes.timeMarkerInsets.top,
+                                         width: markerSize.width, height: markerSize.height)
+                timeMarker.updateImageStyle(frame: markerFrame, indicator: attributes.timeMarkerIndicator,
+                                            tail: attributes.tail, cornerRadius: attributes.cornerRadius)
+            }
             refreshStickerBinding()
         }
     }
@@ -101,6 +116,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         imageView.image = nil
         warningLabel.text = nil
         warningLabel.isHidden = true
+        timeMarker.isHidden = true
     }
 
     func cancelOffscreenWork() {
@@ -122,6 +138,9 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         messageContainerView.bubble.isHidden = true
         self.messageContainerView.addSubview(imageView)
         self.messageContainerView.addSubview(warningLabel)
+        timeMarker.setupSubviews()
+        timeMarker.isHidden = true
+        messageContainerView.addSubview(timeMarker)
     }
 
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
@@ -145,6 +164,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         warningLabel.text = message.messageWarningText
         warningLabel.isHidden = message.messageWarningText == nil
         guard case .sticker(let attachment) = message.kind else { return }
+        timeMarker.configure(text: message.timeMarkerText, indicator: message.indicator, withBackplate: true)
         represent(attachment, messagePrimary: message.primary, owner: message.owner)
         refreshStickerBinding()
     }
@@ -302,10 +322,8 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     
     override func layoutMessageContainerView(with attributes: MessagesCollectionViewLayoutAttributes) {
         super.layoutMessageContainerView(with: attributes)
-        if attributes.warningInlineViewSize.height > 0 {
-            // Sticker content sizes already exclude the outer cell margins.
-            messageContainerView.frame.size = attributes.messageContainerSize
-        }
+        // The sticker, warning and time marker already exclude the outer cell margins.
+        messageContainerView.frame.size = attributes.messageContainerSize
     }
 
     override open func handleTapGesture(_ gesture: UIGestureRecognizer) {
