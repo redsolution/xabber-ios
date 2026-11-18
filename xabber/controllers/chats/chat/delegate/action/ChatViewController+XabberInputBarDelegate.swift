@@ -859,7 +859,8 @@ extension ChatViewController: XabberInputBarDelegate {
             isEditingMessage: self.editMessageId.value?.isNotEmpty == true,
             hasRecordedAudio: self.recordedReferenceObject != nil,
             hasUnsupportedMediaAttachment: false,
-            conversationType: self.conversationType
+            conversationType: self.conversationType,
+            omemo2Ready: self.canScheduleOMEMO2
         ))
         self.sendOptionsContextMenu?.closeMenu(withAnimation: false)
 
@@ -917,7 +918,8 @@ extension ChatViewController: XabberInputBarDelegate {
             isEditingMessage: self.editMessageId.value?.isNotEmpty == true,
             hasRecordedAudio: self.recordedReferenceObject != nil,
             hasUnsupportedMediaAttachment: false,
-            conversationType: self.conversationType
+            conversationType: self.conversationType,
+            omemo2Ready: self.canScheduleOMEMO2
         ))
         guard payload.body.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty,
               menuState.schedule.isEnabled else {
@@ -993,6 +995,101 @@ extension ChatViewController: XabberInputBarDelegate {
         )
     }
 
+    private var canScheduleOMEMO2: Bool {
+        self.conversationType == .omemo
+            && self.scheduledMessageService.validateOMEMO2ScheduleRoute(owner: self.owner, conversation: self.jid) == nil
+    }
+
+    func stickerPickerButtonTouchUp() {
+        let context = self.makeAttachmentFlowContext()
+        guard !showSkeletonObserver.value, presentedViewController == nil,
+              [.regular, .group, .saved, .omemo].contains(context.conversationType) else { return }
+        view.endEditing(true)
+        let picker = ChatStickerPickerViewController(
+            owner: context.owner,
+            canSchedule: { [weak self] in self?.canScheduleSticker(in: context) == true },
+            onSend: { [weak self] sticker in
+                guard let self, self.isCurrentStickerContext(context) else { return }
+                self.sendStickerImmediately(sticker)
+            },
+            onSchedule: { [weak self] sticker in
+                guard let self, self.canScheduleSticker(in: context) else { return }
+                let datePicker = ScheduledMessageDatePickerViewController { [weak self] date in
+                    guard let self, self.canScheduleSticker(in: context) else { return }
+                    self.sendScheduledSticker(sticker, deliverAt: date)
+                }
+                self.present(datePicker, animated: true)
+            }
+        )
+        present(UINavigationController(rootViewController: picker), animated: true)
+    }
+
+    func stickerSuggestionTouchUp(_ sticker: ChatStickerDescriptor) {
+        guard !showSkeletonObserver.value else { return }
+        sendStickerImmediately(sticker, consumeSuggestion: true)
+    }
+
+    private func isCurrentStickerContext(_ context: ChatAttachmentFlowContext) -> Bool {
+        self.owner == context.owner && self.jid == context.jid && self.conversationType == context.conversationType
+    }
+
+    private func canScheduleSticker(in context: ChatAttachmentFlowContext) -> Bool {
+        isCurrentStickerContext(context) && !isComposerSendAdmissionInFlight &&
+            scheduledMessageService.validateScheduledAttachmentRoute(
+                owner: context.owner, conversation: context.jid, conversationType: context.conversationType
+            ) == nil
+    }
+
+    private func sendStickerImmediately(_ sticker: ChatStickerDescriptor, consumeSuggestion: Bool = false) {
+        let context = self.makeAttachmentFlowContext()
+        let sentEmoji = consumeSuggestion ? self.xabberInputView.currentPayload().body : nil
+        AccountChatScheduledMessageService().sendStickerImmediately(
+            sticker, owner: context.owner, conversation: context.jid, conversationType: context.conversationType
+        ) { [weak self] accepted in
+            DispatchQueue.main.async {
+                guard let self, self.isCurrentStickerContext(context) else { return }
+                if accepted {
+                    if let sentEmoji, self.xabberInputView.currentPayload().body == sentEmoji {
+                        self.xabberInputView.clearComposer()
+                        self.xabberInputView.textViewDidChange()
+                        self.draftMessageText.accept(nil)
+                    }
+                    self.requestOutgoingAutoScrollAfterDatasourceUpdate()
+                    FeedbackManager.shared.generate(feedback: .success)
+                } else {
+                    ToastPresenter().presentError(message: L10n.text("scheduled_message_sticker_send_failed", fallback: "Could not send sticker."))
+                }
+            }
+        }
+    }
+
+    internal func sendScheduledSticker(_ sticker: ChatStickerDescriptor, deliverAt: Date) {
+        let context = self.makeAttachmentFlowContext()
+        guard canScheduleSticker(in: context) else { return }
+        isComposerSendAdmissionInFlight = true
+        ChatScheduledMessageSendCoordinator(service: scheduledMessageService).scheduleSticker(
+            sticker, owner: context.owner, conversation: context.jid,
+            conversationType: context.conversationType, deliverAt: deliverAt
+        ) { [weak self] result in
+            let applyResult = {
+                guard let self else { return }
+                self.isComposerSendAdmissionInFlight = false
+                guard self.isCurrentStickerContext(context) else { return }
+                switch result {
+                case .success:
+                    self.completeScheduledMessageSend(clearComposer: false)
+                case .failure(let error):
+                    ToastPresenter().presentError(message: self.scheduleErrorMessage(for: error))
+                    if [.timeout, .disconnected, .invalidResponse].contains(error) {
+                        self.presentScheduledMessagesIfVisible()
+                    }
+                }
+            }
+            if Thread.isMainThread { applyResult() }
+            else { DispatchQueue.main.async(execute: applyResult) }
+        }
+    }
+
     private func completeScheduledMessageSend(clearComposer: Bool) {
         if clearComposer {
             self.xabberInputView.clearComposer()
@@ -1033,6 +1130,9 @@ extension ChatViewController: XabberInputBarDelegate {
         case .unsupportedMedia:
             return "Only text messages can be scheduled right now.".localizeString(id: "schedule_media_unavailable_error", arguments: [])
         case .encryptedConversation:
+            if self.conversationType == .omemo {
+                return self.scheduleErrorMessage(for: XMPPMessageScheduleManager.ScheduleError.forbidden)
+            }
             return "Scheduled messages are unavailable in encrypted chats.".localizeString(id: "schedule_encrypted_unavailable_error", arguments: [])
         case .silentSendUnsupported, .none:
             return "Could not schedule message.".localizeString(id: "schedule_send_failed_error", arguments: [])

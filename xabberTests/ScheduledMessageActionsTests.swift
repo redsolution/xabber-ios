@@ -5,6 +5,45 @@ import XMPPFramework
 
 @MainActor
 final class ScheduledMessageActionsTests: XCTestCase {
+    func testAnotherDeviceCannotRescheduleOrSendCiphertextWithoutVerifiedPreview() async throws {
+        let service = Service()
+        let coordinator = makeCoordinator(service)
+        let item = makeProtectedItem(preview: nil)
+
+        XCTAssertFalse(ScheduledMessageActionCoordinator.supports(.edit("replacement"), on: item))
+        XCTAssertFalse(ScheduledMessageActionCoordinator.supports(.reschedule(item.deliverAt), on: item))
+        XCTAssertFalse(ScheduledMessageActionCoordinator.supports(.sendNow, on: item))
+        XCTAssertTrue(ScheduledMessageActionCoordinator.supports(.delete, on: item))
+        _ = await coordinator.perform(.sendNow, on: item)
+        XCTAssertTrue(service.events.isEmpty)
+        try await coordinator.perform(.delete, on: item).get()
+        XCTAssertEqual(service.events, ["cancel:alice@example.test:first"])
+    }
+
+    func testVerifiedLocalPreviewUsesFreshEncryptionAfterAcknowledgedCancellation() async throws {
+        let service = Service()
+        let coordinator = makeCoordinator(service)
+        let item = makeProtectedItem(preview:
+            "<message xmlns='jabber:client' to='bob@example.test' type='chat'><body>private text</body></message>"
+        )
+
+        try await coordinator.perform(.reschedule(now.addingTimeInterval(1200)), on: item).get()
+
+        XCTAssertEqual(service.events, ["cancel:alice@example.test:first", "encrypt:bob@example.test"])
+        XCTAssertEqual(service.payload?.body, "private text")
+        XCTAssertFalse(service.payload?.xmlString.contains("ciphertext") == true)
+    }
+
+    private func makeProtectedItem(preview: String?) -> ScheduledMessageListItem {
+        ScheduledMessageListItem(
+            scheduledId: "first", deliverAt: now.addingTimeInterval(600), status: .pending,
+            bodyPreview: preview == nil ? "" : "private text", owner: "alice@example.test", conversation: "bob@example.test",
+            conversationType: .omemo,
+            messageXML: "<message xmlns='jabber:client' to='bob@example.test' type='chat'><encrypted xmlns='urn:xmpp:omemo:2'><payload>ciphertext</payload></encrypted></message>",
+            protectedContentXML: preview
+        )
+    }
+
     private let now = Date(timeIntervalSince1970: 2_000_000_000)
 
     func testEditKeepsOriginalTimeAndUsesAcknowledgedCancel() async throws {
@@ -468,6 +507,18 @@ final class ScheduledMessageActionsTests: XCTestCase {
                 )))
             }
             return "schedule-iq"
+        }
+
+        func scheduleOMEMO2PreparedMessage(
+            _ payload: XMPPMessage, owner: String, conversation: String, deliverAt: Date,
+            callback: @escaping Manager.ScheduleCallback
+        ) {
+            events.append("encrypt:\(conversation)")
+            self.payload = payload
+            callback(.success(.init(
+                scheduledId: "sealed-replacement", conversation: conversation, conversationType: .omemo,
+                deliverAt: deliverAt, status: .pending, messageXML: "<message/>"
+            )))
         }
 
         func sendScheduledMessageNow(_ payload: XMPPMessage, for item: ScheduledMessageListItem,

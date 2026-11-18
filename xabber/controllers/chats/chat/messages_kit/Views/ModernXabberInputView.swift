@@ -21,6 +21,8 @@ protocol XabberInputBarDelegate: AnyObject {
     func sendButtonLongPressMenuRequested(sourceView: UIView, payload: ComposerMessagePayload)
     func scheduledMessagesButtonTouchUp()
     func attachmentButtonTouchUp()
+    func stickerPickerButtonTouchUp()
+    func stickerSuggestionTouchUp(_ sticker: ChatStickerDescriptor)
     func onAfterburnButtonTouchUp()
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat)
     func onCheckDevices()
@@ -43,6 +45,8 @@ protocol XabberInputBarDelegate: AnyObject {
 
 extension XabberInputBarDelegate {
     func onReviewOMEMO2OptOut() {}
+    func stickerPickerButtonTouchUp() {}
+    func stickerSuggestionTouchUp(_ sticker: ChatStickerDescriptor) {}
     func composerTextViewDidBeginEditing(_ textView: InputTextView) {}
     func composerTextViewDidEndEditing(_ textView: InputTextView) {}
 }
@@ -2245,6 +2249,10 @@ class ModernXabberInputView: UIView {
     private var textFieldTrailingToContentConstraint: NSLayoutConstraint?
     private var textFieldTrailingToScheduledButtonConstraint: NSLayoutConstraint?
     private var textFieldTrailingToSendButtonConstraint: NSLayoutConstraint?
+    private var textFieldTrailingToStickerButtonConstraint: NSLayoutConstraint?
+    private var stickerTrailingToContentConstraint: NSLayoutConstraint?
+    private var stickerTrailingToScheduledConstraint: NSLayoutConstraint?
+    private var stickerTrailingToSendConstraint: NSLayoutConstraint?
     private var lastWidthForRecordingButtonReset: CGFloat = .nan
 
     private enum RecordingDragVisualPolicy {
@@ -2723,6 +2731,28 @@ class ModernXabberInputView: UIView {
         ModernXabberInputView.removeChrome(from: button)
         return button
     }()
+
+    let stickerButton: UIButton = {
+        let button = UIButton(type: .system)
+        let configuration = UIImage.SymbolConfiguration(pointSize: 21, weight: .regular)
+        button.setImage(UIImage(systemName: "face.smiling", withConfiguration: configuration), for: .normal)
+        button.tintColor = .secondaryLabel
+        button.isHidden = true
+        button.accessibilityLabel = L10n.text("chat__stickers__title", fallback: "Stickers")
+        button.accessibilityIdentifier = "chat.stickers.composer_button"
+        return button
+    }()
+
+    private let stickerSuggestions = ChatStickerSuggestionStrip(frame: .zero)
+    private var installedStickerPacks: [ChatStickerPack] = []
+    var stickerOwner: String? {
+        didSet {
+            guard oldValue != stickerOwner else { return }
+            reloadInstalledStickerPacks()
+            updateTextFieldTrailingConstraint()
+            setNeedsLayout()
+        }
+    }
     
     let stateButton: UIButton = {
         let button = UIButton()
@@ -2865,8 +2895,14 @@ class ModernXabberInputView: UIView {
         super.didMoveToSuperview()
         guard self.superview != nil else {
             self.mentionPanel.removeFromSuperview()
+            self.hideStickerSuggestions()
             return
         }
+    }
+
+    private func stickerSuggestionHitView(for point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard stickerSuggestions.superview != nil else { return nil }
+        return stickerSuggestions.hitTest(stickerSuggestions.convert(point, from: self), with: event)
     }
 
     private func mentionPanelHitView(for point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -2924,6 +2960,7 @@ class ModernXabberInputView: UIView {
         super.point(inside: point, with: event)
             || self.searchPanelExpandedHitView(for: point, with: event) != nil
             || self.mentionPanelHitView(for: point, with: event) != nil
+            || self.stickerSuggestionHitView(for: point, with: event) != nil
             || self.recordLockButtonHitView(for: point, with: event) != nil
             || self.recordButtonPulseHitView(for: point, with: event) != nil
     }
@@ -2935,6 +2972,10 @@ class ModernXabberInputView: UIView {
 
         if let mentionHitView = self.mentionPanelHitView(for: point, with: event) {
             return mentionHitView
+        }
+
+        if let stickerHitView = self.stickerSuggestionHitView(for: point, with: event) {
+            return stickerHitView
         }
 
         if let searchHitView = self.searchPanelExpandedHitView(for: point, with: event) {
@@ -2967,6 +3008,64 @@ class ModernXabberInputView: UIView {
             selector: #selector(textViewDidChange),
             name: UITextView.textDidChangeNotification, object: textField
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(stickerCatalogueChanged(_:)),
+            name: ChatStickerCatalogue.changed, object: nil
+        )
+    }
+
+    @objc private func stickerCatalogueChanged(_ note: Notification) {
+        guard note.object as? String == stickerOwner else { return }
+        reloadInstalledStickerPacks()
+    }
+
+    private func reloadInstalledStickerPacks() {
+        installedStickerPacks = stickerOwner.map { ChatStickerCatalogue.shared.installed(for: $0) } ?? []
+        updateStickerSuggestions()
+    }
+
+    private func updateStickerSuggestions() {
+        guard let owner = stickerOwner, let superview, state == .normal,
+              !isSelectionPanelShowed, !textField.isHidden, textField.isFirstResponder,
+              textField.markedTextRange == nil else {
+            hideStickerSuggestions()
+            return
+        }
+        let text = textField.text ?? ""
+        let entries = ChatStickerSuggestion.matches(text: text, packs: installedStickerPacks)
+        guard !entries.isEmpty else {
+            hideStickerSuggestions()
+            return
+        }
+        if stickerSuggestions.superview !== superview {
+            stickerSuggestions.removeFromSuperview()
+            superview.addSubview(stickerSuggestions)
+        }
+        stickerSuggestions.update(entries, owner: owner, emoji: ChatStickerSuggestion.loneEmoji(in: text))
+        layoutStickerSuggestions()
+    }
+
+    private func layoutStickerSuggestions() {
+        guard let host = stickerSuggestions.superview else { return }
+        guard state == .normal, !isSelectionPanelShowed, !textField.isHidden else {
+            hideStickerSuggestions()
+            return
+        }
+        let height = ChatStickerSuggestionStrip.rowHeight
+        let localFrame = CGRect(x: 0, y: -(height + 5), width: bounds.width, height: height)
+        stickerSuggestions.frame = convert(localFrame, to: host)
+    }
+
+    private func hideStickerSuggestions() {
+        guard stickerSuggestions.superview != nil else { return }
+        stickerSuggestions.update([], owner: "", emoji: nil)
+        stickerSuggestions.removeFromSuperview()
+    }
+
+    @objc private func showStickerPicker() {
+        guard !stickerButton.isHidden else { return }
+        hideStickerSuggestions()
+        delegate?.stickerPickerButtonTouchUp()
     }
 
     private func updateComposerControlLayout() {
@@ -3004,13 +3103,19 @@ class ModernXabberInputView: UIView {
     private func updateTextFieldTrailingConstraint() {
         let shouldTrailToSend = self.state == .normal && self.currentComposerActionMode == .textSend
         let shouldTrailToScheduled = !shouldTrailToSend && !self.scheduledMessagesButton.isHidden
+        let showStickerButton = self.stickerOwner != nil && self.state == .normal
+            && !self.isSelectionPanelShowed && !self.textField.isHidden
+        if self.stickerButton.isHidden == showStickerButton {
+            self.stickerButton.isHidden = !showStickerButton
+        }
 
-        self.setConstraint(self.textFieldTrailingToSendButtonConstraint, active: shouldTrailToSend)
-        self.setConstraint(self.textFieldTrailingToScheduledButtonConstraint, active: shouldTrailToScheduled)
-        self.setConstraint(
-            self.textFieldTrailingToContentConstraint,
-            active: !shouldTrailToSend && !shouldTrailToScheduled
-        )
+        self.setConstraint(self.stickerTrailingToSendConstraint, active: shouldTrailToSend)
+        self.setConstraint(self.stickerTrailingToScheduledConstraint, active: shouldTrailToScheduled)
+        self.setConstraint(self.stickerTrailingToContentConstraint, active: !shouldTrailToSend && !shouldTrailToScheduled)
+        self.setConstraint(self.textFieldTrailingToSendButtonConstraint, active: !showStickerButton && shouldTrailToSend)
+        self.setConstraint(self.textFieldTrailingToScheduledButtonConstraint, active: !showStickerButton && shouldTrailToScheduled)
+        self.setConstraint(self.textFieldTrailingToContentConstraint, active: !showStickerButton && !shouldTrailToSend && !shouldTrailToScheduled)
+        self.setConstraint(self.textFieldTrailingToStickerButtonConstraint, active: showStickerButton)
     }
 
     private func currentComposerContentHeight() -> CGFloat {
@@ -3101,6 +3206,7 @@ class ModernXabberInputView: UIView {
             self.contentView,
             self.attachButton,
             self.textField,
+            self.stickerButton,
             self.scheduledMessagesButton,
             self.timerButton,
             self.sendButton,
@@ -3114,6 +3220,7 @@ class ModernXabberInputView: UIView {
         self.mainInputGlassView.contentView.addSubview(self.contextPreviewPanel)
         self.mainInputGlassView.contentView.addSubview(self.contentView)
         self.contentView.addSubview(self.textField)
+        self.contentView.addSubview(self.stickerButton)
         self.contentView.addSubview(self.scheduledMessagesButton)
         self.contentView.addSubview(self.sendButton)
         self.contentView.addSubview(self.stateButton)
@@ -3147,6 +3254,12 @@ class ModernXabberInputView: UIView {
         self.addObservers()
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchDown), for: .touchDown)
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchUp), for: .touchUpInside)
+        self.stickerButton.addTarget(self, action: #selector(self.showStickerPicker), for: .touchUpInside)
+        self.stickerSuggestions.onSend = { [weak self] sticker in
+            guard let self, self.stickerSuggestions.superview != nil, self.state == .normal,
+                  ChatStickerSuggestion.loneEmoji(in: self.textField.text ?? "") == sticker.emoji else { return }
+            self.delegate?.stickerSuggestionTouchUp(sticker)
+        }
         self.timerButton.addTarget(self,  action: #selector(self.onTimerButtonTouchUp), for: .touchUpInside)
         self.recordButton.addTarget(self, action: #selector(self.onRecordButtonTouchUp), for: .touchUpInside)
         self.sendButton.addTarget(self, action: #selector(self.onTextSendButtonTouchUp), for: .touchUpInside)
@@ -3224,6 +3337,7 @@ class ModernXabberInputView: UIView {
     public func changeState(to state: InputBarState) {
         if state != .normal {
             self.hideMentionSuggestions()
+            self.hideStickerSuggestions()
         }
         if state != .pendingOptOut {
             self.stateButton.accessibilityIdentifier = nil
@@ -3378,6 +3492,8 @@ class ModernXabberInputView: UIView {
         }
         self.resetRecordingButtonPositionAndVisibility(animated: false)
         self.updateScheduledMessagesButtonVisibility()
+        self.updateTextFieldTrailingConstraint()
+        self.updateStickerSuggestions()
         self.synchronizeSearchPanelInteractivity()
     }
 
@@ -3401,6 +3517,8 @@ class ModernXabberInputView: UIView {
         self.sendButton.isHidden =      true
         self.stateButton.isHidden =     true
         self.selectionPanel.isHidden =  false
+        self.updateTextFieldTrailingConstraint()
+        self.hideStickerSuggestions()
     }
     
     public func hideSelectionPanel() {
@@ -3625,6 +3743,10 @@ class ModernXabberInputView: UIView {
         let textFieldTrailingToSendButton = self.textField.trailingAnchor.constraint(
             equalTo: self.sendButton.leadingAnchor
         )
+        self.textFieldTrailingToStickerButtonConstraint = self.textField.trailingAnchor.constraint(equalTo: self.stickerButton.leadingAnchor)
+        self.stickerTrailingToContentConstraint = self.stickerButton.trailingAnchor.constraint(equalTo: self.contentView.trailingAnchor)
+        self.stickerTrailingToScheduledConstraint = self.stickerButton.trailingAnchor.constraint(equalTo: self.scheduledMessagesButton.leadingAnchor)
+        self.stickerTrailingToSendConstraint = self.stickerButton.trailingAnchor.constraint(equalTo: self.sendButton.leadingAnchor)
         self.mainInputHeightConstraint = mainInputHeight
         self.mainInputLeadingToRootConstraint = mainLeadingToRoot
         self.mainInputLeadingToAttachConstraint = mainLeadingToAttach
@@ -3701,6 +3823,10 @@ class ModernXabberInputView: UIView {
             self.textField.topAnchor.constraint(equalTo: self.contentView.topAnchor, constant: LiquidGlassMetrics.textVerticalInset),
             self.textField.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor, constant: -LiquidGlassMetrics.textVerticalInset),
 
+            self.stickerButton.bottomAnchor.constraint(equalTo: self.contentView.bottomAnchor),
+            self.stickerButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.scheduledMessagesButtonWidth),
+            self.stickerButton.heightAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
+
             self.sendButton.trailingAnchor.constraint(equalTo: self.mainInputGlassView.contentView.trailingAnchor),
             self.sendButton.bottomAnchor.constraint(equalTo: self.mainInputGlassView.contentView.bottomAnchor),
             self.sendButton.widthAnchor.constraint(equalToConstant: LiquidGlassMetrics.buttonSize),
@@ -3724,6 +3850,7 @@ class ModernXabberInputView: UIView {
         super.layoutSubviews()
         self.synchronizeSearchPanelInteractivity()
         self.layoutLiquidGlassAppearance()
+        self.layoutStickerSuggestions()
         if shouldResetRecordingButton {
             self.lastWidthForRecordingButtonReset = self.bounds.width
             self.resetRecordingButtonPositionAndVisibility(animated: false, enforceVisibility: false)
@@ -3973,6 +4100,7 @@ class ModernXabberInputView: UIView {
         }
         self.delegate?.onTextDidChange(to: trimmedText.isEmpty ? nil : trimmedText)
         self.updateMentionSuggestions()
+        self.updateStickerSuggestions()
     }
 
     func baseComposerAttributes() -> [NSAttributedString.Key: Any] {
@@ -5075,6 +5203,7 @@ extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
         if let textView = textView as? InputTextView {
             self.delegate?.composerTextViewDidBeginEditing(textView)
         }
+        self.updateStickerSuggestions()
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -5093,6 +5222,7 @@ extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
 
     func textViewDidEndEditing(_ textView: UITextView) {
         self.hideMentionSuggestions()
+        self.hideStickerSuggestions()
         if let textView = textView as? InputTextView {
             self.delegate?.composerTextViewDidEndEditing(textView)
         }

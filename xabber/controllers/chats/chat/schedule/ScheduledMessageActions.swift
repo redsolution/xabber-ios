@@ -173,8 +173,19 @@ final class ScheduledMessageActionCoordinator {
         if let error = preflight(action, item: item) {
             result = .failure(error)
         } else if let date = deliveryDate(action, item: item) {
-            let scheduled: Result<XMPPMessageScheduleManager.ScheduledEntry, ScheduleError> = await request { callback in
-                service.schedulePreparedMessage(payload, for: item, deliverAt: date, callback: callback)
+            let scheduled: Result<XMPPMessageScheduleManager.ScheduledEntry, ScheduleError>
+            if item.conversationType == .omemo {
+                scheduled = await withCheckedContinuation { continuation in
+                    let completion = ScheduledMessageIQCompletion(continuation)
+                    service.scheduleOMEMO2PreparedMessage(
+                        payload, owner: item.owner, conversation: item.conversation, deliverAt: date,
+                        callback: completion.resolve
+                    )
+                }
+            } else {
+                scheduled = await request { callback in
+                    service.schedulePreparedMessage(payload, for: item, deliverAt: date, callback: callback)
+                }
             }
             result = scheduled.map { _ in () }
         } else {
@@ -251,8 +262,9 @@ enum ScheduledMessageActionPayload {
     }
 
     static func make(_ action: ScheduledMessageAction, item: ScheduledMessageListItem) -> XMPPMessage? {
-        guard [.regular, .group, .saved].contains(item.conversationType),
-              let message = try? XMPPMessage(xmlString: item.messageXML),
+        guard [.regular, .group, .saved, .omemo].contains(item.conversationType),
+              let contentXML = item.contentXML,
+              let message = try? XMPPMessage(xmlString: contentXML),
               SCEReceivePolicy.matches(message, name: "message", namespace: SCEReceivePolicy.client),
               message.to?.bare == item.conversation, message.to?.resource == nil,
               message.from == nil || message.from?.bare == item.owner,
@@ -266,9 +278,15 @@ enum ScheduledMessageActionPayload {
         let originalBody = bodies.first?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         switch action {
         case .edit(let text):
-            return ScheduledMessageContent.edited(message, body: text, retainedAttachmentIDs: nil, addedAttachmentXML: [])
+            return ScheduledMessageContent.edited(
+                message, body: text, retainedAttachmentIDs: nil, addedAttachmentXML: [],
+                protected: item.conversationType == .omemo
+            )
         case .editContent(let text, let retainedIDs, let addedXML):
-            return ScheduledMessageContent.edited(message, body: text, retainedAttachmentIDs: retainedIDs, addedAttachmentXML: addedXML)
+            return ScheduledMessageContent.edited(
+                message, body: text, retainedAttachmentIDs: retainedIDs, addedAttachmentXML: addedXML,
+                protected: item.conversationType == .omemo
+            )
         case .reschedule:
             guard !originalBody.isEmpty || children.contains(where: { !isPlainTextChild($0) }) else { return nil }
         case .sendNow:
@@ -327,6 +345,7 @@ final class ScheduledMessageActionJournal {
         let status: String
         let bodyPreview: String
         let messageXML: String
+        let protectedContentXML: String?
         let action: ScheduledMessageAction
         var requiresRefresh: Bool
 
@@ -339,6 +358,7 @@ final class ScheduledMessageActionJournal {
             status = item.status.rawValue
             bodyPreview = item.bodyPreview
             messageXML = item.messageXML
+            protectedContentXML = item.protectedContentXML
             self.action = action
             requiresRefresh = true
         }
@@ -349,7 +369,7 @@ final class ScheduledMessageActionJournal {
             return ScheduledMessageActionRecovery(
                 item: ScheduledMessageListItem(scheduledId: scheduledId, deliverAt: deliverAt, status: status,
                     bodyPreview: bodyPreview, owner: owner, conversation: conversation,
-                    conversationType: type, messageXML: messageXML),
+                    conversationType: type, messageXML: messageXML, protectedContentXML: protectedContentXML),
                 action: action, requiresRefresh: requiresRefresh
             )
         }
@@ -471,12 +491,12 @@ final class ScheduledMessageActionJournal {
         let data = try JSONEncoder().encode(records)
         guard data.count <= Self.maximumBytes else { throw CocoaError(.fileWriteOutOfSpace) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+            attributes: [.protectionKey: FileProtectionType.complete])
         var protectedDirectory = directory
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try protectedDirectory.setResourceValues(values)
-        try data.write(to: file(for: owner), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try data.write(to: file(for: owner), options: [.atomic, .completeFileProtection])
     }
 
     private func removeFile(for owner: String) throws {

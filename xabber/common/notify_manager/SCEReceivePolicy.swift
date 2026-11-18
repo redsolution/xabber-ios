@@ -26,6 +26,7 @@ enum SCEReceivePolicy {
     static let omemo = "urn:xmpp:omemo:2"
     static let sce = "urn:xmpp:sce:1"
     static let client = "jabber:client"
+    static let schedule = "https://xabber.com/protocol/schedule"
     static let mamNamespaces: Set<String> = ["urn:xmpp:mam:0", "urn:xmpp:mam:1", "urn:xmpp:mam:2", "urn:xmpp:mam:3"]
     static let carbonNamespaces: Set<String> = ["urn:xmpp:carbons:0", "urn:xmpp:carbons:1", "urn:xmpp:carbons:2"]
 
@@ -68,8 +69,20 @@ enum SCEReceivePolicy {
         case "urn:xmpp:eme:0": return name == "encryption"
         case "urn:xmpp:delay": return name == "delay"
         case "https://xabber.com/protocol/delivery": return ["time", "received", "retry"].contains(name)
+        case schedule: return name == "deferred" && isScheduledDeliveryMetadata(element)
         default: return false
         }
+    }
+
+    static func isScheduledDeliveryMetadata(_ element: DDXMLElement) -> Bool {
+        let attributes = element.attributes ?? []
+        return matches(element, name: "deferred", namespace: schedule) &&
+            attributes.count == 2 &&
+            attributes.allSatisfy { ($0.uri ?? "").isEmpty && ["id", "deliver-at"].contains($0.name ?? "") } &&
+            element.attribute(forName: "id")?.stringValue?.isEmpty == false &&
+            element.attribute(forName: "deliver-at")?.stringValue?.isEmpty == false &&
+            !(element.children ?? []).contains { $0 is DDXMLElement } &&
+            (element.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Known semantic names cannot acquire meaning through an unrelated URI.
@@ -106,7 +119,7 @@ enum SCEReceivePolicy {
             "addresses": ["http://jabber.org/protocol/address"], "address": ["http://jabber.org/protocol/address"],
             "encryption": ["urn:xmpp:eme:0"],
             "previous-id": ["http://xabber.com/protocol/previous"],
-            "deferred": ["https://xabber.com/protocol/schedule"]
+            "deferred": []
         ]
         return namespaces[name].map { $0.contains(element.uri ?? "") } ?? true
     }

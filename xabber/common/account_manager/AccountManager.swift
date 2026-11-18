@@ -1258,6 +1258,8 @@ public class AccountManager: NSObject {
     private func performPostRealmAccountDeletionCleanup(jid: String) throws {
         removeAccountFromMemory(jid: jid)
         try ScheduledMessageActionJournal.shared.invalidate(forOwner: jid)
+        try ScheduledOMEMO2.removePreviews(owner: jid)
+        Task { @MainActor in ChatStickerCatalogue.shared.removeAccount(jid) }
         if let index = ApplicationStateManager.shared.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
             ApplicationStateManager.shared.expiredTokenAccountsList.remove(at: index)
         }

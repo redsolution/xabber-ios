@@ -5,6 +5,37 @@ import XMPPFramework
 
 @MainActor
 final class ScheduledComposerSubmissionTests: XCTestCase {
+    func testOMEMO2ComposerOnlyUsesTheEncryptedScheduleRoute() {
+        let (controller, service) = makeController()
+        controller.conversationType = .omemo
+        service.canScheduleOMEMO2 = true
+        controller.sendScheduledMessage(
+            payload: controller.xabberInputView.currentPayload(),
+            deliverAt: Date().addingTimeInterval(3600)
+        )
+
+        XCTAssertTrue(service.requests.isEmpty)
+        XCTAssertEqual(service.encryptedRequests.first?.body, "Original draft")
+        XCTAssertEqual(service.encryptedRequests.first?.conversationType, .omemo)
+        XCTAssertNil(controller.draftMessageText.value)
+    }
+
+    func testScheduledStickerPreservesTheComposerAndUsesThePreparedPacket() throws {
+        let (controller, service) = makeController()
+        let sticker = ChatStickerDescriptor(
+            name: "Owl", packURL: try XCTUnwrap(URL(string: "https://stickers.example.org/pack.xml")),
+            imageURL: try XCTUnwrap(URL(string: "https://stickers.example.org/owl.png")), emoji: "🦉"
+        )
+
+        controller.sendScheduledSticker(sticker, deliverAt: Date().addingTimeInterval(3600))
+
+        XCTAssertEqual(controller.draftMessageText.value, "Original draft")
+        let payload = try XCTUnwrap(service.preparedRequest?.payload)
+        XCTAssertEqual(payload.body, "🦉")
+        XCTAssertTrue(ChatStickerWireCodec.containsSticker(in: payload))
+        XCTAssertTrue(service.requests.isEmpty)
+    }
+
     func testUploadedFileWithoutCaptionMakesAScheduleWithTheExactChatRoute() throws {
         let service = ScheduleService()
         let context = ChatAttachmentFlowContext(
@@ -182,6 +213,8 @@ final class ScheduledComposerSubmissionTests: XCTestCase {
 
 private final class ScheduleService: ChatScheduledMessageServicing {
     private(set) var requests: [ChatScheduledMessageSendRequest] = []
+    private(set) var encryptedRequests: [ChatScheduledMessageSendRequest] = []
+    var canScheduleOMEMO2 = false
     private var callback: XMPPMessageScheduleManager.ScheduleCallback?
     private(set) var preparedRequest: (
         payload: XMPPMessage, owner: String, conversation: String,
@@ -189,6 +222,21 @@ private final class ScheduleService: ChatScheduledMessageServicing {
     )?
 
     func isScheduleAvailable(owner: String) -> Bool { true }
+
+    func validateOMEMO2ScheduleRoute(owner: String, conversation: String) -> XMPPMessageScheduleManager.ScheduleError? {
+        canScheduleOMEMO2 ? nil : .forbidden
+    }
+
+    func scheduleOMEMO2Message(
+        _ request: ChatScheduledMessageSendRequest,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    ) {
+        encryptedRequests.append(request)
+        callback(.success(.init(
+            scheduledId: "sealed-id", conversation: request.conversation, conversationType: .omemo,
+            deliverAt: request.deliverAt, status: .pending, messageXML: "<message/>"
+        )))
+    }
 
     func schedulePlaintextMessage(
         _ request: ChatScheduledMessageSendRequest,

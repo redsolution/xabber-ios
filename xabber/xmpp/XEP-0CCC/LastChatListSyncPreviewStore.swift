@@ -30,6 +30,7 @@ struct LastChatListSyncPreviewProjection: Equatable, Sendable, Codable {
     let isAttachment: Bool
     let groupchatNickname: String?
     let groupchatAuthorColorKey: String?
+    let stickerThumbnail: Data?
 
     init(
         owner: String,
@@ -39,7 +40,8 @@ struct LastChatListSyncPreviewProjection: Equatable, Sendable, Codable {
         isSystemMessage: Bool = false,
         isAttachment: Bool = false,
         groupchatNickname: String? = nil,
-        groupchatAuthorColorKey: String? = nil
+        groupchatAuthorColorKey: String? = nil,
+        stickerThumbnail: Data? = nil
     ) {
         self.owner = owner
         self.conversationPrimary = conversationPrimary
@@ -49,6 +51,7 @@ struct LastChatListSyncPreviewProjection: Equatable, Sendable, Codable {
         self.isAttachment = isAttachment
         self.groupchatNickname = groupchatNickname
         self.groupchatAuthorColorKey = groupchatAuthorColorKey
+        self.stickerThumbnail = stickerThumbnail
     }
 }
 
@@ -559,7 +562,8 @@ enum LastChatListSyncPreviewParser {
         let hasContact = presentationRoots.containsElement {
             SCEReceivePolicy.matches($0, name: "contact", namespace: "https://xabber.com/protocol/contact-sharing")
         }
-        let hasSticker = presentationRoots.containsElement {
+        let sticker = ChatStickerWireCodec.sticker(in: messageElement)
+        let hasSticker = sticker != nil || presentationRoots.containsElement {
             SCEReceivePolicy.matches($0, name: "media-type", namespace: "https://xabber.com/protocol/files") &&
                 $0.stringValue?.lowercased() == "image/sticker"
         }
@@ -646,7 +650,8 @@ enum LastChatListSyncPreviewParser {
             isSystemMessage: isSystemMessage,
             isAttachment: hasAttachment,
             groupchatNickname: groupAuthor?.nickname,
-            groupchatAuthorColorKey: groupAuthor?.colorKey
+            groupchatAuthorColorKey: groupAuthor?.colorKey,
+            stickerThumbnail: sticker?.inlineThumbnail
         )
     }
 

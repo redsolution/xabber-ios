@@ -102,6 +102,9 @@ extension LastChatsViewController: UITableViewDataSource {
             hasErrorInChat: item.hasErrorInChat,
             verAction: item.isVerificationActionRequired
         )
+        if let thumbnail = item.stickerThumbnail {
+            cell.applyStickerThumbnail(thumbnail, accessibilityLabel: item.message)
+        }
         cell.setMask()
         #if DEBUG || CHAT_PERFORMANCE_LAB
         cell.accessibilityIdentifier =

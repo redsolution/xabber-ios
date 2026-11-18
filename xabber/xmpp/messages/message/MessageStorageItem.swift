@@ -1726,7 +1726,10 @@ class MessageStorageItem: Object {
     }
     
     internal func updateDisplayMode() {
-        displayAs = .text
+        let contentReferences = references.filter { $0.kind != .groupchat }
+        displayAs = contentReferences.count == 1 && contentReferences.first?.kind == .sticker
+            && inlineForwards.isEmpty && body.trimmingCharacters(in: .whitespacesAndNewlines).count <= 1
+            ? .sticker : .text
 //        print(#function, self.references.toArray(), self.legacyBody, self.createReferences())
 //        if !references.filter({ $0.kind == .call }).isEmpty {
 //            displayAs = .call
@@ -2568,6 +2571,9 @@ class MessageStorageItem: Object {
             referenceElement.addAttribute(withName: "begin", integerValue: reference.begin)
             referenceElement.addAttribute(withName: "end", integerValue: reference.end)
             switch reference.kind {
+                case .sticker:
+                    guard let sticker = ChatStickerWireCodec.stickerElement(for: reference) else { return }
+                    referenceElement.addChild(sticker)
                 case .media:
                     let fileSharing = DDXMLElement(name: "file-sharing",
                                                    xmlns: "https://xabber.com/protocol/files")

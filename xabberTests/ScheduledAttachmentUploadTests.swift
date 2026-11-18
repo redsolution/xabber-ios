@@ -102,7 +102,7 @@ final class ScheduledAttachmentUploadTests: XCTestCase {
         XCTAssertEqual(error, .routeUnavailable)
     }
 
-    func testEncryptedAndNonFileSelectionNeverUploads() {
+    func testPlainHostedFileAndNonFileSelectionNeverUploadsInProtectedSchedule() {
         let uploader = ScheduledAttachmentUploaderSpy()
         let preparation = makePreparation(uploader)
         var errors: [ScheduledAttachmentUploadError] = []
@@ -110,13 +110,56 @@ final class ScheduledAttachmentUploadTests: XCTestCase {
             if case .failure(let error) = result { errors.append(error) }
         }
 
-        preparation.prepare(drafts: [makeDraft(id: "file")], context: makeContext(type: .omemo),
+        preparation.prepare(drafts: [makeDraft(id: "file", remote: remote(named: "plain", id: 4))],
+                            context: makeContext(type: .omemo),
                             progress: { _, _ in }, completion: record)
         preparation.prepare(drafts: [makeDraft(id: "contact", mediaKind: .contact)], context: makeContext(),
                             progress: { _, _ in }, completion: record)
 
         XCTAssertEqual(errors, [.invalidSelection, .invalidSelection])
         XCTAssertTrue(uploader.requests.isEmpty)
+    }
+
+    func testEncryptedUploadPlanHasOpaqueTransportAndRoundTripsOnlyWithPrivateMetadata() throws {
+        let data = Data("sensitive document bytes".utf8)
+        let upload = try ScheduledAttachmentUploadPayload.make(
+            data: data, filename: "payroll.txt", mimeType: "text/plain", encrypted: true
+        )
+
+        XCTAssertNotEqual(upload.data, data)
+        XCTAssertNotEqual(upload.filename, "payroll.txt")
+        XCTAssertEqual(upload.mimeType, "application/octet-stream")
+        XCTAssertEqual(upload.privateMetadata?["size"], String(data.count))
+        XCTAssertEqual(upload.privateMetadata?["hash"], upload.data.sha256Data.hexEncodedString())
+        let key = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(upload.privateMetadata?["encryption-key"])))
+        let iv = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(upload.privateMetadata?["iv"])))
+        XCTAssertEqual(try Data.decrypt(upload.data, key: Array(key), iv: Array(iv)), data)
+    }
+
+    func testOnlyProtectedUploadedReferencesCanBeScheduledAsOMEMO2Files() throws {
+        let context = makeContext(type: .omemo)
+        let uploader = ScheduledAttachmentUploaderSpy()
+        let preparation = makePreparation(uploader)
+        let opaque = try ScheduledAttachmentUploadPayload.make(
+            data: Data("file".utf8), filename: "original.txt", mimeType: "text/plain", encrypted: true
+        )
+        var result: Result<[MessageReferenceStorageItem], ScheduledAttachmentUploadError>?
+        preparation.prepare(drafts: [makeDraft(id: "report")], context: context,
+                            progress: { _, _ in }, completion: { result = $0 })
+        uploader.finish(with: .success(.init(
+            remoteURL: URL(string: "https://gallery.example.test/cipher.bin")!, fileID: 9,
+            hash: opaque.privateMetadata?["hash"], createdAt: nil, metadata: opaque.privateMetadata
+        )))
+
+        let references = try XCTUnwrap(result).get()
+        let payload = try XCTUnwrap(ScheduledMessageContent.makeMessage(
+            owner: context.owner, conversation: context.jid, conversationType: .omemo, body: "", references: references
+        ))
+        XCTAssertTrue(ScheduledOMEMO2.permitsEncryptedFiles(in: payload, owner: context.owner))
+        XCTAssertTrue(payload.xmlString.contains("urn:xmpp:esfs:0"))
+        XCTAssertNil(ScheduledMessageContent.makeMessage(
+            owner: context.owner, conversation: context.jid, conversationType: .regular, body: "", references: references
+        ))
     }
 
     func testEditorPickerReturnsHostedFilesAfterDismissalWithoutOrdinarySending() throws {
@@ -265,7 +308,7 @@ private final class ScheduledAttachmentUploaderSpy: ScheduledAttachmentFileUploa
     private(set) var requests: [AttachmentPreparedFile] = []
     private var completion: ((Result<AttachmentUploadedRemoteFile, ScheduledAttachmentUploadError>) -> Void)?
 
-    func upload(file: AttachmentPreparedFile, owner: String,
+    func upload(file: AttachmentPreparedFile, owner: String, encrypted: Bool,
                 completion: @escaping (Result<AttachmentUploadedRemoteFile, ScheduledAttachmentUploadError>) -> Void) {
         requests.append(file)
         self.completion = completion

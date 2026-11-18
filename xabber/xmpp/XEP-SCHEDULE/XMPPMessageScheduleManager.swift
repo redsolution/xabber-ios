@@ -128,6 +128,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
     private var automaticRefreshID: UUID?
     private var sessionRefreshRequested = false
     internal var requestTimeout: TimeInterval = 15
+    internal var omemo2Previews = ScheduledOMEMO2PreviewStore.shared
 
     var isAvailable: Bool {
         get { stateLock.withLock { available } }
@@ -203,6 +204,59 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
     }
 
     @discardableResult
+    func scheduleOMEMO2Message(
+        _ xmppStream: XMPPStream,
+        conversation: String,
+        deliverAt: Date,
+        plaintext: XMPPMessage,
+        omemo: OmemoManager,
+        callback: ScheduleCallback? = nil
+    ) -> String? {
+        guard isAvailable else { callback?(.failure(.unavailable)); return nil }
+        guard deliverAt.timeIntervalSince1970.isFinite, ScheduledOMEMO2.wireDate(deliverAt) > Date() else {
+            callback?(.failure(.notAcceptable))
+            return nil
+        }
+        guard let account = AccountManager.shared.find(for: owner), account.messageSchedule === self,
+              account.omemo === omemo, xmppCanSchedule(on: xmppStream, account: account) else {
+            callback?(.failure(.sendRejected))
+            return nil
+        }
+        let sealed: XMPPMessage
+        do {
+            sealed = try ScheduledOMEMO2.makeEncryptedMessage(
+                plaintext: plaintext, conversation: conversation, deliverAt: deliverAt, omemo: omemo
+            )
+        } catch let error as ScheduleError {
+            callback?(.failure(error))
+            return nil
+        } catch {
+            callback?(.failure(.sendRejected))
+            return nil
+        }
+        // A locked or full local cache can only hide the preview; it cannot
+        // downgrade or substitute a plaintext stanza.
+        let previews = omemo2Previews
+        let owner = self.owner
+        try? previews.save(plaintext: plaintext, sealed: sealed, owner: owner,
+                           conversation: conversation, deliverAt: deliverAt)
+        let id = scheduleMessage(xmppStream, conversation: conversation, conversationType: .omemo,
+            deliverAt: deliverAt, payload: sealed) { result in
+                if case .failure(let error) = result {
+                    switch error {
+                    case .disconnected, .timeout, .invalidResponse, .unknown:
+                        break // The server may still list this exact packet later.
+                    default:
+                        previews.remove(owner: owner, conversation: conversation, sealed: sealed)
+                    }
+                }
+                callback?(result)
+            }
+        if id == nil { omemo.abandonPreparedOMEMO2Transport(sealed) }
+        return id
+    }
+
+    @discardableResult
     func scheduleMessage(
         _ xmppStream: XMPPStream,
         conversation: String,
@@ -222,6 +276,17 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         guard let destination = XMPPJID(string: conversation),
               payload.to?.full == destination.bare else {
             callback?(.failure(.malformedPayload))
+            return nil
+        }
+        if conversationType == .omemo {
+            guard ScheduledOMEMO2.isSealedMessage(payload, owner: owner, conversation: destination.bare),
+                  let account = AccountManager.shared.find(for: owner),
+                  account.omemo.allowsPreparedOMEMO2Transport(payload) else {
+                callback?(.failure(.sendRejected))
+                return nil
+            }
+        } else if conversationType.isEncrypted || SCEReceivePolicy.containsOMEMO2(payload) {
+            callback?(.failure(.forbidden))
             return nil
         }
         let elementId = xmppStream.generateUUID
@@ -433,7 +498,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         }
         if let cancelled = message.element(forName: "cancelled", xmlns: Self.namespace),
            let scheduledId = cancelled.attributeStringValue(forName: "id"), scheduledId.isNotEmpty {
-            stateLock.withLock { deleteScheduleLocked(scheduledId: scheduledId) }
+            stateLock.withLock { deleteScheduleLocked(scheduledId: scheduledId, purgePreview: true) }
             return true
         }
         if let failed = message.element(forName: "failed", xmlns: Self.namespace),
@@ -607,10 +672,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
 
         let sender = stream.myJID
         if let account = AccountManager.shared.find(for: owner) {
-            guard account.xmppStream === stream, stream.isAuthenticated,
-                  let accountJID = XMPPJID(string: owner), sender?.bare == accountJID.bare,
-                  account.sendReadiness.snapshot.canFlushApplicationStanzas,
-                  !account.isStartupBackgroundTrafficBlocked else {
+            guard xmppCanSchedule(on: stream, account: account) else {
                 kind.fail(with: .sendRejected)
                 return nil
             }
@@ -633,6 +695,13 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
             failRequest(id, error: .sendRejected)
             return nil
         }
+    }
+
+    private func xmppCanSchedule(on stream: XMPPStream, account: Account) -> Bool {
+        guard let accountJID = XMPPJID(string: owner) else { return false }
+        return account.xmppStream === stream && stream.isAuthenticated &&
+            stream.myJID?.bare == accountJID.bare &&
+            account.sendReadiness.snapshot.canFlushApplicationStanzas && !account.isStartupBackgroundTrafficBlocked
     }
 
     private func failRequest(_ id: String, error: ScheduleError) {
@@ -682,7 +751,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
             }
         case .cancel(let scheduledID, let callback):
             guard elements.isEmpty else { return invalid }
-            deleteScheduleLocked(scheduledId: scheduledID)
+            deleteScheduleLocked(scheduledId: scheduledID, purgePreview: true)
             return { callback?(.success(scheduledID)) }
         }
     }
@@ -710,10 +779,19 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
               let deliverAt = Self.parseTimestamp(deliverAtString) else {
             return nil
         }
-        let messageXML = element.element(forName: "message", xmlns: "jabber:client")?.xmlString
-            ?? element.element(forName: "message")?.xmlString
+        let messageElementName = "message"
+        let raw = element.element(forName: messageElementName, xmlns: "jabber:client")?.xmlString
+            ?? element.element(forName: messageElementName)?.xmlString
             ?? fallbackMessageXML
             ?? ""
+        let messageXML: String
+        if conversationType == .omemo {
+            messageXML = ScheduledOMEMO2.sealedSnapshot(raw, owner: owner, conversation: conversationJID.bare) ?? ""
+        } else if conversationType.isEncrypted {
+            messageXML = ""
+        } else {
+            messageXML = raw
+        }
         return ScheduledEntry(
             scheduledId: scheduledId,
             conversation: conversationJID.bare,
@@ -798,13 +876,16 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         filteredSnapshotRevisions = filteredSnapshotRevisions.filter { $0.value >= oldestRequest }
     }
 
-    private func deleteScheduleLocked(scheduledId: String) {
+    private func deleteScheduleLocked(scheduledId: String, purgePreview: Bool = false) {
         recordMutationLocked(scheduledId: scheduledId)
         do {
             let realm = try WRealm.safe()
             try realm.write {
                 let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: scheduledId)
                 if let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary) {
+                    if purgePreview, item.conversationType == .omemo, let sealed = try? XMPPMessage(xmlString: item.messageXML) {
+                        omemo2Previews.remove(owner: owner, conversation: item.conversation, sealed: sealed)
+                    }
                     realm.delete(item)
                 }
             }

@@ -386,7 +386,9 @@ extension OmemoManager {
         try encryptPreparedMessage(message: message, to: jid).element
     }
 
-    internal func encryptPreparedMessage(message: String, to jid: String) throws -> PreparedEncryptedMessage {
+    internal func encryptPreparedMessage(
+        message: String, to jid: String, authenticatedContentTime: Date? = nil
+    ) throws -> PreparedEncryptedMessage {
         try OMEMO2OptOutPolicy.requireAllowedMessage(owner: owner, jid: jid, storage: omemo2Storage)
         let storage = try ensureOMEMO2Prepared()
         let localBundle = try storage.localBundle()
@@ -403,7 +405,7 @@ extension OmemoManager {
         guard !recipients.isEmpty else { throw OmemoManagerError.noTrustedRecipientDevices }
         let reservation = try reserveOMEMO2Transport()
         defer { releaseOMEMO2TransportReservation(reservation) }
-        let prepared = try Omemo2PayloadCodec.prepareOutgoingPayload(message)
+        let prepared = try Omemo2PayloadCodec.prepareOutgoingPayload(message, encryptionTime: authenticatedContentTime ?? Date())
         let sealed = try Omemo2PayloadCodec.seal(prepared.xml)
         let encrypted = DDXMLElement(name: "encrypted", xmlns: Self.xmlns)
         let header = DDXMLElement(name: "header", xmlns: Self.xmlns)
@@ -905,7 +907,7 @@ extension OmemoManager {
         return current + (parent.children?.compactMap { $0 as? DDXMLElement } ?? []).flatMap { allOutgoingOMEMO2Elements($0) }
     }
 
-    private static func outgoingOMEMO2Fingerprint(_ encrypted: DDXMLElement) throws -> Data {
+    internal static func outgoingOMEMO2Fingerprint(_ encrypted: DDXMLElement) throws -> Data {
         func only(_ parent: DDXMLElement, _ name: String) throws -> DDXMLElement {
             let values = SCEReceivePolicy.children(of: parent, named: name, xmlns: Self.xmlns)
             guard values.count == 1, let value = values.first else { throw OmemoManagerError.invalidEncryptedPayload }

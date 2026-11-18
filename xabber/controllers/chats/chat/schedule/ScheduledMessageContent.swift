@@ -15,12 +15,15 @@ struct ScheduledMessageContent {
     private static let referencesNamespace = "https://xabber.com/protocol/references"
     private static let fileNamespace = "https://xabber.com/protocol/files"
     private static let voiceNamespace = "https://xabber.com/protocol/voice-messages"
+    private static let fileEncryptionNamespace = "urn:xmpp:esfs:0"
+    private static let fileEncryptedElementName = "encrypted"
     private static let bodyName = "body"
     private static let referenceType = "type"
     private static let mutableReference = "mutable"
 
     static func read(_ item: ScheduledMessageListItem) -> Self? {
-        read(messageXML: item.messageXML, owner: item.owner, conversation: item.conversation, sourceDate: item.deliverAt)
+        guard let contentXML = item.contentXML else { return nil }
+        return read(messageXML: contentXML, owner: item.owner, conversation: item.conversation, sourceDate: item.deliverAt)
     }
 
     static func read(messageXML: String, owner: String, conversation: String, sourceDate: Date? = nil) -> Self? {
@@ -49,10 +52,14 @@ struct ScheduledMessageContent {
         references: [MessageReferenceStorageItem],
         additionalChildren: [DDXMLElement] = []
     ) -> XMPPMessage? {
-        guard !conversationType.isEncrypted,
+        guard [.regular, .group, .saved, .omemo].contains(conversationType),
               XMPPJID(string: owner)?.bare == owner,
               XMPPJID(string: conversation)?.bare == conversation,
-              references.allSatisfy({ files.contains($0.kind) ? uploadedPlainFile($0) : [.markup, .mention].contains($0.kind) }) else {
+              references.allSatisfy({
+                  files.contains($0.kind)
+                      ? uploadedFile($0, protected: conversationType == .omemo)
+                      : [.markup, .mention].contains($0.kind)
+              }) else {
             return nil
         }
         let draft = MessageStorageItem()
@@ -75,10 +82,17 @@ struct ScheduledMessageContent {
     }
 
     static func attachmentXML(_ references: [MessageReferenceStorageItem]) -> [String]? {
-        guard references.allSatisfy(uploadedPlainFile) else { return nil }
+        guard references.allSatisfy({ uploadedFile($0, protected: $0.conversationType == .omemo) }) else { return nil }
         let draft = MessageStorageItem()
         draft.references.append(objectsIn: references.map { MessageReferenceStorageItem(value: $0) })
         return draft.createReferences().map(\.xmlString)
+    }
+
+    static func containsFileProtection(_ element: DDXMLElement) -> Bool {
+        SCEReceivePolicy.matches(element, name: fileEncryptedElementName, namespace: fileEncryptionNamespace) ||
+            (element.children ?? []).contains { child in
+                (child as? DDXMLElement).map(containsFileProtection) ?? false
+            }
     }
 
     /// Convert only a detached packet used for native projection. The queued XML remains intact.
@@ -90,7 +104,8 @@ struct ScheduledMessageContent {
         _ message: XMPPMessage,
         body: String,
         retainedAttachmentIDs: [Int]?,
-        addedAttachmentXML: [String]
+        addedAttachmentXML: [String],
+        protected: Bool = false
     ) -> XMPPMessage? {
         guard let source = Source(message), !references(in: message).contains(where: isSticker) else { return nil }
         let projection = Projection(source)
@@ -100,12 +115,12 @@ struct ScheduledMessageContent {
 
         var attachments: [File] = []
         for id in selected {
-            guard let file = originalFiles.first(where: { $0.index == id }), !file.isProtected else { return nil }
+            guard let file = originalFiles.first(where: { $0.index == id }), file.isProtected == protected else { return nil }
             attachments.append(file)
         }
         for xml in addedAttachmentXML {
             guard let reference = try? DDXMLElement(xmlString: xml),
-                  let file = File(index: -1, reference: reference), !file.isProtected else { return nil }
+                  let file = File(index: -1, reference: reference), file.isProtected == protected else { return nil }
             attachments.append(file)
         }
 
@@ -185,11 +200,19 @@ struct ScheduledMessageContent {
 
     private static let files: Set<MessageReferenceStorageItem.Kind> = [.media, .voice]
 
-    private static func uploadedPlainFile(_ reference: MessageReferenceStorageItem) -> Bool {
-        guard files.contains(reference.kind), reference.isUploaded,
-              let uri = reference.fileSharingURI, isRemote(uri),
-              reference.metadata?["iv"] == nil, reference.metadata?["encryption-key"] == nil else { return false }
-        return true
+    private static func uploadedFile(_ reference: MessageReferenceStorageItem, protected: Bool) -> Bool {
+        files.contains(reference.kind) && reference.isUploaded && matchesProtection(reference, protected: protected)
+    }
+
+    private static func matchesProtection(_ reference: MessageReferenceStorageItem, protected: Bool) -> Bool {
+        guard let uri = reference.fileSharingURI, isRemote(uri), let url = URL(string: uri) else { return false }
+        let descriptor = ChatEncryptedAttachmentDescriptor(
+            metadata: reference.metadata, url: url, owner: reference.owner,
+            referenceIdentity: reference.primary.isEmpty ? "schedule-file" : reference.primary
+        )
+        return protected
+            ? descriptor.state == .encrypted && reference.metadata?["hash"] != nil
+            : descriptor.state == .plaintext
     }
 
     private static func isRemote(_ uri: String) -> Bool {

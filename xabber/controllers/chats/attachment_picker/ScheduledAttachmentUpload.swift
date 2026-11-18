@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum ScheduledAttachmentUploadError: Error, Equatable {
@@ -15,8 +16,39 @@ protocol ScheduledAttachmentFileUploading {
     func upload(
         file: AttachmentPreparedFile,
         owner: String,
+        encrypted: Bool,
         completion: @escaping (Result<AttachmentUploadedRemoteFile, ScheduledAttachmentUploadError>) -> Void
     )
+}
+
+struct ScheduledAttachmentUploadPayload {
+    let data: Data
+    let filename: String
+    let mimeType: String
+    let privateMetadata: [String: String]?
+
+    static func make(data: Data, filename: String, mimeType: String, encrypted: Bool) throws -> Self {
+        guard encrypted else {
+            return Self(data: data, filename: filename, mimeType: mimeType, privateMetadata: nil)
+        }
+        let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        let iv = SymmetricKey(size: .bits128).withUnsafeBytes { Data($0) }
+        guard let ciphertext = try data.encrypt(key: Array(key), iv: Array(iv)) else {
+            throw ScheduledAttachmentUploadError.uploadFailed
+        }
+        let encryptedFilename = UUID().uuidString + ".bin"
+        return Self(
+            data: ciphertext,
+            filename: encryptedFilename,
+            mimeType: "application/octet-stream",
+            privateMetadata: [
+                "encryption-key": key.base64EncodedString(),
+                "iv": iv.base64EncodedString(),
+                "hash": ciphertext.sha256Data.hexEncodedString(),
+                "size": String(data.count)
+            ]
+        )
+    }
 }
 
 /// Prepares the ordinary file-sharing references without admitting an outgoing message.
@@ -55,12 +87,13 @@ final class ScheduledAttachmentUpload {
     }
 
     static func supports(_ drafts: [AttachmentDraft], context: ChatAttachmentFlowContext) -> Bool {
-        [.regular, .group, .saved].contains(context.conversationType)
+        [.regular, .group, .saved, .omemo].contains(context.conversationType)
             && !drafts.isEmpty
             && drafts.allSatisfy { draft in
                 guard draft.mediaKind != .location, draft.mediaKind != .contact,
                       case .prepared(let file) = draft.preparationState else { return false }
-                return file.byteSize >= 0 && !file.filename.isEmpty && !file.mediaType.isEmpty
+                guard file.byteSize >= 0, !file.filename.isEmpty, !file.mediaType.isEmpty else { return false }
+                return file.uploadedRemoteFile.map { matchesProtection($0, owner: context.owner, type: context.conversationType) } ?? true
             }
     }
 
@@ -120,7 +153,7 @@ final class ScheduledAttachmentUpload {
                     return
                 }
                 if let remote = file.uploadedRemoteFile {
-                    guard Self.isRemoteURL(remote.remoteURL) else {
+                    guard Self.matchesProtection(remote, owner: context.owner, type: context.conversationType) else {
                         finish(.failure(.invalidResponse))
                         return
                     }
@@ -132,13 +165,13 @@ final class ScheduledAttachmentUpload {
                     finish(.failure(.localFileUnavailable))
                     return
                 }
-                fileUploader.upload(file: file, owner: context.owner) { result in
+                fileUploader.upload(file: file, owner: context.owner, encrypted: context.conversationType == .omemo) { result in
                     let receive = {
                         switch result {
                         case .failure(let error):
                             finish(.failure(error))
                         case .success(let remote):
-                            guard Self.isRemoteURL(remote.remoteURL) else {
+                            guard Self.matchesProtection(remote, owner: context.owner, type: context.conversationType) else {
                                 finish(.failure(.invalidResponse))
                                 return
                             }
@@ -198,6 +231,18 @@ final class ScheduledAttachmentUpload {
               let host = url.host, !host.isEmpty else { return false }
         return url.user == nil && url.password == nil
     }
+
+    private static func matchesProtection(
+        _ remote: AttachmentUploadedRemoteFile, owner: String, type: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        guard isRemoteURL(remote.remoteURL) else { return false }
+        let descriptor = ChatEncryptedAttachmentDescriptor(
+            metadata: remote.metadata, url: remote.remoteURL, owner: owner, referenceIdentity: String(remote.fileID)
+        )
+        return type == .omemo
+            ? descriptor.state == .encrypted && remote.metadata?["hash"] != nil
+            : descriptor.state == .plaintext
+    }
 }
 
 private final class AccountScheduledAttachmentFileUploader: ScheduledAttachmentFileUploading {
@@ -206,6 +251,7 @@ private final class AccountScheduledAttachmentFileUploader: ScheduledAttachmentF
     func upload(
         file: AttachmentPreparedFile,
         owner: String,
+        encrypted: Bool,
         completion: @escaping (Result<AttachmentUploadedRemoteFile, ScheduledAttachmentUploadError>) -> Void
     ) {
         guard let account = AccountManager.shared.find(for: owner), account.jid == owner else {
@@ -213,9 +259,15 @@ private final class AccountScheduledAttachmentFileUploader: ScheduledAttachmentF
             return
         }
         Self.readQueue.async {
-            let data: Data
+            let upload: ScheduledAttachmentUploadPayload
             do {
-                data = try Data(contentsOf: file.localFileURL, options: .mappedIfSafe)
+                let data = try Data(contentsOf: file.localFileURL, options: .mappedIfSafe)
+                upload = try ScheduledAttachmentUploadPayload.make(
+                    data: data, filename: file.filename, mimeType: file.mediaType, encrypted: encrypted
+                )
+            } catch let error as ScheduledAttachmentUploadError {
+                completion(.failure(error))
+                return
             } catch {
                 completion(.failure(.localFileUnavailable))
                 return
@@ -227,25 +279,27 @@ private final class AccountScheduledAttachmentFileUploader: ScheduledAttachmentF
                 }
 
                 var metadata: [String: String] = [:]
-                if let preview = file.videoPreviewKey { metadata["video_preview_key"] = preview }
-                if let duration = file.duration { metadata["duration"] = String(duration) }
+                if !encrypted {
+                    if let preview = file.videoPreviewKey { metadata["video_preview_key"] = preview }
+                    if let duration = file.duration { metadata["duration"] = String(duration) }
+                }
                 account.cloudStorage.uploadMedia(
-                    data: data,
-                    filename: file.filename,
-                    mimeType: file.mediaType,
+                    data: upload.data,
+                    filename: upload.filename,
+                    mimeType: upload.mimeType,
                     metadata: metadata.isEmpty ? nil : metadata
                 ) { response in
                     guard AccountManager.shared.find(for: owner) === account else {
                         completion(.failure(.routeUnavailable))
                         return
                     }
-                    completion(Self.parse(response))
+                    completion(Self.parse(response, privateMetadata: upload.privateMetadata))
                 }
             }
         }
     }
 
-    private static func parse(_ response: CloudStorageQuotaAPIResponse)
+    private static func parse(_ response: CloudStorageQuotaAPIResponse, privateMetadata: [String: String]?)
         -> Result<AttachmentUploadedRemoteFile, ScheduledAttachmentUploadError>
     {
         if case .failure(let status, _, _) = response {
@@ -261,11 +315,12 @@ private final class AccountScheduledAttachmentFileUploader: ScheduledAttachmentF
               let fileID = (json["id"] as? NSNumber)?.intValue ?? (json["id"] as? String).flatMap(Int.init),
               fileID > 0 else { return .failure(.invalidResponse) }
         let thumbnail = (json["thumbnail"] as? [String: Any])?["url"] as? String
-        let metadata: [String: String]? = thumbnail.flatMap { raw in
+        let metadata: [String: String]? = privateMetadata ?? thumbnail.flatMap { raw in
             guard let thumbnailURL = URL(string: raw), ScheduledAttachmentUpload.isRemoteURL(thumbnailURL) else { return nil }
             return ["thumbnail": thumbnailURL.absoluteString, "thumbnail-uri": thumbnailURL.absoluteString]
         }
-        return .success(AttachmentUploadedRemoteFile(remoteURL: url, fileID: fileID, hash: json["hash"] as? String,
+        return .success(AttachmentUploadedRemoteFile(remoteURL: url, fileID: fileID,
+                                                       hash: privateMetadata?["hash"] ?? json["hash"] as? String,
                                                        createdAt: nil, metadata: metadata))
     }
 }

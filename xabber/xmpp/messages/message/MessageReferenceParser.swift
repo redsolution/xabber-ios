@@ -496,6 +496,15 @@ private func admittedMessageReferences(
         if kind == "forward", forwardDepth >= inlineForwardMaximumDepth { continue }
 
         let range = messageReferenceWireRange(reference, in: escapedBody)
+        if kind == "sticker" {
+            // Sticker decoration selects the image itself. Web versions emit
+            // UTF-16 bounds or a 0..0 placeholder for the emoji fallback.
+            admitted.append(MessageReferenceAdmission(
+                reference: reference, index: index, kind: kind, range: range,
+                removesBody: false, forwardPayload: nil
+            ))
+            continue
+        }
         if referenceHasAnyWireRangeAttribute(reference), range == nil { continue }
         if anonymous || kind.map({ referenceRequiresWireRange(reference, kind: $0) }) == true {
             guard range != nil else { continue }
@@ -655,6 +664,7 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
         return inlineForwardPayload(from: ref) == nil ? nil : "forward"
     }
     if ForwardContactDataCodec.decode(ref) != nil { return "forward-contact-data" }
+    if ChatStickerWireCodec.decode(ref) != nil { return "sticker" }
     if let voice = referenceChild(ref, named: "voice-message", xmlns: "https://xabber.com/protocol/voice-messages"),
        let fileSharing = referenceChild(voice, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
        fileSharingPayload(fileSharing) != nil {
@@ -724,6 +734,12 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
             case .forwardContactData:
                 guard let card = ForwardContactDataCodec.decode(ref) else { return nil }
                 metadata = ForwardContactDataCodec.metadata(for: card)
+            case .sticker:
+                guard let sticker = ChatStickerWireCodec.decode(ref) else { return nil }
+                reference.url = sticker.imageURL.absoluteString
+                reference.mimeType = "image"
+                reference.isUploaded = true
+                metadata = sticker.metadata
             case .voice:
                 guard let voice = referenceChild(ref, named: "voice-message", xmlns: "https://xabber.com/protocol/voice-messages"),
                     let fileSharing = referenceChild(voice, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),

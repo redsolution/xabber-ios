@@ -232,6 +232,7 @@ class MessageReferenceStorageItem: Object {
     enum Kind: String {
         case media = "media"
         case voice = "voice"
+        case sticker = "sticker"
         case forward = "forward"
         case markup = "markup"
         case mention = "mention"
@@ -684,7 +685,7 @@ class MessageReferenceStorageItem: Object {
             switch kind {
             case .forwardContactData:
                 return "data"
-            case .markup, .mention, .quote:
+            case .markup, .mention, .quote, .sticker:
                 return "decoration"
             case .voice, .media: return "mutable"
             default: return "mutable"

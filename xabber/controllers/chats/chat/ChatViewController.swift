@@ -2566,7 +2566,12 @@ class ChatViewController: MessagesViewController {
     let datasourcePageSize: Int = ArchivePageSizing.history
         
     override var owner: String {
-        didSet { if owner != oldValue { cancelMediaOpening(); setComposerForwardSelection([], intent: .forward) } }
+        didSet {
+            guard owner != oldValue else { return }
+            cancelMediaOpening()
+            setComposerForwardSelection([], intent: .forward)
+            xabberInputView?.stickerOwner = stickerSelectionOwner
+        }
     }
 
     override var jid: String {
@@ -2574,7 +2579,16 @@ class ChatViewController: MessagesViewController {
     }
 
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
-        didSet { if conversationType != oldValue { cancelMediaOpening(); setComposerForwardSelection([], intent: .forward) } }
+        didSet {
+            guard conversationType != oldValue else { return }
+            cancelMediaOpening()
+            setComposerForwardSelection([], intent: .forward)
+            xabberInputView?.stickerOwner = stickerSelectionOwner
+        }
+    }
+
+    private var stickerSelectionOwner: String? {
+        [.regular, .group, .saved, .omemo].contains(conversationType) ? owner : nil
     }
 
     var timelineInteractionState = ChatTimelineInteractionState()
@@ -6998,6 +7012,7 @@ class ChatViewController: MessagesViewController {
         )
         self.xabberInputView.searchPanel.conversationType = self.conversationType
         self.xabberInputView.mentionConversationType = self.conversationType
+        self.xabberInputView.stickerOwner = self.stickerSelectionOwner
         self.bindChatInputInteractions()
     }
 

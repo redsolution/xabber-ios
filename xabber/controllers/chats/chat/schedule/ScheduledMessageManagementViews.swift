@@ -12,7 +12,14 @@ struct ScheduledMessageDisplayContent {
     init(item: ScheduledMessageListItem) {
         let content = ScheduledMessageContent.read(item)
         body = content?.body ?? item.bodyPreview
-        attachments = content?.attachments.map { ScheduledMessageAttachmentPresentation(reference: $0.reference) } ?? []
+        let allowsProtected = item.protectedContentXML != nil
+        let media = content?.attachments.map {
+            ScheduledMessageAttachmentPresentation(reference: $0.reference, allowsProtected: allowsProtected)
+        } ?? []
+        let stickers = content?.references.filter { $0.kind == .sticker }.map {
+            ScheduledMessageAttachmentPresentation(reference: $0)
+        } ?? []
+        attachments = media + stickers
         references = content?.references ?? []
     }
 
@@ -52,9 +59,10 @@ struct ScheduledMessageAttachmentPresentation: Equatable {
     let title: String
     let subtitle: String?
     let url: URL?
+    let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     private let inlineThumbnail: String?
 
-    init(reference: MessageReferenceStorageItem) {
+    init(reference: MessageReferenceStorageItem, allowsProtected: Bool = false) {
         let metadata = reference.metadata
         let mediaType = (metadata?["media-type"] as? String ?? reference.mimeType).lowercased()
         let source = reference.downloadUrl ?? MessageReferenceURLPolicy.url(from: reference.fileSharingURI)
@@ -63,11 +71,12 @@ struct ScheduledMessageAttachmentPresentation: Equatable {
         )
         if let source, ["http", "https"].contains(source.scheme?.lowercased() ?? ""),
            source.host?.isEmpty == false, source.user == nil, source.password == nil, source.fragment == nil,
-           descriptor.state == .plaintext {
+           descriptor.state == .plaintext || (allowsProtected && descriptor.state == .encrypted) {
             url = source
         } else {
             url = nil
         }
+        encryptedAttachment = url != nil && descriptor.state == .encrypted ? descriptor : nil
         switch (reference.kind, mediaType.split(separator: "/").first) {
         case (.voice, _): kind = .voice
         case (_, "image"): kind = .image
@@ -97,7 +106,10 @@ struct ScheduledMessageAttachmentPresentation: Equatable {
             guard value.hasPrefix("data:image/"), let separator = value.firstIndex(of: ",") else { return nil }
             return String(value[value.index(after: separator)...])
         }
-        inlineThumbnail = descriptor.state == .plaintext ? (reference.pendingMediaAttachment?.verySmallThumb ?? data) : nil
+        inlineThumbnail = descriptor.state == .plaintext
+            ? (reference.pendingMediaAttachment?.verySmallThumb ?? data
+                ?? ChatStickerWireCodec.inlineThumbnail(metadata: metadata)?.base64EncodedString())
+            : nil
     }
 
     func previewButton(action: @escaping () -> Void) -> UIButton {
@@ -148,14 +160,18 @@ struct ScheduledMessageEditDraft {
 
     private let originalBody: String
     private let originalIDs: [Attachment.ID]
+    private let allowsProtected: Bool
     var body: String
     private(set) var attachments: [Attachment]
 
-    init(content: ScheduledMessageContent) {
+    init(content: ScheduledMessageContent, allowsProtected: Bool = false) {
+        self.allowsProtected = allowsProtected
         originalBody = content.body
         body = content.body
         attachments = content.attachments.map {
-            Attachment(id: .retained($0.id), presentation: ScheduledMessageAttachmentPresentation(reference: $0.reference), xml: nil)
+            Attachment(id: .retained($0.id), presentation: ScheduledMessageAttachmentPresentation(
+                reference: $0.reference, allowsProtected: allowsProtected
+            ), xml: nil)
         }
         originalIDs = attachments.map(\.id)
     }
@@ -186,7 +202,9 @@ struct ScheduledMessageEditDraft {
               xml.count == references.count else { return false }
         if let id { remove(id) }
         attachments.append(contentsOf: zip(references, xml).map { reference, serialized in
-            Attachment(id: .added(UUID()), presentation: ScheduledMessageAttachmentPresentation(reference: reference), xml: serialized)
+            Attachment(id: .added(UUID()), presentation: ScheduledMessageAttachmentPresentation(
+                reference: reference, allowsProtected: allowsProtected
+            ), xml: serialized)
         })
         return true
     }
@@ -209,7 +227,10 @@ final class ScheduledAttachmentPreviewCoordinator: NSObject, QLPreviewController
             let router = PrivacyProxyMediaRouter.shared
             do {
                 let file: URL
-                if attachment.kind == .image {
+                if let descriptor = attachment.encryptedAttachment {
+                    if attachment.kind == .image { _ = try await router.resolveImage(url, owner: owner) }
+                    file = try await self.downloadProtected(descriptor, image: attachment.kind == .image)
+                } else if attachment.kind == .image {
                     file = try await router.downloadImage(url, owner: owner)
                 } else {
                     file = try await router.download(url, owner: owner)
@@ -247,6 +268,19 @@ final class ScheduledAttachmentPreviewCoordinator: NSObject, QLPreviewController
     func cancel() {
         task?.cancel()
         task = nil
+    }
+
+    private func downloadProtected(_ descriptor: ChatEncryptedAttachmentDescriptor, image: Bool) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let completion: (Result<ChatAuthenticatedAttachmentFile, ChatEncryptedAttachmentReceiveError>) -> Void = {
+                continuation.resume(with: $0.map(\.fileURL))
+            }
+            if image {
+                _ = ChatEncryptedAttachmentReceiver.shared.receiveImage(descriptor, completion: completion)
+            } else {
+                _ = ChatEncryptedAttachmentReceiver.shared.receive(descriptor, completion: completion)
+            }
+        }
     }
 
     private func present(_ url: URL, kind: ScheduledMessageAttachmentPresentation.Kind, from presenter: UIViewController) {

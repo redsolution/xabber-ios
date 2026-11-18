@@ -1127,7 +1127,8 @@ extension OmemoManager {
         _ message: XMPPMessage,
         context: OMEMOReceiveContext = .live,
         originalSendingTime suppliedTime: OMEMOOriginalSendingTime? = nil,
-        serverContext: OMEMOReceiveServerContext = .unverified
+        serverContext: OMEMOReceiveServerContext = .unverified,
+        authenticatedScheduleDelivery: Bool = false
     ) -> OMEMOReceiveResult {
         let timestampAuthority: OMEMOReceiveServerContext
         if case .syncPreview = context { timestampAuthority = serverContext }
@@ -1139,6 +1140,16 @@ extension OmemoManager {
             do {
                 let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner, serverContext: timestampAuthority)
                 let receivedMessageDate = getReceivedMessageDate(copy, owner: owner)
+                if authenticatedScheduleDelivery, receivedMessageDate != nil,
+                   let previews = AccountManager.shared.find(for: owner)?.messageSchedule.omemo2Previews,
+                   let local = ScheduledOMEMO2.localDeliveryContent(for: XMPPMessage(from: bare), owner: owner,
+                       originalTime: originalSendingTime, previews: previews) {
+                    Self.reconstruct(path, content: local, owner: owner, serverContext: timestampAuthority)
+                    return .verified(
+                        XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)),
+                        .authenticatedSCE(profile: .omemo2)
+                    )
+                }
                 switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime, optOutContext: context, validatingUserContent: {
                     // Classify authenticated SCE content before committing a
                     // native candidate. Pure controls do not create dated rows.

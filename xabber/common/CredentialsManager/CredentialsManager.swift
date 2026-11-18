@@ -764,6 +764,7 @@ class CredentialsManager: NSObject {
     /// Independent from the retired backend's `state-v1` item: equal-sized
     /// private scalars are never reinterpreted as native Ed25519 seeds.
     static let omemo2StateNamespace = "xabbercryptoswift-state-v2"
+    private static let scheduledOMEMO2PreviewNamespace = "scheduled-preview-key-v1"
 
     private func omemo2StateQuery(for jid: String, namespace: String = CredentialsManager.omemo2StateNamespace) -> [String: Any] {
         var query: [String: Any] = [
@@ -817,11 +818,29 @@ class CredentialsManager: NSObject {
         guard status == errSecSuccess else { throw OMEMO2KeychainError.operationFailed(status) }
     }
 
+    final func scheduledOMEMO2PreviewKey(for jid: String, create: Bool) throws -> Data? {
+        let namespace = Self.scheduledOMEMO2PreviewNamespace
+        if let existing = try loadOMEMO2State(for: jid, namespace: namespace) { return existing }
+        guard create else { return nil }
+        var data = Data(count: 32)
+        let randomStatus = data.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
+        }
+        guard randomStatus == errSecSuccess else { throw OMEMO2KeychainError.operationFailed(randomStatus) }
+        var item = omemo2StateQuery(for: jid, namespace: namespace)
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecDuplicateItem { return try loadOMEMO2State(for: jid, namespace: namespace) }
+        guard status == errSecSuccess else { throw OMEMO2KeychainError.operationFailed(status) }
+        return data
+    }
+
     public final func removeOMEMO2State(for jid: String) throws {
         // Account teardown revokes both generations, while routine reads and
         // writes remain exclusively in the native backend namespace.
         var firstFailure: OSStatus?
-        for namespace in [Self.omemo2StateNamespace, "state-v1"] {
+        for namespace in [Self.omemo2StateNamespace, "state-v1", Self.scheduledOMEMO2PreviewNamespace] {
             let status = SecItemDelete(omemo2StateQuery(for: jid, namespace: namespace) as CFDictionary)
             if status != errSecSuccess && status != errSecItemNotFound && firstFailure == nil {
                 firstFailure = status

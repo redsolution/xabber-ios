@@ -1277,6 +1277,7 @@ enum LastChatMessagePreviewPolicy {
     struct Preview: Equatable {
         let text: String
         let isItalic: Bool
+        var stickerThumbnail: Data? = nil
     }
 
     /// A persisted freshness hint cannot replace content that is already
@@ -1301,7 +1302,8 @@ enum LastChatMessagePreviewPolicy {
                synchronizedProjection.text.isNotEmpty {
                 return Preview(
                     text: synchronizedProjection.text,
-                    isItalic: synchronizedProjection.isSystemMessage
+                    isItalic: synchronizedProjection.isSystemMessage,
+                    stickerThumbnail: synchronizedProjection.stickerThumbnail
                 )
             }
             return Preview(text: blankMessageText, isItalic: false)
@@ -1312,6 +1314,15 @@ enum LastChatMessagePreviewPolicy {
         }
 
         let visibleReferences = message.references.toArray().filter { !$0.isLocallyHiddenByReport }
+
+        if message.displayAs == .sticker,
+           let sticker = visibleReferences.first(where: { $0.kind == .sticker }) {
+            return Preview(
+                text: message.userVisibleBody.isEmpty ? message.displayedBody() : message.userVisibleBody,
+                isItalic: false,
+                stickerThumbnail: ChatStickerWireCodec.inlineThumbnail(metadata: sticker.metadata)
+            )
+        }
 
         if visibleReferences.contains(where: { $0.kind == .geoloc }) {
             return Preview(text: MessageStorageItem.locationDisplayText, isItalic: true)
@@ -1692,6 +1703,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let color: UIColor
         let isDraft: Bool
         let hasAttachment: Bool
+        var stickerThumbnail: Data? = nil
         let userNickname: String?
         var userColorKey: String? = nil
         let isSystemMessage: Bool
@@ -1726,6 +1738,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     && a.color == b.color
                     && a.isDraft == b.isDraft
                     && a.hasAttachment == b.hasAttachment
+                    && a.stickerThumbnail == b.stickerThumbnail
                     && a.userNickname == b.userNickname
                     && a.userColorKey == b.userColorKey
                     && a.isSystemMessage == b.isSystemMessage
@@ -4136,6 +4149,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         h.combine(resource?.primary); h.combine(resource?.status_); h.combine(resource?.statusExt)
         h.combine(projection?.text); h.combine(projection?.isAttachment)
+        h.combine(projection?.stickerThumbnail)
         h.combine(projection?.isSystemMessage); h.combine(projection?.groupchatNickname)
         h.combine(projection?.groupchatAuthorColorKey)
         devices.forEach { h.combine($0.primary); h.combine($0.state_); h.combine($0.isTrustedByCertificate) }
@@ -4173,7 +4187,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     private func cacheRender(_ row: Datasource, primary: String, fingerprint: Int) {
-        let bytes = row.message.utf8.count + row.username.utf8.count + 256
+        let bytes = row.message.utf8.count + row.username.utf8.count + (row.stickerThumbnail?.count ?? 0) + 256
         guard bytes <= 16 * 1024 else { return }
         if let old = rowRenderCache.removeValue(forKey: primary) {
             rowRenderBytes -= old.bytes
@@ -4631,6 +4645,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 
                 var message: String
                 var isAttachmentPreviewItalic: Bool = false
+                var stickerThumbnail: Data?
                 
                 if presentationLastMessage != nil || synchronizedPreview != nil {
                     let preview = LastChatMessagePreviewPolicy.preview(
@@ -4640,9 +4655,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     )
                     message = preview.text
                     isAttachmentPreviewItalic = preview.isItalic
+                    stickerThumbnail = preview.stickerThumbnail
                     if presentationLastMessage?.isDeleted == true {
                         message = blankMessageText
                         isAttachmentPreviewItalic = false
+                        stickerThumbnail = nil
                     }
                 } else if isSavedConversation {
                     message = SavedMessagesChatListPresentationPolicy.previewText(
@@ -4659,11 +4676,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     message = draft
                     isDraft = true
                     isAttachmentPreviewItalic = false
+                    stickerThumbnail = nil
                 }
                 if item.conversationType != .group && !isSavedConversation {
                     if let action = CommonChatStatesManager.shared.actionText(for: item.jid, owner: item.owner) {
                         message = action
                         isAttachmentPreviewItalic = false
+                        stickerThumbnail = nil
                     }
                 }
                 var isAttachment: Bool = [
@@ -4827,6 +4846,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
                     hasAttachment: isAttachment,
+                    stickerThumbnail: stickerThumbnail,
                     userNickname: nickname,
                     userColorKey: userColorKey,
                     isSystemMessage: isSystemMessage,

@@ -17,6 +17,7 @@ struct ChatScheduleActionContext: Equatable {
     let hasRecordedAudio: Bool
     let hasUnsupportedMediaAttachment: Bool
     let conversationType: ClientSynchronizationManager.ConversationType
+    var omemo2Ready: Bool = false
 }
 
 enum ChatSendOptionsDisabledReason: Equatable {
@@ -72,7 +73,7 @@ enum ChatSendOptionsMenuPolicy {
         if context.hasRecordedAudio || context.hasUnsupportedMediaAttachment {
             return ChatSendOptionState(isEnabled: false, disabledReason: .unsupportedMedia)
         }
-        if context.conversationType.isEncrypted {
+        if context.conversationType.isEncrypted && (context.conversationType != .omemo || !context.omemo2Ready) {
             return ChatSendOptionState(isEnabled: false, disabledReason: .encryptedConversation)
         }
         return ChatSendOptionState(isEnabled: true, disabledReason: nil)
@@ -273,6 +274,18 @@ struct ChatScheduledMessageSendRequest: Equatable {
 protocol ChatScheduledMessageServicing: AnyObject {
     func isScheduleAvailable(owner: String) -> Bool
 
+    func validateOMEMO2ScheduleRoute(owner: String, conversation: String) -> XMPPMessageScheduleManager.ScheduleError?
+
+    func scheduleOMEMO2Message(
+        _ request: ChatScheduledMessageSendRequest,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    )
+
+    func scheduleOMEMO2PreparedMessage(
+        _ payload: XMPPMessage, owner: String, conversation: String, deliverAt: Date,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    )
+
     func validateScheduledAttachmentRoute(
         owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType
     ) -> XMPPMessageScheduleManager.ScheduleError?
@@ -329,6 +342,24 @@ protocol ChatScheduledMessageServicing: AnyObject {
 }
 
 extension ChatScheduledMessageServicing {
+    func validateOMEMO2ScheduleRoute(owner: String, conversation: String) -> XMPPMessageScheduleManager.ScheduleError? {
+        .forbidden
+    }
+
+    func scheduleOMEMO2Message(
+        _ request: ChatScheduledMessageSendRequest,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    ) {
+        callback(.failure(.forbidden))
+    }
+
+    func scheduleOMEMO2PreparedMessage(
+        _ payload: XMPPMessage, owner: String, conversation: String, deliverAt: Date,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    ) {
+        callback(.failure(.forbidden))
+    }
+
     func validateScheduledAttachmentRoute(
         owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType
     ) -> XMPPMessageScheduleManager.ScheduleError? {
@@ -386,6 +417,9 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
     func validateScheduledAttachmentRoute(
         owner: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType
     ) -> XMPPMessageScheduleManager.ScheduleError? {
+        if conversationType == .omemo {
+            return validateOMEMO2ScheduleRoute(owner: owner, conversation: conversation)
+        }
         guard [.regular, .group, .saved].contains(conversationType),
               XMPPJID(string: conversation)?.bare == conversation else { return .forbidden }
         guard let user = AccountManager.shared.find(for: owner) else { return .sendRejected }
@@ -413,8 +447,8 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
         if let error = validateScheduleTransport(for: item.owner, user: user) { return error }
         if action == .delete { return nil }
         guard let payload = ScheduledMessageActionPayload.make(action, item: item) else { return .malformedPayload }
-        return validatePlaintextPayload(payload, conversation: item.conversation,
-                                        conversationType: item.conversationType, user: user)
+        return validatePreparedPayload(payload, conversation: item.conversation,
+                                       conversationType: item.conversationType, user: user)
     }
 
     private func validateScheduleTransport(for owner: String, user: Account) -> XMPPMessageScheduleManager.ScheduleError? {
@@ -425,17 +459,48 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
         return user.messageSchedule.isAvailable ? nil : .unavailable
     }
 
+    func validateOMEMO2ScheduleRoute(owner: String, conversation: String) -> XMPPMessageScheduleManager.ScheduleError? {
+        guard let user = AccountManager.shared.find(for: owner) else { return .sendRejected }
+        return validateScheduleTransport(for: owner, user: user) ?? validateOMEMO2Peer(conversation, user: user)
+    }
+
+    private func validateOMEMO2Peer(
+        _ conversation: String, user: Account
+    ) -> XMPPMessageScheduleManager.ScheduleError? {
+        guard XMPPJID(string: conversation)?.bare == conversation,
+              OMEMO2OptOutPolicy.allowsMessage(owner: user.jid, jid: conversation, storage: user.omemo.omemo2Storage),
+              let realm = try? WRealm.safe(),
+              OmemoSendAvailabilityPolicy.evaluate(
+                owner: user.jid, jid: conversation, conversationType: .omemo, realm: realm
+              ).canSend else { return .forbidden }
+        return nil
+    }
+
+    private func validatePreparedPayload(
+        _ payload: XMPPMessage, conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType, user: Account
+    ) -> XMPPMessageScheduleManager.ScheduleError? {
+        if conversationType == .omemo {
+            guard !SCEReceivePolicy.containsOMEMO2(payload),
+                  ScheduledOMEMO2.permitsEncryptedFiles(in: payload, owner: user.jid) else { return .malformedPayload }
+            return validateOMEMO2Peer(conversation, user: user)
+        }
+        return validatePlaintextPayload(payload, conversation: conversation, conversationType: conversationType, user: user)
+    }
+
     private func validatePlaintextPayload(
         _ payload: XMPPMessage,
         conversation: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         user: Account
     ) -> XMPPMessageScheduleManager.ScheduleError? {
-        guard !SCEReceivePolicy.containsOMEMO2(payload) else { return .forbidden }
+        guard !SCEReceivePolicy.containsOMEMO2(payload),
+              !ScheduledMessageContent.containsFileProtection(payload) else { return .forbidden }
         let references = SCEReceivePolicy.children(
             of: payload, named: "reference", xmlns: "https://xabber.com/protocol/references"
         )
-        let hasMedia = references.contains { ["media", "voice"].contains(getReferenceType($0) ?? "") }
+        let hasMedia = ChatStickerWireCodec.containsSticker(in: payload) ||
+            references.contains { ["media", "voice", "sticker"].contains(getReferenceType($0) ?? "") }
         return validatePlaintextRoute(
             conversation: conversation, conversationType: conversationType, user: user,
             hasMedia: hasMedia, mentions: GroupMessageMentionsCodec.decode(from: payload)
@@ -511,8 +576,8 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
         }
         user.action { user, _ in
             if let error = self.validateScheduleTransport(for: item.owner, user: user) ??
-                self.validatePlaintextPayload(payload, conversation: item.conversation,
-                                              conversationType: item.conversationType, user: user) {
+                self.validatePreparedPayload(payload, conversation: item.conversation,
+                                             conversationType: item.conversationType, user: user) {
                 completion(.failure(error))
                 return
             }
@@ -522,11 +587,97 @@ final class AccountChatScheduledMessageService: ChatScheduledMessageServicing {
         }
     }
 
+    func sendStickerImmediately(
+        _ sticker: ChatStickerDescriptor, owner: String, conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let account = AccountManager.shared.find(for: owner),
+              let payload = ChatStickerWireCodec.makeMessage(
+                sticker, owner: owner, conversation: conversation, conversationType: conversationType
+              ) else {
+            completion(false)
+            return
+        }
+        account.action { user, _ in
+            guard AccountManager.shared.find(for: owner) === user,
+                  user.sendReadiness.snapshot.canFlushApplicationStanzas,
+                  self.validatePreparedPayload(
+                    payload, conversation: conversation, conversationType: conversationType, user: user
+                  ) == nil else {
+                completion(false)
+                return
+            }
+            completion(user.messages.admitScheduledMessageForImmediateSend(
+                payload, to: conversation, conversationType: conversationType
+            ))
+        }
+    }
+
+    func scheduleOMEMO2Message(
+        _ request: ChatScheduledMessageSendRequest,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    ) {
+        guard request.conversationType == .omemo, let account = AccountManager.shared.find(for: request.owner) else {
+            callback(.failure(.forbidden))
+            return
+        }
+        account.action { user, stream in
+            let payload = user.messageSchedule.makePlaintextMessagePayload(
+                to: request.conversation, body: request.body, conversationType: .omemo,
+                references: request.references, forwardedMessagePrimaries: request.forwardedMessagePrimaries
+            )
+            payload.setXmlns(SCEReceivePolicy.client)
+            self.scheduleProtected(
+                payload, owner: request.owner, conversation: request.conversation,
+                deliverAt: request.deliverAt, user: user, stream: stream, callback: callback
+            )
+        }
+    }
+
+    func scheduleOMEMO2PreparedMessage(
+        _ payload: XMPPMessage, owner: String, conversation: String, deliverAt: Date,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    ) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            callback(.failure(.sendRejected))
+            return
+        }
+        account.action { user, stream in
+            self.scheduleProtected(
+                payload, owner: owner, conversation: conversation, deliverAt: deliverAt,
+                user: user, stream: stream, callback: callback
+            )
+        }
+    }
+
+    private func scheduleProtected(
+        _ payload: XMPPMessage, owner: String, conversation: String, deliverAt: Date, user: Account, stream: XMPPStream,
+        callback: @escaping XMPPMessageScheduleManager.ScheduleCallback
+    ) {
+        guard deliverAt > Date() else {
+            callback(.failure(.notAcceptable))
+            return
+        }
+        if let error = validateScheduleTransport(for: owner, user: user) ??
+            validatePreparedPayload(payload, conversation: conversation, conversationType: .omemo, user: user) {
+            callback(.failure(error))
+            return
+        }
+        user.messageSchedule.scheduleOMEMO2Message(
+            stream, conversation: conversation, deliverAt: deliverAt, plaintext: payload, omemo: user.omemo, callback: callback
+        )
+    }
+
     @discardableResult
     func schedulePlaintextMessage(
         _ request: ChatScheduledMessageSendRequest,
         callback: XMPPMessageScheduleManager.ScheduleCallback?
     ) -> String? {
+        guard !request.conversationType.isEncrypted else {
+            callback?(.failure(.forbidden))
+            return nil
+        }
         guard let account = AccountManager.shared.find(for: request.owner) else {
             callback?(.failure(.sendRejected))
             return nil
@@ -669,9 +820,50 @@ final class ChatScheduledMessageSendCoordinator {
             completion(.failure(.malformedPayload))
             return
         }
+        submitPrepared(payload, owner: context.owner, conversation: context.jid, conversationType: context.conversationType,
+                       deliverAt: deliverAt, completion: completion)
+    }
+
+    func scheduleSticker(
+        _ sticker: ChatStickerDescriptor, owner: String, conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType, deliverAt: Date,
+        completion: @escaping (Result<Void, XMPPMessageScheduleManager.ScheduleError>) -> Void
+    ) {
+        guard deliverAt > Date() else {
+            completion(.failure(.notAcceptable))
+            return
+        }
+        if let error = service.validateScheduledAttachmentRoute(
+            owner: owner, conversation: conversation, conversationType: conversationType
+        ) {
+            completion(.failure(error))
+            return
+        }
+        guard let payload = ChatStickerWireCodec.makeMessage(
+            sticker, owner: owner, conversation: conversation, conversationType: conversationType
+        ) else {
+            completion(.failure(.malformedPayload))
+            return
+        }
+        submitPrepared(payload, owner: owner, conversation: conversation, conversationType: conversationType,
+                       deliverAt: deliverAt, completion: completion)
+    }
+
+    private func submitPrepared(
+        _ payload: XMPPMessage, owner: String, conversation: String,
+        conversationType: ClientSynchronizationManager.ConversationType, deliverAt: Date,
+        completion: @escaping (Result<Void, XMPPMessageScheduleManager.ScheduleError>) -> Void
+    ) {
+        let resolve: XMPPMessageScheduleManager.ScheduleCallback = { result in completion(result.map { _ in () }) }
+        if conversationType == .omemo {
+            service.scheduleOMEMO2PreparedMessage(
+                payload, owner: owner, conversation: conversation, deliverAt: deliverAt, callback: resolve
+            )
+            return
+        }
         service.schedulePreparedMessage(
-            payload, owner: context.owner, conversation: context.jid, conversationType: context.conversationType,
-            deliverAt: deliverAt, callback: { result in completion(result.map { _ in () }) }
+            payload, owner: owner, conversation: conversation, conversationType: conversationType,
+            deliverAt: deliverAt, callback: resolve
         )
     }
 
@@ -687,6 +879,24 @@ final class ChatScheduledMessageSendCoordinator {
         }
         guard service.isScheduleAvailable(owner: request.owner) else {
             onFailure(.unavailable)
+            return nil
+        }
+
+        if request.conversationType == .omemo {
+            if let error = service.validateOMEMO2ScheduleRoute(owner: request.owner, conversation: request.conversation) {
+                onFailure(error)
+                return nil
+            }
+            service.scheduleOMEMO2Message(request) { result in
+                switch result {
+                case .success(let entry): onSuccess(entry)
+                case .failure(let error): onFailure(error)
+                }
+            }
+            return nil
+        }
+        guard !request.conversationType.isEncrypted else {
+            onFailure(.forbidden)
             return nil
         }
 
@@ -716,11 +926,17 @@ struct ScheduledMessageListItem: Equatable {
     let conversation: String
     let conversationType: ClientSynchronizationManager.ConversationType
     let messageXML: String
+    let protectedContentXML: String?
+
+    var contentXML: String? {
+        conversationType.isEncrypted ? protectedContentXML : messageXML
+    }
 
     init(
         scheduledId: String, deliverAt: Date, status: XMPPMessageScheduleStorageItem.Status,
         bodyPreview: String, owner: String = "", conversation: String = "",
-        conversationType: ClientSynchronizationManager.ConversationType = .regular, messageXML: String = ""
+        conversationType: ClientSynchronizationManager.ConversationType = .regular, messageXML: String = "",
+        protectedContentXML: String? = nil
     ) {
         self.scheduledId = scheduledId
         self.deliverAt = deliverAt
@@ -730,6 +946,7 @@ struct ScheduledMessageListItem: Equatable {
         self.conversation = conversation
         self.conversationType = conversationType
         self.messageXML = messageXML
+        self.protectedContentXML = protectedContentXML
     }
 }
 
@@ -760,17 +977,22 @@ enum ScheduledMessagesListModel {
             .filter("owner == %@ AND conversation == %@ AND conversationType_ == %@", owner, conversation, conversationType.rawValue)
             .sorted(byKeyPath: "deliverAt", ascending: true)
             .map {
-                ScheduledMessageListItem(
+                let contents = conversationType == .omemo
+                    ? ScheduledOMEMO2.preview(owner: owner, conversation: conversation, deliverAt: $0.deliverAt, messageXML: $0.messageXML)
+                    : nil
+                let displayXML = conversationType.isEncrypted ? (contents ?? "") : $0.messageXML
+                return ScheduledMessageListItem(
                     scheduledId: $0.scheduledId,
                     deliverAt: $0.deliverAt,
                     status: $0.status,
                     bodyPreview: ScheduledMessageContent.read(
-                        messageXML: $0.messageXML, owner: owner, conversation: conversation
-                    )?.body ?? ScheduledMessageXMLPreviewParser.bodyPreview(from: $0.messageXML),
+                        messageXML: displayXML, owner: owner, conversation: conversation
+                    )?.body ?? ScheduledMessageXMLPreviewParser.bodyPreview(from: displayXML),
                     owner: $0.owner,
                     conversation: $0.conversation,
                     conversationType: $0.conversationType,
-                    messageXML: $0.messageXML
+                    messageXML: $0.messageXML,
+                    protectedContentXML: contents
                 )
             }
     }

@@ -428,7 +428,9 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
         let editor = ScheduledMessageEditViewController(
             item: item,
             display: ScheduledMessageDisplayContent(item: item),
-            draft: editDrafts[item.scheduledId] ?? ScheduledMessageEditDraft(content: content),
+            draft: editDrafts[item.scheduledId] ?? ScheduledMessageEditDraft(
+                content: content, allowsProtected: item.protectedContentXML != nil
+            ),
             errorText: { [weak self] failure in
                 self?.notice(for: failure) ?? L10n.text("scheduled_messages_action_error", fallback: "Could not update the scheduled message.")
             }
@@ -750,7 +752,9 @@ final class ScheduledMessageCell: UITableViewCell {
         onPreview: @escaping (ScheduledMessageAttachmentPresentation) -> Void
     ) {
         previewLabel.isHidden = display.body.isEmpty && !display.attachments.isEmpty
-        if display.body.isEmpty {
+        if item.conversationType.isEncrypted && item.protectedContentXML == nil {
+            previewLabel.text = L10n.text("scheduled_message_encrypted_preview_unavailable", fallback: "Preview unavailable on this device")
+        } else if display.body.isEmpty {
             previewLabel.text = L10n.text("scheduled_message_preview_fallback", fallback: "Scheduled message")
         } else {
             previewLabel.attributedText = display.attributedBody(

@@ -462,6 +462,7 @@ class ChatListTableViewCell: UITableViewCell {
             color: nil,
             isSystem: isSystem
         )
+        messageLabel.accessibilityLabel = nil
         
         if let attributedUsername = attributedUsername {
             usernameLabel.attributedText = attributedUsername
@@ -582,6 +583,20 @@ class ChatListTableViewCell: UITableViewCell {
         badgeView.backgroundColor = badgeColor
         subBadgeView.backgroundColor = badgeColor
     }
+
+    func applyStickerThumbnail(_ data: Data, accessibilityLabel: String) {
+        guard let image = UIImage(data: data) else { return }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let size = ChatStickerLayoutPolicy.renderedSize(
+            sourceSize: image.size, availableWidth: messageLabel.font.lineHeight
+        )
+        attachment.bounds = CGRect(
+            x: 0, y: messageLabel.font.descender, width: size.width, height: size.height
+        )
+        messageLabel.attributedText = NSAttributedString(attachment: attachment)
+        messageLabel.accessibilityLabel = accessibilityLabel
+    }
     
     func setMask() {
         if let image = UIImage(named: AccountMasksManager.shared.mask56pt)?.upscale(dimension: 64), AccountMasksManager.shared.load() != "square" {
@@ -600,6 +615,7 @@ class ChatListTableViewCell: UITableViewCell {
         muteIndicator.isHidden = true
         messageLabel.attributedText = nil
         messageLabel.text = nil
+        messageLabel.accessibilityLabel = nil
         dateLabel.text = nil
         dateLabel.attributedText = nil
         deliveryIndicator.isHidden = true

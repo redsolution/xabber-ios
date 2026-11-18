@@ -755,7 +755,7 @@ extension MessageManager {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
-                guard instance.owner == self.owner, instance.outgoing,
+                guard instance.owner == self.owner, instance.outgoing, instance.displayAs != .sticker,
                       optOutAllowsOutgoing(to: instance.opponent) else { return false }
                 let stanzaId = instance.archivedId
                 let conversationType = instance.conversationType
@@ -1388,7 +1388,8 @@ extension MessageManager {
         conversationType: ClientSynchronizationManager.ConversationType
     ) -> Bool {
         let bodyElementName = "body"
-        guard !conversationType.isEncrypted, optOutAllowsOutgoing(to: jid),
+        guard [.regular, .group, .saved, .omemo].contains(conversationType),
+              !SCEReceivePolicy.containsOMEMO2(payload), optOutAllowsOutgoing(to: jid),
               let destination = Self.outboundDestinationJID(for: jid, conversationType: conversationType, resource: nil),
               let body = SCEReceivePolicy.children(of: payload, named: bodyElementName, xmlns: SCEReceivePolicy.client).first?.stringValue
         else { return false }

@@ -179,6 +179,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         if representedStickerPrimary != attachment.primary ||
             representedMessagePrimary != messagePrimary ||
             representedAttachment?.url != attachment.url ||
+            representedAttachment?.inlineThumbnail != attachment.inlineThumbnail ||
             representedAttachment?.encryptedAttachment != attachment.encryptedAttachment ||
             stickerOwner != owner {
             cancelOffscreenWork()
@@ -249,8 +250,8 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         representedThumbnailConsumer = consumer
         deliveryState = .loading
         showExternalImageButton.reset()
-        imageView.image = nil
-        imageView.backgroundColor = ChatStickerPlaceholder.color
+        imageView.image = attachment.inlineThumbnail.flatMap { UIImage(data: $0) }
+        imageView.backgroundColor = imageView.image == nil ? ChatStickerPlaceholder.color : .clear
         thumbnailSubscription = thumbnailPipeline.acquire(
             request,
             consumer: consumer

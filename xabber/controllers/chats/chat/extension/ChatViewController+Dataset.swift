@@ -4424,6 +4424,7 @@ struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
     let isSensitive: Bool
     let isSensitiveRevealed: Bool
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
+    let inlineThumbnail: Data?
 
     init(_ attachment: ImageAttachment) {
         self.primary = attachment.primary
@@ -4433,6 +4434,7 @@ struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
         self.isSensitive = attachment.isSensitive
         self.isSensitiveRevealed = attachment.isSensitiveRevealed
         self.encryptedAttachment = attachment.encryptedAttachment
+        self.inlineThumbnail = attachment.inlineThumbnail
     }
 
     var description: String {
@@ -6582,11 +6584,11 @@ extension ChatViewController {
     ) -> ImageAttachment? {
         guard let reference = references.first(where: {
             !$0.isLocallyHiddenByReport &&
-                SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(
+                ($0.kind == .sticker || SensitiveMediaAnalysisService.sensitiveAnalyzableMediaType(
                     kind: $0.kind,
                     mimeType: $0.mimeType,
                     mediaType: $0.metadata?["media-type"] as? String
-                ) == .image
+                ) == .image)
         }), let url = imageSourceURL(for: reference) else {
             return nil
         }
@@ -6596,7 +6598,8 @@ extension ChatViewController {
             previewUrl: reference.wireThumbnailUrl,
             size: reference.sizeInPx ?? CGSize(square: 128),
             isSensitive: reference.isSensitive,
-            encryptedAttachment: reference.encryptedAttachment
+            encryptedAttachment: reference.encryptedAttachment,
+            inlineThumbnail: ChatStickerWireCodec.inlineThumbnail(metadata: reference.metadata)
         )
     }
 
