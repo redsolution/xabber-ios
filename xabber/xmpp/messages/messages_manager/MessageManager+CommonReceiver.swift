@@ -370,11 +370,15 @@ extension MessageManager {
                 guard let stored = realm.object(
                     ofType: MessageStorageItem.self,
                     forPrimaryKey: primary
-                ) else {
+                ), stored.outgoing,
+                   stored.systemMetadata?[XMPPMessageScheduleManager.metadataKey] != nil else {
                     return nil
                 }
                 let detached = MessageStorageItem()
                 detached.owner = stored.owner
+                detached.opponent = stored.opponent
+                detached.outgoing = stored.outgoing
+                detached.conversationType = stored.conversationType
                 detached.systemMetadata = stored.systemMetadata
                 return detached
             }

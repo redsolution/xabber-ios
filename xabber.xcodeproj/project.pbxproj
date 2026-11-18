@@ -343,9 +343,12 @@
 		4E5700052F75000000ABC001 /* XMPPMessageScheduleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5700032F75000000ABC001 /* XMPPMessageScheduleManager.swift */; };
 		4E5700072F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5700062F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift */; };
 		4E5800012F76000000ABC001 /* ChatScheduledMessageModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5800022F76000000ABC001 /* ChatScheduledMessageModels.swift */; };
+		4E5900052FB1000000ABC001 /* ScheduledMessageActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900062FB1000000ABC001 /* ScheduledMessageActions.swift */; };
 		4E5800052F76000000ABC001 /* ScheduledMessageDatePickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5800062F76000000ABC001 /* ScheduledMessageDatePickerViewController.swift */; };
 		4E5800072F76000000ABC001 /* ScheduledMessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5800082F76000000ABC001 /* ScheduledMessagesViewController.swift */; };
 		4E5800092F76000000ABC001 /* XEPMessageScheduleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */; };
+		4E5900012FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900022FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift */; };
+		4E5900032FB1000000ABC001 /* ScheduledMessageActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900042FB1000000ABC001 /* ScheduledMessageActionsTests.swift */; };
 		4E5900022F77000000ABC001 /* ChatAttachmentPickerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900012F77000000ABC001 /* ChatAttachmentPickerModels.swift */; };
 		4E5900042F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900032F77000000ABC001 /* ChatAttachmentFlowCoordinator.swift */; };
 		4E59004D2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E59004C2F8B000000ABC001 /* ChatAttachmentPickerViewController.swift */; };
@@ -1621,9 +1624,12 @@
 		4E5700032F75000000ABC001 /* XMPPMessageScheduleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleManager.swift; sourceTree = "<group>"; };
 		4E5700062F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPMessageScheduleManagerTests.swift; sourceTree = "<group>"; };
 		4E5800022F76000000ABC001 /* ChatScheduledMessageModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScheduledMessageModels.swift; sourceTree = "<group>"; };
+		4E5900062FB1000000ABC001 /* ScheduledMessageActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMessageActions.swift; sourceTree = "<group>"; };
 		4E5800062F76000000ABC001 /* ScheduledMessageDatePickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMessageDatePickerViewController.swift; sourceTree = "<group>"; };
 		4E5800082F76000000ABC001 /* ScheduledMessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMessagesViewController.swift; sourceTree = "<group>"; };
 		4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XEPMessageScheduleUITests.swift; sourceTree = "<group>"; };
+		4E5900022FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledComposerSubmissionTests.swift; sourceTree = "<group>"; };
+		4E5900042FB1000000ABC001 /* ScheduledMessageActionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMessageActionsTests.swift; sourceTree = "<group>"; };
 		4E5300092F72000000ABC001 /* ClientSynchronizationPaginationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientSynchronizationPaginationTests.swift; sourceTree = "<group>"; };
 			4E5400012F72000000ABC001 /* NavigationBarItemOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarItemOwnership.swift; sourceTree = "<group>"; };
 			4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatNavigationBarStateTests.swift; sourceTree = "<group>"; };
@@ -4852,6 +4858,8 @@
 				AA200002AA200002AA200002 /* GroupchatSettingsCanonicalCutoverTests.swift */,
 				4E5700062F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift */,
 				4E58000A2F76000000ABC001 /* XEPMessageScheduleUITests.swift */,
+				4E5900022FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift */,
+				4E5900042FB1000000ABC001 /* ScheduledMessageActionsTests.swift */,
 				4E5300092F72000000ABC001 /* ClientSynchronizationPaginationTests.swift */,
 				4E5400032F72000000ABC001 /* ChatNavigationBarStateTests.swift */,
 				4EF100013A1D0000ABC001 /* ChatNavigationCancellationTests.swift */,
@@ -5359,6 +5367,7 @@
 			isa = PBXGroup;
 			children = (
 				4E5800022F76000000ABC001 /* ChatScheduledMessageModels.swift */,
+				4E5900062FB1000000ABC001 /* ScheduledMessageActions.swift */,
 				4E5800062F76000000ABC001 /* ScheduledMessageDatePickerViewController.swift */,
 				4E5800082F76000000ABC001 /* ScheduledMessagesViewController.swift */,
 			);
@@ -6523,6 +6532,7 @@
 				4E5700052F75000000ABC001 /* XMPPMessageScheduleManager.swift in Sources */,
 				4E5700042F75000000ABC001 /* XMPPMessageScheduleStorageItem.swift in Sources */,
 				4E5800012F76000000ABC001 /* ChatScheduledMessageModels.swift in Sources */,
+				4E5900052FB1000000ABC001 /* ScheduledMessageActions.swift in Sources */,
 				4E5800052F76000000ABC001 /* ScheduledMessageDatePickerViewController.swift in Sources */,
 				4E5800072F76000000ABC001 /* ScheduledMessagesViewController.swift in Sources */,
 				6696B440223905D200F646B9 /* CallScreenPresenter.swift in Sources */,
@@ -7311,6 +7321,8 @@
 				AA200001AA200001AA200001 /* GroupchatSettingsCanonicalCutoverTests.swift in Sources */,
 				4E5700072F75000000ABC001 /* XMPPMessageScheduleManagerTests.swift in Sources */,
 				4E5800092F76000000ABC001 /* XEPMessageScheduleUITests.swift in Sources */,
+				4E5900012FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift in Sources */,
+				4E5900032FB1000000ABC001 /* ScheduledMessageActionsTests.swift in Sources */,
 				4E53000A2F72000000ABC001 /* ClientSynchronizationPaginationTests.swift in Sources */,
 				4E5400042F72000000ABC001 /* ChatNavigationBarStateTests.swift in Sources */,
 				4EF100023A1D0000ABC001 /* ChatNavigationCancellationTests.swift in Sources */,

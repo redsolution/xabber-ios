@@ -3741,6 +3741,7 @@ final class Account: NSObject {
                     self.startStartupSynchronizationIfReady()
                     self.releaseStartupBackgroundIfReady()
                     self.sendStartupPresenceIfReady()
+                    self.refreshScheduledMessagesIfReady()
                 }
                 self.flushPendingPresenceSends()
                 self.sendCoordinator.accountDidBecomeSendReady()
@@ -4110,6 +4111,11 @@ final class Account: NSObject {
         }
         guard omemo.allowsPreparedOMEMO2Transport(stanza) else {
             outgoingStanzaWasBlocked(stanza, reason: .recipientChanged, queuedAttempt: finalDelegate)
+            return false
+        }
+        if finalDelegate, let iq = stanza as? XMPPIQ,
+           XMPPMessageScheduleManager.isRequest(iq), !messageSchedule.canTransmit(iq) {
+            _ = primaryStreamStanzaTracker.noteSendFiltered(id: iq.elementID)
             return false
         }
         let effectiveReplayPolicy = primaryStreamStanzaTracker.trackedStanza(stanzaId: stanza.elementID)?.replayPolicy
@@ -5592,6 +5598,7 @@ final class Account: NSObject {
         self.notifications.invalidateNotificationSyncSession()
         self.disco.cancelCloudDiscoveryForDisconnect()
         self.push.clearSession()
+        self.messageSchedule.clearSession()
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()

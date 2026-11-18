@@ -13,7 +13,7 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "XMPPMessageScheduleManagerTests-\(name)-\(UUID().uuidString)"
         )
-        owner = "romeo-\(UUID().uuidString)@example.com"
+        owner = "romeo-\(UUID().uuidString.lowercased())@example.com"
         let realm = try! WRealm.safe()
         try! realm.write {
             realm.deleteAll()
@@ -149,10 +149,7 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
     }
 
     func testScheduleResultStoresPendingRowWithoutOutgoingQueue() throws {
-        let manager = XMPPMessageScheduleManager(withOwner: owner)
-        manager.isAvailable = true
-        let stream = ScheduleCapturingXMPPStream()
-        stream.myJID = XMPPJID(string: "\(owner!)/ios")
+        let (manager, stream) = try availableManagerAndStream()
         let payload = manager.makePlaintextMessagePayload(
             to: "juliet@example.com",
             body: "Scheduled body"
@@ -188,10 +185,13 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
     func testListResultParsesStatusesAndReconcilesFullOwnerSet() throws {
         let manager = XMPPMessageScheduleManager(withOwner: owner)
         try seedSchedule(id: "stale-1", conversation: "old@example.com", status: .pending)
-        manager.queryIds.insert("list-1")
+        manager.isAvailable = true
+        let stream = ScheduleCapturingXMPPStream()
+        stream.myJID = XMPPJID(string: "\(owner!)/ios")
+        let queryID = try XCTUnwrap(manager.listScheduledMessages(stream))
 
         XCTAssertTrue(manager.read(withIQ: try makeIQ("""
-        <iq type='result' id='list-1'>
+        <iq type='result' id='\(queryID)'>
           <query xmlns='\(XMPPMessageScheduleManager.namespace)'>
             <scheduled id='pending-1' conversation='juliet@example.com' type='urn:xabber:chat' deliver-at='2026-06-10T10:00:00Z'>
               <message xmlns='jabber:client' to='juliet@example.com' type='chat'><body>Pending</body></message>
@@ -240,6 +240,7 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
         <iq type='result' id='\(queryId)'>
           <query xmlns='\(XMPPMessageScheduleManager.namespace)'>
             <scheduled id='same-filter-current' conversation='juliet@example.com' type='urn:xabber:chat' deliver-at='2026-06-10T10:00:00Z'/>
+            <scheduled id='outside-scope' conversation='mercutio@example.com' type='urn:xabber:chat' deliver-at='2026-06-10T10:00:00Z'/>
           </query>
         </iq>
         """)))
@@ -253,10 +254,8 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
             ofType: XMPPMessageScheduleStorageItem.self,
             forPrimaryKey: XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: "same-filter-current")
         ))
-        XCTAssertNotNil(realm.object(
-            ofType: XMPPMessageScheduleStorageItem.self,
-            forPrimaryKey: XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: "other-filter")
-        ))
+        XCTAssertNotNil(try schedule("other-filter"))
+        XCTAssertNil(try schedule("outside-scope"))
     }
 
     func testCancelSuccessAndItemNotFoundRemoveLocalRows() throws {
@@ -333,13 +332,15 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
         try seedSchedule(id: "deferred-failed", conversation: "juliet@example.com", status: .failed)
 
         let message = try makeMessage("""
-        <message from='juliet@example.com' to='\(owner!)' type='chat' id='delivered-1'>
+        <message from='\(owner!)' to='juliet@example.com' type='chat' id='delivered-1'>
           <body>Delivered</body>
           <deferred xmlns='\(XMPPMessageScheduleManager.namespace)' id='deferred-1' deliver-at='2026-06-10T10:00:00Z'/>
         </message>
         """)
         let storedMessage = MessageStorageItem()
         storedMessage.owner = owner
+        storedMessage.opponent = "juliet@example.com"
+        storedMessage.outgoing = true
 
         XCTAssertTrue(XMPPMessageScheduleManager.applyDeferredMetadata(to: storedMessage, source: message))
         let metadata = try XCTUnwrap(storedMessage.systemMetadata?[XMPPMessageScheduleManager.metadataKey] as? [String: String])
@@ -354,6 +355,8 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
 
         let failedMessage = MessageStorageItem()
         failedMessage.owner = owner
+        failedMessage.opponent = "juliet@example.com"
+        failedMessage.outgoing = true
         failedMessage.systemMetadata = [
             XMPPMessageScheduleManager.metadataKey: [
                 "id": "deferred-failed",
@@ -380,6 +383,275 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
             XMPPMessageScheduleManager.parseTimestamp("2026-06-10T10:00:00.123+0000")?.XMPPFormattedDate,
             "2026-06-10T10:00:00Z"
         )
+    }
+
+    func testWrongSenderDoesNotConsumeRequestAndWrongResultShapeCompletesOnlyOnce() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        try seedSchedule(id: "pending", conversation: "juliet@example.com", status: .pending)
+        var errors = [XMPPMessageScheduleManager.ScheduleError]()
+        let id = try XCTUnwrap(manager.cancelScheduledMessage(stream, scheduledId: "pending") { result in
+            if case .failure(let error) = result { errors.append(error) }
+        })
+
+        XCTAssertFalse(manager.read(withIQ: try makeIQ("<iq type='result' id='\(id)' from='juliet@example.com'/>")))
+        XCTAssertFalse(manager.read(withIQ: try makeIQ("<iq type='result' id='\(id)' from='\(owner!)/other'/>")))
+        XCTAssertFalse(manager.read(withIQ: try makeIQ("<iq type='result' id='\(id)' from='\(owner!)' to='\(owner!)/other'/>")))
+        XCTAssertTrue(errors.isEmpty)
+        let wrongShape = try makeIQ("""
+        <iq type='result' id='\(id)' from='\(owner!)'>
+          <query xmlns='\(XMPPMessageScheduleManager.namespace)'/>
+        </iq>
+        """)
+        XCTAssertTrue(manager.read(withIQ: wrongShape))
+        XCTAssertFalse(manager.read(withIQ: wrongShape))
+        XCTAssertEqual(errors, [.invalidResponse])
+        XCTAssertNotNil(try schedule("pending"))
+    }
+
+    func testTimedOutListCompletesOnlyOnceAndIgnoresLateResult() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        manager.requestTimeout = 0.01
+        let completed = expectation(description: "List timeout")
+        let id = try XCTUnwrap(manager.listScheduledMessages(stream) { result in
+            XCTAssertEqual(result, .failure(.timeout))
+            completed.fulfill()
+        })
+
+        wait(for: [completed], timeout: 2)
+        XCTAssertTrue(manager.queryIds.isEmpty)
+        XCTAssertFalse(manager.read(withIQ: try listResponse(id: id, entries: "")))
+        manager.clearSession()
+    }
+
+    func testSessionResetCompletesTrackedOperationsAndIgnoresLateResult() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        var errors = [XMPPMessageScheduleManager.ScheduleError]()
+        let id = try XCTUnwrap(manager.listScheduledMessages(stream) { result in
+            if case .failure(let error) = result { errors.append(error) }
+        })
+        _ = manager.cancelScheduledMessage(stream, scheduledId: "pending") { result in
+            if case .failure(let error) = result { errors.append(error) }
+        }
+
+        manager.clearSession()
+        manager.clearSession()
+        XCTAssertEqual(errors, [.disconnected, .disconnected])
+        XCTAssertFalse(manager.read(withIQ: try listResponse(id: id, entries: "")))
+    }
+
+    func testStaleSnapshotPreservesNewHeadlineAndDoesNotResurrectCancelledEntry() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        try seedSchedule(id: "cancelled", conversation: "juliet@example.com", status: .pending)
+        try seedSchedule(id: "failed", conversation: "juliet@example.com", status: .pending)
+        try seedSchedule(id: "unrelated", conversation: "juliet@example.com", status: .pending)
+        let id = try XCTUnwrap(manager.listScheduledMessages(stream))
+        let ns = XMPPMessageScheduleManager.namespace
+
+        XCTAssertTrue(manager.read(headline: try makeMessage("""
+        <message type='headline' from='\(owner!)'>
+          <cancelled xmlns='\(ns)' id='cancelled'/>
+        </message>
+        """)))
+        XCTAssertTrue(manager.read(headline: try makeMessage("""
+        <message type='headline' from='\(owner!)'>
+          <failed xmlns='\(ns)' id='failed'/>
+        </message>
+        """)))
+        XCTAssertTrue(manager.read(headline: try makeMessage("""
+        <message type='headline' from='\(owner!)'>
+          <scheduled xmlns='\(ns)' id='fresh' conversation='juliet@example.com' type='urn:xabber:chat' deliver-at='2026-06-10T10:00:00Z'/>
+        </message>
+        """)))
+        XCTAssertTrue(manager.read(withIQ: try listResponse(id: id, entries: listEntry("cancelled") + listEntry("failed"))))
+
+        XCTAssertNil(try schedule("cancelled"))
+        XCTAssertEqual(try schedule("failed")?.status, .failed)
+        XCTAssertNotNil(try schedule("fresh"))
+        XCTAssertNil(try schedule("unrelated"))
+    }
+
+    func testOlderFullSnapshotDoesNotOverwriteNewerFilteredScope() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        let full = try XCTUnwrap(manager.listScheduledMessages(stream))
+        let filter = try XCTUnwrap(manager.listScheduledMessages(
+            stream, conversation: "juliet@example.com", conversationType: .regular
+        ))
+
+        XCTAssertTrue(manager.read(withIQ: try listResponse(id: filter, entries: "")))
+        let entries = listEntry("stale") + listEntry("other", conversation: "mercutio@example.com")
+        XCTAssertTrue(manager.read(withIQ: try listResponse(id: full, entries: entries)))
+
+        XCTAssertNil(try schedule("stale"))
+        XCTAssertNotNil(try schedule("other"))
+    }
+
+    func testInvalidListDoesNotReplaceLocalRows() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        try seedSchedule(id: "pending", conversation: "juliet@example.com", status: .pending)
+        var result: Result<[XMPPMessageScheduleManager.ScheduledEntry], XMPPMessageScheduleManager.ScheduleError>?
+        let id = try XCTUnwrap(manager.listScheduledMessages(stream) { result = $0 })
+
+        XCTAssertTrue(manager.read(withIQ: try listResponse(id: id, entries: "<scheduled id='invalid'/>")))
+        XCTAssertEqual(result, .failure(.invalidResponse))
+        XCTAssertNotNil(try schedule("pending"))
+    }
+
+    func testHeadlineFromAnotherAccountCannotCancelOwnEntry() throws {
+        let manager = XMPPMessageScheduleManager(withOwner: owner)
+        try seedSchedule(id: "pending", conversation: "juliet@example.com", status: .pending)
+        XCTAssertFalse(manager.read(headline: try makeMessage("""
+        <message type='headline' from='juliet@example.com' to='\(owner!)'>
+          <cancelled xmlns='\(XMPPMessageScheduleManager.namespace)' id='pending'/>
+        </message>
+        """)))
+        XCTAssertNotNil(try schedule("pending"))
+    }
+
+    func testOnlyMatchingOutgoingDeliveryRemovesPendingRowAndProtectsFromSnapshot() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        try seedSchedule(id: "pending", conversation: "juliet@example.com", status: .pending)
+        let id = try XCTUnwrap(manager.listScheduledMessages(stream))
+        let message = MessageStorageItem()
+        message.owner = owner
+        message.opponent = "juliet@example.com"
+        message.systemMetadata = [XMPPMessageScheduleManager.metadataKey: [
+            "id": "pending",
+            "deliverAt": "2026-06-10T10:00:00Z"
+        ]]
+
+        manager.reconcileDeliveredScheduleMarkers(from: [message])
+        XCTAssertNotNil(try schedule("pending"))
+        message.outgoing = true
+        message.opponent = "mercutio@example.com"
+        manager.reconcileDeliveredScheduleMarkers(from: [message])
+        XCTAssertNotNil(try schedule("pending"))
+        message.opponent = "juliet@example.com"
+        message.conversationType = .group
+        manager.reconcileDeliveredScheduleMarkers(from: [message])
+        XCTAssertNotNil(try schedule("pending"))
+        message.conversationType = .regular
+        manager.reconcileDeliveredScheduleMarkers(from: [message])
+
+        XCTAssertTrue(manager.read(withIQ: try listResponse(id: id, entries: listEntry("pending"))))
+        XCTAssertNil(try schedule("pending"))
+    }
+
+    func testAutomaticListRefreshUsesCapabilityAndRunsOncePerSession() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        stream.authenticated = true
+        manager.isAvailable = false
+        manager.requestSessionRefresh()
+        manager.refreshScheduledMessages(stream)
+        XCTAssertTrue(stream.sentElements.isEmpty)
+
+        manager.isAvailable = true
+        manager.refreshScheduledMessages(stream)
+        manager.refreshScheduledMessages(stream)
+        XCTAssertEqual(stream.sentElements.count, 1)
+        let id = try XCTUnwrap(stream.sentElements.last?.attributeStringValue(forName: "id"))
+        XCTAssertTrue(manager.read(withIQ: try listResponse(id: id, entries: "")))
+        manager.refreshScheduledMessages(stream)
+        XCTAssertEqual(stream.sentElements.count, 1)
+
+        manager.clearSession()
+        manager.refreshScheduledMessages(stream)
+        XCTAssertEqual(stream.sentElements.count, 1)
+        manager.requestSessionRefresh()
+        manager.refreshScheduledMessages(stream)
+        XCTAssertEqual(stream.sentElements.count, 2)
+        manager.clearSession()
+    }
+
+    func testGroupScheduleUsesBareConversationAndSuppressesCarbonsForInnerPayload() throws {
+        let (manager, stream) = try availableManagerAndStream()
+        let group = "group@groups.example.com"
+        XCTAssertNotNil(manager.schedulePlaintextMessage(
+            stream, conversation: group, conversationType: .group,
+            deliverAt: Date(timeIntervalSinceNow: 3600), body: "Later"
+        ))
+        let request = try XCTUnwrap(stream.sentElements.first?.element(forName: "schedule", xmlns: XMPPMessageScheduleManager.namespace))
+        let message = try XCTUnwrap(request.element(forName: "message", xmlns: "jabber:client"))
+        XCTAssertEqual(request.attributeStringValue(forName: "conversation"), group)
+        XCTAssertEqual(request.attributeStringValue(forName: "type"), ClientSynchronizationManager.ConversationType.group.rawValue)
+        XCTAssertEqual(message.attributeStringValue(forName: "to"), group)
+        XCTAssertEqual(message.attributeStringValue(forName: "type"), "chat")
+        XCTAssertNotNil(message.element(forName: "private", xmlns: "urn:xmpp:carbons:2"))
+        manager.clearSession()
+    }
+
+    func testReplacingPrimaryStreamPreventsOldScheduleIQFromTransmitting() throws {
+        let account = Account(jid: owner, queue: DispatchQueue(label: owner))
+        let old = ScheduleCapturingXMPPStream()
+        let replacement = ScheduleCapturingXMPPStream()
+        [old, replacement].forEach {
+            $0.authenticated = true
+            $0.myJID = XMPPJID(string: "\(owner!)/ios")
+        }
+        account.xmppStream = old
+        account.sendReadiness.markStreamManagementEnabled()
+        account.messageSchedule.isAvailable = true
+        AccountManager.shared.users.append(account)
+        defer {
+            account.messageSchedule.clearSession()
+            AccountManager.shared.users.removeAll { $0 === account }
+        }
+
+        let id = try XCTUnwrap(account.messageSchedule.listScheduledMessages(old))
+        let request = try XCTUnwrap(old.sentElements.last as? XMPPIQ)
+        XCTAssertEqual(request.elementID, id)
+        account.xmppStream = replacement
+
+        XCTAssertNil(account.xmppStream(old, willSend: request))
+        var error: XMPPMessageScheduleManager.ScheduleError?
+        XCTAssertNil(account.messageSchedule.listScheduledMessages(old) { result in
+            if case .failure(let failure) = result { error = failure }
+        })
+        XCTAssertEqual(error, .sendRejected)
+        XCTAssertEqual(old.sentElements.count, 1)
+        XCTAssertTrue(replacement.sentElements.isEmpty)
+    }
+
+    func testScheduleWireTimestampUsesGregorianUTCForDateChosenInAnotherCalendar() throws {
+        let manager = XMPPMessageScheduleManager(withOwner: owner)
+        var calendar = Calendar(identifier: .buddhist)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 7 * 3600))
+        let local = DateComponents(year: 2569, month: 6, day: 11, hour: 2, minute: 15, second: 4)
+        let selected = try XCTUnwrap(calendar.date(from: local))
+        let payload = manager.makePlaintextMessagePayload(to: "juliet@example.com", body: "Later")
+        let iq = manager.makeScheduleIQ(elementId: "date",
+            conversation: "juliet@example.com", conversationType: .regular,
+            deliverAt: selected, payload: payload)
+
+        let schedule = try XCTUnwrap(iq.element(forName: "schedule", xmlns: XMPPMessageScheduleManager.namespace))
+        XCTAssertEqual(schedule.attributeStringValue(forName: "deliver-at"), "2026-06-10T19:15:04Z")
+    }
+
+    private func availableManagerAndStream() throws -> (XMPPMessageScheduleManager, ScheduleCapturingXMPPStream) {
+        let manager = XMPPMessageScheduleManager(withOwner: owner)
+        manager.omemo2OptOutStorage = try XabberOMEMO2Storage(owner: owner, persistence: EmptyScheduleOptOutPersistence())
+        manager.isAvailable = true
+        let stream = ScheduleCapturingXMPPStream()
+        stream.myJID = XMPPJID(string: "\(owner!)/ios")
+        return (manager, stream)
+    }
+
+    private func schedule(_ id: String) throws -> XMPPMessageScheduleStorageItem? {
+        try WRealm.safe().object(
+            ofType: XMPPMessageScheduleStorageItem.self,
+            forPrimaryKey: XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: id)
+        )
+    }
+
+    private func listEntry(_ id: String, conversation: String = "juliet@example.com") -> String {
+        "<scheduled id='\(id)' conversation='\(conversation)' type='urn:xabber:chat' deliver-at='2026-06-10T10:00:00Z'/>"
+    }
+
+    private func listResponse(id: String, entries: String) throws -> XMPPIQ {
+        try makeIQ("""
+        <iq type='result' id='\(id)'>
+          <query xmlns='\(XMPPMessageScheduleManager.namespace)'>\(entries)</query>
+        </iq>
+        """)
     }
 
     private func seedSchedule(
@@ -427,6 +699,8 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
 
 private final class ScheduleCapturingXMPPStream: XMPPStream {
     private(set) var sentElements: [DDXMLElement] = []
+    var authenticated = false
+    override var isAuthenticated: Bool { authenticated }
 
     override func send(_ element: DDXMLElement) {
         if let copy = element.copy() as? DDXMLElement {
@@ -435,4 +709,10 @@ private final class ScheduleCapturingXMPPStream: XMPPStream {
             sentElements.append(element)
         }
     }
+}
+
+private struct EmptyScheduleOptOutPersistence: OMEMO2StatePersistence {
+    func load(owner: String) throws -> Data? { nil }
+    func save(_ data: Data, owner: String) throws {}
+    func remove(owner: String) throws {}
 }

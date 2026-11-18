@@ -2818,6 +2818,7 @@ class ChatViewController: MessagesViewController {
 // draft
     var draftMessageText: BehaviorRelay<String?> = BehaviorRelay<String?>(value: nil)
     var scheduledMessageService: ChatScheduledMessageServicing = AccountChatScheduledMessageService()
+    lazy var scheduledMessageActionCoordinator = ScheduledMessageActionCoordinator(service: scheduledMessageService)
     var sendOptionsContextMenu: ContextMenu?
     private var scheduledMessagesComposerButtonToken: NotificationToken?
     
@@ -9085,13 +9086,18 @@ extension ChatViewController {
             hasScheduledMessages = false
         }
         inputView.hasScheduledMessagesForCurrentChat = hasScheduledMessages
+            || !self.scheduledMessageActionCoordinator.recoveries(
+                owner: self.owner,
+                conversation: self.jid,
+                conversationType: self.conversationType
+            ).isEmpty
         inputView.refreshComposerChrome()
     }
 
     private func observeScheduledMessagesForComposerButton() {
         self.scheduledMessagesComposerButtonToken?.invalidate()
         guard let realm = try? WRealm.safe() else {
-            self.xabberInputView?.hasScheduledMessagesForCurrentChat = false
+            self.refreshScheduledMessagesComposerButtonState()
             return
         }
         let results = ScheduledMessagesComposerButtonModel.results(
@@ -9101,14 +9107,8 @@ extension ChatViewController {
             realm: realm
         )
         self.refreshScheduledMessagesComposerButtonState()
-        self.scheduledMessagesComposerButtonToken = results.observe { [weak self] change in
-            guard let self else { return }
-            switch change {
-            case .initial, .update:
-                self.refreshScheduledMessagesComposerButtonState()
-            case .error:
-                self.xabberInputView?.hasScheduledMessagesForCurrentChat = false
-            }
+        self.scheduledMessagesComposerButtonToken = results.observe { [weak self] _ in
+            self?.refreshScheduledMessagesComposerButtonState()
         }
     }
 }

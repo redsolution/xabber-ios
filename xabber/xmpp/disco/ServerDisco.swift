@@ -1177,7 +1177,11 @@ class ServerDiscoManager: AbstractXMPPManager {
         } else if authoritative {
             XMPPMessageScheduleManager.saveAvailability(owner: owner, isAvailable: false)
         }
-        AccountManager.shared.find(for: owner)?.messageSchedule.checkAvailability()
+        AccountManager.shared.find(for: owner)?.action { account, _ in
+            account.messageSchedule.checkAvailability()
+            account.messageSchedule.requestSessionRefresh()
+            account.refreshScheduledMessagesIfReady()
+        }
     }
 
     private func saveReliableMessageDeliverySettings(_ node: String) {

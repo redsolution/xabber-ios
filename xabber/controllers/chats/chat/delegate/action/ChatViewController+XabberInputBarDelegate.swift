@@ -852,8 +852,8 @@ extension ChatViewController: XabberInputBarDelegate {
         self.draftMessageText.accept(text)
     }
 
-    func sendButtonLongPressMenuRequested(sourceView: UIView, payload: ComposerMessagePayload) {
-        guard !self.showSkeletonObserver.value else { return }
+    func sendButtonLongPressMenuRequested(sourceView: UIView, payload _: ComposerMessagePayload) {
+        guard !self.showSkeletonObserver.value, !self.isComposerSendAdmissionInFlight else { return }
         let menuState = ChatSendOptionsMenuPolicy.makeMenuState(scheduleContext: ChatScheduleActionContext(
             scheduleAvailable: self.scheduledMessageService.isScheduleAvailable(owner: self.owner),
             isEditingMessage: self.editMessageId.value?.isNotEmpty == true,
@@ -871,7 +871,7 @@ extension ChatViewController: XabberInputBarDelegate {
             guard let self else { return false }
             return ChatSendOptionsContextMenuBuilder.handleSelection(value) { [weak self] in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                    self?.showScheduleDatePicker(for: payload)
+                    self?.showScheduleDatePicker()
                 }
             }
         }
@@ -892,10 +892,21 @@ extension ChatViewController: XabberInputBarDelegate {
         self.openScheduledMessagesModal()
     }
 
-    private func showScheduleDatePicker(for payload: ComposerMessagePayload) {
+    private func showScheduleDatePicker() {
+        guard !self.isComposerSendAdmissionInFlight else { return }
+        let payload = self.xabberInputView.currentPayload()
         guard self.canSchedulePayload(payload, showError: true) else { return }
+        let owner = self.owner
+        let jid = self.jid
+        let conversationType = self.conversationType
+        let composerText = NSAttributedString(attributedString: self.xabberInputView.textField.attributedText ?? NSAttributedString())
+        let forwarded = self.attachedMessagesIds.value
+        let forwardIntent = self.composerForwardIntent
         let picker = ScheduledMessageDatePickerViewController { [weak self] selectedDate in
-            self?.sendScheduledMessage(payload: payload, deliverAt: selectedDate)
+            guard let self, self.owner == owner, self.jid == jid, self.conversationType == conversationType,
+                  self.attachedMessagesIds.value == forwarded, self.composerForwardIntent == forwardIntent,
+                  self.xabberInputView.textField.attributedText?.isEqual(to: composerText) == true else { return }
+            self.sendScheduledMessage(payload: payload, deliverAt: selectedDate)
         }
         self.present(picker, animated: true)
     }
@@ -918,8 +929,19 @@ extension ChatViewController: XabberInputBarDelegate {
         return true
     }
 
-    private func sendScheduledMessage(payload: ComposerMessagePayload, deliverAt: Date) {
+    internal func sendScheduledMessage(payload: ComposerMessagePayload, deliverAt: Date) {
+        guard !self.isComposerSendAdmissionInFlight else { return }
         guard self.canSchedulePayload(payload, showError: true) else { return }
+        guard deliverAt > Date() else {
+            ToastPresenter().presentError(message: self.scheduleErrorMessage(for: XMPPMessageScheduleManager.ScheduleError.notAcceptable))
+            return
+        }
+        let composerText = NSAttributedString(attributedString: self.xabberInputView.textField.attributedText ?? NSAttributedString())
+        let draft = self.draftMessageText.value
+        let forwardedIDs = self.forwardedIds.value
+        let forwardIntent = self.composerForwardIntent
+        let editedMessage = self.editMessageId.value
+        let recordingSession = self.activeAudioRecordingSessionID
         let request = ChatScheduledMessageSendRequest(
             owner: self.owner,
             conversation: self.jid,
@@ -929,31 +951,60 @@ extension ChatViewController: XabberInputBarDelegate {
             references: payload.references,
             forwardedMessagePrimaries: self.attachedMessagesIds.value
         )
+        self.isComposerSendAdmissionInFlight = true
+        let complete: (Result<XMPPMessageScheduleManager.ScheduledEntry, XMPPMessageScheduleManager.ScheduleError>) -> Void = { [weak self] result in
+            let applyResult = {
+                guard let self else { return }
+                self.isComposerSendAdmissionInFlight = false
+                guard self.owner == request.owner, self.jid == request.conversation,
+                      self.conversationType == request.conversationType else { return }
+                switch result {
+                case .success:
+                    let composerUnchanged = self.xabberInputView.textField.attributedText?.isEqual(to: composerText) == true
+                        && self.draftMessageText.value == draft
+                        && self.attachedMessagesIds.value == request.forwardedMessagePrimaries
+                        && self.forwardedIds.value == forwardedIDs
+                        && self.composerForwardIntent == forwardIntent
+                        && self.editMessageId.value == editedMessage
+                        && self.activeAudioRecordingSessionID == recordingSession
+                        && self.recordedReferenceObject == nil
+                    self.completeScheduledMessageSend(clearComposer: composerUnchanged)
+                case .failure(let error):
+                    ToastPresenter().presentError(message: self.scheduleErrorMessage(for: error))
+                    switch error {
+                    case .timeout, .disconnected, .invalidResponse:
+                        self.presentScheduledMessagesIfVisible()
+                    default:
+                        break
+                    }
+                }
+            }
+            if Thread.isMainThread { applyResult() }
+            else { DispatchQueue.main.async(execute: applyResult) }
+        }
         let coordinator = ChatScheduledMessageSendCoordinator(service: self.scheduledMessageService)
         _ = coordinator.schedule(
             request,
-            onSuccess: { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.completeScheduledMessageSend()
-                }
-            },
-            onFailure: { [weak self] error in
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    ToastPresenter().presentError(message: self.scheduleErrorMessage(for: error))
-                }
-            }
+            onSuccess: { complete(.success($0)) },
+            onFailure: { complete(.failure($0)) }
         )
     }
 
-    private func completeScheduledMessageSend() {
-        self.xabberInputView.clearComposer()
-        self.xabberInputView.textViewDidChange()
-        self.draftMessageText.accept(nil)
-        self.clearAttachments()
-        self.unreadMessagePositionId = nil
+    private func completeScheduledMessageSend(clearComposer: Bool) {
+        if clearComposer {
+            self.xabberInputView.clearComposer()
+            self.xabberInputView.textViewDidChange()
+            self.draftMessageText.accept(nil)
+            self.clearAttachments()
+            self.unreadMessagePositionId = nil
+        }
         self.refreshScheduledMessagesComposerButtonState()
         FeedbackManager.shared.generate(feedback: .success)
+        self.presentScheduledMessagesIfVisible()
+    }
+
+    private func presentScheduledMessagesIfVisible() {
+        guard self.viewIfLoaded?.window != nil, self.presentedViewController == nil else { return }
         self.openScheduledMessagesModal()
     }
 
@@ -963,6 +1014,7 @@ extension ChatViewController: XabberInputBarDelegate {
         vc.jid = self.jid
         vc.conversationType = self.conversationType
         vc.scheduledMessageService = self.scheduledMessageService
+        vc.actionCoordinator = self.scheduledMessageActionCoordinator
         vc.onDidDisappear = { [weak self] in
             self?.refreshScheduledMessagesComposerButtonState()
         }
@@ -988,6 +1040,11 @@ extension ChatViewController: XabberInputBarDelegate {
         switch error {
         case .unavailable:
             return "Scheduled messages are unavailable on this server.".localizeString(id: "schedule_unavailable_error", arguments: [])
+        case .timeout, .disconnected, .invalidResponse:
+            return L10n.text(
+                "scheduled_message_unknown_outcome",
+                fallback: "The server may have accepted the message. Check Scheduled Messages before trying again."
+            )
         default:
             return "Could not schedule message.".localizeString(id: "schedule_send_failed_error", arguments: [])
         }

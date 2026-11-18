@@ -1064,7 +1064,7 @@ extension MessageManager {
         return projection
     }
 
-    private static func validatePreparedContentSize(_ message: XMPPMessage) throws {
+    internal static func validatePreparedContentSize(_ message: XMPPMessage) throws {
         let bytes = (message.children ?? []).compactMap { $0 as? DDXMLElement }.filter {
             !SCEReceivePolicy.matches($0, name: "origin-id", namespace: "urn:xmpp:sid:0")
         }.reduce(0) { $0 + $1.xmlString.utf8.count }
@@ -1377,6 +1377,75 @@ extension MessageManager {
             return ""
         }
         return originalId
+    }
+
+    /// Admit the scheduled payload to the ordinary outgoing lane using a new
+    /// origin. Once the row is saved, ordinary retry owns any transport failure.
+    @discardableResult
+    internal func admitScheduledMessageForImmediateSend(
+        _ payload: XMPPMessage,
+        to jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        let bodyElementName = "body"
+        guard !conversationType.isEncrypted, optOutAllowsOutgoing(to: jid),
+              let destination = Self.outboundDestinationJID(for: jid, conversationType: conversationType, resource: nil),
+              let body = SCEReceivePolicy.children(of: payload, named: bodyElementName, xmlns: SCEReceivePolicy.client).first?.stringValue
+        else { return false }
+
+        let messageID = UUID().uuidString
+        let stanza = XMPPMessage(messageType: .chat, to: destination, elementID: messageID, child: nil)
+        stanza.setXmlns(SCEReceivePolicy.client)
+        stanza.addAttribute(withName: "from", stringValue: owner)
+        stanza.addOriginId(messageID)
+        let children = (payload.children ?? []).compactMap { $0 as? DDXMLElement }
+        for child in children {
+            let name = child.localName ?? ""
+            let namespace = child.uri ?? ""
+            let oldTransportMetadata = ["urn:xmpp:sid:0", "urn:xmpp:delay", "urn:xmpp:receipts",
+                                        "urn:xmpp:chat-markers:0", XMPPMessageScheduleManager.namespace].contains(namespace) ||
+                (namespace == "https://xabber.com/protocol/delivery" && ["time", "received", "retry"].contains(name))
+            if !oldTransportMetadata, let copy = child.copy() as? DDXMLElement {
+                stanza.addChild(copy)
+            }
+        }
+
+        do {
+            try Self.validatePreparedContentSize(stanza)
+            let realm = try WRealm.safe()
+            let raw = try XMPPMessage(xmlString: stanza.xmlString)
+            let primary = MessageStorageItem.genPrimary(messageId: messageID, owner: owner)
+            let references = Self.preparedForwardProjection(
+                raw, primary: primary, jid: jid, owner: owner, conversationType: conversationType, ownReferences: []
+            )
+            let row = MessageStorageItem()
+            row.conversationType = conversationType
+            let projection = MessageStorageItem()
+            projection.references.append(objectsIn: references)
+            row.configureOutgoingMessage(
+                projection.normalizedIncomingTextBody(from: raw),
+                legacy: body, messageId: messageID, owner: owner, opponent: jid, references: references,
+                inlineForwards: parseInlineMessages(raw, parentId: primary, jid: jid, owner: owner)
+            )
+            row.state = conversationType == .regular ? .sending : .notSended
+            row.systemMetadata = ["forwardPreparedVersion": 1]
+            row.originalStanza = raw
+            try realm.write {
+                guard row.save(commitTransaction: false) else {
+                    throw ForwardOutgoingAdmissionError.persistenceFailed
+                }
+            }
+            publishLocalOutgoingAdmission(primaryID: row.primary, conversationJID: jid, conversationType: conversationType)
+            if !processSender(item: row.primary) {
+                try? realm.write {
+                    row.state = .error
+                }
+                LastChats.updateErrorState(for: jid, owner: owner, conversationType: conversationType)
+            }
+            return true
+        } catch {
+            return false
+        }
     }
     
     public func sendSystemMessage(_ body: String, attachments: [MessageReferenceStorageItem], to jid: String, childs: [DDXMLElement] = [], conversationType: ClientSynchronizationManager.ConversationType) {

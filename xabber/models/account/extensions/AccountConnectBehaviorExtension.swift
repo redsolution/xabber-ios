@@ -109,6 +109,14 @@ extension Account {
         self.connectionGate.markOnline()
         if didResume {
             self.restorePushRegistrationAfterResume()
+            if !restoredSMCheckpoint {
+                if messageSchedule.isAvailable {
+                    messageSchedule.requestSessionRefresh()
+                    refreshScheduledMessagesIfReady()
+                } else {
+                    disco.requestServerFeatures(xmppStream)
+                }
+            }
         }
         AccountManager.shared.markAsNotConnecting(
             jid: self.jid,
@@ -130,6 +138,16 @@ extension Account {
         self.startStartupSynchronizationIfReady()
     }
     
+    func refreshScheduledMessagesIfReady() {
+        guard xmppStream.isAuthenticated, let accountJID = XMPPJID(string: jid),
+              xmppStream.myJID?.bare == accountJID.bare, connectionGate.snapshot().phase == .online, sendReadiness.snapshot.canFlushApplicationStanzas,
+              messageSchedule.isAvailable else { return }
+        if deferWorkUntilStartupSynchronizationCompletes(key: "schedule.list", work: { account, _ in
+            account.refreshScheduledMessagesIfReady()
+        }) { return }
+        messageSchedule.refreshScheduledMessages(xmppStream)
+    }
+
     func didReceivePing(withIq iq: XMPPIQ) -> Bool {
         if iq.xmlns() == "jabber:client"
             && iq.iqType == .get

@@ -272,6 +272,71 @@ final class XEPMessageScheduleUITests: XCTestCase {
         XCTAssertTrue(policy.confirmTitle(for: later, now: now).hasPrefix("Send on "))
     }
 
+    func testDatePolicyStartsAnHourAheadPreservesFutureSeedAndClampsExpiredSeed() throws {
+        let now = makeDate(year: 2026, month: 6, day: 15, hour: 23, minute: 5, second: 30)
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let policy = ScheduledMessageDatePolicy(locale: Locale(identifier: "en_US"), timeZone: timeZone)
+        let original = now.addingTimeInterval(7200)
+
+        XCTAssertEqual(policy.initialDate(preferred: nil, now: now), now.addingTimeInterval(3570))
+        XCTAssertEqual(policy.initialDate(preferred: original, now: now), original.addingTimeInterval(-30))
+        XCTAssertEqual(policy.initialDate(preferred: now, now: now), now.addingTimeInterval(90))
+    }
+
+    func testDatePolicyPreservesSecondOccurrenceOfRepeatedMinute() throws {
+        let timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let policy = ScheduledMessageDatePolicy(locale: Locale(identifier: "en_US"), timeZone: timeZone)
+        let secondOccurrence = makeDate(year: 2026, month: 11, day: 1, hour: 9, minute: 30, second: 45)
+
+        XCTAssertEqual(policy.normalizedToMinute(secondOccurrence), secondOccurrence.addingTimeInterval(-45))
+    }
+
+    func testReschedulePickerKeepsSeedAndRefreshesEstimateWhenSelectionChanges() throws {
+        var now = makeDate(year: 2026, month: 6, day: 15, hour: 18, minute: 0)
+        let scheduled = now.addingTimeInterval(10_800)
+        let timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let policy = ScheduledMessageDatePolicy(locale: Locale(identifier: "en_US"), timeZone: timeZone)
+        let controller = ScheduledMessageDatePickerViewController(
+            initialDate: scheduled,
+            policy: policy,
+            nowProvider: { now },
+            onConfirm: { _ in XCTFail("Editing the picker does not confirm delivery.") }
+        )
+        controller.loadViewIfNeeded()
+        let controls = controller.view.subviews.flatMap(\.subviews)
+        let picker = try XCTUnwrap(controls.compactMap { $0 as? UIDatePicker }.first)
+        let countdown = try XCTUnwrap(controls.first {
+            $0.accessibilityIdentifier == ScheduledMessageDatePickerViewController.countdownIdentifier
+        } as? UILabel)
+
+        XCTAssertEqual(picker.date, scheduled)
+        XCTAssertEqual(countdown.text, "in 3 hours")
+
+        now = now.addingTimeInterval(3600)
+        XCTAssertEqual(countdown.text, "in 3 hours")
+        picker.date = scheduled.addingTimeInterval(1800)
+        picker.sendActions(for: .valueChanged)
+        XCTAssertEqual(countdown.text, "in 2 hours")
+    }
+
+    func testScheduledDaySectionsSortByDeliveryAndRespectLocalMidnight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 5 * 3600))
+        let beforeMidnight = makeDate(year: 2026, month: 6, day: 15, hour: 18, minute: 55)
+        let midnight = makeDate(year: 2026, month: 6, day: 15, hour: 19, minute: 0)
+        let later = midnight.addingTimeInterval(60)
+        let rows: [ScheduledMessageListItem] = [
+            .init(scheduledId: "late", deliverAt: later, status: .failed, bodyPreview: "Late"),
+            .init(scheduledId: "midnight", deliverAt: midnight, status: .pending, bodyPreview: "Midnight"),
+            .init(scheduledId: "early", deliverAt: beforeMidnight, status: .pending, bodyPreview: "Early")
+        ]
+
+        let sections = ScheduledMessageDaySection.make(from: rows, calendar: calendar)
+
+        XCTAssertEqual(sections.map(\.day), [calendar.startOfDay(for: beforeMidnight), midnight])
+        XCTAssertEqual(sections.map { $0.items.map(\.scheduledId) }, [["early"], ["midnight", "late"]])
+    }
+
     func testScheduleCoordinatorSuccessUsesScheduleServiceAndDoesNotSendRegularMessage() throws {
         let service = FakeScheduledMessageService()
         let coordinator = ChatScheduledMessageSendCoordinator(service: service)

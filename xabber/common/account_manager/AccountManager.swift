@@ -318,6 +318,7 @@ struct AccountDeletionStorageCleanupStep {
             realm.delete(realm.objects(MessageMediaAttachmentStorageItem.self).filter("owner == %@", $0))
             realm.delete(realm.objects(TemporaryMessageStanzaStorageItem.self).filter("owner == %@", $0))
             realm.delete(realm.objects(ChatLocalHistoryIndexStorageItem.self).filter("owner == %@", $0))
+            realm.delete(realm.objects(XMPPMessageScheduleStorageItem.self).filter("owner == %@", $0))
         },
         AccountDeletionStorageCleanupStep(kind: .presence) {
             PresenceManager.remove(for: $0, commitTransaction: false)
@@ -1256,6 +1257,7 @@ public class AccountManager: NSObject {
 
     private func performPostRealmAccountDeletionCleanup(jid: String) throws {
         removeAccountFromMemory(jid: jid)
+        try ScheduledMessageActionJournal.shared.invalidate(forOwner: jid)
         if let index = ApplicationStateManager.shared.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
             ApplicationStateManager.shared.expiredTokenAccountsList.remove(at: index)
         }

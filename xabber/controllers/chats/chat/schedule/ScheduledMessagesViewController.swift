@@ -9,47 +9,115 @@
 import RealmSwift
 import UIKit
 
+struct ScheduledMessageDaySection {
+    let day: Date
+    let items: [ScheduledMessageListItem]
+
+    static func make(from items: [ScheduledMessageListItem], calendar: Calendar) -> [Self] {
+        let days = Dictionary(grouping: items) { calendar.startOfDay(for: $0.deliverAt) }
+        return days.keys.sorted().map { day in
+            let messages = days[day, default: []].sorted { lhs, rhs in
+                lhs.deliverAt == rhs.deliverAt ? lhs.scheduledId < rhs.scheduledId : lhs.deliverAt < rhs.deliverAt
+            }
+            return Self(day: day, items: messages)
+        }
+    }
+}
+
 final class ScheduledMessagesViewController: SimpleBaseViewController {
     static let tableAccessibilityIdentifier = "chat.schedule.list"
     static let cancelActionAccessibilityIdentifier = "chat.schedule.list.cancel"
 
     var conversationType: ClientSynchronizationManager.ConversationType = .regular
     var scheduledMessageService: ChatScheduledMessageServicing = AccountChatScheduledMessageService()
+    var actionCoordinator: ScheduledMessageActionCoordinator?
     var onDidDisappear: (() -> Void)?
+
+    private lazy var fallbackCoordinator = ScheduledMessageActionCoordinator(service: scheduledMessageService)
+    private var coordinator: ScheduledMessageActionCoordinator { actionCoordinator ?? fallbackCoordinator }
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let emptyLabel = UILabel()
-    private var items: [ScheduledMessageListItem] = []
+    private let banner = UIStackView()
+    private let statusLabel = UILabel()
+    private let activity = UIActivityIndicatorView(style: .medium)
+    private let retryButton = UIButton(type: .system)
+    private let recoveryButton = UIButton(type: .system)
+    private let refreshControl = UIRefreshControl()
+
+    private var sections: [ScheduledMessageDaySection] = []
+    private var itemsByID: [String: ScheduledMessageListItem] = [:]
+    private var selectedIDs: Set<String> = []
+    private var activeIDs: Set<String> = []
+    private var editDrafts: [String: String] = [:]
+    private var isRefreshing = false
+    private var refreshFailed = false
+    private var actionNotice: String?
     private var notificationToken: NotificationToken?
+    private var countdownTimer: Timer?
     private var didActivateConstraints = false
+
+    private var selectedItems: [ScheduledMessageListItem] {
+        sections.flatMap(\.items).filter { selectedIDs.contains($0.scheduledId) }
+    }
 
     override func setupSubviews() {
         super.setupSubviews()
-        view.addSubview(tableView)
-        view.addSubview(emptyLabel)
+        [banner, tableView].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview($0)
+        }
+        [activity, statusLabel, retryButton, recoveryButton].forEach { banner.addArrangedSubview($0) }
+        tableView.backgroundView = emptyLabel
     }
 
     override func configure() {
         super.configure()
-        title = "Scheduled Messages".localizeString(id: "scheduled_messages_title", arguments: [])
+        title = L10n.text("scheduled_messages_title", fallback: "Scheduled Messages")
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             barButtonSystemItem: .done,
             target: self,
             action: #selector(close(_:))
         )
 
-        tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.accessibilityIdentifier = Self.tableAccessibilityIdentifier
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 76
+        tableView.allowsSelection = false
+        tableView.allowsSelectionDuringEditing = true
+        tableView.allowsMultipleSelectionDuringEditing = true
+        tableView.refreshControl = refreshControl
         tableView.register(ScheduledMessageCell.self, forCellReuseIdentifier: ScheduledMessageCell.reuseIdentifier)
+        refreshControl.addTarget(self, action: #selector(refreshRemoteRows), for: .valueChanged)
 
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.text = "No scheduled messages".localizeString(id: "scheduled_messages_empty", arguments: [])
-        emptyLabel.textColor = .secondaryLabel
-        emptyLabel.font = .systemFont(ofSize: 15, weight: .regular)
-        emptyLabel.textAlignment = .center
-        emptyLabel.numberOfLines = 0
+        banner.axis = .vertical
+        banner.alignment = .center
+        banner.spacing = 4
+        activity.hidesWhenStopped = true
+        for label in [emptyLabel, statusLabel] {
+            label.font = .preferredFont(forTextStyle: .subheadline)
+            label.adjustsFontForContentSizeCategory = true
+            label.textColor = .secondaryLabel
+            label.textAlignment = .center
+            label.numberOfLines = 0
+        }
+        emptyLabel.text = L10n.text("scheduled_messages_empty", fallback: "No scheduled messages")
+        retryButton.setTitle(L10n.text("common__action__retry", fallback: "Retry"), for: .normal)
+        retryButton.accessibilityIdentifier = "chat.schedule.list.refresh"
+        retryButton.addTarget(self, action: #selector(refreshRemoteRows), for: .touchUpInside)
+        recoveryButton.setTitle(L10n.text("scheduled_messages_review", fallback: "Review pending actions"), for: .normal)
+        recoveryButton.accessibilityIdentifier = "chat.schedule.list.recovery"
+        recoveryButton.addTarget(self, action: #selector(showRecoveries), for: .touchUpInside)
+        for button in [retryButton, recoveryButton] {
+            button.titleLabel?.font = .preferredFont(forTextStyle: .body)
+            button.titleLabel?.adjustsFontForContentSizeCategory = true
+            let hitTarget = button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+            hitTarget.priority = .defaultHigh
+            hitTarget.isActive = true
+        }
+        updateControls()
     }
 
     override func activateConstraints() {
@@ -57,14 +125,14 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
         guard !didActivateConstraints else { return }
         didActivateConstraints = true
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            banner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            banner.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            banner.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+
+            tableView.topAnchor.constraint(equalTo: banner.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            emptyLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            emptyLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
@@ -75,8 +143,21 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
         refreshRemoteRows()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateVisibleCountdowns()
+        countdownTimer?.invalidate()
+        let timer = Timer(timeInterval: 20, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateVisibleCountdowns() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        countdownTimer?.invalidate()
+        countdownTimer = nil
         notificationToken?.invalidate()
         notificationToken = nil
         onDidDisappear?()
@@ -85,9 +166,12 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
     private func observeLocalRows() {
         notificationToken?.invalidate()
         guard let realm = try? WRealm.safe() else { return }
-        let results = realm.objects(XMPPMessageScheduleStorageItem.self)
-            .filter("owner == %@ AND conversation == %@ AND conversationType_ == %@", owner, jid, conversationType.rawValue)
-            .sorted(byKeyPath: "deliverAt", ascending: true)
+        let results = ScheduledMessagesComposerButtonModel.results(
+            owner: owner,
+            conversation: jid,
+            conversationType: conversationType,
+            realm: realm
+        )
         notificationToken = results.observe { [weak self] _ in
             self?.reloadLocalRows()
         }
@@ -101,62 +185,416 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
                 conversationType: conversationType,
                 realm: realm
               ) else {
-            items = []
-            tableView.reloadData()
-            updateEmptyState()
+            refreshFailed = true
+            updateControls()
             return
         }
-        items = loaded
+        sections = ScheduledMessageDaySection.make(from: loaded, calendar: L10n.formatters.calendar)
+        itemsByID = Dictionary(uniqueKeysWithValues: loaded.map { ($0.scheduledId, $0) })
+        selectedIDs.formIntersection(itemsByID.keys)
+        editDrafts = editDrafts.filter { itemsByID[$0.key] != nil || activeIDs.contains($0.key) }
         tableView.reloadData()
-        updateEmptyState()
+        if tableView.isEditing {
+            for (section, day) in sections.enumerated() {
+                for (row, item) in day.items.enumerated() where selectedIDs.contains(item.scheduledId) {
+                    tableView.selectRow(at: IndexPath(row: row, section: section), animated: false, scrollPosition: .none)
+                }
+            }
+            if itemsByID.isEmpty { tableView.setEditing(false, animated: false) }
+        }
+        updateControls()
     }
 
-    private func refreshRemoteRows() {
+    @objc private func refreshRemoteRows() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        refreshFailed = false
+        updateControls()
         scheduledMessageService.listScheduledMessages(
             owner: owner,
             conversation: jid,
             conversationType: conversationType
         ) { [weak self] result in
             DispatchQueue.main.async {
+                guard let self else { return }
+                self.isRefreshing = false
+                self.refreshControl.endRefreshing()
                 switch result {
                 case .success:
-                    self?.reloadLocalRows()
+                    self.reloadLocalRows()
                 case .failure:
-                    ToastPresenter().presentError(
-                        message: "Could not load scheduled messages.".localizeString(id: "scheduled_messages_load_error", arguments: [])
-                    )
+                    self.refreshFailed = true
                 }
+                self.updateControls()
             }
         }
     }
 
-    private func updateEmptyState() {
-        emptyLabel.isHidden = !items.isEmpty
-        tableView.isHidden = items.isEmpty
+    private func updateControls() {
+        let isBusy = !activeIDs.isEmpty
+        let isEditing = tableView.isEditing
+        title = isEditing
+            ? L10n.format(
+                "scheduled_messages_selection_count",
+                fallback: "%@ selected",
+                arguments: [L10n.formatters.numberFormatter(style: .decimal).string(from: NSNumber(value: selectedIDs.count)) ?? String(selectedIDs.count)]
+            )
+            : L10n.text("scheduled_messages_title", fallback: "Scheduled Messages")
+        navigationItem.leftBarButtonItem?.isEnabled = !isBusy
+        isModalInPresentation = isBusy
+        navigationController?.isModalInPresentation = isBusy
+
+        if isEditing {
+            let endSelection = UIBarButtonItem(
+                systemItem: .cancel,
+                primaryAction: UIAction { [weak self] _ in self?.finishSelection() }
+            )
+            let send = UIBarButtonItem(
+                image: UIImage(systemName: "paperplane"),
+                primaryAction: UIAction { [weak self] _ in self?.performSelection(.sendNow) }
+            )
+            send.accessibilityLabel = L10n.text("scheduled_message_send_now", fallback: "Send Now")
+            send.accessibilityIdentifier = "chat.schedule.list.selection.send"
+            send.isEnabled = !isBusy && !selectedIDs.isEmpty
+                && selectedItems.allSatisfy { ScheduledMessageActionCoordinator.supports(.sendNow, on: $0) }
+            let delete = UIBarButtonItem(
+                image: UIImage(systemName: "trash"),
+                primaryAction: UIAction { [weak self] _ in self?.performSelection(.delete) }
+            )
+            delete.accessibilityLabel = L10n.text("common__action__delete", fallback: "Delete")
+            delete.accessibilityIdentifier = "chat.schedule.list.selection.delete"
+            delete.isEnabled = !isBusy && !selectedIDs.isEmpty
+            endSelection.isEnabled = !isBusy
+            navigationItem.rightBarButtonItems = [delete, send, endSelection]
+        } else {
+            let select = UIBarButtonItem(
+                title: L10n.text("common__action__select", fallback: "Select"),
+                primaryAction: UIAction { [weak self] _ in self?.startSelection() }
+            )
+            select.accessibilityIdentifier = "chat.schedule.list.select"
+            select.isEnabled = !isBusy && !itemsByID.isEmpty
+            navigationItem.rightBarButtonItems = [select]
+        }
+
+        if isBusy || (isRefreshing && itemsByID.isEmpty) { activity.startAnimating() } else { activity.stopAnimating() }
+        if isBusy {
+            statusLabel.text = L10n.text("scheduled_messages_working", fallback: "Updating scheduled messages…")
+        } else if isRefreshing && itemsByID.isEmpty {
+            statusLabel.text = L10n.text("scheduled_messages_loading", fallback: "Loading scheduled messages…")
+        } else if refreshFailed {
+            statusLabel.text = L10n.text("scheduled_messages_load_error", fallback: "Could not load scheduled messages.")
+        } else {
+            statusLabel.text = actionNotice
+        }
+        statusLabel.isHidden = statusLabel.text == nil
+        retryButton.isHidden = !refreshFailed || isBusy || isRefreshing
+        recoveryButton.isHidden = isBusy || recoveries.isEmpty
+        recoveryButton.titleLabel?.numberOfLines = 0
+        recoveryButton.titleLabel?.textAlignment = .center
+        banner.isHidden = activity.isHidden && statusLabel.isHidden && retryButton.isHidden && recoveryButton.isHidden
+        emptyLabel.isHidden = !itemsByID.isEmpty || refreshFailed || isRefreshing || isBusy
     }
 
-    private func cancel(item: ScheduledMessageListItem) {
-        scheduledMessageService.cancelScheduledMessage(
-            owner: owner,
-            scheduledId: item.scheduledId
-        ) { [weak self] result in
-            DispatchQueue.main.async {
+    private func dayTitle(_ date: Date, now: Date = Date()) -> String {
+        let calendar = L10n.formatters.calendar
+        if calendar.isDate(date, inSameDayAs: now) {
+            return L10n.text("today", fallback: "Today")
+        }
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+           calendar.isDate(date, inSameDayAs: tomorrow) {
+            return L10n.text("scheduled_message_tomorrow", fallback: "Tomorrow")
+        }
+        return L10n.formatters.dateFormatter(dateStyle: .medium).string(from: date)
+    }
+
+    private func updateVisibleCountdowns() {
+        let now = Date()
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard let cell = tableView.cellForRow(at: indexPath) as? ScheduledMessageCell,
+                  let item = item(at: indexPath) else { continue }
+            cell.updateCountdown(for: item, now: now)
+        }
+        for (index, section) in sections.enumerated() {
+            tableView.headerView(forSection: index)?.textLabel?.text = dayTitle(section.day, now: now)
+        }
+    }
+
+    private func item(at indexPath: IndexPath) -> ScheduledMessageListItem? {
+        guard sections.indices.contains(indexPath.section),
+              sections[indexPath.section].items.indices.contains(indexPath.row) else { return nil }
+        return sections[indexPath.section].items[indexPath.row]
+    }
+
+    private func startSelection(initialID: String? = nil) {
+        guard !itemsByID.isEmpty, activeIDs.isEmpty else { return }
+        if let initialID, itemsByID[initialID] == nil { return }
+        tableView.setEditing(true, animated: true)
+        if let initialID {
+            for (section, day) in sections.enumerated() {
+                guard let row = day.items.firstIndex(where: { $0.scheduledId == initialID }) else { continue }
+                select(itemAt: IndexPath(row: row, section: section))
+                break
+            }
+        }
+        updateVisibleAccessibilityActions()
+        updateControls()
+    }
+
+    private func select(itemAt indexPath: IndexPath) {
+        guard let item = item(at: indexPath) else { return }
+        tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+        selectedIDs.insert(item.scheduledId)
+    }
+
+    private func finishSelection() {
+        selectedIDs.removeAll()
+        tableView.setEditing(false, animated: true)
+        updateVisibleAccessibilityActions()
+        updateControls()
+    }
+
+    private func performSelection(_ action: ScheduledMessageAction) {
+        let selection = selectedItems
+        guard !selection.isEmpty else { return }
+        perform(action, items: selection)
+    }
+
+    private func perform(_ action: ScheduledMessageAction, items: [ScheduledMessageListItem]) {
+        guard activeIDs.isEmpty, !items.isEmpty,
+              items.allSatisfy({ itemsByID[$0.scheduledId] == $0 }) else {
+            reportChangedItem()
+            if case .edit(let body) = action { offerCopyForStaleEdit(body) }
+            return
+        }
+        if case .edit(let body) = action, let item = items.first {
+            editDrafts[item.scheduledId] = body
+        }
+        activeIDs = Set(items.map(\.scheduledId))
+        actionNotice = nil
+        if tableView.isEditing { finishSelection() }
+        updateVisibleAccessibilityActions()
+        updateControls()
+
+        Task { [weak self] in
+            guard let self else { return }
+            let outcomes = await coordinator.perform(action, on: items)
+            var failures: [ScheduledMessageActionFailure] = []
+            for (item, result) in outcomes {
                 switch result {
                 case .success:
-                    self?.reloadLocalRows()
-                case .failure:
-                    ToastPresenter().presentError(
-                        message: "Could not cancel scheduled message.".localizeString(id: "scheduled_messages_cancel_error", arguments: [])
-                    )
+                    editDrafts.removeValue(forKey: item.scheduledId)
+                case .failure(let failure):
+                    failures.append(failure)
                 }
             }
+            if failures.count > 1 || (!failures.isEmpty && items.count > 1) {
+                actionNotice = L10n.text("scheduled_messages_batch_error", fallback: "Some actions could not be completed.")
+            } else if let failure = failures.first {
+                actionNotice = notice(for: failure)
+            }
+            activeIDs.removeAll()
+            reloadLocalRows()
+        }
+    }
+
+    private func reportChangedItem() {
+        actionNotice = L10n.text("scheduled_messages_changed", fallback: "The scheduled message changed. Review the updated list.")
+        refreshRemoteRows()
+        updateControls()
+    }
+
+    private func offerCopyForStaleEdit(_ body: String) {
+        let alert = UIAlertController(title: actionNotice, message: body, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__copy", fallback: "Copy"), style: .default) { _ in
+            UIPasteboard.general.string = body
+        })
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func notice(for failure: ScheduledMessageActionFailure) -> String {
+        switch failure.error {
+        case .itemNotFound:
+            return L10n.text("scheduled_messages_changed", fallback: "The scheduled message changed. Review the updated list.")
+        case .notAcceptable:
+            return L10n.text("scheduled_messages_time_error", fallback: "Choose a valid future send time.")
+        case .resourceConstraint:
+            return L10n.text("scheduled_messages_limit_error", fallback: "The server limit for scheduled messages was reached.")
+        case .forbidden:
+            return L10n.text("scheduled_messages_permission_error", fallback: "You do not have permission for this action.")
+        default:
+            return L10n.text("scheduled_messages_action_error", fallback: "Could not update the scheduled message.")
+        }
+    }
+
+    private func edit(_ item: ScheduledMessageListItem) {
+        guard itemsByID[item.scheduledId] == item, activeIDs.isEmpty else { return }
+        let editor = ScheduledMessageEditViewController(body: editDrafts[item.scheduledId] ?? item.bodyPreview) { [weak self] body in
+            self?.perform(.edit(body), items: [item])
+        }
+        let navigation = UINavigationController(rootViewController: editor)
+        navigation.modalPresentationStyle = .formSheet
+        present(navigation, animated: true)
+    }
+
+    private func reschedule(_ item: ScheduledMessageListItem) {
+        guard itemsByID[item.scheduledId] == item, activeIDs.isEmpty else { return }
+        let picker = ScheduledMessageDatePickerViewController(initialDate: item.deliverAt) { [weak self] date in
+            self?.perform(.reschedule(date), items: [item])
+        }
+        present(picker, animated: true)
+    }
+
+    private var recoveries: [ScheduledMessageActionRecovery] {
+        coordinator.recoveries(owner: owner, conversation: jid, conversationType: conversationType)
+    }
+
+    @objc private func showRecoveries() {
+        let pending = recoveries
+        guard let first = pending.first else { return }
+        if pending.count == 1 {
+            showRecovery(first)
+            return
+        }
+        let menu = UIAlertController(
+            title: L10n.text("scheduled_messages_review", fallback: "Review pending actions"),
+            message: nil,
+            preferredStyle: .actionSheet
+        )
+        for recovery in pending {
+            menu.addAction(UIAlertAction(title: String(recoveryBody(recovery).prefix(60)), style: .default) { [weak self] _ in
+                self?.showRecovery(recovery)
+            })
+        }
+        menu.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        menu.popoverPresentationController?.sourceView = recoveryButton
+        menu.popoverPresentationController?.sourceRect = recoveryButton.bounds
+        present(menu, animated: true)
+    }
+
+    private func recoveryBody(_ recovery: ScheduledMessageActionRecovery) -> String {
+        if case .edit(let body) = recovery.action { return body }
+        if !recovery.item.bodyPreview.isEmpty { return recovery.item.bodyPreview }
+        return L10n.text("scheduled_message_preview_fallback", fallback: "Scheduled message")
+    }
+
+    private func showRecovery(_ recovery: ScheduledMessageActionRecovery) {
+        let detail = recovery.requiresRefresh
+            ? L10n.text("scheduled_messages_unknown_result", fallback: "The server did not confirm the result. Refresh and review the list.")
+            : L10n.text("scheduled_messages_recovery_detail", fallback: "The original was canceled. You can continue the pending action.")
+        let alert = UIAlertController(
+            title: L10n.text("scheduled_messages_review", fallback: "Review pending actions"),
+            message: "\(detail)\n\n\(recoveryBody(recovery))",
+            preferredStyle: .alert
+        )
+        if recovery.requiresRefresh {
+            alert.addAction(UIAlertAction(title: L10n.text("scheduled_messages_refresh", fallback: "Refresh"), style: .default) { [weak self] _ in
+                self?.refreshRemoteRows()
+            })
+        } else {
+            alert.addAction(UIAlertAction(title: L10n.text("common__action__retry", fallback: "Retry"), style: .default) { [weak self] _ in
+                self?.continueRecovery(recovery)
+            })
+        }
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__copy", fallback: "Copy"), style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIPasteboard.general.string = self.recoveryBody(recovery)
+        })
+        alert.addAction(UIAlertAction(title: L10n.text("scheduled_messages_discard_action", fallback: "Discard Action"), style: .destructive) { [weak self] _ in
+            self?.coordinator.dismissRecovery(recovery)
+            self?.updateControls()
+        })
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func continueRecovery(_ recovery: ScheduledMessageActionRecovery) {
+        guard activeIDs.isEmpty, !recovery.requiresRefresh else { return }
+        activeIDs = [recovery.item.scheduledId]
+        actionNotice = nil
+        updateVisibleAccessibilityActions()
+        updateControls()
+        Task { [weak self] in
+            guard let self else { return }
+            if case .failure(let failure) = await coordinator.retry(recovery) {
+                actionNotice = notice(for: failure)
+            }
+            activeIDs.removeAll()
+            reloadLocalRows()
         }
     }
 }
 
 extension ScheduledMessagesViewController: UITableViewDataSource, UITableViewDelegate {
+    private struct RowAction {
+        let identifier: String
+        let title: String
+        let symbol: String
+        var destructive = false
+        let handler: () -> Void
+    }
+
+    private func rowActions(for item: ScheduledMessageListItem) -> [RowAction] {
+        guard activeIDs.isEmpty, !tableView.isEditing else { return [] }
+        let id = item.scheduledId
+        var actions: [RowAction] = []
+        if ScheduledMessageActionCoordinator.supports(.edit(item.bodyPreview), on: item) {
+            actions.append(RowAction(identifier: "chat.schedule.list.edit", title: L10n.text("common__action__edit", fallback: "Edit"), symbol: "pencil") { [weak self] in
+                self?.edit(item)
+            })
+        }
+        if !item.bodyPreview.isEmpty {
+            actions.append(RowAction(identifier: "chat.schedule.list.copy", title: L10n.text("common__action__copy", fallback: "Copy"), symbol: "document.on.document") {
+                UIPasteboard.general.string = item.bodyPreview
+            })
+        }
+        if ScheduledMessageActionCoordinator.supports(.sendNow, on: item) {
+            actions.append(RowAction(identifier: "chat.schedule.list.send", title: L10n.text("scheduled_message_send_now", fallback: "Send Now"), symbol: "paperplane") { [weak self] in
+                self?.perform(.sendNow, items: [item])
+            })
+        }
+        if ScheduledMessageActionCoordinator.supports(.reschedule(item.deliverAt), on: item) {
+            actions.append(RowAction(identifier: "chat.schedule.list.reschedule", title: L10n.text("scheduled_message_reschedule", fallback: "Reschedule"), symbol: "calendar.badge.clock") { [weak self] in
+                self?.reschedule(item)
+            })
+        }
+        actions.append(RowAction(identifier: "chat.schedule.list.select", title: L10n.text("common__action__select", fallback: "Select"), symbol: "checkmark.circle") { [weak self] in
+            self?.startSelection(initialID: id)
+        })
+        actions.append(RowAction(
+            identifier: Self.cancelActionAccessibilityIdentifier,
+            title: L10n.text("common__action__delete", fallback: "Delete"),
+            symbol: "trash",
+            destructive: true
+        ) { [weak self] in self?.perform(.delete, items: [item]) })
+        return actions
+    }
+
+    private func updateVisibleAccessibilityActions() {
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard let item = item(at: indexPath),
+                  let cell = tableView.cellForRow(at: indexPath) else { continue }
+            cell.accessibilityCustomActions = accessibilityActions(for: item)
+        }
+    }
+
+    private func accessibilityActions(for item: ScheduledMessageListItem) -> [UIAccessibilityCustomAction] {
+        rowActions(for: item).map { action in
+            UIAccessibilityCustomAction(name: action.title) { _ in
+                action.handler()
+                return true
+            }
+        }
+    }
+
+    func numberOfSections(in tableView: UITableView) -> Int { sections.count }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        dayTitle(sections[section].day)
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        items.count
+        sections[section].items.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -164,27 +602,62 @@ extension ScheduledMessagesViewController: UITableViewDataSource, UITableViewDel
             withIdentifier: ScheduledMessageCell.reuseIdentifier,
             for: indexPath
         ) as! ScheduledMessageCell
-        cell.configure(with: items[indexPath.row])
+        let item = sections[indexPath.section].items[indexPath.row]
+        cell.configure(with: item)
+        cell.accessibilityCustomActions = accessibilityActions(for: item)
         return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard tableView.isEditing, activeIDs.isEmpty else { return }
+        select(itemAt: indexPath)
+        updateControls()
+    }
+
+    func tableView(_ tableView: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        guard let item = item(at: indexPath) else { return }
+        selectedIDs.remove(item.scheduledId)
+        updateControls()
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard let item = item(at: indexPath) else { return nil }
+        let actions = rowActions(for: item)
+        guard !actions.isEmpty else { return nil }
+        return UIContextMenuConfiguration(identifier: item.scheduledId as NSString, previewProvider: nil) { _ in
+            UIMenu(children: actions.map { action in
+                UIAction(
+                    title: action.title,
+                    image: UIImage(systemName: action.symbol),
+                    identifier: UIAction.Identifier(rawValue: action.identifier),
+                    attributes: action.destructive ? .destructive : []
+                ) { _ in action.handler() }
+            })
+        }
     }
 
     func tableView(
         _ tableView: UITableView,
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
     ) -> UISwipeActionsConfiguration? {
-        let action = UIContextualAction(
-            style: .destructive,
-            title: "Cancel".localizeString(id: "scheduled_messages_cancel", arguments: [])
-        ) { [weak self] _, _, completion in
-            guard let self else {
+        guard let item = item(at: indexPath), activeIDs.isEmpty, !tableView.isEditing else { return nil }
+        let title = L10n.text("common__action__delete", fallback: "Delete")
+        let action = UIContextualAction(style: .destructive, title: title) { [weak self] _, _, completion in
+            guard let self, self.itemsByID[item.scheduledId] == item, self.activeIDs.isEmpty else {
                 completion(false)
                 return
             }
-            self.cancel(item: self.items[indexPath.row])
+            self.perform(.delete, items: [item])
             completion(true)
         }
-        action.accessibilityLabel = "Cancel".localizeString(id: "scheduled_messages_cancel", arguments: [])
-        return UISwipeActionsConfiguration(actions: [action])
+        action.accessibilityLabel = title
+        let configuration = UISwipeActionsConfiguration(actions: [action])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 }
 
@@ -194,70 +667,120 @@ final class ScheduledMessageCell: UITableViewCell {
     private let previewLabel = UILabel()
     private let detailLabel = UILabel()
     private let statusLabel = UILabel()
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setup()
+        let labels = UIStackView(arrangedSubviews: [previewLabel, detailLabel, statusLabel])
+        labels.axis = .vertical
+        labels.spacing = 3
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(labels)
+        NSLayoutConstraint.activate([
+            labels.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            labels.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            labels.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            labels.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
+        ])
+        isAccessibilityElement = true
+        for label in [previewLabel, detailLabel, statusLabel] {
+            label.adjustsFontForContentSizeCategory = true
+            label.numberOfLines = 0
+            label.isAccessibilityElement = false
+        }
+        previewLabel.font = .preferredFont(forTextStyle: .body)
+        detailLabel.font = .preferredFont(forTextStyle: .subheadline)
+        detailLabel.textColor = .secondaryLabel
+        statusLabel.font = .preferredFont(forTextStyle: .footnote)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setup() {
-        previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.font = .systemFont(ofSize: 16, weight: .regular)
-        previewLabel.textColor = .label
-        previewLabel.numberOfLines = 2
-
-        detailLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailLabel.font = .systemFont(ofSize: 13, weight: .regular)
-        detailLabel.textColor = .secondaryLabel
-
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .right
-        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        contentView.addSubview(previewLabel)
-        contentView.addSubview(detailLabel)
-        contentView.addSubview(statusLabel)
-
-        NSLayoutConstraint.activate([
-            previewLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            previewLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            previewLabel.trailingAnchor.constraint(equalTo: statusLabel.leadingAnchor, constant: -12),
-
-            statusLabel.topAnchor.constraint(equalTo: previewLabel.topAnchor, constant: 2),
-            statusLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            statusLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
-
-            detailLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 4),
-            detailLabel.leadingAnchor.constraint(equalTo: previewLabel.leadingAnchor),
-            detailLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            detailLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10)
-        ])
-    }
-
     func configure(with item: ScheduledMessageListItem) {
         previewLabel.text = item.bodyPreview.isEmpty
-            ? "Scheduled message".localizeString(id: "scheduled_message_preview_fallback", arguments: [])
+            ? L10n.text("scheduled_message_preview_fallback", fallback: "Scheduled message")
             : item.bodyPreview
-        detailLabel.text = dateFormatter.string(from: item.deliverAt)
+        detailLabel.text = L10n.formatters.dateFormatter(timeStyle: .short).string(from: item.deliverAt)
+        accessibilityLabel = previewLabel.text
+        accessibilityIdentifier = "chat.schedule.list.message"
+        updateCountdown(for: item, now: Date())
+    }
+
+    func updateCountdown(for item: ScheduledMessageListItem, now: Date) {
         switch item.status {
         case .pending:
-            statusLabel.text = "Pending".localizeString(id: "scheduled_message_status_pending", arguments: [])
+            let formatters = L10n.formatters
+            let policy = ScheduledMessageDatePolicy(calendar: formatters.calendar, locale: formatters.locale, timeZone: formatters.timeZone)
+            statusLabel.text = policy.countdown(for: item.deliverAt, now: now)
             statusLabel.textColor = .secondaryLabel
         case .failed:
-            statusLabel.text = "Failed".localizeString(id: "scheduled_message_status_failed", arguments: [])
+            statusLabel.text = L10n.text("scheduled_message_status_failed", fallback: "Failed")
             statusLabel.textColor = .systemRed
         }
+        accessibilityValue = [detailLabel.text, statusLabel.text].compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
+private final class ScheduledMessageEditViewController: UIViewController, UITextViewDelegate {
+    private let input = UITextView()
+    private let initialBody: String
+    private let onSave: (String) -> Void
+
+    init(body: String, onSave: @escaping (String) -> Void) {
+        initialBody = body
+        self.onSave = onSave
+        super.init(nibName: nil, bundle: nil)
+        isModalInPresentation = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = L10n.text("common__action__edit", fallback: "Edit")
+        view.backgroundColor = .systemBackground
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            systemItem: .cancel,
+            primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) }
+        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            systemItem: .save,
+            primaryAction: UIAction { [weak self] _ in self?.save() }
+        )
+        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "chat.schedule.edit.save"
+        input.text = initialBody
+        input.font = .preferredFont(forTextStyle: .body)
+        input.adjustsFontForContentSizeCategory = true
+        input.accessibilityLabel = L10n.text("scheduled_message_edit_body", fallback: "Message text")
+        input.accessibilityIdentifier = "chat.schedule.edit.body"
+        input.delegate = self
+        input.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(input)
+        NSLayoutConstraint.activate([
+            input.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            input.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            input.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            input.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        ])
+        textViewDidChange(input)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        input.becomeFirstResponder()
+    }
+
+    func textViewDidChange(_ textView: UITextView) {
+        let body = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        navigationItem.rightBarButtonItem?.isEnabled = !body.isEmpty && body != initialBody
+    }
+
+    private func save() {
+        let body = input.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty, body != initialBody else { return }
+        dismiss(animated: true) { [onSave] in onSave(body) }
     }
 }

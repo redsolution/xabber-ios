@@ -25,11 +25,32 @@ import XMPPFramework
 class XMPPMessageScheduleManager: AbstractXMPPManager {
     internal var omemo2OptOutStorage: XabberOMEMO2Storage?
     internal func outgoingIQWasBlocked(_ iq: XMPPIQ) {
-        guard let id = iq.elementID, queryIds.contains(id),
-              !SCEReceivePolicy.children(of: iq, named: "schedule", xmlns: Self.namespace).isEmpty else { return }
-        queryIds.remove(id)
-        if case .schedule(_, let callback) = takeRequest(for: id)?.kind { callback?(.failure(.sendRejected)) }
+        guard let id = iq.elementID, Self.isRequest(iq) else { return }
+        failRequest(id, error: .sendRejected)
     }
+
+    static func isRequest(_ iq: XMPPIQ) -> Bool {
+        switch iq.iqType {
+        case .get: return iq.element(forName: "query", xmlns: namespace) != nil
+        case .set: return iq.element(forName: "schedule", xmlns: namespace) != nil
+            || iq.element(forName: "cancel", xmlns: namespace) != nil
+        default: return false
+        }
+    }
+
+    func canTransmit(_ iq: XMPPIQ) -> Bool {
+        guard let id = iq.elementID else { return false }
+        return stateLock.withLock { requests[id] != nil }
+    }
+
+    func rejectsTrackedReplyAuthority(_ iq: XMPPIQ) -> Bool {
+        guard let id = iq.elementID else { return false }
+        return stateLock.withLock {
+            guard let request = requests[id] else { return false }
+            return !hasReplyAuthority(iq, request: request)
+        }
+    }
+
     static let namespace = "https://xabber.com/protocol/schedule"
     static let metadataKey = "schedule"
     private static let settingsNodeKey = "node"
@@ -38,6 +59,9 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         case unavailable
         case invalidFilter
         case malformedPayload
+        case invalidResponse
+        case timeout
+        case disconnected
         case badRequest
         case notAcceptable
         case resourceConstraint
@@ -60,7 +84,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
     typealias ListCallback = (Result<[ScheduledEntry], ScheduleError>) -> Void
     typealias CancelCallback = (Result<String, ScheduleError>) -> Void
 
-    private struct ListFilter: Equatable {
+    private struct ListFilter: Hashable {
         let conversation: String
         let conversationType: ClientSynchronizationManager.ConversationType
     }
@@ -72,28 +96,43 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         let messageXML: String
     }
 
-    private final class Request: Equatable {
+    private struct Request {
         enum Kind {
             case schedule(ScheduleDraft, ScheduleCallback?)
             case list(ListFilter?, ListCallback?)
             case cancel(String, CancelCallback?)
+
+            func fail(with error: ScheduleError) {
+                switch self {
+                case .schedule(_, let callback): callback?(.failure(error))
+                case .list(_, let callback): callback?(.failure(error))
+                case .cancel(_, let callback): callback?(.failure(error))
+                }
+            }
         }
 
-        let iqId: String
         let kind: Kind
-
-        init(iqId: String, kind: Kind) {
-            self.iqId = iqId
-            self.kind = kind
-        }
-
-        static func == (lhs: Request, rhs: Request) -> Bool {
-            lhs.iqId == rhs.iqId
-        }
+        let expectedRecipient: String?
+        let revision: UInt64
+        let timeout: DispatchWorkItem
     }
 
-    open var isAvailable: Bool = false
-    private var trackedRequests: SynchronizedArray<Request> = SynchronizedArray<Request>()
+    private let stateLock = NSLock()
+    private var available = false
+    private var requests: [String: Request] = [:]
+    private var revision: UInt64 = 0
+    // Only outstanding requests need these revisions, including deleted IDs.
+    private var mutationRevisions: [String: UInt64] = [:]
+    private var fullSnapshotRevision: UInt64 = 0
+    private var filteredSnapshotRevisions: [ListFilter: UInt64] = [:]
+    private var automaticRefreshID: UUID?
+    private var sessionRefreshRequested = false
+    internal var requestTimeout: TimeInterval = 15
+
+    var isAvailable: Bool {
+        get { stateLock.withLock { available } }
+        set { stateLock.withLock { available = newValue } }
+    }
 
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
@@ -180,22 +219,26 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
             callback?(.failure(.unavailable))
             return nil
         }
+        guard let destination = XMPPJID(string: conversation),
+              payload.to?.full == destination.bare else {
+            callback?(.failure(.malformedPayload))
+            return nil
+        }
         let elementId = xmppStream.generateUUID
         let iq = makeScheduleIQ(
             elementId: elementId,
-            conversation: conversation,
+            conversation: destination.bare,
             conversationType: conversationType,
             deliverAt: deliverAt,
             payload: payload
         )
         let draft = ScheduleDraft(
-            conversation: conversation,
+            conversation: destination.bare,
             conversationType: conversationType,
             deliverAt: deliverAt,
             messageXML: preparedInnerMessage(from: payload).xmlString
         )
-        let request = Request(iqId: elementId, kind: .schedule(draft, callback))
-        return sendTracked(iq, on: xmppStream, request: request)
+        return sendTracked(iq, on: xmppStream, kind: .schedule(draft, callback))
     }
 
     @discardableResult
@@ -210,21 +253,25 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
             return nil
         }
         let elementId = xmppStream.generateUUID
+        let bareConversation = conversation.flatMap { XMPPJID(string: $0)?.bare }
+        if conversation != nil && bareConversation == nil {
+            callback?(.failure(.invalidFilter))
+            return nil
+        }
         let iq: XMPPIQ
         do {
-            iq = try makeListIQ(elementId: elementId, conversation: conversation, conversationType: conversationType)
+            iq = try makeListIQ(elementId: elementId, conversation: bareConversation, conversationType: conversationType)
         } catch {
             callback?(.failure(.invalidFilter))
             return nil
         }
         let filter: ListFilter?
-        if let conversation, let conversationType {
-            filter = ListFilter(conversation: conversation, conversationType: conversationType)
+        if let bareConversation, let conversationType {
+            filter = ListFilter(conversation: bareConversation, conversationType: conversationType)
         } else {
             filter = nil
         }
-        let request = Request(iqId: elementId, kind: .list(filter, callback))
-        return sendTracked(iq, on: xmppStream, request: request)
+        return sendTracked(iq, on: xmppStream, kind: .list(filter, callback))
     }
 
     @discardableResult
@@ -237,10 +284,13 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
             callback?(.failure(.unavailable))
             return nil
         }
+        guard scheduledId.isNotEmpty else {
+            callback?(.failure(.malformedPayload))
+            return nil
+        }
         let elementId = xmppStream.generateUUID
         let iq = makeCancelIQ(elementId: elementId, scheduledId: scheduledId)
-        let request = Request(iqId: elementId, kind: .cancel(scheduledId, callback))
-        return sendTracked(iq, on: xmppStream, request: request)
+        return sendTracked(iq, on: xmppStream, kind: .cancel(scheduledId, callback))
     }
 
     func makePlaintextMessagePayload(
@@ -291,6 +341,9 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
             }
         }
         stanza.addOriginId(messageId)
+        if conversationType == .group {
+            stanza.addChild(DDXMLElement(name: "private", xmlns: "urn:xmpp:carbons:2"))
+        }
         return stanza
     }
 
@@ -304,7 +357,7 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         let schedule = DDXMLElement(name: "schedule", xmlns: getPrimaryNamespace())
         schedule.addAttribute(withName: "conversation", stringValue: conversation)
         schedule.addAttribute(withName: "type", stringValue: conversationType.rawValue)
-        schedule.addAttribute(withName: "deliver-at", stringValue: deliverAt.XMPPFormattedDate)
+        schedule.addAttribute(withName: "deliver-at", stringValue: Self.formatTimestamp(deliverAt))
         schedule.addChild(preparedInnerMessage(from: payload))
         return XMPPIQ(
             iqType: .set,
@@ -347,55 +400,98 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
     }
 
     override func read(withIQ iq: XMPPIQ) -> Bool {
-        guard let elementId = iq.elementID,
-              queryIds.contains(elementId) else {
+        guard let id = iq.elementID, iq.iqType == .result || iq.iqType == .error else {
             return false
         }
-        if iq.iqType == .error {
-            handleErrorIQ(iq, elementId: elementId)
-            return true
-        }
+        let completion: (() -> Void)? = stateLock.withLock {
+            guard let request = requests[id],
+                  hasReplyAuthority(iq, request: request) else { return nil }
 
-        guard iq.iqType == .result else {
-            return false
+            _ = takeRequestLocked(id)
+            defer { discardUnusedRevisionsLocked() }
+            if iq.iqType == .error {
+                let error = mapError(iq.element(forName: "error"))
+                if error == .itemNotFound, case .cancel(let scheduledID, _) = request.kind {
+                    deleteScheduleLocked(scheduledId: scheduledID)
+                }
+                return { request.kind.fail(with: error) }
+            }
+            return handleResultLocked(iq, request: request)
         }
-
-        queryIds.remove(elementId)
-        let request = takeRequest(for: elementId)
-        if let scheduled = iq.element(forName: "scheduled", xmlns: getPrimaryNamespace()) {
-            handleScheduleResult(scheduled, request: request)
-            return true
-        }
-        if let query = iq.element(forName: "query", xmlns: getPrimaryNamespace()) {
-            handleListResult(query, request: request)
-            return true
-        }
-        handleCancelResult(request: request)
-        return true
+        completion?()
+        return completion != nil
     }
 
-    func read(headline message: XMPPMessage) -> Bool {
-        if let scheduled = message.element(forName: "scheduled", xmlns: getPrimaryNamespace()),
+    func read(headline message: XMPPMessage, localJID: String? = nil) -> Bool {
+        guard message.type == "headline", hasScheduleAuthority(message.from, allowMissing: false),
+              hasExpectedRecipient(message, fullJID: localJID) else { return false }
+
+        if let scheduled = message.element(forName: "scheduled", xmlns: Self.namespace),
            let entry = parseScheduledElement(scheduled, fallbackMessageXML: nil) {
-            _ = upsert(entry)
+            stateLock.withLock { upsertLocked(entry) }
             return true
         }
-        if let cancelled = message.element(forName: "cancelled", xmlns: getPrimaryNamespace()),
-           let scheduledId = cancelled.attributeStringValue(forName: "id") {
-            deleteSchedule(scheduledId: scheduledId)
+        if let cancelled = message.element(forName: "cancelled", xmlns: Self.namespace),
+           let scheduledId = cancelled.attributeStringValue(forName: "id"), scheduledId.isNotEmpty {
+            stateLock.withLock { deleteScheduleLocked(scheduledId: scheduledId) }
             return true
         }
-        if let failed = message.element(forName: "failed", xmlns: getPrimaryNamespace()),
-           let scheduledId = failed.attributeStringValue(forName: "id") {
-            let marked = markScheduleFailed(scheduledId: scheduledId)
+        if let failed = message.element(forName: "failed", xmlns: Self.namespace),
+           let scheduledId = failed.attributeStringValue(forName: "id"), scheduledId.isNotEmpty {
+            let marked = stateLock.withLock { markScheduleFailedLocked(scheduledId: scheduledId) }
             if !marked, isAvailable {
-                AccountManager.shared.find(for: owner)?.action({ user, stream in
-                    _ = user.messageSchedule.listScheduledMessages(stream)
-                })
+                AccountManager.shared.find(for: owner)?.action { account, stream in
+                    guard stream.isAuthenticated else { return }
+                    _ = account.messageSchedule.listScheduledMessages(stream)
+                }
             }
             return true
         }
         return false
+    }
+
+    func requestSessionRefresh() {
+        stateLock.withLock { sessionRefreshRequested = true }
+    }
+
+    func refreshScheduledMessages(_ stream: XMPPStream) {
+        guard stream.isAuthenticated, let accountJID = XMPPJID(string: owner),
+              stream.myJID?.bare == accountJID.bare else { return }
+        let id = UUID()
+        let shouldRefresh = stateLock.withLock {
+            guard available, sessionRefreshRequested, automaticRefreshID == nil else { return false }
+            automaticRefreshID = id
+            return true
+        }
+        guard shouldRefresh else { return }
+        listScheduledMessages(stream) { [weak self] result in
+            guard let self else { return }
+            self.stateLock.withLock {
+                guard self.automaticRefreshID == id else { return }
+                self.automaticRefreshID = nil
+                if case .success = result { self.sessionRefreshRequested = false }
+            }
+        }
+    }
+
+    private func hasReplyAuthority(_ iq: XMPPIQ, request: Request) -> Bool {
+        // On the authenticated primary stream an omitted response sender denotes the server.
+        hasScheduleAuthority(iq.from, allowMissing: iq.attribute(forName: "from") == nil)
+            && hasExpectedRecipient(iq, fullJID: request.expectedRecipient)
+    }
+
+    private func hasScheduleAuthority(_ sender: XMPPJID?, allowMissing: Bool) -> Bool {
+        guard let sender else { return allowMissing }
+        guard let ownJID = XMPPJID(string: owner) else { return false }
+        return sender.full == ownJID.bare || sender.full == ownJID.domain
+    }
+
+    private func hasExpectedRecipient(_ stanza: DDXMLElement, fullJID: String?) -> Bool {
+        guard let recipientAttribute = stanza.attributeStringValue(forName: "to") else { return true }
+        guard let recipient = XMPPJID(string: recipientAttribute), let ownJID = XMPPJID(string: owner) else {
+            return false
+        }
+        return recipient.full == ownJID.bare || recipient.full == fullJID
     }
 
     @discardableResult
@@ -409,41 +505,48 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         var metadata = storedMessage.systemMetadata ?? [:]
         metadata[metadataKey] = [
             "id": scheduledId,
-            "deliverAt": deliverAt.XMPPFormattedDate
+            "deliverAt": formatTimestamp(deliverAt)
         ]
         storedMessage.systemMetadata = metadata
         return true
     }
 
     func reconcileDeliveredScheduleMarkers(from messages: [MessageStorageItem]) {
-        let scheduledIds = messages.compactMap { message -> String? in
-            if message.owner.isNotEmpty, message.owner != owner {
-                return nil
-            }
-            if let schedule = message.systemMetadata?[Self.metadataKey] as? [String: Any] {
-                return schedule["id"] as? String
-            }
-            if let schedule = message.systemMetadata?[Self.metadataKey] as? [String: String] {
-                return schedule["id"]
-            }
-            return nil
+        let markers = messages.compactMap { message -> (id: String, deliverAt: String, conversation: String, type: ClientSynchronizationManager.ConversationType)? in
+            guard message.outgoing, message.owner == owner,
+                  let metadata = message.systemMetadata?[Self.metadataKey] as? [String: String],
+                  let id = metadata["id"], id.isNotEmpty,
+                  let deliverAt = metadata["deliverAt"],
+                  let opponent = XMPPJID(string: message.opponent)?.bare else { return nil }
+            return (id, deliverAt, opponent, message.conversationType)
         }
-        guard scheduledIds.isNotEmpty else { return }
-        do {
-            let realm = try WRealm.safe()
-            try realm.write {
-                scheduledIds.forEach { scheduledId in
-                    let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: self.owner, scheduledId: scheduledId)
-                    guard let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary),
-                          item.status == .pending else {
-                        return
+        guard !markers.isEmpty else { return }
+        stateLock.withLock {
+            do {
+                let realm = try WRealm.safe()
+                try realm.write {
+                    for marker in markers {
+                        let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: marker.id)
+                        if let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary) {
+                            guard item.status == .pending, item.conversation == marker.conversation,
+                                  item.conversationType == marker.type,
+                                  Self.formatTimestamp(item.deliverAt) == marker.deliverAt else { continue }
+                            realm.delete(item)
+                        }
+                        recordMutationLocked(scheduledId: marker.id)
                     }
-                    realm.delete(item)
                 }
+            } catch {
+                DDLogDebug("XMPPMessageScheduleManager: \(#function). \(error.localizedDescription)")
             }
-        } catch {
-            DDLogDebug("XMPPMessageScheduleManager: \(#function). \(error.localizedDescription)")
         }
+    }
+
+    private static func formatTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = .withInternetDateTime
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
     }
 
     static func parseTimestamp(_ string: String) -> Date? {
@@ -472,8 +575,21 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
     }
 
     override func clearSession() {
-        queryIds.removeAll()
-        trackedRequests.removeAll()
+        let pending = stateLock.withLock {
+            let pending = Array(requests.values)
+            requests.removeAll()
+            queryIds.removeAll()
+            mutationRevisions.removeAll()
+            fullSnapshotRevision = 0
+            filteredSnapshotRevisions.removeAll()
+            automaticRefreshID = nil
+            sessionRefreshRequested = false
+            return pending
+        }
+        pending.forEach {
+            $0.timeout.cancel()
+            $0.kind.fail(with: .disconnected)
+        }
     }
 
     private func preparedInnerMessage(from payload: XMPPMessage) -> DDXMLElement {
@@ -482,141 +598,125 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         return message
     }
 
-    @discardableResult
-    private func sendTracked(_ iq: XMPPIQ, on stream: XMPPStream, request: Request) -> String? {
-        guard OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner, storage: omemo2OptOutStorage) else {
-            if case .schedule(_, let callback) = request.kind { callback?(.failure(.sendRejected)) }
+    private func sendTracked(_ iq: XMPPIQ, on stream: XMPPStream, kind: Request.Kind) -> String? {
+        guard let id = iq.elementID,
+              OMEMO2OptOutPolicy.allowsOutgoing(iq, owner: owner, storage: omemo2OptOutStorage) else {
+            kind.fail(with: .sendRejected)
             return nil
         }
-        guard let elementId = iq.elementID else { return nil }
-        queryIds.insert(elementId)
-        trackedRequests.insert(request)
-        let result = sendPrimaryAware(iq, on: stream, replayPolicy: .notReplayable)
-        let rejected: Bool
-        switch result {
-        case .rejected, .blockedByOptOut, .blockedByOMEMORecipient: rejected = true
-        case .sent, .queued: rejected = false
-        }
-        if rejected {
-            queryIds.remove(elementId)
-            // The final stream filter may already have consumed this owned
-            // request. Deliver the rejection callback at most once.
-            guard let rejectedRequest = takeRequest(for: elementId) else { return nil }
-            switch rejectedRequest.kind {
-            case .schedule(_, let callback):
-                callback?(.failure(.sendRejected))
-            case .list(_, let callback):
-                callback?(.failure(.sendRejected))
-            case .cancel(_, let callback):
-                callback?(.failure(.sendRejected))
+
+        let sender = stream.myJID
+        if let account = AccountManager.shared.find(for: owner) {
+            guard account.xmppStream === stream, stream.isAuthenticated,
+                  let accountJID = XMPPJID(string: owner), sender?.bare == accountJID.bare,
+                  account.sendReadiness.snapshot.canFlushApplicationStanzas,
+                  !account.isStartupBackgroundTrafficBlocked else {
+                kind.fail(with: .sendRejected)
+                return nil
             }
+        }
+
+        let timeout = DispatchWorkItem { [weak self] in
+            self?.failRequest(id, error: .timeout)
+        }
+        stateLock.withLock {
+            revision += 1
+            requests[id] = Request(kind: kind, expectedRecipient: sender?.full, revision: revision, timeout: timeout)
+            queryIds.insert(id)
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + requestTimeout, execute: timeout)
+
+        switch sendPrimaryAware(iq, on: stream, replayPolicy: .notReplayable) {
+        case .sent, .queued:
+            return id
+        case .rejected, .blockedByOptOut, .blockedByOMEMORecipient:
+            failRequest(id, error: .sendRejected)
             return nil
         }
-        return elementId
     }
 
-    private func takeRequest(for elementId: String) -> Request? {
-        var request: Request?
-        trackedRequests.remove(where: { $0.iqId == elementId }) {
-            request = $0
+    private func failRequest(_ id: String, error: ScheduleError) {
+        let request = stateLock.withLock {
+            defer { discardUnusedRevisionsLocked() }
+            return takeRequestLocked(id)
         }
+        request?.kind.fail(with: error)
+    }
+
+    private func takeRequestLocked(_ id: String) -> Request? {
+        guard let request = requests.removeValue(forKey: id) else { return nil }
+        queryIds.remove(id)
+        request.timeout.cancel()
         return request
     }
 
-    private func handleScheduleResult(_ scheduled: DDXMLElement, request: Request?) {
-        let fallbackMessageXML: String?
-        switch request?.kind {
-        case .schedule(let draft, _):
-            fallbackMessageXML = draft.messageXML
-        default:
-            fallbackMessageXML = nil
-        }
-        guard let entry = parseScheduledElement(scheduled, fallbackMessageXML: fallbackMessageXML) else {
-            if case .schedule(_, let callback) = request?.kind {
-                callback?(.failure(.malformedPayload))
+    private func handleResultLocked(_ iq: XMPPIQ, request: Request) -> () -> Void {
+        let invalid = { request.kind.fail(with: .invalidResponse) }
+        let elements = (iq.children ?? []).compactMap { $0 as? DDXMLElement }
+        switch request.kind {
+        case .schedule(let draft, let callback):
+            guard elements.count == 1,
+                  let scheduled = iq.element(forName: "scheduled", xmlns: Self.namespace),
+                  let entry = parseScheduledElement(scheduled, fallbackMessageXML: draft.messageXML),
+                  entry.conversation == draft.conversation,
+                  entry.conversationType == draft.conversationType,
+                  Self.formatTimestamp(entry.deliverAt) == Self.formatTimestamp(draft.deliverAt) else { return invalid }
+            if (mutationRevisions[entry.scheduledId] ?? 0) < request.revision {
+                upsertLocked(entry)
             }
-            return
-        }
-        let stored = upsert(entry)
-        if case .schedule(_, let callback) = request?.kind {
-            callback?(.success(stored))
-        }
-    }
-
-    private func handleListResult(_ query: DDXMLElement, request: Request?) {
-        let entries = query
-            .elements(forName: "scheduled")
-            .compactMap { parseScheduledElement($0, fallbackMessageXML: nil) }
-        let filter: ListFilter?
-        let callback: ListCallback?
-        switch request?.kind {
-        case .list(let requestFilter, let requestCallback):
-            filter = requestFilter
-            callback = requestCallback
-        default:
-            filter = nil
-            callback = nil
-        }
-        let stored = reconcileList(entries, filter: filter)
-        callback?(.success(stored))
-    }
-
-    private func handleCancelResult(request: Request?) {
-        guard case .cancel(let scheduledId, let callback) = request?.kind else {
-            return
-        }
-        deleteSchedule(scheduledId: scheduledId)
-        callback?(.success(scheduledId))
-    }
-
-    private func handleErrorIQ(_ iq: XMPPIQ, elementId: String) {
-        queryIds.remove(elementId)
-        let request = takeRequest(for: elementId)
-        let error = mapError(iq.element(forName: "error"))
-        if error == .itemNotFound,
-           case .cancel(let scheduledId, _) = request?.kind {
-            deleteSchedule(scheduledId: scheduledId)
-        }
-        switch request?.kind {
-        case .schedule(_, let callback):
-            callback?(.failure(error))
-        case .list(_, let callback):
-            callback?(.failure(error))
-        case .cancel(_, let callback):
-            callback?(.failure(error))
-        default:
-            break
+            return { callback?(.success(entry)) }
+        case .list(let filter, let callback):
+            guard elements.count == 1,
+                  let query = iq.element(forName: "query", xmlns: Self.namespace) else { return invalid }
+            let entryElements = query.elements(forLocalName: "scheduled", uri: Self.namespace)
+            let entries = entryElements.compactMap { parseScheduledElement($0, fallbackMessageXML: nil) }
+            guard entries.count == entryElements.count, Set(entries.map(\.scheduledId)).count == entries.count else {
+                return invalid
+            }
+            do {
+                let stored = try reconcileListLocked(entries, filter: filter, requestRevision: request.revision)
+                return { callback?(.success(stored)) }
+            } catch {
+                DDLogDebug("XMPPMessageScheduleManager: \(#function). \(error.localizedDescription)")
+                return { callback?(.failure(.unknown(nil))) }
+            }
+        case .cancel(let scheduledID, let callback):
+            guard elements.isEmpty else { return invalid }
+            deleteScheduleLocked(scheduledId: scheduledID)
+            return { callback?(.success(scheduledID)) }
         }
     }
 
     private func mapError(_ error: DDXMLElement?) -> ScheduleError {
-        guard let error else { return .unknown(nil) }
-        if error.element(forName: "bad-request") != nil { return .badRequest }
-        if error.element(forName: "not-acceptable") != nil { return .notAcceptable }
-        if error.element(forName: "resource-constraint") != nil { return .resourceConstraint }
-        if error.element(forName: "forbidden") != nil { return .forbidden }
-        if error.element(forName: "item-not-found") != nil { return .itemNotFound }
-        return .unknown(error.element(forName: "text")?.stringValue)
+        guard let error else { return .invalidResponse }
+        let stanzaNamespace = "urn:ietf:params:xml:ns:xmpp-stanzas"
+        if error.element(forName: "bad-request", xmlns: stanzaNamespace) != nil { return .badRequest }
+        if error.element(forName: "not-acceptable", xmlns: stanzaNamespace) != nil { return .notAcceptable }
+        if error.element(forName: "resource-constraint", xmlns: stanzaNamespace) != nil { return .resourceConstraint }
+        if error.element(forName: "forbidden", xmlns: stanzaNamespace) != nil { return .forbidden }
+        if error.element(forName: "item-not-found", xmlns: stanzaNamespace) != nil { return .itemNotFound }
+        return .unknown(error.element(forName: "text", xmlns: stanzaNamespace)?.stringValue)
     }
 
     private func parseScheduledElement(_ element: DDXMLElement, fallbackMessageXML: String?) -> ScheduledEntry? {
-        guard let scheduledId = element.attributeStringValue(forName: "id"),
+        let statusRaw = element.attributeStringValue(forName: "status") ?? XMPPMessageScheduleStorageItem.Status.pending.rawValue
+        guard let scheduledId = element.attributeStringValue(forName: "id"), scheduledId.isNotEmpty,
               let conversation = element.attributeStringValue(forName: "conversation"),
+              let conversationJID = XMPPJID(string: conversation), conversationJID.bare == conversationJID.full,
               let conversationTypeRaw = element.attributeStringValue(forName: "type"),
+              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw),
+              let status = XMPPMessageScheduleStorageItem.Status(rawValue: statusRaw),
               let deliverAtString = element.attributeStringValue(forName: "deliver-at"),
               let deliverAt = Self.parseTimestamp(deliverAtString) else {
             return nil
         }
-        let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? .regular
-        let statusRaw = element.attributeStringValue(forName: "status") ?? XMPPMessageScheduleStorageItem.Status.pending.rawValue
-        let status = XMPPMessageScheduleStorageItem.Status(rawValue: statusRaw) ?? .pending
         let messageXML = element.element(forName: "message", xmlns: "jabber:client")?.xmlString
             ?? element.element(forName: "message")?.xmlString
             ?? fallbackMessageXML
             ?? ""
         return ScheduledEntry(
             scheduledId: scheduledId,
-            conversation: conversation,
+            conversation: conversationJID.bare,
             conversationType: conversationType,
             deliverAt: deliverAt,
             status: status,
@@ -624,84 +724,86 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         )
     }
 
-    @discardableResult
-    private func upsert(_ entry: ScheduledEntry) -> ScheduledEntry {
+    private func upsertLocked(_ entry: ScheduledEntry) {
+        recordMutationLocked(scheduledId: entry.scheduledId)
         do {
             let realm = try WRealm.safe()
-            try realm.write {
-                let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: self.owner, scheduledId: entry.scheduledId)
-                let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary)
-                    ?? XMPPMessageScheduleStorageItem()
-                item.configure(
-                    owner: self.owner,
-                    scheduledId: entry.scheduledId,
-                    conversation: entry.conversation,
-                    conversationType: entry.conversationType,
-                    deliverAt: entry.deliverAt,
-                    status: entry.status,
-                    messageXML: entry.messageXML,
-                    updatedAt: Date()
-                )
-                realm.add(item, update: .modified)
-            }
+            try realm.write { upsert(entry, in: realm) }
         } catch {
             DDLogDebug("XMPPMessageScheduleManager: \(#function). \(error.localizedDescription)")
         }
-        return entry
     }
 
-    @discardableResult
-    private func reconcileList(_ entries: [ScheduledEntry], filter: ListFilter?) -> [ScheduledEntry] {
+    private func upsert(_ entry: ScheduledEntry, in realm: Realm) {
+        let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: entry.scheduledId)
+        let old = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary)
+        // A late duplicate pending notification cannot undo a terminal failure.
+        let status = old?.status == .failed ? .failed : entry.status
+        let payload = entry.messageXML.isEmpty ? (old?.messageXML ?? "") : entry.messageXML
+        let item = old ?? XMPPMessageScheduleStorageItem()
+        item.configure(owner: owner, scheduledId: entry.scheduledId, conversation: entry.conversation,
+                       conversationType: entry.conversationType, deliverAt: entry.deliverAt, status: status,
+                       messageXML: payload)
+        realm.add(item, update: .modified)
+    }
+
+    private func reconcileListLocked(
+        _ entries: [ScheduledEntry],
+        filter: ListFilter?,
+        requestRevision: UInt64
+    ) throws -> [ScheduledEntry] {
+        func isCurrent(_ id: String, conversation: String, conversationType: ClientSynchronizationManager.ConversationType) -> Bool {
+            let scope = ListFilter(conversation: conversation, conversationType: conversationType)
+            return (filter == nil || scope == filter)
+                && (mutationRevisions[id] ?? 0) < requestRevision
+                && fullSnapshotRevision < requestRevision
+                && (filteredSnapshotRevisions[scope] ?? 0) < requestRevision
+        }
+
+        let realm = try WRealm.safe()
+        let ownerRows = realm.objects(XMPPMessageScheduleStorageItem.self).filter("owner == %@", owner)
+        let rows = filter.map { ownerRows.filter("conversation == %@ AND conversationType_ == %@", $0.conversation, $0.conversationType.rawValue) }
+            ?? ownerRows
+        let accepted = entries.filter { isCurrent($0.scheduledId, conversation: $0.conversation, conversationType: $0.conversationType) }
         let ids = Set(entries.map(\.scheduledId))
-        do {
-            let realm = try WRealm.safe()
-            try realm.write {
-                entries.forEach { entry in
-                    let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: self.owner, scheduledId: entry.scheduledId)
-                    let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary)
-                        ?? XMPPMessageScheduleStorageItem()
-                    item.configure(
-                        owner: self.owner,
-                        scheduledId: entry.scheduledId,
-                        conversation: entry.conversation,
-                        conversationType: entry.conversationType,
-                        deliverAt: entry.deliverAt,
-                        status: entry.status,
-                        messageXML: entry.messageXML,
-                        updatedAt: Date()
-                    )
-                    realm.add(item, update: .modified)
-                }
-                let stale: [XMPPMessageScheduleStorageItem]
-                if let filter {
-                    stale = Array(realm
-                        .objects(XMPPMessageScheduleStorageItem.self)
-                        .filter(
-                            "owner == %@ AND conversation == %@ AND conversationType_ == %@",
-                            self.owner,
-                            filter.conversation,
-                            filter.conversationType.rawValue
-                        )
-                        .filter { !ids.contains($0.scheduledId) })
-                } else {
-                    stale = Array(realm
-                        .objects(XMPPMessageScheduleStorageItem.self)
-                        .filter("owner == %@", self.owner)
-                        .filter { !ids.contains($0.scheduledId) })
-                }
-                realm.delete(stale)
-            }
-        } catch {
-            DDLogDebug("XMPPMessageScheduleManager: \(#function). \(error.localizedDescription)")
+        try realm.write {
+            accepted.forEach { upsert($0, in: realm) }
+            let stale = rows.filter { !ids.contains($0.scheduledId)
+                && isCurrent($0.scheduledId, conversation: $0.conversation, conversationType: $0.conversationType) }
+            realm.delete(stale)
         }
-        return entries
+
+        if let filter {
+            filteredSnapshotRevisions[filter] = max(filteredSnapshotRevisions[filter] ?? 0, requestRevision)
+        } else {
+            fullSnapshotRevision = max(fullSnapshotRevision, requestRevision)
+        }
+        return rows.sorted(byKeyPath: "deliverAt").map {
+            ScheduledEntry(scheduledId: $0.scheduledId, conversation: $0.conversation,
+                           conversationType: $0.conversationType, deliverAt: $0.deliverAt,
+                           status: $0.status, messageXML: $0.messageXML)
+        }
     }
 
-    private func deleteSchedule(scheduledId: String) {
+    private func recordMutationLocked(scheduledId: String) {
+        guard !requests.isEmpty else { return }
+        revision += 1
+        mutationRevisions[scheduledId] = revision
+    }
+
+    private func discardUnusedRevisionsLocked() {
+        let oldestRequest = requests.values.map(\.revision).min() ?? revision
+        mutationRevisions = mutationRevisions.filter { $0.value > oldestRequest }
+        if fullSnapshotRevision < oldestRequest { fullSnapshotRevision = 0 }
+        filteredSnapshotRevisions = filteredSnapshotRevisions.filter { $0.value >= oldestRequest }
+    }
+
+    private func deleteScheduleLocked(scheduledId: String) {
+        recordMutationLocked(scheduledId: scheduledId)
         do {
             let realm = try WRealm.safe()
             try realm.write {
-                let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: self.owner, scheduledId: scheduledId)
+                let primary = XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: scheduledId)
                 if let item = realm.object(ofType: XMPPMessageScheduleStorageItem.self, forPrimaryKey: primary) {
                     realm.delete(item)
                 }
@@ -711,16 +813,14 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         }
     }
 
-    @discardableResult
-    private func markScheduleFailed(scheduledId: String) -> Bool {
+    private func markScheduleFailedLocked(scheduledId: String) -> Bool {
+        recordMutationLocked(scheduledId: scheduledId)
         do {
             let realm = try WRealm.safe()
             guard let item = realm.object(
                 ofType: XMPPMessageScheduleStorageItem.self,
                 forPrimaryKey: XMPPMessageScheduleStorageItem.genPrimary(owner: owner, scheduledId: scheduledId)
-            ) else {
-                return false
-            }
+            ) else { return false }
             try realm.write {
                 item.status = .failed
                 item.updatedAt = Date()

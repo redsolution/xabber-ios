@@ -4057,14 +4057,32 @@ schedule_send_on,Send on %@,Отправить %@,Envoyer le %@,Enviar el %@,ا�
 schedule_send_today_at,Send today at %@,Отправить сегодня в %@,Envoyer aujourd’hui à %@,Enviar hoy a las %@,الإرسال اليوم في %@,今天 %@ 发送
 schedule_send_tomorrow_at,Send tomorrow at %@,Отправить завтра в %@,Envoyer demain à %@,Enviar mañana a las %@,الإرسال غدًا في %@,明天 %@ 发送
 schedule_unavailable_error,Scheduled messages are unavailable on this server.,Отложенные сообщения недоступны на этом сервере.,Les messages programmés sont indisponibles sur ce serveur.,Los mensajes programados no están disponibles en este servidor.,الرسائل المجدولة غير متاحة على هذا الخادم.,此服务器不支持定时消息。
+scheduled_message_due_now,Due now,Отправка сейчас,À envoyer,Hora de enviar,حان وقت الإرسال,已到发送时间
+scheduled_message_edit_body,Message text,Текст сообщения,Texte du message,Texto del mensaje,نص الرسالة,消息文本
 scheduled_message_preview_fallback,Scheduled message,Отложенное сообщение,Message programmé,Mensaje programado,رسالة مجدولة,定时消息
+scheduled_message_reschedule,Reschedule,Перенести,Replanifier,Reprogramar,تغيير الموعد,更改时间
+scheduled_message_send_now,Send Now,Отправить сейчас,Envoyer maintenant,Enviar ahora,إرسال الآن,立即发送
 scheduled_message_status_failed,Failed,Ошибка,Échec,Error,فشل,失败
-scheduled_message_status_pending,Pending,Ожидает,En attente,Pendiente,قيد الانتظار,等待中
-scheduled_messages_cancel,Cancel,Отменить,Annuler,Cancelar,إلغاء,取消
-scheduled_messages_cancel_error,Could not cancel scheduled message.,Не удалось отменить отложенное сообщение.,Impossible d’annuler le message programmé.,No se pudo cancelar el mensaje programado.,تعذر إلغاء الرسالة المجدولة.,无法取消定时消息。
+scheduled_message_tomorrow,Tomorrow,Завтра,Demain,Mañana,غدًا,明天
+scheduled_message_under_minute,In less than a minute,Меньше чем через минуту,Dans moins d’une minute,En menos de un minuto,خلال أقل من دقيقة,不到一分钟后
+scheduled_message_unknown_outcome,The server may have accepted the message. Check Scheduled Messages before trying again.,Сервер мог запланировать сообщение. Проверьте список отложенных сообщений перед повторной попыткой.,Le serveur a peut-être accepté le message. Consultez les messages planifiés avant de réessayer.,Es posible que el servidor haya aceptado el mensaje. Revisa los mensajes programados antes de volver a intentarlo.,ربما قبِل الخادم الرسالة. تحقّق من الرسائل المجدولة قبل إعادة المحاولة.,服务器可能已接受消息。重试前请查看定时消息。
+scheduled_messages_action_error,Could not update the scheduled message.,Не удалось изменить отложенное сообщение.,Impossible de modifier le message planifié.,No se pudo actualizar el mensaje programado.,تعذّر تعديل الرسالة المجدولة.,无法更新定时消息。
+scheduled_messages_batch_error,Some actions could not be completed.,Не все действия удалось выполнить.,Certaines actions ont échoué.,No se pudieron completar algunas acciones.,تعذّر إكمال بعض الإجراءات.,部分操作未能完成。
+scheduled_messages_changed,The scheduled message changed. Review the updated list.,Отложенное сообщение изменилось. Проверьте обновлённый список.,Le message planifié a changé. Consultez la liste actualisée.,El mensaje programado cambió. Revisa la lista actualizada.,تغيّرت الرسالة المجدولة. راجع القائمة المحدّثة.,定时消息已更改。请查看更新后的列表。
+scheduled_messages_discard_action,Discard Action,Отменить действие,Abandonner l’action,Descartar acción,تجاهل الإجراء,放弃操作
 scheduled_messages_empty,No scheduled messages,Нет отложенных сообщений,Aucun message programmé,No hay mensajes programados,لا توجد رسائل مجدولة,暂无定时消息
+scheduled_messages_limit_error,The server limit for scheduled messages was reached.,Достигнут лимит отложенных сообщений на сервере.,La limite de messages planifiés du serveur est atteinte.,Se alcanzó el límite de mensajes programados del servidor.,تم بلوغ حدّ الرسائل المجدولة على الخادم.,已达到服务器的定时消息上限。
 scheduled_messages_load_error,Could not load scheduled messages.,Не удалось загрузить отложенные сообщения.,Impossible de charger les messages programmés.,No se pudieron cargar los mensajes programados.,تعذر تحميل الرسائل المجدولة.,无法加载定时消息。
+scheduled_messages_loading,Loading scheduled messages…,Загрузка отложенных сообщений…,Chargement des messages planifiés…,Cargando mensajes programados…,جارٍ تحميل الرسائل المجدولة…,正在加载定时消息…
+scheduled_messages_permission_error,You do not have permission for this action.,У вас нет прав на это действие.,Vous n’avez pas l’autorisation d’effectuer cette action.,No tienes permiso para realizar esta acción.,ليس لديك إذن بتنفيذ هذا الإجراء.,你没有权限执行此操作。
+scheduled_messages_recovery_detail,The original was canceled. You can continue the pending action.,Исходное сообщение отменено. Можно продолжить действие.,L’envoi initial a été annulé. Vous pouvez reprendre l’action.,Se canceló el envío original. Puedes continuar la acción pendiente.,أُلغي الإرسال الأصلي. يمكنك متابعة الإجراء المعلّق.,原发送计划已取消。你可以继续待处理的操作。
+scheduled_messages_refresh,Refresh,Обновить,Actualiser,Actualizar,تحديث,刷新
+scheduled_messages_review,Review pending actions,Незавершённые действия,Actions en attente,Acciones pendientes,الإجراءات المعلّقة,待处理操作
+scheduled_messages_selection_count,%@ selected,Выбрано: %@,%@ sélectionnés,Selección: %@,تم تحديد %@,已选择 %@ 项
+scheduled_messages_time_error,Choose a valid future send time.,Выберите допустимое время отправки в будущем.,Choisissez une heure d’envoi ultérieure valide.,Elige una hora de envío futura válida.,اختر موعد إرسال مستقبليًا صالحًا.,请选择有效的未来发送时间。
 scheduled_messages_title,Scheduled Messages,Отложенные сообщения,Messages programmés,Mensajes programados,الرسائل المجدولة,定时消息
+scheduled_messages_unknown_result,The server did not confirm the result. Refresh and review the list.,Сервер не подтвердил результат. Обновите и проверьте список.,Le serveur n’a pas confirmé le résultat. Actualisez la liste et vérifiez-la.,El servidor no confirmó el resultado. Actualiza y revisa la lista.,لم يؤكّد الخادم النتيجة. حدّث القائمة وراجعها.,服务器未确认结果。请刷新并检查列表。
+scheduled_messages_working,Updating scheduled messages…,Обновление отложенных сообщений…,Mise à jour des messages planifiés…,Actualizando mensajes programados…,جارٍ تحديث الرسائل المجدولة…,正在更新定时消息…
 search,Search,Поиск,Rechercher,Buscar,بحث,搜索
 search__floating_bar__cancel_search,Cancel search,Отменить поиск,Annuler la recherche,Cancelar búsqueda,إلغاء البحث,取消搜索
 search_contacts_and_messages,Search contacts and messages,Поиск контактов и сообщений,Rechercher des contacts et des messages,Buscar contactos y mensajes,البحث في جهات الاتصال والرسائل,搜索联系人和消息

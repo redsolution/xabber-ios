@@ -256,6 +256,7 @@ final class PasscodeWipeCoordinator {
 
     private func clearOwnedFiles() throws {
         let fileManager = FileManager.default
+        try ScheduledMessageActionJournal.shared.invalidateAll()
         ImageCache.default.memoryStorage.removeAll()
         do {
             try ImageCache.default.diskStorage.removeAll()

@@ -535,6 +535,7 @@ extension Account: XMPPStreamDelegate {
         self.cancelDelayedConnectTimer()
         self.notifications.invalidateNotificationSyncSession()
         self.push.clearSession()
+        self.messageSchedule.clearSession()
         self.vcards.clearSession()
         self.avatarManager.clearSession()
         self.omemo.clearSession()
@@ -577,7 +578,11 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, willSend iq: XMPPIQ) -> XMPPIQ? {
-        guard sender === self.xmppStream else { return iq }
+        guard sender === self.xmppStream else {
+            guard XMPPMessageScheduleManager.isRequest(iq) else { return iq }
+            self.messageSchedule.outgoingIQWasBlocked(iq)
+            return nil
+        }
         guard self.preparePrimaryStreamStanzaForSend(iq, finalDelegate: true) else { return nil }
         self.omemo.queuePreparedOMEMO2Transport(iq, finalDelegate: true)
         return iq
@@ -603,7 +608,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didReceive iq: XMPPIQ) -> Bool {
-        if sender === self.xmppStream,
+        if sender === self.xmppStream, !self.messageSchedule.rejectsTrackedReplyAuthority(iq),
            let correlated = self.primaryStreamStanzaTracker.noteIQResponse(
             stanzaId: iq.elementID,
             type: iq.type
@@ -660,7 +665,7 @@ extension Account: XMPPStreamDelegate {
             case self.xTokens.read(withIQ: iq): break
             case self.blocked.read(withIQ: iq): break
             case self.msgDeleteManager.read(withIQ: iq): break
-            case self.messageSchedule.read(withIQ: iq): break
+            case sender === self.xmppStream && sender.isAuthenticated && self.messageSchedule.read(withIQ: iq): break
             case self.vcards.read(withIQ: iq):
                 _ = self.avatarManager.readFromVcard(iq)
                 break
@@ -1010,7 +1015,8 @@ extension Account: XMPPStreamDelegate {
             if self.msgDeleteManager.read(headline: message, encryption: encryption, authenticatedSender: authenticatedSender) {
                 return
             }
-            if self.messageSchedule.read(headline: message) {
+            if sender === self.xmppStream, sender.isAuthenticated,
+               self.messageSchedule.read(headline: message, localJID: sender.myJID?.full) {
                 return
             }
             if self.trustSharingManager.didReceivedTrustedSharingEvent(message: message) {
@@ -1067,6 +1073,7 @@ extension Account: XMPPStreamDelegate {
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend iq: XMPPIQ, error: Error) {
+        if sender === self.xmppStream { self.messageSchedule.outgoingIQWasBlocked(iq) }
         self.notePrimaryStreamStanzaDidFailToSend(iq, fromPrimaryStream: sender === self.xmppStream)
         self.logConnectionDiagnostics(
             event: "stanza_send_failed_iq",
