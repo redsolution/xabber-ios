@@ -1410,6 +1410,10 @@ final class ChatFloatingGlassBubbleView: UIView {
 }
 
 final class ChatFloatingActionPanelView: UIView {
+    private let row = UIStackView()
+    private let surface = UIVisualEffectView()
+    private var iconButton: UIButton?
+
     private let contentStack: UIStackView = {
         let stack = UIStackView()
         stack.distribution = .fillProportionally
@@ -1447,7 +1451,6 @@ final class ChatFloatingActionPanelView: UIView {
         backgroundColor = .clear
         isOpaque = false
 
-        let surface = UIVisualEffectView()
         NativeGlassBarStyle.applySurface(
             to: surface,
             role: .clearInputSurface,
@@ -1455,7 +1458,6 @@ final class ChatFloatingActionPanelView: UIView {
         )
         surface.contentView.addSubview(contentStack)
 
-        let row = UIStackView()
         row.spacing = NativeGlassBarStyle.interItemSpacing
         row.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1465,6 +1467,7 @@ final class ChatFloatingActionPanelView: UIView {
             iconButton.configuration?.cornerStyle = .capsule
             iconButton.isUserInteractionEnabled = false
             iconButton.isAccessibilityElement = false
+            self.iconButton = iconButton
             row.addArrangedSubview(iconButton)
             iconButton.widthAnchor.constraint(equalToConstant: NativeGlassBarStyle.buttonSize).isActive = true
         }
@@ -1486,6 +1489,15 @@ final class ChatFloatingActionPanelView: UIView {
             contentStack.topAnchor.constraint(equalTo: surface.contentView.topAnchor),
             contentStack.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor)
         ])
+    }
+
+    func setSideButtonGaps(leading: CGFloat, trailing: CGFloat) {
+        if let iconButton, row.customSpacing(after: iconButton) != leading {
+            row.setCustomSpacing(leading, after: iconButton)
+        }
+        if !closeButton.isHidden, closeButton.superview === row, row.customSpacing(after: surface) != trailing {
+            row.setCustomSpacing(trailing, after: surface)
+        }
     }
 
     func addCloseTarget(_ target: Any?, action: Selector) {
@@ -4580,7 +4592,7 @@ class ChatViewController: MessagesViewController {
     internal let floatingBubblesStackView: UIStackView = {
         let stack = UIStackView(frame: .zero)
         stack.axis = .vertical
-        stack.alignment = .fill
+        stack.alignment = .center
         stack.distribution = .fill
         stack.spacing = ChatFloatingHeaderLayoutPolicy.floatingStackTopSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -4589,6 +4601,7 @@ class ChatViewController: MessagesViewController {
     }()
 
     private let topPanelHostView = UIView()
+    private var topPanelHorizontalConstraints: (left: NSLayoutConstraint, right: NSLayoutConstraint)?
     private lazy var topPanelHeightConstraint = topPanelHostView.heightAnchor.constraint(
         equalToConstant: NativeGlassBarStyle.minimumHeight
     )
@@ -5483,6 +5496,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateTopPanelNavigationLayout()
         commitPendingWidthTransitionLayoutRemapIfReady()
         recordWidthTransitionLayoutFinalizationObservationIfNeeded()
         if !isNavigationTransitionActive,
@@ -6561,8 +6575,10 @@ class ChatViewController: MessagesViewController {
         topPanelHeightConstraint.priority = .defaultHigh
         topPanelHeightConstraint.isActive = true
         floatingBubblesStackView.addArrangedSubview(pinnedMessageBubbleView)
+        let legacyHorizontalPadding: CGFloat = 24
         if let sharedAudioPlayerPanel {
             floatingBubblesStackView.addArrangedSubview(sharedAudioPlayerPanel)
+            sharedAudioPlayerPanel.widthAnchor.constraint(equalTo: floatingBubblesStackView.widthAnchor, constant: -legacyHorizontalPadding).isActive = true
             sharedAudioPlayerHeightConstraint = sharedAudioPlayerPanel.heightAnchor.constraint(equalToConstant: AudioPlayerBarView.Metrics.height)
             sharedAudioPlayerHeightConstraint?.isActive = true
         }
@@ -6574,8 +6590,10 @@ class ChatViewController: MessagesViewController {
         view.addSubview(floatingBubblesStackView)
         NSLayoutConstraint.activate([
             floatingBubblesStackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ChatFloatingHeaderLayoutPolicy.floatingStackTopSpacing),
-            floatingBubblesStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            floatingBubblesStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
+            floatingBubblesStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            floatingBubblesStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topPanelHostView.widthAnchor.constraint(equalTo: floatingBubblesStackView.widthAnchor),
+            pinnedMessageBubbleView.widthAnchor.constraint(equalTo: floatingBubblesStackView.widthAnchor, constant: -legacyHorizontalPadding)
         ])
     }
 
@@ -6588,9 +6606,12 @@ class ChatViewController: MessagesViewController {
             topPanelHostView.addSubview(panel)
 
             let inset = ModernXabberInputView.edgeHorizontalInset
+            let left = panel.leftAnchor.constraint(equalTo: safeArea.leftAnchor, constant: inset)
+            let right = panel.rightAnchor.constraint(equalTo: safeArea.rightAnchor, constant: -inset)
+            topPanelHorizontalConstraints = (left, right)
             NSLayoutConstraint.activate([
-                panel.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: inset),
-                panel.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -inset),
+                left,
+                right,
                 panel.topAnchor.constraint(equalTo: topPanelHostView.topAnchor),
                 panel.bottomAnchor.constraint(equalTo: topPanelHostView.bottomAnchor)
             ])
@@ -6598,7 +6619,55 @@ class ChatViewController: MessagesViewController {
 
         topPanelHeightConstraint.constant = contentHeight
         topPanelHostView.isHidden = false
+        updateTopPanelNavigationLayout()
         updateFloatingBubblesVisibility(animated: true)
+    }
+
+    internal func updateTopPanelNavigationLayout() {
+        guard !topPanelHostView.isHidden,
+              let constraints = topPanelHorizontalConstraints,
+              let panel = topPanelHostView.subviews.first as? ChatFloatingActionPanelView else { return }
+
+        let inset = ModernXabberInputView.edgeHorizontalInset
+        let gap = NativeGlassBarStyle.interItemSpacing
+        let alignment = topPanelNavigationAlignment() ?? (leftInset: inset, rightInset: inset, leadingGap: gap, trailingGap: gap)
+        if constraints.left.constant != alignment.leftInset {
+            constraints.left.constant = alignment.leftInset
+        }
+        if constraints.right.constant != -alignment.rightInset {
+            constraints.right.constant = -alignment.rightInset
+        }
+        panel.setSideButtonGaps(leading: alignment.leadingGap, trailing: alignment.trailingGap)
+    }
+
+    private func topPanelNavigationAlignment() -> (leftInset: CGFloat, rightInset: CGFloat, leadingGap: CGFloat, trailingGap: CGFloat)? {
+        guard #available(iOS 26.0, *),
+              let bar = navigationController?.navigationBar, bar.topItem === navigationItem,
+              navigationItem.titleView === titleButton, titleButton.isDescendant(of: bar),
+              let avatar = navigationItem.rightBarButtonItem?.customView, avatar.isDescendant(of: bar),
+              let window = view.window, bar.window === window else { return nil }
+
+        let safeArea = view.safeAreaLayoutGuide.layoutFrame
+        let barSafeArea = bar.convert(bar.safeAreaLayoutGuide.layoutFrame, to: view)
+        let title = titleButton.convert(titleButton.bounds, to: view)
+        let avatarCenter = avatar.convert(avatar.bounds, to: view).midX
+        let diameter = NativeGlassBarStyle.buttonSize
+        let isRTL = bar.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        // UIKit centers the avatar inside a 44 pt glass control and uses the same outer inset on both sides.
+        let avatarDistanceFromEdge = isRTL ? avatarCenter - barSafeArea.minX : barSafeArea.maxX - avatarCenter
+        let barInset = avatarDistanceFromEdge - diameter / 2
+        let leftEdge = barSafeArea.minX + barInset
+        let rightEdge = barSafeArea.maxX - barInset
+        let leftGap = title.minX - leftEdge - diameter
+        let rightGap = rightEdge - title.maxX - diameter
+        guard title.width > 0, barInset >= 0, leftGap >= 0, rightGap >= 0 else { return nil }
+
+        return (
+            leftInset: leftEdge - safeArea.minX,
+            rightInset: safeArea.maxX - rightEdge,
+            leadingGap: isRTL ? rightGap : leftGap,
+            trailingGap: isRTL ? leftGap : rightGap
+        )
     }
 
     internal func hideTopPanelBubble(animated: Bool) {

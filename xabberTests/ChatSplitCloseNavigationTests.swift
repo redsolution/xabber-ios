@@ -84,6 +84,34 @@ final class ChatSplitCloseNavigationTests: XCTestCase {
         XCTAssertTrue(host.chat.navigationItem.titleView === host.chat.titleButton)
     }
 
+    func testActionBannerMatchesNativeNavigationBarEdgesInExpandedChat() throws {
+        try requirePad()
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Requires native Liquid Glass navbar layout") }
+        let host = try makeHost()
+        let chat = host.chat
+        let panel = chat.makeRequestingVerificationPanel(isActionEnabled: true)
+        UIView.performWithoutAnimation {
+            chat.showTopPanelBubble(with: panel)
+        }
+        settle(host)
+
+        let bar = host.detailNavigation.navigationBar
+        let panelFrame = panel.convert(panel.bounds, to: bar)
+        let titleFrame = chat.titleButton.convert(chat.titleButton.bounds, to: bar)
+        let surface = try XCTUnwrap(panel.subviews.flatMap(\.subviews).compactMap { $0 as? UIVisualEffectView }.first)
+        let surfaceFrame = surface.convert(surface.bounds, to: bar)
+        XCTAssertEqual(panelFrame.minX, bar.bounds.minX + 10, accuracy: 0.5)
+        XCTAssertEqual(panelFrame.maxX, bar.bounds.maxX - 10, accuracy: 0.5)
+        XCTAssertEqual(surfaceFrame.minX, titleFrame.minX, accuracy: 0.5)
+        XCTAssertEqual(surfaceFrame.maxX, titleFrame.maxX, accuracy: 0.5)
+
+        let close = panel.closeButton
+        let edgePoint = close.convert(CGPoint(x: close.bounds.maxX - 1, y: close.bounds.midY), to: chat.view)
+        let hit = chat.view.hitTest(edgePoint, with: nil)
+        XCTAssertTrue(hit === close || hit?.isDescendant(of: close) == true)
+        capture(host, name: "chat-action-banner-aligned-with-navbar")
+    }
+
     func testCloseReplacesOnlySecondaryAndClearsSelectionAndRetainedChatOwners() throws {
         try requirePad()
         let host = try makeHost()

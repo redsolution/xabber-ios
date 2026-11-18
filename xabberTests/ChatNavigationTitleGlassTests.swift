@@ -198,6 +198,10 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
 
         let referenceTitle = ListNavigationTitleView(accessibilityIdentifier: "last_chats.navigation.title")
         referenceTitle.titleLabel.text = "Chats"
+        let banner = chat.makeRequestingVerificationPanel(isActionEnabled: true)
+        if #available(iOS 26.0, *) {
+            chat.showTopPanelBubble(with: banner)
+        }
         let windowWidth = window.bounds.width
         let widths: [CGFloat] = UIDevice.current.userInterfaceIdiom == .pad
             ? [windowWidth, 393, 700, windowWidth]
@@ -234,8 +238,19 @@ final class ChatNavigationTitleGlassTests: XCTestCase {
                 let avatarFrame = avatar.convert(avatar.bounds, to: bar)
                 XCTAssertLessThanOrEqual(frame.maxX, avatarFrame.minX)
             }
+
+            if #available(iOS 26.0, *) {
+                chat.updateTopPanelNavigationLayout()
+                chat.view.layoutIfNeeded()
+                let surface = try XCTUnwrap(banner.subviews.flatMap(\.subviews).compactMap { $0 as? UIVisualEffectView }.first)
+                let bannerSurfaceFrame = surface.convert(surface.bounds, to: bar)
+                let titleFrame = chat.titleButton.convert(chat.titleButton.bounds, to: bar)
+                XCTAssertEqual(bannerSurfaceFrame.minX, titleFrame.minX, accuracy: 0.5, "width \(width)")
+                XCTAssertEqual(bannerSurfaceFrame.maxX, titleFrame.maxX, accuracy: 0.5, "width \(width)")
+            }
         }
 
+        chat.hideTopPanelBubble(animated: false)
         var didDrawWholeWindow = false
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             didDrawWholeWindow = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
