@@ -282,6 +282,13 @@ enum ChatStickerWireCodec {
 enum ChatStickerLayoutPolicy {
     static let maximumSide: CGFloat = 192
 
+    static func overlayArea(imageSize: CGSize, markerSize: CGSize, insets: UIEdgeInsets) -> CGSize {
+        CGSize(
+            width: max(imageSize.width, markerSize.width + insets.horizontal),
+            height: max(imageSize.height, markerSize.height + insets.vertical)
+        )
+    }
+
     static func renderedSize(
         sourceSize: CGSize,
         availableWidth: CGFloat

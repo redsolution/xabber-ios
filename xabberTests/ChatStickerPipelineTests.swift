@@ -269,10 +269,9 @@ final class ChatStickerPipelineTests: XCTestCase {
 
         XCTAssertEqual(renderedSize, CGSize(width: 192, height: 96))
         XCTAssertEqual(layout.imagesInlineViewSize, renderedSize)
-        XCTAssertEqual(layout.messageContainerSize.width, renderedSize.width)
+        XCTAssertEqual(layout.messageContainerSize, renderedSize)
         XCTAssertGreaterThan(layout.timeMarkerSize.height, 0)
         XCTAssertEqual(layout.timeMarkerIndicator, .none)
-        XCTAssertGreaterThanOrEqual(layout.messageContainerSize.height, renderedSize.height + layout.timeMarkerSize.height + 2)
         XCTAssertEqual(layout.cellSize.height, layout.messageContainerSize.height + layout.messageContainerMargin.vertical)
         XCTAssertEqual(request.pixelSize, ChatCollectionPrefetchSize(width: 576, height: 288))
         XCTAssertTrue(request.accepts(pixelSize: .init(width: 576, height: 288)))
@@ -293,7 +292,7 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertNotEqual(identicalKey.revision, changedKey.revision)
     }
 
-    func testStickerTimeMarkerStaysBelowImageAndWarningWithOwnBackplate() {
+    func testTinyStickerTimeMarkerFitsAboveWarningWithoutResizingImage() {
         var message = datasource(sticker: ImageAttachment(primary: "small", size: CGSize(width: 6, height: 12)))
         message.messageWarningText = "Warning"
         message.timeMarkerText = NSAttributedString(
@@ -315,11 +314,15 @@ final class ChatStickerPipelineTests: XCTestCase {
         cell.configure(with: message, at: indexPath, and: collection)
         cell.apply(attributes)
 
+        XCTAssertEqual(layout.imagesInlineViewSize, CGSize(width: 6, height: 12))
+        XCTAssertEqual(cell.imageView.frame.size, layout.imagesInlineViewSize)
         XCTAssertGreaterThan(layout.timeMarkerSize.width, layout.imagesInlineViewSize.width)
-        XCTAssertGreaterThanOrEqual(layout.messageContainerSize.width, layout.timeMarkerSize.width)
+        XCTAssertGreaterThan(layout.messageContainerSize.width, layout.timeMarkerSize.width)
         XCTAssertGreaterThan(layout.warningInlineViewSize.height, 0)
         XCTAssertGreaterThanOrEqual(cell.warningLabel.frame.minY, cell.imageView.frame.maxY)
-        XCTAssertGreaterThanOrEqual(cell.timeMarker.frame.minY, cell.warningLabel.frame.maxY + 2)
+        XCTAssertLessThan(cell.timeMarker.frame.maxY, cell.warningLabel.frame.minY)
+        XCTAssertEqual(cell.warningLabel.frame.maxY, cell.messageContainerView.bounds.maxY)
+        XCTAssertEqual(layout.cellSize.height, layout.messageContainerSize.height + layout.messageContainerMargin.vertical)
         XCTAssertTrue(cell.messageContainerView.bounds.contains(cell.timeMarker.frame))
         XCTAssertTrue(cell.bounds.contains(cell.messageContainerView.frame))
         XCTAssertEqual(cell.timeMarker.textLabel.attributedText?.string, "12:00:00")
@@ -333,7 +336,7 @@ final class ChatStickerPipelineTests: XCTestCase {
         assertStickerSurfaceIsTransparent(cell)
     }
 
-    func testOutgoingStickerTimeAndDeliveryIndicatorUpdateOnChromeReconfiguration() throws {
+    func testOutgoingStickerTimeAndDeliveryIndicatorOverlayBottomRightAndUpdate() throws {
         var message = datasource(sticker: ImageAttachment(primary: "sticker", size: CGSize(width: 120, height: 120)))
         message.outgoing = true
         message.isOutgoing = true
@@ -354,8 +357,15 @@ final class ChatStickerPipelineTests: XCTestCase {
         cell.apply(attributes)
         let sendingImage = try XCTUnwrap(cell.timeMarker.indicatorView.image(for: .normal))
         XCTAssertEqual(layout.timeMarkerIndicator, .sending)
+        XCTAssertEqual(layout.messageContainerSize, layout.imagesInlineViewSize)
         XCTAssertEqual(cell.timeMarker.superview, cell.messageContainerView)
-        XCTAssertGreaterThanOrEqual(cell.timeMarker.frame.minY, cell.imageView.frame.maxY + 2)
+        XCTAssertTrue(cell.imageView.frame.contains(cell.timeMarker.frame))
+        let rightInset = cell.imageView.frame.maxX - cell.timeMarker.frame.maxX
+        let bottomInset = cell.imageView.frame.maxY - cell.timeMarker.frame.maxY
+        XCTAssertGreaterThan(rightInset, 0)
+        XCTAssertLessThanOrEqual(rightInset, 8)
+        XCTAssertGreaterThan(bottomInset, 0)
+        XCTAssertLessThanOrEqual(bottomInset, 8)
 
         message.indicator = .read
         message.timeMarkerText = NSAttributedString(string: "12:01")

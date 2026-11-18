@@ -86,16 +86,21 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             func alignedX(for width: CGFloat) -> CGFloat {
                 attributes.side == .right ? attributes.messageContainerSize.width - width : 0
             }
-            imageView.frame = CGRect(x: alignedX(for: imageSize.width), y: 0,
+            let markerSize = attributes.timeMarkerSize
+            let markerInsets = attributes.timeMarkerInsets
+            let stickerSize = ChatStickerLayoutPolicy.overlayArea(
+                imageSize: imageSize, markerSize: markerSize, insets: markerInsets
+            )
+            let stickerX = alignedX(for: stickerSize.width)
+            imageView.frame = CGRect(x: stickerX, y: 0,
                                      width: imageSize.width, height: imageSize.height)
             let warningSize = attributes.warningInlineViewSize
-            warningLabel.frame = CGRect(x: alignedX(for: warningSize.width), y: imageView.frame.maxY,
+            warningLabel.frame = CGRect(x: alignedX(for: warningSize.width), y: stickerSize.height,
                                          width: warningSize.width, height: warningSize.height)
-            let markerSize = attributes.timeMarkerSize
             timeMarker.isHidden = markerSize == .zero
             if !timeMarker.isHidden {
-                let markerFrame = CGRect(x: alignedX(for: markerSize.width),
-                                         y: warningLabel.frame.maxY + attributes.timeMarkerInsets.top,
+                let markerFrame = CGRect(x: stickerX + stickerSize.width - markerSize.width - markerInsets.right,
+                                         y: stickerSize.height - markerSize.height - markerInsets.bottom,
                                          width: markerSize.width, height: markerSize.height)
                 timeMarker.updateImageStyle(frame: markerFrame, indicator: attributes.timeMarkerIndicator,
                                             tail: attributes.tail, cornerRadius: attributes.cornerRadius)
@@ -140,6 +145,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         self.messageContainerView.addSubview(warningLabel)
         timeMarker.setupSubviews()
         timeMarker.isHidden = true
+        timeMarker.isUserInteractionEnabled = false
         messageContainerView.addSubview(timeMarker)
     }
 

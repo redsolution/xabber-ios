@@ -48,6 +48,9 @@ final class OMEMO2NormativeIncomingTrustRenderingTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(label.frame.minY, cell.imageView.frame.maxY)
         XCTAssertLessThanOrEqual(label.frame.maxY, cell.messageContainerView.bounds.height)
         XCTAssertEqual(cell.imageView.frame.size, CGSize(width: 128, height: 64))
+        XCTAssertTrue(cell.imageView.frame.contains(cell.timeMarker.frame))
+        XCTAssertEqual(cell.imageView.frame.maxX - cell.timeMarker.frame.maxX, 3)
+        XCTAssertEqual(cell.imageView.frame.maxY - cell.timeMarker.frame.maxY, 3)
     }
 
     func testStickerChromeReconfigurationAndReuseDoNotLeaveAStaleWarning() throws {

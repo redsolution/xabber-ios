@@ -279,21 +279,26 @@ enum ChatMessageLayoutCalculator {
             )
             let margin = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
             let hasTimeMarker = message.timeMarkerText.length > 0 || message.indicator != .none
-            let timeMarkerInsets = UIEdgeInsets(top: hasTimeMarker ? 2 : 0, left: 0, bottom: 0, right: 0)
+            let markerInset: CGFloat = hasTimeMarker ? 3 : 0
+            let timeMarkerInsets = UIEdgeInsets(top: markerInset, left: markerInset, bottom: markerInset, right: markerInset)
             let timeMarkerSize: CGSize
             if hasTimeMarker {
                 let horizontalPadding: CGFloat = message.indicator == .none ? 10 : 24
+                let markerMaxWidth = max(1, maxWidth - timeMarkerInsets.horizontal)
                 let label = labelSize(for: TimeMarkerView.backplateText(message.timeMarkerText),
-                                      maxWidth: max(1, maxWidth - horizontalPadding))
-                timeMarkerSize = CGSize(width: min(maxWidth, label.width + horizontalPadding),
+                                      maxWidth: max(1, markerMaxWidth - horizontalPadding))
+                timeMarkerSize = CGSize(width: min(markerMaxWidth, label.width + horizontalPadding),
                                         height: max(16, label.height + 2))
             } else {
                 timeMarkerSize = .zero
             }
             let warningSize = warningLabelSize(text: message.messageWarningText, maxWidth: maxWidth)
+            let stickerSize = ChatStickerLayoutPolicy.overlayArea(
+                imageSize: renderedSize, markerSize: timeMarkerSize, insets: timeMarkerInsets
+            )
             let containerSize = CGSize(
-                width: max(renderedSize.width, warningSize.width, timeMarkerSize.width),
-                height: renderedSize.height + warningSize.height + timeMarkerInsets.top + timeMarkerSize.height
+                width: max(stickerSize.width, warningSize.width),
+                height: stickerSize.height + warningSize.height
             )
             var layout = ChatMessageLayout.empty(
                 cellSize: CGSize(
