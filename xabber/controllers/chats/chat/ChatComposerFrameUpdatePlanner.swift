@@ -44,12 +44,16 @@ enum ChatStickerPanelLayout {
         viewHeight: CGFloat,
         topSafeAreaHeight: CGFloat,
         bottomSafeAreaHeight: CGFloat,
-        dockedKeyboardHeight: CGFloat?
+        dockedKeyboardHeight: CGFloat?,
+        composerHeight: CGFloat
     ) -> CGFloat {
         let contentSpace = max(0, viewHeight - topSafeAreaHeight - bottomSafeAreaHeight)
+        let composerHeight = max(0, composerHeight)
+        if let dockedKeyboardHeight, dockedKeyboardHeight > bottomSafeAreaHeight {
+            return min(dockedKeyboardHeight - bottomSafeAreaHeight + composerHeight, contentSpace)
+        }
         let fallbackHeight = min(contentSpace * 0.42, 360)
-        let preferredHeight = dockedKeyboardHeight.map { $0 - bottomSafeAreaHeight } ?? fallbackHeight
-        return min(max(preferredHeight, min(fallbackHeight, 180)), contentSpace * 0.55)
+        return min(fallbackHeight + composerHeight, contentSpace * 0.55)
     }
 
     static func dockedKeyboardHeight(in bounds: CGRect, keyboardFrame: CGRect) -> CGFloat? {

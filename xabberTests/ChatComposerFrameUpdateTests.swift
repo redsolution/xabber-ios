@@ -16,25 +16,56 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertEqual(metrics.collectionObstructionHeight, 334)
     }
 
-    func testStickerPanelUsesDockedKeyboardHeightWithoutRepeatingSafeArea() {
-        XCTAssertEqual(ChatStickerPanelLayout.contentHeight(
-            viewHeight: 844,
-            topSafeAreaHeight: 90,
-            bottomSafeAreaHeight: 34,
-            dockedKeyboardHeight: 334
-        ), 300)
+    @MainActor
+    func testStickerPanelMatchesTheKeyboardAndExpandedComposer() {
+        let chat = makeStickerChat()
+        defer { chat.performTerminalChatResourceTeardownForTesting() }
+        let composerHeight: CGFloat = 72
+        let keyboardHeight: CGFloat = 334
+        let bottomSafeArea = chat.view.safeAreaInsets.bottom
+        chat.xabberInputView.heightConstraint?.constant = composerHeight
+        chat.lastDockedStickerPanelKeyboard = (keyboardHeight, chat.view.bounds.size)
+
+        XCTAssertEqual(
+            chat.inlineStickerPanelContentHeight + bottomSafeArea,
+            keyboardHeight + composerHeight,
+            accuracy: 0.5
+        )
     }
 
-    func testStickerPanelAdaptsToShortWindowAfterRotation() {
-        let height = ChatStickerPanelLayout.contentHeight(
+    @MainActor
+    func testStickerPanelIgnoresTheOldKeyboardAfterRotation() {
+        let chat = makeStickerChat()
+        defer { chat.performTerminalChatResourceTeardownForTesting() }
+        chat.lastDockedStickerPanelKeyboard = (334, chat.view.bounds.size)
+        chat.view.frame = CGRect(x: 0, y: 0, width: 844, height: 390)
+        let resizedHeight = chat.inlineStickerPanelContentHeight
+        chat.lastDockedStickerPanelKeyboard = nil
+
+        XCTAssertEqual(resizedHeight, chat.inlineStickerPanelContentHeight, accuracy: 0.5)
+        XCTAssertLessThanOrEqual(resizedHeight, 390 * 0.55)
+    }
+
+    func testStickerPanelMatchesAnObservedKeyboardInAShortWindow() {
+        XCTAssertEqual(ChatStickerPanelLayout.contentHeight(
             viewHeight: 390,
             topSafeAreaHeight: 44,
             bottomSafeAreaHeight: 21,
-            dockedKeyboardHeight: 334
+            dockedKeyboardHeight: 205,
+            composerHeight: 48
+        ), 232)
+    }
+
+    func testFirstStickerPanelIncludesSpaceForTheComposerWithoutAKeyboardMeasurement() {
+        let height = ChatStickerPanelLayout.contentHeight(
+            viewHeight: 844,
+            topSafeAreaHeight: 90,
+            bottomSafeAreaHeight: 34,
+            dockedKeyboardHeight: nil,
+            composerHeight: 48
         )
 
-        XCTAssertLessThanOrEqual(height, 180)
-        XCTAssertGreaterThan(height, 120)
+        XCTAssertEqual(height, 350.4, accuracy: 0.5)
     }
 
     func testStickerPanelDoesNotLearnFloatingOrHardwareKeyboardHeight() {
@@ -82,6 +113,7 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         keyboard.panelHeight = 180
 
         XCTAssertEqual(keyboard.intrinsicContentSize.height, 180)
+        XCTAssertEqual(keyboard.bounds.height, 180)
     }
 
     @MainActor
@@ -131,7 +163,8 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
 
         let composerKeyboardVisible = expectation(for: NSPredicate { _, _ in
             MainActor.assumeIsolated {
-                textField.isFirstResponder && chat.currentChatKeyboardVisibleHeight > 0
+                textField.isFirstResponder && chat.currentChatKeyboardVisibleHeight > 0 &&
+                    chat.stickerKeyboardHandoffHeight == nil
             }
         }, evaluatedWith: nil)
         await fulfillment(of: [composerKeyboardVisible], timeout: 3)
@@ -140,13 +173,19 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertEqual(textField.text, "Draft")
         XCTAssertEqual(textField.selectedRange, selection)
 
+        let keyboardObstruction = chat.currentChatComposerKeyboardLayoutMetrics().collectionObstructionHeight
+        let keyboardBottomInset = chat.messagesCollectionView.contentInset.bottom
+        let composerTop = chat.xabberInputView.frame.minY
         chat.setInlineStickerPanelVisible(true)
 
         let reopenedResponder = try XCTUnwrap(chat.stickerKeyboardResponder)
         let reopenedController = try XCTUnwrap(reopenedResponder.inputViewController)
         let reopenedInput = try XCTUnwrap(reopenedController.inputView)
         let reattached = expectation(for: NSPredicate { _, _ in
-            MainActor.assumeIsolated { reopenedInput.window != nil && reopenedInput.bounds.height > 0 }
+            MainActor.assumeIsolated {
+                reopenedInput.window != nil &&
+                    abs(chat.view.keyboardLayoutGuide.layoutFrame.minY - composerTop) < 1
+            }
         }, evaluatedWith: nil)
         await fulfillment(of: [reattached], timeout: 3)
         XCTAssertTrue(reopenedResponder.isFirstResponder)
@@ -154,11 +193,34 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         XCTAssertTrue(panel.parent === reopenedController)
         XCTAssertTrue(panel.viewIfLoaded?.superview === reopenedInput)
         XCTAssertTrue(chat.xabberInputView.isHidden)
+        XCTAssertEqual(
+            chat.view.keyboardLayoutGuide.layoutFrame.minY,
+            composerTop,
+            accuracy: 1
+        )
+        XCTAssertEqual(chat.messagesCollectionView.contentInset.bottom, keyboardBottomInset, accuracy: 1)
 
-        chat.setInlineStickerPanelVisible(false, animated: false)
+        chat.setInlineStickerPanelVisible(false, focusComposer: true)
+
+        XCTAssertTrue(textField.isFirstResponder)
+        XCTAssertEqual(chat.messagesCollectionView.contentInset.bottom, keyboardBottomInset, accuracy: 1)
+        XCTAssertEqual(
+            chat.view.bounds.maxY - chat.xabberInputView.frame.minY,
+            keyboardObstruction,
+            accuracy: 1
+        )
 
         XCTAssertFalse(reopenedResponder.isFirstResponder)
         XCTAssertFalse(chat.xabberInputView.isHidden)
+        let handoffCompleted = expectation(for: NSPredicate { _, _ in
+            MainActor.assumeIsolated {
+                chat.stickerKeyboardHandoffHeight == nil &&
+                    chat.xabberInputViewKeyboardTopConstraint?.isActive == true
+            }
+        }, evaluatedWith: nil)
+        await fulfillment(of: [handoffCompleted], timeout: 3)
+        XCTAssertEqual(chat.messagesCollectionView.contentInset.bottom, keyboardBottomInset, accuracy: 1)
+        XCTAssertEqual(chat.view.bounds.maxY - chat.xabberInputView.frame.minY, keyboardObstruction, accuracy: 1)
     }
 
     @MainActor

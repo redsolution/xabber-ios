@@ -25,6 +25,8 @@ final class ChatStickerKeyboardInputView: UIInputView {
     var panelHeight: CGFloat {
         didSet {
             guard panelHeight != oldValue else { return }
+            // UIKit can reuse the input view's existing frame when it reattaches the keyboard.
+            frame.size.height = panelHeight
             invalidateIntrinsicContentSize()
         }
     }
@@ -287,11 +289,13 @@ extension ChatViewController {
     }
 
     var inlineStickerPanelContentHeight: CGFloat {
-        ChatStickerPanelLayout.contentHeight(
+        let measurement = lastDockedStickerPanelKeyboard
+        return ChatStickerPanelLayout.contentHeight(
             viewHeight: view.bounds.height,
             topSafeAreaHeight: view.safeAreaInsets.top,
             bottomSafeAreaHeight: view.safeAreaInsets.bottom,
-            dockedKeyboardHeight: lastDockedStickerPanelKeyboardHeight
+            dockedKeyboardHeight: measurement?.viewSize == view.bounds.size ? measurement?.height : nil,
+            composerHeight: chatComposerVisualHeight
         )
     }
 
@@ -377,6 +381,7 @@ extension ChatViewController {
         panelView.isUserInteractionEnabled = visible
         panelView.accessibilityElementsHidden = !visible
         if visible {
+            finishStickerKeyboardHandoff()
             composerFirstFocusRecoveryWorkItem?.cancel()
             composerFirstFocusRecoveryWorkItem = nil
             lastAppliedChatKeyboardLayoutSignature = nil
@@ -405,6 +410,11 @@ extension ChatViewController {
         }
         messagesCollectionView.keyboardDismissMode =
             visible && stickerKeyboardInputView != nil ? .none : .interactive
+        if !visible, focusComposer, stickerKeyboardInputView?.window != nil {
+            // Keep the composer below the outgoing keyboard's top until UIKit lays out the text keyboard.
+            stickerKeyboardHandoffHeight = height
+            updateChatInputKeyboardLayoutMode()
+        }
         inputView.isHidden = visible
         if !visible {
             if focusComposer {
@@ -412,6 +422,7 @@ extension ChatViewController {
                 if inputView.textField.becomeFirstResponder() {
                     inputView.textField.selectedRange = selection
                 } else {
+                    finishStickerKeyboardHandoff()
                     suspendStickerKeyboard()
                 }
             } else {
@@ -455,6 +466,21 @@ extension ChatViewController {
         }
     }
 
+    func reconcileStickerKeyboardHandoff() {
+        guard let height = stickerKeyboardHandoffHeight else { return }
+        let guideHeight = view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY
+        let expectedKeyboardHeight = height - chatComposerVisualHeight
+        if stickerKeyboardInputView?.window == nil || abs(guideHeight - expectedKeyboardHeight) < 1 {
+            finishStickerKeyboardHandoff()
+        }
+    }
+
+    func finishStickerKeyboardHandoff() {
+        guard stickerKeyboardHandoffHeight != nil else { return }
+        stickerKeyboardHandoffHeight = nil
+        updateChatInputKeyboardLayoutMode()
+    }
+
     func updateInlineStickerPanelLayout() {
         guard isInlineStickerPanelVisible else { return }
         let bottomInset = view.safeAreaInsets.bottom
@@ -480,6 +506,7 @@ extension ChatViewController {
         guard let panel = inlineStickerPanel else { return }
         let wasVisible = isInlineStickerPanelVisible
         isInlineStickerPanelVisible = false
+        finishStickerKeyboardHandoff()
         suspendStickerKeyboard()
         panel.willMove(toParent: nil)
         panel.viewIfLoaded?.removeFromSuperview()
@@ -512,6 +539,9 @@ extension ChatViewController {
 
     @objc
     func keyboardDidShowNotification(_ notification: Notification) {
+        if self.xabberInputView?.textField.isFirstResponder == true {
+            finishStickerKeyboardHandoff()
+        }
         self.composerFirstFocusRecoveryState.noteKeyboardDidShow(
             isComposerFirstResponder:
                 self.xabberInputView?.textField.isFirstResponder == true
@@ -633,10 +663,11 @@ extension ChatViewController {
             viewBounds: view.bounds, keyboardFrameInView: keyboardFrame
         )
         if !self.isChatSearchInputKeyboardOwned, self.xabberInputView.textField.isFirstResponder,
+           abs(keyboardVisibleHeight - (stickerKeyboardHandoffHeight ?? 0)) > 1,
            let dockedHeight = ChatStickerPanelLayout.dockedKeyboardHeight(
                in: view.bounds, keyboardFrame: keyboardFrame
            ) {
-            self.lastDockedStickerPanelKeyboardHeight = dockedHeight
+            self.lastDockedStickerPanelKeyboard = (dockedHeight, view.bounds.size)
         }
         let layoutSignature = ChatKeyboardLayoutUpdateSignature(
             visibleHeight: keyboardVisibleHeight,

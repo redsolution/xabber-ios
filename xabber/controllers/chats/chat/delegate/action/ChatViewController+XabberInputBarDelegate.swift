@@ -61,6 +61,7 @@ extension ChatViewController: XabberInputBarDelegate {
 
     func composerTextViewDidEndEditing(_ textView: InputTextView) {
         guard textView === self.xabberInputView?.textField else { return }
+        self.finishStickerKeyboardHandoff()
         self.composerFirstFocusRecoveryState.noteEditingEnded()
         self.composerFirstFocusRecoveryWorkItem?.cancel()
         self.composerFirstFocusRecoveryWorkItem = nil

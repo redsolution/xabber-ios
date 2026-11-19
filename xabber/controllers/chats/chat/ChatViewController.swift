@@ -4601,7 +4601,8 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
     internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
     internal var currentChatKeyboardVisibleHeight: CGFloat = 0
-    internal var lastDockedStickerPanelKeyboardHeight: CGFloat?
+    internal var lastDockedStickerPanelKeyboard: (height: CGFloat, viewSize: CGSize)?
+    internal var stickerKeyboardHandoffHeight: CGFloat?
     internal var inlineStickerPanel: ChatStickerPickerViewController?
     internal var inlineStickerPanelHeightConstraint: NSLayoutConstraint?
     internal var stickerKeyboardResponder: ChatStickerKeyboardResponder?
@@ -5540,6 +5541,7 @@ class ChatViewController: MessagesViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateInlineStickerPanelLayout()
+        reconcileStickerKeyboardHandoff()
         updateTopPanelNavigationLayout()
         commitPendingWidthTransitionLayoutRemapIfReady()
         recordWidthTransitionLayoutFinalizationObservationIfNeeded()
@@ -6897,17 +6899,25 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateChatInputKeyboardLayoutMode() {
-        guard xabberInputViewBottomConstraint != nil,
-              xabberInputViewKeyboardTopConstraint != nil else {
+        guard let bottomConstraint = xabberInputViewBottomConstraint,
+              let keyboardTopConstraint = xabberInputViewKeyboardTopConstraint else {
             return
         }
 
-        if xabberInputViewBottomConstraint?.isActive == true {
-            xabberInputViewBottomConstraint?.isActive = false
+        if let height = stickerKeyboardHandoffHeight {
+            keyboardTopConstraint.isActive = false
+            bottomConstraint.constant = -max(0, height - chatComposerVisualHeight)
+            bottomConstraint.isActive = true
+        } else {
+            bottomConstraint.isActive = false
+            keyboardTopConstraint.isActive = true
         }
-        if xabberInputViewKeyboardTopConstraint?.isActive != true {
-            xabberInputViewKeyboardTopConstraint?.isActive = true
-        }
+    }
+
+    internal var chatComposerVisualHeight: CGFloat {
+        xabberInputView?.heightConstraint?.constant ??
+            xabberInputView?.bounds.height ??
+            ModernXabberInputView.defaultBarHeight
     }
 
     internal func inputKeyboardHeightForCurrentChatInputMode(
@@ -6919,10 +6929,13 @@ class ChatViewController: MessagesViewController {
     internal func currentChatComposerKeyboardLayoutMetrics(
         visualHeight explicitVisualHeight: CGFloat? = nil
     ) -> ChatComposerKeyboardLayoutMetrics {
-        let visualHeight = explicitVisualHeight ??
-            self.xabberInputView?.heightConstraint?.constant ??
-            self.xabberInputView?.bounds.height ??
-            ModernXabberInputView.defaultBarHeight
+        let visualHeight = explicitVisualHeight ?? chatComposerVisualHeight
+        if let height = stickerKeyboardHandoffHeight {
+            return ChatComposerKeyboardLayoutMetrics(
+                visualHeight: visualHeight,
+                collectionObstructionHeight: height
+            )
+        }
         let metrics = ChatComposerKeyboardLayoutMetrics.make(
             visualHeight: visualHeight,
             visibleKeyboardHeight: self.currentChatKeyboardVisibleHeight,
@@ -6962,7 +6975,8 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func reconcileChatCollectionInsetsWithVisibleComposer() {
-        guard !isInlineStickerPanelVisible, !self.isChatSearchInputKeyboardOwned,
+        guard !isInlineStickerPanelVisible, stickerKeyboardHandoffHeight == nil,
+              !self.isChatSearchInputKeyboardOwned,
               let inputView = self.xabberInputView,
               inputView.superview === self.view,
               inputView.frame.height > 0 else {
