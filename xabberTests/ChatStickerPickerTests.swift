@@ -264,6 +264,7 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertEqual(panel.numberOfSections(in: grid), 2)
         XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 1)
         XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 1), 2)
+        XCTAssertEqual(ribbon.numberOfItems(inSection: 0), 2)
 
         panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 1, section: 0))
 
@@ -305,6 +306,34 @@ final class ChatStickerPickerTests: XCTestCase {
         panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 0, section: 0))
 
         XCTAssertEqual(grid.contentOffset.y, 0, accuracy: 0.5)
+    }
+
+    func testRecentlyUsedDisappearsFromGridAndRibbonAfterRemovingItsLastSticker() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let otherURL = manifestURL.deletingLastPathComponent().appendingPathComponent("other/pack.xml")
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { url, _ in
+            Data(self.xml(version: 1, secondSticker: url == otherURL).utf8)
+        }
+        let first = try await catalogue.install(manifestURL, owner: owner)
+        try await catalogue.install(otherURL, owner: owner)
+        let sticker = try XCTUnwrap(first.stickers.first)
+        catalogue.recordStickerUse(sticker.descriptor(), owner: owner)
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { false },
+                                                    onSend: { _ in }, onSchedule: { _ in })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let ribbon = try XCTUnwrap(viewWithIdentifier("chat.stickers.packs", in: panel.view) as? UICollectionView)
+
+        XCTAssertEqual(grid.numberOfSections, 3)
+        XCTAssertEqual(ribbon.numberOfItems(inSection: 0), 3)
+
+        try catalogue.remove(manifestURL, owner: owner)
+
+        XCTAssertFalse(grid.isHidden)
+        XCTAssertEqual(grid.numberOfSections, 1)
+        XCTAssertEqual(grid.numberOfItems(inSection: 0), 2)
+        XCTAssertEqual(ribbon.numberOfItems(inSection: 0), 1)
     }
 
     func testInlinePickerScheduleMenuDoesNotTriggerImmediateSend() async throws {

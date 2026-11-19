@@ -499,9 +499,10 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         guard installTasks[url] == nil, !packs.contains(where: { $0.manifestURL == url }) else { return }
         installStates[url] = .installing
         updateStarterButton(pack)
+        let imageProfile = ChatStickerImageProfile(view: view)
         installTasks[url] = Task { [weak self, catalogue, owner] in
             do {
-                let installed = try await catalogue.install(url, owner: owner)
+                let installed = try await catalogue.install(url, owner: owner, imageProfile: imageProfile)
                 guard let self, !Task.isCancelled else { return }
                 self.installTasks[url] = nil
                 self.installStates[url] = nil
@@ -526,6 +527,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ChatStickerPickerCell.identifier, for: indexPath) as! ChatStickerPickerCell
+        let imageProfile = ChatStickerImageProfile(view: view)
         if collectionView === packStrip {
             let section = sections[indexPath.item]
             let id = section.id
@@ -535,13 +537,13 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
             case .recentlyUsed:
                 cell.configureRecents(title: section.title, selected: selected, activate: activate)
             case .pack(let pack):
-                cell.configurePack(pack, owner: owner, selected: selected, activate: activate)
+                cell.configurePack(pack, owner: owner, imageProfile: imageProfile, selected: selected, activate: activate)
             }
             return cell
         }
 
         let sticker = sections[indexPath.section].entries[indexPath.item]
-        cell.configure(sticker: sticker, owner: owner, send: { [weak self, weak cell] in
+        cell.configure(sticker: sticker, owner: owner, imageProfile: imageProfile, send: { [weak self, weak cell] in
             self?.choose(sticker, from: cell, schedules: false)
         }, schedule: canSchedule() ? { [weak self, weak cell] in
             self?.choose(sticker, from: cell, schedules: true)
@@ -692,7 +694,10 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         return true
     }
 
-    func configure(sticker: ChatStickerEntry, owner: String, send: @escaping () -> Void, schedule: (() -> Void)?) {
+    func configure(
+        sticker: ChatStickerEntry, owner: String, imageProfile: ChatStickerImageProfile,
+        send: @escaping () -> Void, schedule: (() -> Void)?
+    ) {
         activate = send
         setPackSelected(false)
         accessibilityIdentifier = "chat.stickers.picker.sticker"
@@ -706,10 +711,13 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
             })
         }
         accessibilityCustomActions = actions
-        thumbnail.load(sticker, owner: owner, size: 128)
+        thumbnail.load(sticker, owner: owner, size: ChatStickerImageProfile.gridSize, profile: imageProfile)
     }
 
-    func configurePack(_ pack: ChatStickerPack, owner: String, selected: Bool, activate: @escaping () -> Void) {
+    func configurePack(
+        _ pack: ChatStickerPack, owner: String, imageProfile: ChatStickerImageProfile,
+        selected: Bool, activate: @escaping () -> Void
+    ) {
         self.activate = activate
         accessibilityIdentifier = "chat.stickers.pack"
         accessibilityLabel = pack.displayName
@@ -717,8 +725,10 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         accessibilityCustomActions = nil
         setPackSelected(selected)
         let first = pack.stickers.first
-        thumbnail.loadPackPreview(pack.coverURL ?? first?.imageURL, owner: owner, size: 36,
-                                  placeholderText: first?.emojis.first ?? "🖼️")
+        thumbnail.loadPackPreview(
+            pack.coverURL ?? first?.imageURL, owner: owner, size: ChatStickerImageProfile.packCoverSize,
+            placeholderText: first?.emojis.first ?? "🖼️", profile: imageProfile
+        )
     }
 
     func configureRecents(title: String, selected: Bool, activate: @escaping () -> Void) {
@@ -849,27 +859,25 @@ final class ChatStickerThumbnailView: UIView {
         placeholder.isHidden = false
     }
 
-    func load(_ sticker: ChatStickerEntry, owner: String, size: CGFloat) {
+    func load(_ sticker: ChatStickerEntry, owner: String, size: CGFloat, profile: ChatStickerImageProfile? = nil) {
         reset()
         entry = sticker
         placeholder.text = sticker.emojis.first ?? "🖼️"
-        requestImage(sticker.imageURL, owner: owner, size: size)
+        requestImage(sticker.imageURL, owner: owner, size: size, profile: profile)
     }
 
-    func loadPackPreview(_ url: URL?, owner: String, size: CGFloat, placeholderText: String = "🖼️") {
+    func loadPackPreview(
+        _ url: URL?, owner: String, size: CGFloat, placeholderText: String = "🖼️",
+        profile: ChatStickerImageProfile? = nil
+    ) {
         reset()
         placeholder.text = placeholderText
-        if let url { requestImage(url, owner: owner, size: size) }
+        if let url { requestImage(url, owner: owner, size: size, profile: profile) }
     }
 
-    private func requestImage(_ url: URL, owner: String, size: CGFloat) {
+    private func requestImage(_ url: URL, owner: String, size: CGFloat, profile: ChatStickerImageProfile?) {
         let id = binding
-        let request = ChatThumbnailRequest(
-            url: url, displaySize: ChatCollectionPrefetchSize(width: Double(size), height: Double(size)),
-            scale: Double(window?.screen.scale ?? UIScreen.main.scale),
-            traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle), owner: owner,
-            isSticker: true
-        )
+        let request = (profile ?? ChatStickerImageProfile(view: self)).request(url: url, owner: owner, size: size)
         let consumer = ChatThumbnailConsumer(
             identity: ChatCollectionPrefetchIdentity(kind: .sticker, messagePrimary: owner,
                                                      referencePrimary: url.absoluteString),

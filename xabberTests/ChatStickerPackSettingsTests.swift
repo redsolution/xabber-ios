@@ -44,11 +44,64 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         XCTAssertEqual(catalogue.installed(for: otherOwner).map(\.manifestURL), [packs[1].manifestURL])
     }
 
+    func testInstallingAndRefreshingAWrittenPackStartsImageCacheWarmup() async throws {
+        let suite = "ChatStickerWarmupTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preloader = StickerPackImagePreloaderSpy()
+        var version = 2
+        let catalogue = ChatStickerCatalogue(defaults: defaults, imagePreloader: preloader) { _, _ in
+            Self.usageManifest(["First", "Second"], version: version)
+        }
+        let url = ChatStickerStarterPack.all[0].manifestURL
+        let profile = ChatStickerImageProfile(scale: 3, traitStyle: .dark)
+
+        let installed = try await catalogue.install(url, owner: owner, imageProfile: profile)
+        version = 1
+        try await catalogue.install(url, owner: owner, imageProfile: profile)
+
+        XCTAssertEqual(catalogue.installed(for: owner), [installed])
+        XCTAssertEqual(preloader.requests.map { $0.pack }, [installed, installed])
+        XCTAssertEqual(preloader.requests.map { $0.owner }, [owner, owner])
+        XCTAssertEqual(preloader.requests.map { $0.profile }, [profile, profile])
+    }
+
+    func testInvalidPackStartsNoImageWarmupAndRemovalCancelsActiveWork() async throws {
+        let suite = "ChatStickerWarmupTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preloader = StickerPackImagePreloaderSpy()
+        let url = ChatStickerStarterPack.all[0].manifestURL
+        let invalidURL = ChatStickerStarterPack.all[1].manifestURL
+        let catalogue = ChatStickerCatalogue(defaults: defaults, imagePreloader: preloader) { url, _ in
+            url == invalidURL ? Data("unavailable".utf8) : Self.usageManifest(["First"])
+        }
+        let profile = ChatStickerImageProfile(scale: 2, traitStyle: .light)
+
+        do {
+            try await catalogue.install(invalidURL, owner: owner, imageProfile: profile)
+            XCTFail("An invalid manifest was accepted")
+        } catch {
+            XCTAssertTrue(preloader.requests.isEmpty)
+        }
+
+        try await catalogue.install(url, owner: owner, imageProfile: profile)
+        try catalogue.remove(url, owner: owner)
+        catalogue.removeAccount(owner)
+
+        XCTAssertEqual(preloader.cancelledPacks.map { $0.url }, [url])
+        XCTAssertEqual(preloader.cancelledPacks.map { $0.owner }, [owner])
+        XCTAssertEqual(preloader.cancelledOwners, [owner])
+    }
+
     func testSelectingBothBasicPacksInstallsThemForCurrentAccount() async throws {
         let key = "ChatStickerPackSettingsTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
         defer { defaults.removePersistentDomain(forName: key) }
-        let catalogue = ChatStickerCatalogue(defaults: defaults) { url, _ in Self.manifest(for: url) }
+        let preloader = StickerPackImagePreloaderSpy()
+        let catalogue = ChatStickerCatalogue(defaults: defaults, imagePreloader: preloader) { url, _ in
+            Self.manifest(for: url)
+        }
         let settings = ChatStickerPackSettingsViewController(owner: owner, catalogue: catalogue)
         settings.loadViewIfNeeded()
         let packs = ChatStickerStarterPack.all
@@ -69,6 +122,8 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         XCTAssertEqual(Set(catalogue.installed(for: owner).map(\.manifestURL)), Set(packs.map(\.manifestURL)))
         XCTAssertEqual(settings.tableView(settings.tableView, numberOfRowsInSection: 0), packs.count)
         XCTAssertTrue(catalogue.installed(for: otherOwner).isEmpty)
+        XCTAssertEqual(Set(preloader.requests.map { $0.pack.manifestURL }), Set(packs.map(\.manifestURL)))
+        XCTAssertTrue(preloader.requests.allSatisfy { $0.owner == owner })
     }
 
     func testRecentStickersRankByFrequencyThenRecencyAcrossCatalogueReload() async throws {
@@ -155,5 +210,24 @@ final class ChatStickerPackSettingsTests: XCTestCase {
           <stickers><sticker name="Example"><file id="1"><name>sticker.webp</name></file></sticker></stickers>
         </sticker-pack>
         """.utf8)
+    }
+}
+
+@MainActor
+private final class StickerPackImagePreloaderSpy: ChatStickerPackImagePreloading {
+    private(set) var requests: [(pack: ChatStickerPack, owner: String, profile: ChatStickerImageProfile)] = []
+    private(set) var cancelledPacks: [(url: URL, owner: String)] = []
+    private(set) var cancelledOwners: [String] = []
+
+    func preload(_ pack: ChatStickerPack, owner: String, profile: ChatStickerImageProfile) {
+        requests.append((pack, owner, profile))
+    }
+
+    func cancel(manifestURL: URL, owner: String) {
+        cancelledPacks.append((manifestURL, owner))
+    }
+
+    func cancel(owner: String) {
+        cancelledOwners.append(owner)
     }
 }

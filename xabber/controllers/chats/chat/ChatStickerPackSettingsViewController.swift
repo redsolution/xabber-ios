@@ -175,9 +175,10 @@ final class ChatStickerPackSettingsViewController: UITableViewController {
     private func install(_ url: URL) {
         guard operations[url] == nil else { return }
         failures.remove(url)
+        let imageProfile = ChatStickerImageProfile(view: view)
         operations[url] = Task { [weak self, catalogue, owner] in
             do {
-                try await catalogue.install(url, owner: owner)
+                try await catalogue.install(url, owner: owner, imageProfile: imageProfile)
             } catch {
                 guard !Task.isCancelled else { return }
                 if !(error is CancellationError) {

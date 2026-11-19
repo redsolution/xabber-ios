@@ -165,7 +165,7 @@ final class ChatStickerCatalogue {
     private static let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()) ?? .standard
     private static let recentUsagePrefix = "chat.stickerUsage.v1."
     private static let recentStickerLimit = 24
-    static let shared = ChatStickerCatalogue(defaults: defaults)
+    static let shared = ChatStickerCatalogue(defaults: defaults, imagePreloader: ChatStickerPackImagePreloader())
 
     private struct StickerUse: Codable {
         let count: Int
@@ -173,18 +173,24 @@ final class ChatStickerCatalogue {
     }
 
     private let defaults: UserDefaults
+    private let imagePreloader: ChatStickerPackImagePreloading?
     private let readManifest: (URL, String) async throws -> Data
     private var requests: [String: UUID] = [:]
 
-    init(defaults: UserDefaults, readManifest: @escaping (URL, String) async throws -> Data = {
-        url, owner in
-        let file = try await PrivacyProxyMediaRouter.shared.download(url, owner: owner)
-        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-        let reader = try FileHandle(forReadingFrom: file)
-        defer { try? reader.close() }
-        return try reader.read(upToCount: ChatStickerPackManifest.maximumBytes + 1) ?? Data()
-    }) {
+    init(
+        defaults: UserDefaults,
+        imagePreloader: ChatStickerPackImagePreloading? = nil,
+        readManifest: @escaping (URL, String) async throws -> Data = {
+            url, owner in
+            let file = try await PrivacyProxyMediaRouter.shared.download(url, owner: owner)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let reader = try FileHandle(forReadingFrom: file)
+            defer { try? reader.close() }
+            return try reader.read(upToCount: ChatStickerPackManifest.maximumBytes + 1) ?? Data()
+        }
+    ) {
         self.defaults = defaults
+        self.imagePreloader = imagePreloader
         self.readManifest = readManifest
     }
 
@@ -231,7 +237,7 @@ final class ChatStickerCatalogue {
     }
 
     @discardableResult
-    func install(_ url: URL, owner: String) async throws -> ChatStickerPack {
+    func install(_ url: URL, owner: String, imageProfile: ChatStickerImageProfile? = nil) async throws -> ChatStickerPack {
         guard let key = Self.key(for: owner), ChatStickerPackManifest.manifestURL(url.absoluteString) == url else {
             throw ChatStickerPackManifest.Failure.invalidOwner
         }
@@ -248,13 +254,22 @@ final class ChatStickerCatalogue {
         guard requests[requestKey] == request else { throw CancellationError() }
         var packs = installed(for: owner)
         if let current = packs.firstIndex(where: { $0.manifestURL == url }) {
-            if packs[current].version >= pack.version { return packs[current] }
+            if packs[current].version >= pack.version {
+                let existing = packs[current]
+                if let imageProfile {
+                    imagePreloader?.preload(existing, owner: owner, profile: imageProfile)
+                }
+                return existing
+            }
             packs[current] = pack
         } else {
             guard packs.count < 24 else { throw ChatStickerPackManifest.Failure.capacity }
             packs.append(pack)
         }
         try save(packs, key: key, owner: owner)
+        if let imageProfile {
+            imagePreloader?.preload(pack, owner: owner, profile: imageProfile)
+        }
         return pack
     }
 
@@ -262,11 +277,13 @@ final class ChatStickerCatalogue {
         guard let key = Self.key(for: owner) else { throw ChatStickerPackManifest.Failure.invalidOwner }
         requests.removeValue(forKey: key + "|" + url.absoluteString)
         try save(installed(for: owner).filter { $0.manifestURL != url }, key: key, owner: owner)
+        imagePreloader?.cancel(manifestURL: url, owner: owner)
     }
 
     func removeAccount(_ owner: String) {
         guard let key = Self.key(for: owner) else { return }
         requests = requests.filter { !$0.key.hasPrefix(key + "|") }
+        imagePreloader?.cancel(owner: owner)
         defaults.removeObject(forKey: key)
         defaults.removeObject(forKey: Self.recentUsagePrefix + owner)
         NotificationCenter.default.post(name: Self.changed, object: owner)

@@ -1,8 +1,141 @@
+import Kingfisher
 import UIKit
 import XCTest
 @testable import xabber
 
 final class ChatMediaThumbnailPipelineTests: XCTestCase {
+    @MainActor
+    func testStickerPackWarmupWritesThePickersImageToDiskCache() async throws {
+        let owner = "owner@example.com"
+        let profile = ChatStickerImageProfile(scale: 2, traitStyle: .dark)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("sticker.png")
+        let manifest = URL(string: "https://cdn.example.com/pack.xml")!
+        let imageSize = CGSize(width: 96, height: 96)
+        let image = UIGraphicsImageRenderer(size: imageSize).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(origin: .zero, size: imageSize))
+        }
+        try XCTUnwrap(image.pngData()).write(to: source)
+        let sticker = ChatStickerEntry(
+            packURL: manifest, id: "sticker", name: "Sticker", description: "",
+            imageURL: source, filename: "sticker.png", mediaType: "image/png",
+            width: 96, height: 96, emojis: []
+        )
+        let pack = ChatStickerPack(manifestURL: manifest, name: "Pack", version: 1, coverURL: nil, stickers: [sticker])
+        let requests = [ChatStickerImageProfile.gridSize, ChatStickerImageProfile.packCoverSize].map {
+            profile.request(url: source, owner: owner, size: $0)
+        }
+        let cache = ImageCache.default
+        let paths = requests.map {
+            cache.cachePath(forKey: $0.cacheKey, processorIdentifier: $0.processorIdentifier)
+        }
+        let preloader = ChatStickerPackImagePreloader()
+        defer {
+            preloader.cancel(manifestURL: manifest, owner: owner)
+            for request in requests {
+                cache.removeImage(forKey: request.cacheKey, processorIdentifier: request.processorIdentifier)
+            }
+        }
+
+        preloader.preload(pack, owner: owner, profile: profile)
+
+        let cached = expectation(for: NSPredicate { _, _ in
+            paths.allSatisfy { FileManager.default.fileExists(atPath: $0) }
+        }, evaluatedWith: nil)
+        await fulfillment(of: [cached], timeout: 3)
+        try FileManager.default.removeItem(at: source)
+        for path in paths {
+            XCTAssertNotNil(UIImage(data: try Data(contentsOf: URL(fileURLWithPath: path))))
+        }
+    }
+
+    @MainActor
+    func testStickerPackWarmupLoadsUniqueImagesAndCoverInOrder() async {
+        let owner = "owner@example.com"
+        let profile = ChatStickerImageProfile(scale: 3, traitStyle: .dark)
+        let pack = stickerPack(named: "owls", filenames: ["first.webp", "first.webp", "second.webp", "third.webp"])
+        let loader = FakeChatThumbnailLoader()
+        let preloader = ChatStickerPackImagePreloader(loader: loader, maxConcurrentLoads: 2)
+        let stickers = [pack.stickers[0], pack.stickers[2], pack.stickers[3]]
+        let gridRequests = stickers.map {
+            profile.request(url: $0.imageURL, owner: owner, size: ChatStickerImageProfile.gridSize)
+        }
+        let cover = profile.request(url: stickers[0].imageURL, owner: owner, size: ChatStickerImageProfile.packCoverSize)
+
+        preloader.preload(pack, owner: owner, profile: profile)
+        preloader.preload(pack, owner: owner, profile: profile)
+        XCTAssertEqual(loader.startedRequests, Array(gridRequests.prefix(2)))
+
+        let thirdLoad = expectation(description: "Failure releases a slot for the next sticker")
+        loader.didStart = { _ in thirdLoad.fulfill() }
+        loader.completeFirst(with: .failure(.loadFailed))
+        await fulfillment(of: [thirdLoad], timeout: 2)
+        XCTAssertEqual(loader.startedRequests, gridRequests)
+
+        preloader.preload(pack, owner: owner, profile: profile)
+        let coverLoad = expectation(description: "The first sticker also warms the fallback cover")
+        loader.didStart = { _ in coverLoad.fulfill() }
+        loader.completeFirst(with: .success(payload(pixelWidth: 256, pixelHeight: 256)))
+        await fulfillment(of: [coverLoad], timeout: 2)
+        XCTAssertEqual(loader.startedRequests, gridRequests + [cover])
+        XCTAssertTrue(loader.startedRequests.allSatisfy(\.isSticker))
+    }
+
+    @MainActor
+    func testNewStickerPackStartsWhileEarlierPackStillHasPendingImages() async {
+        let owner = "owner@example.com"
+        let profile = ChatStickerImageProfile(scale: 2, traitStyle: .light)
+        let first = stickerPack(named: "first", filenames: ["one.webp", "two.webp", "three.webp", "four.webp"])
+        let second = stickerPack(named: "second", filenames: ["other.webp"])
+        let loader = FakeChatThumbnailLoader()
+        let preloader = ChatStickerPackImagePreloader(loader: loader, maxConcurrentLoads: 1)
+
+        preloader.preload(first, owner: owner, profile: profile)
+        preloader.preload(second, owner: owner, profile: profile)
+        for _ in 0..<2 {
+            let next = expectation(description: "A completed request releases a slot")
+            loader.didStart = { _ in next.fulfill() }
+            loader.completeFirst(with: .failure(.loadFailed))
+            await fulfillment(of: [next], timeout: 2)
+        }
+
+        XCTAssertEqual(loader.startedRequests.map(\.url),
+                       [first.stickers[0].imageURL, first.stickers[1].imageURL, second.stickers[0].imageURL])
+    }
+
+    @MainActor
+    func testStickerPackWarmupCancellationRespectsPackAndAccountBoundaries() async {
+        let firstOwner = "first@example.com"
+        let otherOwner = "other@example.com"
+        let profile = ChatStickerImageProfile(scale: 2, traitStyle: .light)
+        let pack = stickerPack(named: "first", filenames: ["one.webp", "two.webp"])
+        let otherPack = stickerPack(named: "second", filenames: ["three.webp"])
+        let loader = FakeChatThumbnailLoader()
+        let preloader = ChatStickerPackImagePreloader(loader: loader, maxConcurrentLoads: 1)
+
+        preloader.preload(pack, owner: firstOwner, profile: profile)
+        preloader.preload(otherPack, owner: firstOwner, profile: profile)
+        preloader.preload(pack, owner: otherOwner, profile: profile)
+
+        preloader.cancel(manifestURL: pack.manifestURL, owner: firstOwner)
+        XCTAssertEqual(loader.startedRequests.map(\.url), [pack.stickers[0].imageURL, otherPack.stickers[0].imageURL])
+        preloader.cancel(owner: firstOwner)
+        XCTAssertEqual(loader.startedRequests.map(\.owner), [firstOwner, firstOwner, otherOwner])
+        XCTAssertEqual(loader.tasks.map(\.cancelCount), [1, 1, 0])
+
+        let nextLoad = expectation(description: "The other account continues after its current image")
+        loader.didStart = { _ in nextLoad.fulfill() }
+        loader.completeFirst(with: .failure(.loadFailed))
+        loader.completeFirst(with: .failure(.loadFailed))
+        loader.completeFirst(with: .failure(.loadFailed))
+        await fulfillment(of: [nextLoad], timeout: 2)
+        XCTAssertEqual(loader.startedRequests.map(\.owner), [firstOwner, firstOwner, otherOwner, otherOwner])
+        XCTAssertEqual(loader.startedRequests.last?.url, pack.stickers[1].imageURL)
+    }
+
     func testPrefetchAndVisibleRequestsHaveIdenticalProcessedIdentity() throws {
         let url = try XCTUnwrap(URL(string: "https://cdn.example.com/photo.jpg"))
         let renderedSize = ChatCollectionPrefetchSize(width: 180, height: 120)
@@ -532,6 +665,19 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
         )
     }
 
+    private func stickerPack(named name: String, filenames: [String]) -> ChatStickerPack {
+        let base = URL(string: "https://cdn.example.com/stickers")!.appendingPathComponent(name)
+        let manifest = base.appendingPathComponent("pack.xml")
+        let stickers = filenames.enumerated().map { index, filename in
+            ChatStickerEntry(
+                packURL: manifest, id: String(index), name: filename, description: "",
+                imageURL: base.appendingPathComponent(filename), filename: filename, mediaType: "image/webp",
+                width: 256, height: 256, emojis: []
+            )
+        }
+        return ChatStickerPack(manifestURL: manifest, name: name, version: 1, coverURL: nil, stickers: stickers)
+    }
+
     private func thumbnailRequest(
         path: String,
         width: Double = 220,
@@ -593,6 +739,7 @@ private final class FakeChatThumbnailLoader: ChatThumbnailLoading {
     private(set) var startedRequests: [ChatThumbnailRequest] = []
     private(set) var tasks: [Task] = []
     private(set) var decodeCount = 0
+    var didStart: ((ChatThumbnailRequest) -> Void)?
 
     func load(
         _ request: ChatThumbnailRequest,
@@ -602,6 +749,7 @@ private final class FakeChatThumbnailLoader: ChatThumbnailLoading {
         startedRequests.append(request)
         tasks.append(task)
         operations.append(Operation(request: request, task: task, completion: completion))
+        didStart?(request)
         return task
     }
 

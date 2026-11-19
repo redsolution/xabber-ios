@@ -238,6 +238,7 @@
 		4EAE00082FFF00000ABC001 /* ChatStickerPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAE00072FFF00000ABC001 /* ChatStickerPipeline.swift */; };
 		4E5B00072FB3000000ABC001 /* ChatStickerPickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00082FB3000000ABC001 /* ChatStickerPickerViewController.swift */; };
 		4E5B00052FB3000000ABC001 /* ChatStickerCatalogue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00062FB3000000ABC001 /* ChatStickerCatalogue.swift */; };
+		4E5B00142FB3000000ABC001 /* ChatStickerPackImagePreloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00152FB3000000ABC001 /* ChatStickerPackImagePreloader.swift */; };
 		4E5B00102FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00112FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift */; };
 		4EAF0002300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0001300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift */; };
 		4EAF0004300000000ABC001 /* ChatContactAvatarBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */; };
@@ -1582,6 +1583,7 @@
 		4EAE00072FFF00000ABC001 /* ChatStickerPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPipeline.swift; sourceTree = "<group>"; };
 		4E5B00082FB3000000ABC001 /* ChatStickerPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPickerViewController.swift; sourceTree = "<group>"; };
 		4E5B00062FB3000000ABC001 /* ChatStickerCatalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerCatalogue.swift; sourceTree = "<group>"; };
+		4E5B00152FB3000000ABC001 /* ChatStickerPackImagePreloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPackImagePreloader.swift; sourceTree = "<group>"; };
 		4E5B00112FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPackSettingsViewController.swift; sourceTree = "<group>"; };
 		4EAF0001300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLocationSnapshotPipelineTests.swift; sourceTree = "<group>"; };
 		4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContactAvatarBindingTests.swift; sourceTree = "<group>"; };
@@ -5359,6 +5361,7 @@
 				4EAE00072FFF00000ABC001 /* ChatStickerPipeline.swift */,
 				4E5B00082FB3000000ABC001 /* ChatStickerPickerViewController.swift */,
 				4E5B00062FB3000000ABC001 /* ChatStickerCatalogue.swift */,
+				4E5B00152FB3000000ABC001 /* ChatStickerPackImagePreloader.swift */,
 				4E5B00112FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift */,
 				4EAF0005300000000ABC001 /* ChatLocationSnapshotPipeline.swift */,
 				4EAF0007300000000ABC001 /* ChatAvatarPipeline.swift */,
@@ -6678,6 +6681,7 @@
 				4EAE00082FFF00000ABC001 /* ChatStickerPipeline.swift in Sources */,
 				4E5B00072FB3000000ABC001 /* ChatStickerPickerViewController.swift in Sources */,
 				4E5B00052FB3000000ABC001 /* ChatStickerCatalogue.swift in Sources */,
+				4E5B00142FB3000000ABC001 /* ChatStickerPackImagePreloader.swift in Sources */,
 				4E5B00102FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift in Sources */,
 				4EAF0006300000000ABC001 /* ChatLocationSnapshotPipeline.swift in Sources */,
 				4EAF0008300000000ABC001 /* ChatAvatarPipeline.swift in Sources */,

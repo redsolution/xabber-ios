@@ -19,6 +19,38 @@ enum ChatThumbnailTraitStyle: String, Hashable {
     }
 }
 
+struct ChatStickerImageProfile: Hashable {
+    static let gridSize: CGFloat = 128
+    static let packCoverSize: CGFloat = 36
+
+    let scale: Double
+    let traitStyle: ChatThumbnailTraitStyle
+
+    init(scale: Double, traitStyle: ChatThumbnailTraitStyle) {
+        self.scale = scale
+        self.traitStyle = traitStyle
+    }
+
+    @MainActor
+    init(view: UIView) {
+        self.init(
+            scale: Double(view.window?.screen.scale ?? UIScreen.main.scale),
+            traitStyle: ChatThumbnailTraitStyle(view.traitCollection.userInterfaceStyle)
+        )
+    }
+
+    func request(url: URL, owner: String, size: CGFloat) -> ChatThumbnailRequest {
+        ChatThumbnailRequest(
+            url: url,
+            displaySize: ChatCollectionPrefetchSize(width: Double(size), height: Double(size)),
+            scale: scale,
+            traitStyle: traitStyle,
+            owner: owner,
+            isSticker: true
+        )
+    }
+}
+
 struct ChatThumbnailRequest: Hashable {
     let url: URL
     let displaySize: ChatCollectionPrefetchSize
