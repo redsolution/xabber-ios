@@ -127,6 +127,107 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertTrue(catalogue.installed(for: owner).isEmpty)
     }
 
+    func testInlinePickerSendsOncePerTapAndKeepsItsPackSelected() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in Data(self.xml(version: 1).utf8) }
+        try await catalogue.install(manifestURL, owner: owner)
+        var sent: [ChatStickerDescriptor] = []
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { true },
+                                                    onSend: { sent.append($0) }, onSchedule: { _ in })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+
+        panel.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+        panel.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+
+        XCTAssertEqual(sent.map(\.name), ["Daffodil", "Daffodil"])
+        XCTAssertFalse(grid.isHidden)
+        XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 1)
+    }
+
+    func testRemovingSelectedPackFallsBackToRemainingInstalledPack() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let otherURL = manifestURL.deletingLastPathComponent().appendingPathComponent("another.xml")
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { url, _ in
+            Data(self.xml(version: 1, secondSticker: url == otherURL).utf8)
+        }
+        try await catalogue.install(manifestURL, owner: owner)
+        try await catalogue.install(otherURL, owner: owner)
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { false },
+                                                    onSend: { _ in }, onSchedule: { _ in })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 1)
+
+        try catalogue.remove(manifestURL, owner: owner)
+
+        XCTAssertFalse(grid.isHidden)
+        XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 2)
+    }
+
+    func testInlinePickerScheduleMenuDoesNotTriggerImmediateSend() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in Data(self.xml(version: 1).utf8) }
+        try await catalogue.install(manifestURL, owner: owner)
+        var canSchedule = true
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { canSchedule },
+                onSend: { _ in XCTFail("Opening the menu sent a sticker") },
+                onSchedule: { _ in XCTFail("Opening the menu scheduled a sticker") })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let item = IndexPath(item: 0, section: 0)
+
+        XCTAssertNotNil(panel.collectionView(grid, contextMenuConfigurationForItemAt: item, point: .zero))
+
+        canSchedule = false
+        XCTAssertNil(panel.collectionView(grid, contextMenuConfigurationForItemAt: item, point: .zero))
+    }
+
+    func testInlineStarterInstallOffersRetryAndOpensInstalledPack() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let starters = ChatStickerStarterPack.all
+        XCTAssertEqual(starters.map(\.id), ["owls", "monsters"])
+        let starter = try XCTUnwrap(starters.first)
+        let other = try XCTUnwrap(starters.last)
+        var attempts: [URL] = []
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { url, _ in
+            attempts.append(url)
+            guard attempts.count > 1 else { throw ChatStickerPackManifest.Failure.unavailable }
+            return Data(self.xml(version: 1).utf8)
+        }
+        var lastSent: ChatStickerDescriptor?
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { false },
+                                                    onSend: { lastSent = $0 }, onSchedule: { _ in })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let buttonID = "chat.stickers.install.\(starter.id)"
+        let add = try XCTUnwrap(viewWithIdentifier(buttonID, in: panel.view) as? UIButton)
+        let addTitle = add.configuration?.title
+        XCTAssertTrue(grid.isHidden)
+
+        add.sendActions(for: .touchUpInside)
+        try await waitFor { add.isEnabled && add.configuration?.title != addTitle }
+        XCTAssertTrue(catalogue.installed(for: owner).isEmpty)
+        add.sendActions(for: .touchUpInside)
+        try await waitFor { !grid.isHidden }
+
+        let openStarters = try XCTUnwrap(viewWithIdentifier("chat.stickers.add_packs", in: panel.view) as? UIButton)
+        openStarters.sendActions(for: .touchUpInside)
+        XCTAssertTrue(grid.isHidden)
+        let installOther = try XCTUnwrap(viewWithIdentifier("chat.stickers.install.\(other.id)", in: panel.view) as? UIButton)
+        installOther.sendActions(for: .touchUpInside)
+        try await waitFor { !grid.isHidden }
+        panel.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+
+        XCTAssertEqual(attempts, [starter.manifestURL, starter.manifestURL, other.manifestURL])
+        XCTAssertEqual(catalogue.installed(for: owner).map(\.manifestURL), starters.map(\.manifestURL))
+        XCTAssertEqual(lastSent?.packURL, other.manifestURL)
+    }
+
     func testComposerStickerActionHasSeparateDelegateRouteAndKeepsDraft() {
         let delegate = StickerComposerDelegate()
         let view = ModernXabberInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 49))
@@ -160,6 +261,22 @@ final class ChatStickerPickerTests: XCTestCase {
           </stickers>
         </sticker-pack>
         """
+    }
+
+    private func viewWithIdentifier(_ identifier: String, in root: UIView) -> UIView? {
+        if root.accessibilityIdentifier == identifier { return root }
+        for child in root.subviews {
+            if let result = viewWithIdentifier(identifier, in: child) { return result }
+        }
+        return nil
+    }
+
+    private func waitFor(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {
+        for _ in 0..<60 {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for the sticker panel to update", file: file, line: line)
     }
 
     private final class PickerThumbnailPipeline: ChatThumbnailServing {

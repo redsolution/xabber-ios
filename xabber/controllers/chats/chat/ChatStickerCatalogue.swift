@@ -1,12 +1,39 @@
 import Foundation
 import XMPPFramework
 
+struct ChatStickerStarterPack {
+    static let all = [
+        ChatStickerStarterPack(id: "owls", fallbackName: "Owls"),
+        ChatStickerStarterPack(id: "monsters", fallbackName: "Monsters")
+    ]
+
+    let id: String
+    let manifestURL: URL
+    let previewURL: URL?
+    private let fallbackName: String
+
+    var name: String { L10n.text("chat__stickers__pack_\(id)", fallback: fallbackName) }
+
+    private init(id: String, fallbackName: String) {
+        let base = URL(string: "https://cdn.jsdelivr.net/gh/redsolution/xabber-stickers@adf96ab")!
+        let directory = base.appendingPathComponent(id)
+        self.id = id
+        self.fallbackName = fallbackName
+        manifestURL = directory.appendingPathComponent("pack.xml")
+        previewURL = directory.appendingPathComponent("cover.webp")
+    }
+}
+
 struct ChatStickerPack: Codable, Equatable, Sendable {
     let manifestURL: URL
     let name: String
     let version: Int
     let coverURL: URL?
     let stickers: [ChatStickerEntry]
+
+    var displayName: String {
+        ChatStickerStarterPack.all.first { $0.manifestURL == manifestURL }?.name ?? name
+    }
 }
 
 struct ChatStickerEntry: Codable, Equatable, Sendable {

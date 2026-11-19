@@ -403,6 +403,7 @@ extension ChatViewController {
                     isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
                 )
                 if value {
+                    self.setInlineStickerPanelVisible(false, animated: false)
                     self.invalidateNavigationAvatarItem()
                     NavigationBarItemOwnership.apply(
                         to: self.navigationItem,

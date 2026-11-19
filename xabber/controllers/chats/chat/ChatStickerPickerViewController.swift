@@ -1,78 +1,115 @@
 import UIKit
 
 final class ChatStickerPickerViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-    private static let catalogueBase = "https://cdn.jsdelivr.net/gh/redsolution/xabber-stickers@adf96ab"
+    private enum StarterInstallState {
+        case installing
+        case failed
+    }
+
+    private struct StarterRow {
+        let view: UIStackView
+        let thumbnail: ChatStickerThumbnailView
+        let status: UILabel
+        let button: UIButton
+    }
 
     private let owner: String
     private let catalogue: ChatStickerCatalogue
     private let canSchedule: () -> Bool
     private let onSend: (ChatStickerDescriptor) -> Void
     private let onSchedule: (ChatStickerDescriptor) -> Void
+    private let onKeyboard: () -> Void
+    private let onCollapse: () -> Void
+    private let onSettings: () -> Void
+
     private var packs: [ChatStickerPack] = []
     private var selectedPackURL: URL?
-    private var operation: Task<Void, Never>?
-    private var didChooseSticker = false
+    private var showingStarterPacks = false
+    private var installTasks: [URL: Task<Void, Never>] = [:]
+    private var installStates: [URL: StarterInstallState] = [:]
 
     private let layout = UICollectionViewFlowLayout()
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
-    private let emptyButton = UIButton(type: .system)
-    private let progress = UIActivityIndicatorView(style: .medium)
+    private lazy var packStrip = UICollectionView(frame: .zero, collectionViewLayout: makePackStripLayout())
+    private let starterScroll = UIScrollView()
+    private var starterRows: [URL: StarterRow] = [:]
+    private var loadedStarterPreviews: Set<URL> = []
+    private lazy var addButton = makePanelButton(
+        "plus", label: L10n.text("chat__stickers__add_packs", fallback: "Add sticker packs"),
+        identifier: "chat.stickers.add_packs"
+    ) { [weak self] in
+        guard let self else { return }
+        self.showingStarterPacks.toggle()
+        self.updateVisibleContent()
+    }
 
     init(
         owner: String,
         catalogue: ChatStickerCatalogue? = nil,
         canSchedule: @escaping () -> Bool,
         onSend: @escaping (ChatStickerDescriptor) -> Void,
-        onSchedule: @escaping (ChatStickerDescriptor) -> Void
+        onSchedule: @escaping (ChatStickerDescriptor) -> Void,
+        onKeyboard: @escaping () -> Void = {},
+        onCollapse: @escaping () -> Void = {},
+        onSettings: @escaping () -> Void = {}
     ) {
         self.owner = owner
         self.catalogue = catalogue ?? .shared
         self.canSchedule = canSchedule
         self.onSend = onSend
         self.onSchedule = onSchedule
+        self.onKeyboard = onKeyboard
+        self.onCollapse = onCollapse
+        self.onSettings = onSettings
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    deinit { operation?.cancel() }
+    deinit {
+        installTasks.values.forEach { $0.cancel() }
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        title = L10n.text("chat__stickers__title", fallback: "Stickers")
-        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(close))
+        view.backgroundColor = .secondarySystemBackground
+        view.accessibilityIdentifier = "chat.stickers.panel"
 
-        let inset: CGFloat = 12
-        layout.sectionInset = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        layout.sectionInset = UIEdgeInsets(top: 8, left: 12, bottom: 12, right: 12)
         layout.minimumInteritemSpacing = 6
         layout.minimumLineSpacing = 6
-        collection.backgroundColor = .clear
         collection.alwaysBounceVertical = true
-        collection.dataSource = self
-        collection.delegate = self
-        collection.register(ChatStickerPickerCell.self, forCellWithReuseIdentifier: ChatStickerPickerCell.identifier)
         collection.accessibilityIdentifier = "chat.stickers.picker"
+        packStrip.showsHorizontalScrollIndicator = false
+        packStrip.accessibilityIdentifier = "chat.stickers.packs"
+        for grid in [collection, packStrip] {
+            grid.backgroundColor = .clear
+            grid.contentInsetAdjustmentBehavior = .never
+            grid.dataSource = self
+            grid.delegate = self
+            grid.register(ChatStickerPickerCell.self, forCellWithReuseIdentifier: ChatStickerPickerCell.identifier)
+        }
 
-        emptyButton.setTitle(L10n.text("chat__stickers__add_packs", fallback: "Add sticker packs"), for: .normal)
-        emptyButton.showsMenuAsPrimaryAction = true
-        emptyButton.accessibilityIdentifier = "chat.stickers.add_packs"
-        progress.hidesWhenStopped = true
-        [collection, emptyButton, progress].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview($0)
+        configureStarterPacks()
+        let toolbar = makeToolbar()
+        let safeArea = view.safeAreaLayoutGuide
+        for child in [toolbar, collection, starterScroll] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(child)
+            NSLayoutConstraint.activate([
+                child.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
+                child.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor)
+            ])
         }
         NSLayoutConstraint.activate([
-            collection.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            collection.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            collection.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            collection.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            emptyButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            emptyButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-            progress.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            progress.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            toolbar.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            toolbar.heightAnchor.constraint(equalToConstant: 48),
+            collection.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
+            collection.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor),
+            starterScroll.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
+            starterScroll.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor)
         ])
+
         NotificationCenter.default.addObserver(self, selector: #selector(catalogueChanged(_:)),
                                                name: ChatStickerCatalogue.changed, object: nil)
         reloadCatalogue()
@@ -81,9 +118,105 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     private var selectedPack: ChatStickerPack? { packs.first { $0.manifestURL == selectedPackURL } }
     private var stickers: [ChatStickerEntry] { selectedPack?.stickers ?? [] }
 
-    @objc private func close() {
-        operation?.cancel()
-        dismiss(animated: true)
+    private func makeToolbar() -> UIStackView {
+        let settings = makePanelButton(
+            "gearshape", label: L10n.text("chat__stickers__packs", fallback: "Sticker packs"),
+            identifier: "chat.stickers.settings", action: onSettings
+        )
+        let keyboard = makePanelButton(
+            "keyboard", label: L10n.text("chat__stickers__keyboard", fallback: "Keyboard"),
+            identifier: "chat.stickers.keyboard", action: onKeyboard
+        )
+        let collapse = makePanelButton(
+            "chevron.down", label: L10n.text("chat__stickers__collapse", fallback: "Hide sticker panel"),
+            identifier: "chat.stickers.collapse", action: onCollapse
+        )
+        let toolbar = UIStackView(arrangedSubviews: [packStrip, addButton, settings, keyboard, collapse])
+        toolbar.alignment = .fill
+        return toolbar
+    }
+
+    private func makePanelButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: symbol)
+        configuration.contentInsets = .zero
+        let button = UIButton(configuration: configuration)
+        button.accessibilityLabel = label
+        button.accessibilityIdentifier = identifier
+        let width = button.widthAnchor.constraint(equalToConstant: 44)
+        width.priority = UILayoutPriority(999)
+        width.isActive = true
+        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        return button
+    }
+
+    private func makePackStripLayout() -> UICollectionViewFlowLayout {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.sectionInset = UIEdgeInsets(top: 3, left: 8, bottom: 3, right: 4)
+        layout.minimumLineSpacing = 2
+        return layout
+    }
+
+    private func configureStarterPacks() {
+        let title = UILabel()
+        title.text = L10n.text("chat__stickers__starter_packs", fallback: "Starter packs")
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.adjustsFontForContentSizeCategory = true
+
+        let rows = UIStackView(arrangedSubviews: [title])
+        rows.axis = .vertical
+        rows.spacing = 8
+        rows.translatesAutoresizingMaskIntoConstraints = false
+        starterScroll.contentInsetAdjustmentBehavior = .never
+        starterScroll.addSubview(rows)
+        NSLayoutConstraint.activate([
+            rows.leadingAnchor.constraint(equalTo: starterScroll.contentLayoutGuide.leadingAnchor, constant: 16),
+            rows.trailingAnchor.constraint(equalTo: starterScroll.contentLayoutGuide.trailingAnchor, constant: -16),
+            rows.topAnchor.constraint(equalTo: starterScroll.contentLayoutGuide.topAnchor, constant: 10),
+            rows.bottomAnchor.constraint(equalTo: starterScroll.contentLayoutGuide.bottomAnchor, constant: -12),
+            rows.widthAnchor.constraint(equalTo: starterScroll.frameLayoutGuide.widthAnchor, constant: -32)
+        ])
+
+        for pack in ChatStickerStarterPack.all {
+            let thumbnail = ChatStickerThumbnailView()
+            thumbnail.widthAnchor.constraint(equalToConstant: 44).isActive = true
+            let thumbnailHeight = thumbnail.heightAnchor.constraint(equalTo: thumbnail.widthAnchor)
+            thumbnailHeight.priority = UILayoutPriority(999)
+            thumbnailHeight.isActive = true
+
+            let title = UILabel()
+            title.text = pack.name
+            title.font = .preferredFont(forTextStyle: .body)
+            title.adjustsFontForContentSizeCategory = true
+            title.numberOfLines = 0
+            title.isAccessibilityElement = false
+            let status = UILabel()
+            status.text = L10n.text("chat__stickers__unavailable", fallback: "Sticker pack unavailable")
+            status.font = .preferredFont(forTextStyle: .footnote)
+            status.adjustsFontForContentSizeCategory = true
+            status.numberOfLines = 0
+            status.textColor = .secondaryLabel
+            status.isAccessibilityElement = false
+            let labels = UIStackView(arrangedSubviews: [title, status])
+            labels.axis = .vertical
+            labels.spacing = 2
+
+            let button = UIButton(configuration: .tinted())
+            button.accessibilityIdentifier = "chat.stickers.install.\(pack.id)"
+            button.accessibilityLabel = pack.name
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+            let buttonHeight = button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+            buttonHeight.priority = UILayoutPriority(999)
+            buttonHeight.isActive = true
+            button.addAction(UIAction { [weak self] _ in self?.installStarterPack(pack) }, for: .touchUpInside)
+
+            let row = UIStackView(arrangedSubviews: [thumbnail, labels, button])
+            row.alignment = .center
+            row.spacing = 8
+            rows.addArrangedSubview(row)
+            starterRows[pack.manifestURL] = StarterRow(view: row, thumbnail: thumbnail, status: status, button: button)
+        }
     }
 
     @objc private func catalogueChanged(_ note: Notification) {
@@ -92,121 +225,130 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     }
 
     private func reloadCatalogue() {
-        packs = catalogue.installed(for: owner)
-        if selectedPack == nil { selectedPackURL = packs.first?.manifestURL }
-        title = selectedPack?.name ?? L10n.text("chat__stickers__title", fallback: "Stickers")
-        emptyButton.isHidden = selectedPack != nil || operation != nil
-        let addMenu = managementMenu()
-        emptyButton.menu = addMenu
+        let previousPack = selectedPack
+        let previousIndex = packs.firstIndex { $0.manifestURL == selectedPackURL } ?? 0
+        let installed = catalogue.installed(for: owner)
+        if packs != installed {
+            packs = installed
+            packStrip.reloadData()
+        }
+        if selectedPack == nil {
+            selectedPackURL = packs.isEmpty ? nil : packs[min(previousIndex, packs.count - 1)].manifestURL
+            showingStarterPacks = selectedPackURL == nil
+        }
 
-        let addBarButton = UIBarButtonItem(image: UIImage(systemName: "plus"), menu: addMenu)
-        addBarButton.accessibilityLabel = L10n.text("chat__stickers__add_packs", fallback: "Add sticker packs")
-        addBarButton.isEnabled = operation == nil
-        let packMenu = UIMenu(children: packs.map { pack in
-            UIAction(title: pack.name, state: pack.manifestURL == selectedPackURL ? .on : .off) { [weak self] _ in
-                self?.selectedPackURL = pack.manifestURL
-                self?.reloadCatalogue()
+        if previousPack != selectedPack {
+            reloadGrid(keepingOffset: previousPack?.manifestURL == selectedPackURL)
+        }
+        updateVisibleContent()
+    }
+
+    private func updateVisibleContent() {
+        let installedURLs = Set(packs.map(\.manifestURL))
+        let hasAvailableStarterPack = ChatStickerStarterPack.all.contains { !installedURLs.contains($0.manifestURL) }
+        showingStarterPacks = selectedPack == nil || (showingStarterPacks && hasAvailableStarterPack)
+        for pack in ChatStickerStarterPack.all {
+            guard let row = starterRows[pack.manifestURL] else { continue }
+            let isInstalled = installedURLs.contains(pack.manifestURL)
+            row.view.isHidden = isInstalled
+            if showingStarterPacks, !isInstalled, loadedStarterPreviews.insert(pack.manifestURL).inserted {
+                row.thumbnail.loadPackPreview(pack.previewURL, owner: owner, size: 44)
             }
-        })
-        let packButton = UIBarButtonItem(image: UIImage(systemName: "square.grid.2x2"), menu: packMenu)
-        packButton.accessibilityLabel = L10n.text("chat__stickers__packs", fallback: "Sticker packs")
-        navigationItem.rightBarButtonItems = packs.isEmpty ? [addBarButton] : [addBarButton, packButton]
+            updateStarterButton(pack)
+        }
+
+        addButton.isHidden = selectedPack == nil || !hasAvailableStarterPack
+        addButton.isSelected = showingStarterPacks
+        addButton.accessibilityTraits = showingStarterPacks ? [.button, .selected] : [.button]
+        starterScroll.isHidden = !showingStarterPacks
+        collection.isHidden = showingStarterPacks
+
+        for indexPath in packStrip.indexPathsForVisibleItems where packs.indices.contains(indexPath.item) {
+            let cell = packStrip.cellForItem(at: indexPath) as? ChatStickerPickerCell
+            cell?.setPackSelected(!showingStarterPacks && packs[indexPath.item].manifestURL == selectedPackURL)
+        }
+    }
+
+    private func updateStarterButton(_ pack: ChatStickerStarterPack) {
+        guard let row = starterRows[pack.manifestURL] else { return }
+        let button = row.button
+        var configuration = button.configuration ?? .tinted()
+        let state = installStates[pack.manifestURL]
+        switch state {
+        case .installing:
+            configuration.title = L10n.text("chat__stickers__installing", fallback: "Installing…")
+        case .failed:
+            configuration.title = L10n.text("common__action__retry", fallback: "Retry")
+        case nil:
+            configuration.title = L10n.text("common__action__add", fallback: "Add")
+        }
+        configuration.showsActivityIndicator = state == .installing
+        button.configuration = configuration
+        button.isEnabled = state != .installing
+        button.accessibilityValue = configuration.title
+        row.status.isHidden = state != .failed
+        button.accessibilityHint = state == .failed ? row.status.text : nil
+    }
+
+    private func selectPack(_ url: URL) {
+        guard packs.contains(where: { $0.manifestURL == url }) else { return }
+        let alreadySelected = selectedPackURL == url
+        selectedPackURL = url
+        showingStarterPacks = false
+        if !alreadySelected { reloadGrid(keepingOffset: false) }
+        updateVisibleContent()
+    }
+
+    private func reloadGrid(keepingOffset: Bool) {
+        let previousOffset = collection.contentOffset
         collection.reloadData()
+        collection.layoutIfNeeded()
+        let maxY = max(0, collection.contentSize.height - collection.bounds.height)
+        let offset = keepingOffset ? CGPoint(x: 0, y: min(previousOffset.y, maxY)) : .zero
+        collection.setContentOffset(offset, animated: false)
     }
 
-    private func managementMenu() -> UIMenu {
-        var actions = [
-            catalogueAction(path: "monsters", title: L10n.text("chat__stickers__install_monsters", fallback: "Install Monsters")),
-            catalogueAction(path: "owls", title: L10n.text("chat__stickers__install_owls", fallback: "Install Owls")),
-            UIAction(title: L10n.text("chat__stickers__install_link", fallback: "Install by link"),
-                     image: UIImage(systemName: "link")) { [weak self] _ in self?.enterManifestURL() }
-        ]
-        if let pack = selectedPack {
-            actions.append(UIAction(title: L10n.text("chat__stickers__refresh_pack", fallback: "Refresh pack"),
-                                    image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
-                self?.install(pack.manifestURL)
-            })
-            actions.append(UIAction(title: L10n.text("chat__stickers__remove_pack", fallback: "Remove pack"),
-                                    image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
-                guard let self else { return }
-                do { try catalogue.remove(pack.manifestURL, owner: owner) }
-                catch { presentFailure() }
-            })
-        }
-        return UIMenu(children: actions)
-    }
-
-    private func catalogueAction(path: String, title: String) -> UIAction {
-        let url = URL(string: "\(Self.catalogueBase)/\(path)/pack.xml")!
-        let attributes: UIMenuElement.Attributes = packs.contains { $0.manifestURL == url } ? .disabled : []
-        return UIAction(title: title, image: UIImage(systemName: "plus.circle"), attributes: attributes) { [weak self] _ in
-            self?.install(url)
-        }
-    }
-
-    private func enterManifestURL() {
-        let alert = UIAlertController(
-            title: L10n.text("chat__stickers__install_link", fallback: "Install by link"),
-            message: nil, preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = L10n.text("chat__stickers__manifest_url", fallback: "Sticker pack URL")
-            field.keyboardType = .URL
-            field.autocorrectionType = .no
-            field.autocapitalizationType = .none
-            field.accessibilityIdentifier = "chat.stickers.manifest_url"
-        }
-        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.text("chat__stickers__install", fallback: "Install"), style: .default) { [weak self, weak alert] _ in
-            guard let self else { return }
-            guard let input = alert?.textFields?.first?.text, let url = ChatStickerPackManifest.manifestURL(input) else {
-                DispatchQueue.main.async { self.presentFailure() }
-                return
-            }
-            self.install(url)
-        })
-        present(alert, animated: true)
-    }
-
-    private func install(_ url: URL) {
-        guard operation == nil else { return }
-        let owner = owner
-        let catalogue = catalogue
-        progress.startAnimating()
-        operation = Task { [weak self] in
+    private func installStarterPack(_ pack: ChatStickerStarterPack) {
+        let url = pack.manifestURL
+        guard installTasks[url] == nil, !packs.contains(where: { $0.manifestURL == url }) else { return }
+        installStates[url] = .installing
+        updateStarterButton(pack)
+        installTasks[url] = Task { [weak self, catalogue, owner] in
             do {
-                let pack = try await catalogue.install(url, owner: owner)
+                let installed = try await catalogue.install(url, owner: owner)
                 guard let self, !Task.isCancelled else { return }
-                self.selectedPackURL = pack.manifestURL
-                self.finishLoad()
+                self.installTasks[url] = nil
+                self.installStates[url] = nil
+                self.reloadCatalogue()
+                self.selectPack(installed.manifestURL)
+                if self.view.window != nil, let index = self.packs.firstIndex(where: { $0.manifestURL == url }) {
+                    self.packStrip.layoutIfNeeded()
+                    self.packStrip.scrollToItem(at: IndexPath(item: index, section: 0),
+                                                at: .centeredHorizontally, animated: true)
+                }
             } catch {
                 guard let self, !Task.isCancelled else { return }
-                self.finishLoad()
-                self.presentFailure()
+                self.installTasks[url] = nil
+                self.installStates[url] = .failed
+                self.updateStarterButton(pack)
             }
         }
-        reloadCatalogue()
     }
 
-    private func finishLoad() {
-        operation = nil
-        progress.stopAnimating()
-        reloadCatalogue()
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        collectionView === packStrip ? packs.count : stickers.count
     }
-
-    private func presentFailure() {
-        let alert = UIAlertController(
-            title: L10n.text("chat__stickers__unavailable", fallback: "Sticker pack unavailable"),
-            message: nil, preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .cancel))
-        present(alert, animated: true)
-    }
-
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { stickers.count }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ChatStickerPickerCell.identifier, for: indexPath) as! ChatStickerPickerCell
+        if collectionView === packStrip {
+            let pack = packs[indexPath.item]
+            cell.configurePack(pack, owner: owner, selected: !showingStarterPacks && pack.manifestURL == selectedPackURL) { [weak self] in
+                self?.selectPack(pack.manifestURL)
+            }
+            return cell
+        }
+
         let sticker = stickers[indexPath.item]
         cell.configure(sticker: sticker, owner: owner, send: { [weak self, weak cell] in
             self?.choose(sticker, from: cell, schedules: false)
@@ -221,12 +363,19 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        guard stickers.indices.contains(indexPath.item) else { return }
-        choose(stickers[indexPath.item], from: collectionView.cellForItem(at: indexPath) as? ChatStickerPickerCell, schedules: false)
+        collectionView.deselectItem(at: indexPath, animated: false)
+        if collectionView === packStrip {
+            guard packs.indices.contains(indexPath.item) else { return }
+            selectPack(packs[indexPath.item].manifestURL)
+        } else if stickers.indices.contains(indexPath.item) {
+            let cell = collectionView.cellForItem(at: indexPath) as? ChatStickerPickerCell
+            choose(stickers[indexPath.item], from: cell, schedules: false)
+        }
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
+        if collectionView === packStrip { return CGSize(width: 44, height: 42) }
         let columns = max(3, Int(collectionView.bounds.width / 84))
         let available = collectionView.bounds.width - layout.sectionInset.left - layout.sectionInset.right
         let size = max(1, floor((available - CGFloat(columns - 1) * layout.minimumInteritemSpacing) / CGFloat(columns)))
@@ -238,38 +387,37 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         contextMenuConfigurationForItemAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard stickers.indices.contains(indexPath.item),
-              let cell = collectionView.cellForItem(at: indexPath) as? ChatStickerPickerCell else { return nil }
+        guard collectionView === collection, stickers.indices.contains(indexPath.item), canSchedule() else { return nil }
         let sticker = stickers[indexPath.item]
-        var actions: [UIAction] = []
-        if canSchedule() {
-            actions.append(UIAction(title: L10n.text("schedule_message_action", fallback: "Schedule Message"),
-                                    image: UIImage(systemName: "calendar.badge.clock")) { [weak self, weak cell] _ in
-                self?.choose(sticker, from: cell, schedules: true)
-            })
+        let cell = collectionView.cellForItem(at: indexPath) as? ChatStickerPickerCell
+        let action = UIAction(title: L10n.text("schedule_message_action", fallback: "Schedule Message"),
+                              image: UIImage(systemName: "calendar.badge.clock")) { [weak self, weak cell] _ in
+            self?.choose(sticker, from: cell, schedules: true)
         }
-        return actions.isEmpty ? nil : UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: actions) }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(children: [action])
+        }
     }
 
     private func choose(_ entry: ChatStickerEntry, from cell: ChatStickerPickerCell?, schedules: Bool) {
-        guard !didChooseSticker, stickers.contains(entry), !schedules || canSchedule() else { return }
+        guard !showingStarterPacks, stickers.contains(entry), !schedules || canSchedule() else { return }
         let thumbnail = cell?.thumbnail.inlineThumbnail(for: entry)
-        let sticker = entry.descriptor(thumbnail: thumbnail)
         let handler = schedules ? onSchedule : onSend
-        didChooseSticker = true
-        dismiss(animated: true) { handler(sticker) }
+        handler(entry.descriptor(thumbnail: thumbnail))
     }
 }
 
 private final class ChatStickerPickerCell: UICollectionViewCell {
     static let identifier = "ChatStickerPickerCell"
     let thumbnail = ChatStickerThumbnailView()
-    private var send: (() -> Void)?
+    private var activate: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = true
         accessibilityTraits = .button
+        contentView.layer.cornerRadius = 10
+        contentView.layer.cornerCurve = .continuous
         thumbnail.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(thumbnail)
         NSLayoutConstraint.activate([
@@ -285,18 +433,19 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         thumbnail.reset()
-        send = nil
+        activate = nil
         accessibilityCustomActions = nil
     }
 
     override func accessibilityActivate() -> Bool {
-        guard let send else { return false }
-        send()
+        guard let activate else { return false }
+        activate()
         return true
     }
 
     func configure(sticker: ChatStickerEntry, owner: String, send: @escaping () -> Void, schedule: (() -> Void)?) {
-        self.send = send
+        activate = send
+        setPackSelected(false)
         accessibilityIdentifier = "chat.stickers.picker.sticker"
         accessibilityLabel = sticker.name
         accessibilityHint = sticker.description.isEmpty ? nil : sticker.description
@@ -309,6 +458,23 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         }
         accessibilityCustomActions = actions
         thumbnail.load(sticker, owner: owner, size: 72)
+    }
+
+    func configurePack(_ pack: ChatStickerPack, owner: String, selected: Bool, activate: @escaping () -> Void) {
+        self.activate = activate
+        accessibilityIdentifier = "chat.stickers.pack"
+        accessibilityLabel = pack.displayName
+        accessibilityHint = nil
+        accessibilityCustomActions = nil
+        setPackSelected(selected)
+        let first = pack.stickers.first
+        thumbnail.loadPackPreview(pack.coverURL ?? first?.imageURL, owner: owner, size: 36,
+                                  placeholderText: first?.emojis.first ?? "🖼️")
+    }
+
+    func setPackSelected(_ selected: Bool) {
+        contentView.backgroundColor = selected ? tintColor.withAlphaComponent(0.14) : .clear
+        accessibilityTraits = selected ? [.button, .selected] : [.button]
     }
 }
 
@@ -427,16 +593,26 @@ final class ChatStickerThumbnailView: UIView {
         reset()
         entry = sticker
         placeholder.text = sticker.emojis.first ?? "🖼️"
+        requestImage(sticker.imageURL, owner: owner, size: size)
+    }
+
+    func loadPackPreview(_ url: URL?, owner: String, size: CGFloat, placeholderText: String = "🖼️") {
+        reset()
+        placeholder.text = placeholderText
+        if let url { requestImage(url, owner: owner, size: size) }
+    }
+
+    private func requestImage(_ url: URL, owner: String, size: CGFloat) {
         let id = binding
         let request = ChatThumbnailRequest(
-            url: sticker.imageURL, displaySize: ChatCollectionPrefetchSize(width: Double(size), height: Double(size)),
+            url: url, displaySize: ChatCollectionPrefetchSize(width: Double(size), height: Double(size)),
             scale: Double(window?.screen.scale ?? UIScreen.main.scale),
             traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle), owner: owner,
             isSticker: true
         )
         let consumer = ChatThumbnailConsumer(
             identity: ChatCollectionPrefetchIdentity(kind: .sticker, messagePrimary: owner,
-                                                     referencePrimary: sticker.imageURL.absoluteString),
+                                                     referencePrimary: url.absoluteString),
             role: .visible(id)
         )
         subscription = thumbnails.acquire(request, consumer: consumer) { [weak self] result in

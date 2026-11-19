@@ -238,6 +238,7 @@
 		4EAE00082FFF00000ABC001 /* ChatStickerPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAE00072FFF00000ABC001 /* ChatStickerPipeline.swift */; };
 		4E5B00072FB3000000ABC001 /* ChatStickerPickerViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00082FB3000000ABC001 /* ChatStickerPickerViewController.swift */; };
 		4E5B00052FB3000000ABC001 /* ChatStickerCatalogue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00062FB3000000ABC001 /* ChatStickerCatalogue.swift */; };
+		4E5B00102FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00112FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift */; };
 		4EAF0002300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0001300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift */; };
 		4EAF0004300000000ABC001 /* ChatContactAvatarBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */; };
 		4EAF0006300000000ABC001 /* ChatLocationSnapshotPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EAF0005300000000ABC001 /* ChatLocationSnapshotPipeline.swift */; };
@@ -355,6 +356,7 @@
 		4E5900012FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900022FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift */; };
 		4E5900032FB1000000ABC001 /* ScheduledMessageActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900042FB1000000ABC001 /* ScheduledMessageActionsTests.swift */; };
 		4E5B00092FB3000000ABC001 /* ChatStickerPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B000A2FB3000000ABC001 /* ChatStickerPickerTests.swift */; };
+		4E5B00122FB3000000ABC001 /* ChatStickerPackSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00132FB3000000ABC001 /* ChatStickerPackSettingsTests.swift */; };
 		4E5B00032FB3000000ABC001 /* ScheduledOMEMO2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5B00042FB3000000ABC001 /* ScheduledOMEMO2Tests.swift */; };
 		4E5A00072FB2000000ABC001 /* ScheduledAttachmentUploadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5A00082FB2000000ABC001 /* ScheduledAttachmentUploadTests.swift */; };
 		4E5900022F77000000ABC001 /* ChatAttachmentPickerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5900012F77000000ABC001 /* ChatAttachmentPickerModels.swift */; };
@@ -1580,6 +1582,7 @@
 		4EAE00072FFF00000ABC001 /* ChatStickerPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPipeline.swift; sourceTree = "<group>"; };
 		4E5B00082FB3000000ABC001 /* ChatStickerPickerViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPickerViewController.swift; sourceTree = "<group>"; };
 		4E5B00062FB3000000ABC001 /* ChatStickerCatalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerCatalogue.swift; sourceTree = "<group>"; };
+		4E5B00112FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPackSettingsViewController.swift; sourceTree = "<group>"; };
 		4EAF0001300000000ABC001 /* ChatLocationSnapshotPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLocationSnapshotPipelineTests.swift; sourceTree = "<group>"; };
 		4EAF0003300000000ABC001 /* ChatContactAvatarBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContactAvatarBindingTests.swift; sourceTree = "<group>"; };
 		4EAF0005300000000ABC001 /* ChatLocationSnapshotPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatLocationSnapshotPipeline.swift; sourceTree = "<group>"; };
@@ -1645,6 +1648,7 @@
 		4E5900022FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledComposerSubmissionTests.swift; sourceTree = "<group>"; };
 		4E5900042FB1000000ABC001 /* ScheduledMessageActionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledMessageActionsTests.swift; sourceTree = "<group>"; };
 		4E5B000A2FB3000000ABC001 /* ChatStickerPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPickerTests.swift; sourceTree = "<group>"; };
+		4E5B00132FB3000000ABC001 /* ChatStickerPackSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStickerPackSettingsTests.swift; sourceTree = "<group>"; };
 		4E5B00042FB3000000ABC001 /* ScheduledOMEMO2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledOMEMO2Tests.swift; sourceTree = "<group>"; };
 		4E5A00082FB2000000ABC001 /* ScheduledAttachmentUploadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledAttachmentUploadTests.swift; sourceTree = "<group>"; };
 		4E5300092F72000000ABC001 /* ClientSynchronizationPaginationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientSynchronizationPaginationTests.swift; sourceTree = "<group>"; };
@@ -4881,6 +4885,7 @@
 				4E5900022FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift */,
 				4E5900042FB1000000ABC001 /* ScheduledMessageActionsTests.swift */,
 				4E5B000A2FB3000000ABC001 /* ChatStickerPickerTests.swift */,
+				4E5B00132FB3000000ABC001 /* ChatStickerPackSettingsTests.swift */,
 				4E5B00042FB3000000ABC001 /* ScheduledOMEMO2Tests.swift */,
 				4E5A00082FB2000000ABC001 /* ScheduledAttachmentUploadTests.swift */,
 				4E5300092F72000000ABC001 /* ClientSynchronizationPaginationTests.swift */,
@@ -5354,6 +5359,7 @@
 				4EAE00072FFF00000ABC001 /* ChatStickerPipeline.swift */,
 				4E5B00082FB3000000ABC001 /* ChatStickerPickerViewController.swift */,
 				4E5B00062FB3000000ABC001 /* ChatStickerCatalogue.swift */,
+				4E5B00112FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift */,
 				4EAF0005300000000ABC001 /* ChatLocationSnapshotPipeline.swift */,
 				4EAF0007300000000ABC001 /* ChatAvatarPipeline.swift */,
 				4E6D00032FAC00000ABC001 /* ChatComposerFrameUpdatePlanner.swift */,
@@ -6672,6 +6678,7 @@
 				4EAE00082FFF00000ABC001 /* ChatStickerPipeline.swift in Sources */,
 				4E5B00072FB3000000ABC001 /* ChatStickerPickerViewController.swift in Sources */,
 				4E5B00052FB3000000ABC001 /* ChatStickerCatalogue.swift in Sources */,
+				4E5B00102FB3000000ABC001 /* ChatStickerPackSettingsViewController.swift in Sources */,
 				4EAF0006300000000ABC001 /* ChatLocationSnapshotPipeline.swift in Sources */,
 				4EAF0008300000000ABC001 /* ChatAvatarPipeline.swift in Sources */,
 				4E6D00042FAC00000ABC001 /* ChatComposerFrameUpdatePlanner.swift in Sources */,
@@ -7357,6 +7364,7 @@
 				4E5900012FB1000000ABC001 /* ScheduledComposerSubmissionTests.swift in Sources */,
 				4E5900032FB1000000ABC001 /* ScheduledMessageActionsTests.swift in Sources */,
 				4E5B00092FB3000000ABC001 /* ChatStickerPickerTests.swift in Sources */,
+				4E5B00122FB3000000ABC001 /* ChatStickerPackSettingsTests.swift in Sources */,
 				4E5B00032FB3000000ABC001 /* ScheduledOMEMO2Tests.swift in Sources */,
 				4E5A00072FB2000000ABC001 /* ScheduledAttachmentUploadTests.swift in Sources */,
 				4E53000A2F72000000ABC001 /* ClientSynchronizationPaginationTests.swift in Sources */,

@@ -3322,9 +3322,14 @@ class ModernXabberInputView: UIView {
     
     
     
+    var onComposerStateChange: ((InputBarState) -> Void)?
+
     public var state: InputBarState = .normal {
         didSet {
             print("change state to \(self.state)")
+            if state != oldValue {
+                onComposerStateChange?(state)
+            }
         }
     }
     

@@ -10,13 +10,21 @@ struct ChatComposerKeyboardLayoutMetrics: Equatable {
         visualHeight: CGFloat,
         visibleKeyboardHeight: CGFloat,
         bottomSafeAreaHeight: CGFloat,
-        searchOwnsKeyboard: Bool
+        searchOwnsKeyboard: Bool,
+        stickerPanelHeight: CGFloat? = nil
     ) -> ChatComposerKeyboardLayoutMetrics {
         let resolvedVisualHeight = max(0, visualHeight)
         guard !searchOwnsKeyboard else {
             return ChatComposerKeyboardLayoutMetrics(
                 visualHeight: resolvedVisualHeight,
                 collectionObstructionHeight: resolvedVisualHeight
+            )
+        }
+
+        if let stickerPanelHeight {
+            return ChatComposerKeyboardLayoutMetrics(
+                visualHeight: resolvedVisualHeight,
+                collectionObstructionHeight: max(0, stickerPanelHeight) + max(0, bottomSafeAreaHeight)
             )
         }
 
@@ -28,6 +36,29 @@ struct ChatComposerKeyboardLayoutMetrics: Equatable {
             visualHeight: resolvedVisualHeight,
             collectionObstructionHeight: resolvedVisualHeight + lowerObstruction
         )
+    }
+}
+
+enum ChatStickerPanelLayout {
+    static func contentHeight(
+        viewHeight: CGFloat,
+        topSafeAreaHeight: CGFloat,
+        bottomSafeAreaHeight: CGFloat,
+        dockedKeyboardHeight: CGFloat?
+    ) -> CGFloat {
+        let contentSpace = max(0, viewHeight - topSafeAreaHeight - bottomSafeAreaHeight)
+        let fallbackHeight = min(contentSpace * 0.42, 360)
+        let preferredHeight = dockedKeyboardHeight.map { $0 - bottomSafeAreaHeight } ?? fallbackHeight
+        return min(max(preferredHeight, min(fallbackHeight, 180)), contentSpace * 0.55)
+    }
+
+    static func dockedKeyboardHeight(in bounds: CGRect, keyboardFrame: CGRect) -> CGFloat? {
+        let overlap = bounds.intersection(keyboardFrame)
+        guard !overlap.isNull, overlap.height >= 150, overlap.width >= bounds.width * 0.9,
+              keyboardFrame.maxY >= bounds.maxY - 1 else {
+            return nil
+        }
+        return overlap.height
     }
 }
 
@@ -96,6 +127,7 @@ enum ChatComposerFrameUpdateSource: Equatable {
     case containerBounds
     case keyboardFrame
     case composerHeight
+    case stickerPanel
 }
 
 enum ChatComposerFrameAnchorRestoration: Equatable {
@@ -141,7 +173,8 @@ struct ChatComposerFrameUpdatePlanner {
             actions.append(.invalidateLayout)
         }
 
-        let shouldForceLayout = request.source != .keyboardFrame || request.anchorRestoration == .visibleAnchor
+        let usesInsetOnlyAlignment = request.source == .keyboardFrame || request.source == .stickerPanel
+        let shouldForceLayout = !usesInsetOnlyAlignment || request.anchorRestoration == .visibleAnchor
         if shouldForceLayout {
             actions.append(.layoutIfNeeded)
             actions.append(.updateInsets(request.inputHeight))
@@ -157,7 +190,7 @@ struct ChatComposerFrameUpdatePlanner {
         case .none:
             break
         case .bottom:
-            if request.source == .keyboardFrame {
+            if usesInsetOnlyAlignment {
                 actions.append(.alignBottomToCurrentInsets)
             } else {
                 actions.append(.scrollToBottom)

@@ -2568,6 +2568,7 @@ class ChatViewController: MessagesViewController {
     override var owner: String {
         didSet {
             guard owner != oldValue else { return }
+            removeInlineStickerPanel()
             cancelMediaOpening()
             setComposerForwardSelection([], intent: .forward)
             xabberInputView?.stickerOwner = stickerSelectionOwner
@@ -2575,12 +2576,18 @@ class ChatViewController: MessagesViewController {
     }
 
     override var jid: String {
-        didSet { if jid != oldValue { cancelMediaOpening(); setComposerForwardSelection([], intent: .forward) } }
+        didSet {
+            guard jid != oldValue else { return }
+            removeInlineStickerPanel()
+            cancelMediaOpening()
+            setComposerForwardSelection([], intent: .forward)
+        }
     }
 
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
         didSet {
             guard conversationType != oldValue else { return }
+            removeInlineStickerPanel()
             cancelMediaOpening()
             setComposerForwardSelection([], intent: .forward)
             xabberInputView?.stickerOwner = stickerSelectionOwner
@@ -4594,6 +4601,11 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
     internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
     internal var currentChatKeyboardVisibleHeight: CGFloat = 0
+    internal var lastDockedStickerPanelKeyboardHeight: CGFloat?
+    internal var inlineStickerPanel: ChatStickerPickerViewController?
+    internal var inlineStickerPanelHeightConstraint: NSLayoutConstraint?
+    internal var isInlineStickerPanelVisible = false
+    internal weak var stickerPackSettingsController: ChatStickerPackSettingsViewController?
     private var isReconcilingFocusedComposerLayout = false
     internal var composerFirstFocusRecoveryState =
         ChatComposerFirstFocusRecoveryState()
@@ -4735,6 +4747,16 @@ class ChatViewController: MessagesViewController {
 
         if ensureLayout {
             xabberInputView.layoutIfNeeded()
+        }
+        if isInlineStickerPanelVisible {
+            let metrics = currentChatComposerKeyboardLayoutMetrics()
+            let size = NativeGlassBarStyle.buttonSize
+            return CGRect(
+                x: view.bounds.maxX - view.safeAreaInsets.right - size - 12,
+                y: view.bounds.maxY - metrics.collectionObstructionHeight,
+                width: size,
+                height: size
+            )
         }
         guard let frame = xabberInputView.trailingActionFrame(in: self.view) else {
             return nil
@@ -5254,6 +5276,7 @@ class ChatViewController: MessagesViewController {
     }
     
     func configureSearchBar(activateKeyboard: Bool = true, animated: Bool = true) {
+        setInlineStickerPanelVisible(false, animated: false)
         let shouldAnimate = ChatSearchMotionMutationPolicy.shouldAnimate(
             requestedAnimated: animated,
             isNavigationTransitionActive: self.isNavigationTransitionActive,
@@ -5511,6 +5534,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateInlineStickerPanelLayout()
         updateTopPanelNavigationLayout()
         commitPendingWidthTransitionLayoutRemapIfReady()
         recordWidthTransitionLayoutFinalizationObservationIfNeeded()
@@ -6898,9 +6922,10 @@ class ChatViewController: MessagesViewController {
             visualHeight: visualHeight,
             visibleKeyboardHeight: self.currentChatKeyboardVisibleHeight,
             bottomSafeAreaHeight: self.view.safeAreaInsets.bottom,
-            searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
+            searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned,
+            stickerPanelHeight: isInlineStickerPanelVisible ? inlineStickerPanelContentHeight : nil
         )
-        guard !self.isChatSearchInputKeyboardOwned,
+        guard !isInlineStickerPanelVisible, !self.isChatSearchInputKeyboardOwned,
               let inputView = self.xabberInputView,
               inputView.textField.isFirstResponder,
               inputView.superview === self.view,
@@ -6915,7 +6940,7 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func reconcileChatComposerLayout(isComposerFirstResponder: Bool) {
-        guard !isChatSearchInputKeyboardOwned else {
+        guard !isInlineStickerPanelVisible, !isChatSearchInputKeyboardOwned else {
             isReconcilingFocusedComposerLayout = false
             return
         }
@@ -6932,7 +6957,7 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func reconcileChatCollectionInsetsWithVisibleComposer() {
-        guard !self.isChatSearchInputKeyboardOwned,
+        guard !isInlineStickerPanelVisible, !self.isChatSearchInputKeyboardOwned,
               let inputView = self.xabberInputView,
               inputView.superview === self.view,
               inputView.frame.height > 0 else {
@@ -7023,6 +7048,11 @@ class ChatViewController: MessagesViewController {
         }
 
         self.xabberInputView.delegate = self
+        self.xabberInputView.onComposerStateChange = { [weak self] state in
+            if state != .normal {
+                self?.setInlineStickerPanelVisible(false, animated: false)
+            }
+        }
         self.configureMessagesPanel()
         self.configureSelectionPanel()
         self.xabberInputView.searchPanel.onChangeConversationTypeCallback = { [weak self] conversationType in
@@ -7057,6 +7087,7 @@ class ChatViewController: MessagesViewController {
         }
 
         self.xabberInputView.delegate = nil
+        self.xabberInputView.onComposerStateChange = nil
         self.xabberInputView.contextPreviewPanel.delegate = nil
         self.xabberInputView.selectionPanel.delegate = nil
         self.xabberInputView.searchPanel.onChangeConversationTypeCallback = nil
@@ -8864,6 +8895,9 @@ class ChatViewController: MessagesViewController {
     /// test teardown may both reach it without reviving or double-finishing
     /// work. Cancelled navigation transitions must never enter this boundary.
     internal func performTerminalChatResourceTeardown() {
+        if !isShowingStickerPackSettings {
+            removeInlineStickerPanel()
+        }
         self.stopArchiveEnginePresentationSubscription()
         self.cancelMediaOpening()
         self.cancelActiveAudioRecordingForLifecycle()

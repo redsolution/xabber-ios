@@ -1003,25 +1003,54 @@ extension ChatViewController: XabberInputBarDelegate {
     func stickerPickerButtonTouchUp() {
         let context = self.makeAttachmentFlowContext()
         guard !showSkeletonObserver.value, presentedViewController == nil,
+              chatAttachmentFlowCoordinator == nil, xabberInputView.state == .normal,
+              !inSearchMode.value, !isInSelectionMode.value,
               [.regular, .group, .saved, .omemo].contains(context.conversationType) else { return }
-        view.endEditing(true)
+        if let group = canonicalGroupProjectionState, context.conversationType == .group,
+           !group.capabilities.sendMedia {
+            ToastPresenter().presentError(message: L10n.text(
+                "chat__stickers__media_forbidden", fallback: "Stickers are unavailable in this chat."
+            ))
+            return
+        }
+        if inlineStickerPanel != nil {
+            setInlineStickerPanelVisible(true)
+            return
+        }
         let picker = ChatStickerPickerViewController(
             owner: context.owner,
             canSchedule: { [weak self] in self?.canScheduleSticker(in: context) == true },
             onSend: { [weak self] sticker in
-                guard let self, self.isCurrentStickerContext(context) else { return }
+                guard let self, self.isInlineStickerPanelVisible,
+                      self.isCurrentStickerContext(context) else { return }
                 self.sendStickerImmediately(sticker)
             },
             onSchedule: { [weak self] sticker in
-                guard let self, self.canScheduleSticker(in: context) else { return }
+                guard let self, self.isInlineStickerPanelVisible, self.presentedViewController == nil,
+                      self.canScheduleSticker(in: context) else { return }
                 let datePicker = ScheduledMessageDatePickerViewController { [weak self] date in
                     guard let self, self.canScheduleSticker(in: context) else { return }
                     self.sendScheduledSticker(sticker, deliverAt: date)
                 }
                 self.present(datePicker, animated: true)
+            },
+            onKeyboard: { [weak self] in
+                self?.setInlineStickerPanelVisible(false, focusComposer: true)
+            },
+            onCollapse: { [weak self] in
+                self?.setInlineStickerPanelVisible(false)
+            },
+            onSettings: { [weak self] in
+                guard let self, self.isInlineStickerPanelVisible, self.isCurrentStickerContext(context),
+                      let navigation = self.navigationController,
+                      navigation.topViewController === self else { return }
+                let settings = ChatStickerPackSettingsViewController(owner: context.owner)
+                self.stickerPackSettingsController = settings
+                navigation.pushViewController(settings, animated: true)
             }
         )
-        present(UINavigationController(rootViewController: picker), animated: true)
+        installInlineStickerPanel(picker)
+        setInlineStickerPanelVisible(true)
     }
 
     func stickerSuggestionTouchUp(_ sticker: ChatStickerDescriptor) {
@@ -1077,10 +1106,13 @@ extension ChatViewController: XabberInputBarDelegate {
                 guard self.isCurrentStickerContext(context) else { return }
                 switch result {
                 case .success:
-                    self.completeScheduledMessageSend(clearComposer: false)
+                    self.completeScheduledMessageSend(
+                        clearComposer: false, openScheduledList: !self.isInlineStickerPanelVisible
+                    )
                 case .failure(let error):
                     ToastPresenter().presentError(message: self.scheduleErrorMessage(for: error))
-                    if [.timeout, .disconnected, .invalidResponse].contains(error) {
+                    if !self.isInlineStickerPanelVisible,
+                       [.timeout, .disconnected, .invalidResponse].contains(error) {
                         self.presentScheduledMessagesIfVisible()
                     }
                 }
@@ -1090,7 +1122,7 @@ extension ChatViewController: XabberInputBarDelegate {
         }
     }
 
-    private func completeScheduledMessageSend(clearComposer: Bool) {
+    private func completeScheduledMessageSend(clearComposer: Bool, openScheduledList: Bool = true) {
         if clearComposer {
             self.xabberInputView.clearComposer()
             self.xabberInputView.textViewDidChange()
@@ -1100,7 +1132,9 @@ extension ChatViewController: XabberInputBarDelegate {
         }
         self.refreshScheduledMessagesComposerButtonState()
         FeedbackManager.shared.generate(feedback: .success)
-        self.presentScheduledMessagesIfVisible()
+        if openScheduledList {
+            self.presentScheduledMessagesIfVisible()
+        }
     }
 
     internal func presentScheduledMessagesIfVisible() {

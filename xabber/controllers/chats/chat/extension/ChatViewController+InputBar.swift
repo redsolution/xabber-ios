@@ -219,6 +219,142 @@ extension ChatViewController {
             danger: true
         )
     }
+
+    var inlineStickerPanelContentHeight: CGFloat {
+        ChatStickerPanelLayout.contentHeight(
+            viewHeight: view.bounds.height,
+            topSafeAreaHeight: view.safeAreaInsets.top,
+            bottomSafeAreaHeight: view.safeAreaInsets.bottom,
+            dockedKeyboardHeight: lastDockedStickerPanelKeyboardHeight
+        )
+    }
+
+    var isShowingStickerPackSettings: Bool {
+        guard let settings = stickerPackSettingsController,
+              let stack = navigationController?.viewControllers,
+              let chatIndex = stack.firstIndex(where: { $0 === self }),
+              let settingsIndex = stack.firstIndex(where: { $0 === settings }) else {
+            return false
+        }
+        return settingsIndex == chatIndex + 1
+    }
+
+    func installInlineStickerPanel(_ panel: ChatStickerPickerViewController) {
+        addChild(panel)
+        let panelView = panel.view!
+        panelView.isHidden = true
+        panelView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(panelView)
+        let height = panelView.heightAnchor.constraint(
+            equalToConstant: inlineStickerPanelContentHeight + view.safeAreaInsets.bottom
+        )
+        NSLayoutConstraint.activate([
+            panelView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            panelView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panelView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            height
+        ])
+        inlineStickerPanelHeightConstraint = height
+        inlineStickerPanel = panel
+        panel.didMove(toParent: self)
+    }
+
+    func setInlineStickerPanelVisible(
+        _ visible: Bool,
+        focusComposer: Bool = false,
+        animated: Bool = true
+    ) {
+        guard let panelView = inlineStickerPanel?.viewIfLoaded,
+              let inputView = xabberInputView,
+              let height = inlineStickerPanelHeightConstraint,
+              isInlineStickerPanelVisible != visible else { return }
+        let wasNearBottom = isNearBottom()
+        let historyAnchor = wasNearBottom ? nil : capturePagingAnchorIfNeeded(direction: .older)
+        height.constant = inlineStickerPanelContentHeight + view.safeAreaInsets.bottom
+        let offscreen = CGAffineTransform(translationX: 0, y: height.constant)
+        if visible && panelView.isHidden {
+            panelView.transform = offscreen
+            panelView.isHidden = false
+        }
+        isInlineStickerPanelVisible = visible
+        panelView.isUserInteractionEnabled = visible
+        panelView.accessibilityElementsHidden = !visible
+        inputView.isHidden = visible
+        if visible {
+            composerFirstFocusRecoveryWorkItem?.cancel()
+            composerFirstFocusRecoveryWorkItem = nil
+            lastAppliedChatKeyboardLayoutSignature = nil
+            currentChatKeyboardVisibleHeight = 0
+            view.endEditing(true)
+        } else if focusComposer {
+            let selection = inputView.textField.selectedRange
+            if inputView.textField.becomeFirstResponder() {
+                inputView.textField.selectedRange = selection
+            }
+        }
+
+        let updates = {
+            panelView.transform = visible ? .identity : offscreen
+            self.applyChatComposerFrameUpdate(
+                inputHeight: self.currentChatComposerKeyboardLayoutMetrics().collectionObstructionHeight,
+                source: .stickerPanel,
+                wasNearBottom: wasNearBottom,
+                visibleAnchor: historyAnchor
+            )
+            self.view.layoutIfNeeded()
+        }
+        let completion: (Bool) -> Void = { [weak self, weak panelView] _ in
+            guard let self, let panelView, self.inlineStickerPanel?.viewIfLoaded === panelView,
+                  self.isInlineStickerPanelVisible == visible else { return }
+            panelView.isHidden = !visible
+            if visible, UIAccessibility.isVoiceOverRunning {
+                UIAccessibility.post(notification: .layoutChanged, argument: panelView)
+            }
+        }
+        if animated && !UIAccessibility.isReduceMotionEnabled {
+            UIView.animate(
+                withDuration: 0.25,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut, .allowUserInteraction],
+                animations: updates,
+                completion: completion
+            )
+        } else {
+            UIView.performWithoutAnimation(updates)
+            completion(true)
+        }
+    }
+
+    func updateInlineStickerPanelLayout() {
+        guard isInlineStickerPanelVisible, let height = inlineStickerPanelHeightConstraint else { return }
+        let obstruction = inlineStickerPanelContentHeight + view.safeAreaInsets.bottom
+        guard abs(height.constant - obstruction) > 0.5 else { return }
+        let wasNearBottom = isNearBottom()
+        let historyAnchor = wasNearBottom ? nil : capturePagingAnchorIfNeeded(direction: .older)
+        height.constant = obstruction
+        applyChatComposerFrameUpdate(
+            inputHeight: obstruction,
+            source: .stickerPanel,
+            wasNearBottom: wasNearBottom,
+            visibleAnchor: historyAnchor
+        )
+    }
+
+    func removeInlineStickerPanel() {
+        guard let panel = inlineStickerPanel else { return }
+        let wasVisible = isInlineStickerPanelVisible
+        isInlineStickerPanelVisible = false
+        inlineStickerPanel = nil
+        inlineStickerPanelHeightConstraint = nil
+        stickerPackSettingsController = nil
+        panel.willMove(toParent: nil)
+        panel.viewIfLoaded?.removeFromSuperview()
+        panel.removeFromParent()
+        xabberInputView?.isHidden = false
+        if wasVisible {
+            updateChatCollectionInsets()
+        }
+    }
     
     @objc
     func keyboardWillChangeFrameNotification(_ notification: Notification) {
@@ -271,6 +407,7 @@ extension ChatViewController {
             navigationController?.transitionCoordinator == nil &&
             self.presentedViewController == nil &&
             navigationController?.presentedViewController == nil &&
+            !self.isInlineStickerPanelVisible &&
             !self.inSearchMode.value &&
             self.xabberInputView?.state == .normal
         let isInteractiveDismissalActive =
@@ -333,14 +470,6 @@ extension ChatViewController {
         return max(0, intersection.height)
     }
 
-    internal func keyboardOverlapHeight(from keyboardFrameInScreenCoordinates: CGRect) -> CGFloat {
-        let keyboardFrameInView = self.view.convert(keyboardFrameInScreenCoordinates, from: self.view.window)
-        return Self.keyboardOverlapHeight(
-            viewBounds: self.view.bounds,
-            keyboardFrameInView: keyboardFrameInView
-        )
-    }
-
     private func handleKeyboardFrameChange(_ notification: Notification) {
         let diagnostics = ChatComposerFirstFocusDiagnostics.shared
         let diagnosticSpan = diagnostics.beginSpan(
@@ -352,13 +481,23 @@ extension ChatViewController {
                 stage: .appFrameHandlerEnd
             )
         }
-        guard let userInfo = notification.userInfo,
+        guard !self.isInlineStickerPanelVisible,
+              let userInfo = notification.userInfo,
               let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue,
               self.xabberInputView != nil else {
             return
         }
 
-        let keyboardVisibleHeight = self.keyboardOverlapHeight(from: frameValue.cgRectValue)
+        let keyboardFrame = view.convert(frameValue.cgRectValue, from: view.window)
+        let keyboardVisibleHeight = Self.keyboardOverlapHeight(
+            viewBounds: view.bounds, keyboardFrameInView: keyboardFrame
+        )
+        if !self.isChatSearchInputKeyboardOwned, self.xabberInputView.textField.isFirstResponder,
+           let dockedHeight = ChatStickerPanelLayout.dockedKeyboardHeight(
+               in: view.bounds, keyboardFrame: keyboardFrame
+           ) {
+            self.lastDockedStickerPanelKeyboardHeight = dockedHeight
+        }
         let layoutSignature = ChatKeyboardLayoutUpdateSignature(
             visibleHeight: keyboardVisibleHeight,
             viewSize: self.view.bounds.size,
