@@ -28,10 +28,7 @@ struct ChatComposerKeyboardLayoutMetrics: Equatable {
             )
         }
 
-        let resolvedKeyboardHeight = max(0, visibleKeyboardHeight)
-        let lowerObstruction = resolvedKeyboardHeight > 0
-            ? resolvedKeyboardHeight
-            : max(0, bottomSafeAreaHeight)
+        let lowerObstruction = max(0, visibleKeyboardHeight, bottomSafeAreaHeight)
         return ChatComposerKeyboardLayoutMetrics(
             visualHeight: resolvedVisualHeight,
             collectionObstructionHeight: resolvedVisualHeight + lowerObstruction

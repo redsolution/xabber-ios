@@ -6804,8 +6804,9 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateChatCollectionInsets(inputHeight: CGFloat? = nil) {
-        let composerHeight = inputHeight ?? self.currentChatComposerKeyboardLayoutMetrics()
-            .collectionObstructionHeight
+        let composerHeight = inputHeight ?? self.currentChatComposerKeyboardLayoutMetrics(
+            includesRestingComposerFrame: true
+        ).collectionObstructionHeight
         let viewportTop = messagesCollectionView.superview === view
             ? messagesCollectionView.frame.minY - view.bounds.minY : 0
         let navigationHeight = max(0,
@@ -6869,10 +6870,7 @@ class ChatViewController: MessagesViewController {
 
         let bottomAlignmentTargetMaxY = self.chatBottomAlignmentTargetMaxYForCurrentInsets()
         let updates = {
-            self.updateChatCollectionInsets(
-                inputHeight: self.currentChatComposerKeyboardLayoutMetrics()
-                    .collectionObstructionHeight
-            )
+            self.updateChatCollectionInsets()
             self.updateInitialMessageOverlayFrame()
             if let bottomAlignmentTargetMaxY {
                 self.alignChatBottomToCurrentInsets(targetMaxY: bottomAlignmentTargetMaxY)
@@ -6933,7 +6931,8 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func currentChatComposerKeyboardLayoutMetrics(
-        visualHeight explicitVisualHeight: CGFloat? = nil
+        visualHeight explicitVisualHeight: CGFloat? = nil,
+        includesRestingComposerFrame: Bool = false
     ) -> ChatComposerKeyboardLayoutMetrics {
         let visualHeight = explicitVisualHeight ?? chatComposerVisualHeight
         if let height = stickerKeyboardHandoffHeight {
@@ -6951,9 +6950,14 @@ class ChatViewController: MessagesViewController {
         )
         guard !isInlineStickerPanelVisible, !self.isChatSearchInputKeyboardOwned,
               let inputView = self.xabberInputView,
-              inputView.textField.isFirstResponder,
+              !inputView.isHidden,
               inputView.superview === self.view,
               inputView.frame.height > 0 else {
+            return metrics
+        }
+        // Before layout the inactive keyboard guide can leave the composer above the viewport.
+        guard inputView.textField.isFirstResponder ||
+            (includesRestingComposerFrame && self.view.bounds.contains(inputView.frame)) else {
             return metrics
         }
         let actualObstruction = max(0, self.view.bounds.maxY - inputView.frame.minY)
@@ -6969,6 +6973,13 @@ class ChatViewController: MessagesViewController {
             return
         }
         guard isComposerFirstResponder || isReconcilingFocusedComposerLayout else {
+            let obstruction = currentChatComposerKeyboardLayoutMetrics(
+                includesRestingComposerFrame: true
+            ).collectionObstructionHeight
+            let expectedBottomInset = obstruction + ChatFloatingHeaderLayoutPolicy.composerMessageSpacing
+            if abs(messagesCollectionView.contentInset.bottom - expectedBottomInset) > 0.5 {
+                reconcileChatCollectionInsetsForCurrentSafeArea()
+            }
             return
         }
         if isComposerFirstResponder {

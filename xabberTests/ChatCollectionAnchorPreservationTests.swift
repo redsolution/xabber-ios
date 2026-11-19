@@ -300,6 +300,68 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         wait(for: [nextRunLoop], timeout: 1)
     }
 
+    func testScheduledStickerAndStatusStayAboveTheRestingComposerAtTheScrollLimit() throws {
+        let controller = makeController()
+        let collection = controller.messagesCollectionView
+        let composer = try XCTUnwrap(controller.xabberInputView)
+        let composerBottom = try XCTUnwrap(controller.xabberInputViewBottomConstraint)
+        controller.xabberInputViewKeyboardTopConstraint?.isActive = false
+        composerBottom.constant = -34
+        composerBottom.isActive = true
+        controller.view.layoutIfNeeded()
+        XCTAssertFalse(composer.textField.isFirstResponder)
+        XCTAssertEqual(controller.view.safeAreaInsets.bottom, 0, accuracy: 0.5)
+        XCTAssertEqual(controller.view.bounds.maxY - composer.frame.maxY, 34, accuracy: 0.5)
+
+        let initial = (0..<30).map { makeDatasource(primary: "before-scheduled-\($0)") }
+        controller.applyChatDatasource(
+            initial, mode: .fullReload(), animated: false,
+            suppressDefaultBottomScroll: true, presentationOwner: .archiveEngine
+        )
+        controller.scrollToBottom(animated: false)
+
+        var sticker = makeDatasource(primary: "delivered-sticker")
+        sticker.kind = .sticker(ImageAttachment(primary: "sticker-image", size: CGSize(width: 192, height: 192)))
+        sticker.outgoing = true
+        sticker.isOutgoing = true
+        sticker.sender = controller.ownerSender
+        sticker.state = .sended
+        sticker.indicator = .sended
+        sticker.timeMarkerText = NSAttributedString(string: "17:55")
+        let items = initial + [sticker]
+        let mapping = controller.captureDatasourceMappingContext()
+        let layouts = ChatMessageLayoutPrewarmer.prewarm(
+            items: items, context: mapping.layoutContext, reuse: .empty,
+            capacity: mapping.layoutCacheCapacity, operationCounter: mapping.layoutOperationCounter
+        )
+        var result: ChatViewportTransactionResult?
+
+        controller.applyChatDatasource(
+            items, mode: .targetedDiff, animated: false, preparedLayouts: layouts,
+            suppressDefaultBottomScroll: true, forceBottomAlignmentTarget: .newestRealMessage,
+            presentationOwner: .archiveEngine, presentationCommitMode: .atomicInitialFrame,
+            transactionCompletion: { result = $0 }
+        )
+
+        guard case .committed = result else { return XCTFail("Expected scheduled sticker to commit") }
+        let section = try XCTUnwrap(controller.datasourceSnapshot.primaryIndex[sticker.primary])
+        let indexPath = IndexPath(item: 0, section: section)
+        let cell = try XCTUnwrap(collection.cellForItem(at: indexPath) as? StickerMessageCell)
+        XCTAssertFalse(cell.timeMarker.isHidden)
+        let row = try XCTUnwrap(collection.layoutAttributesForItem(at: indexPath)).frame
+        let gap = ChatFloatingHeaderLayoutPolicy.composerMessageSpacing
+        XCTAssertLessThanOrEqual(collection.convert(row, to: controller.view).maxY,
+                                 composer.frame.minY - gap + 0.5)
+        XCTAssertLessThanOrEqual(cell.timeMarker.convert(cell.timeMarker.bounds, to: controller.view).maxY,
+                                 composer.frame.minY - gap + 0.5)
+
+        let maxOffset = collection.contentSize.height - collection.bounds.height + collection.adjustedContentInset.bottom
+        collection.setContentOffset(CGPoint(x: 0, y: maxOffset), animated: false)
+        collection.layoutIfNeeded()
+        XCTAssertLessThanOrEqual(cell.timeMarker.convert(cell.timeMarker.bounds, to: controller.view).maxY,
+                                 composer.frame.minY - gap + 0.5)
+    }
+
     func testShortOutgoingWithKeyboardUsesImmediateReloadAndStaysAboveComposer() throws {
         XCTAssertTrue(Thread.isMainThread)
         let collectionView = ChatTailAppendBatchCompletionCollectionView()

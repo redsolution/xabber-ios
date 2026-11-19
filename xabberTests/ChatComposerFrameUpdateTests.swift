@@ -316,6 +316,7 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
             (300, 364),
             (164, 228),
             (84, 148),
+            (1, 98),
             (0, 98)
         ]
 
