@@ -60,7 +60,7 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertTrue(ChatStickerSuggestion.matches(text: "x", packs: [pack]).isEmpty)
     }
 
-    func testInstalledStickerThumbnailReplacesEmojiAndCarriesPackOrigin() async throws {
+    func testInstalledStickerThumbnailReplacesEmojiUsingStickerRoute() async throws {
         let pack = try ChatStickerPackManifest.parse(Data(xml(version: 1).utf8), url: manifestURL)
         let entry = try XCTUnwrap(pack.stickers.first)
         let pipeline = PickerThumbnailPipeline()
@@ -71,7 +71,7 @@ final class ChatStickerPickerTests: XCTestCase {
         let request = try XCTUnwrap(pipeline.request)
         XCTAssertEqual(request.url, entry.imageURL)
         XCTAssertEqual(request.owner, owner)
-        XCTAssertEqual(request.installedStickerPack, pack.manifestURL)
+        XCTAssertTrue(request.isSticker)
         XCTAssertNil(view.inlineThumbnail(for: entry))
         let placeholder = try XCTUnwrap(view.subviews.compactMap { $0 as? UILabel }.first)
         XCTAssertEqual(placeholder.text, "🦉")
@@ -90,22 +90,18 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertNotNil(view.inlineThumbnail(for: entry))
     }
 
-    func testInstalledStickerThumbnailCacheIsSeparateFromChatOtherAccountsAndOtherPacks() throws {
+    func testStickerThumbnailCacheIsSeparateFromPhotosAndOtherAccounts() throws {
         let pack = try ChatStickerPackManifest.parse(Data(xml(version: 1).utf8), url: manifestURL)
         let imageURL = try XCTUnwrap(pack.stickers.first?.imageURL)
         let size = ChatCollectionPrefetchSize(width: 72, height: 72)
-        let chat = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner)
-        let installed = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner,
-                                             installedStickerPack: manifestURL)
+        let photo = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner)
+        let sticker = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner,
+                                           isSticker: true)
         let secondAccount = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2,
-                                                 owner: "second@example.com", installedStickerPack: manifestURL)
-        let otherPackURL = URL(string: "https://stickers.example.com/monsters/pack.xml")!
-        let otherPack = ChatThumbnailRequest(url: imageURL, displaySize: size, scale: 2, owner: owner,
-                                             installedStickerPack: otherPackURL)
+                                                 owner: "second@example.com", isSticker: true)
 
-        XCTAssertNotEqual(installed.cacheKey, chat.cacheKey)
-        XCTAssertNotEqual(installed.cacheKey, secondAccount.cacheKey)
-        XCTAssertNotEqual(installed.cacheKey, otherPack.cacheKey)
+        XCTAssertNotEqual(sticker.cacheKey, photo.cacheKey)
+        XCTAssertNotEqual(sticker.cacheKey, secondAccount.cacheKey)
     }
 
     func testUninstallFencesAPendingInstallResponse() async throws {

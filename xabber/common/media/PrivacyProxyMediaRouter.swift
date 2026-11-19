@@ -79,10 +79,9 @@ final class PrivacyProxyMediaRouter {
         pushRouting?.publish(endpoint: current.endpoint, trustedHosts: current.trustedHosts, owner: owner)
     }
 
-    func canRequestDirectImage(_ url: URL, owner: String, installedStickerPack: URL? = nil) -> Bool {
+    func canRequestDirectImage(_ url: URL, owner: String) -> Bool {
         guard let jid = XMPPJID(string: owner), jid.user != nil, Self.isHTTPImageURL(url) else { return false }
         let current = context(jid.bare)
-        if !current.usesProxy, Self.matchesInstalledStickerOrigin(url, manifest: installedStickerPack) { return false }
         return mayApproveImage(url, jid: jid, context: current)
     }
 
@@ -142,22 +141,24 @@ final class PrivacyProxyMediaRouter {
         return url.user == nil && url.password == nil
     }
 
-    private static func matchesInstalledStickerOrigin(_ url: URL, manifest: URL?) -> Bool {
-        guard let manifest, manifest.scheme?.lowercased() == "https", isHTTPImageURL(manifest) else { return false }
-        return allowsRedirect(from: manifest, to: url)
+    func resolveSticker(_ url: URL, owner: String) async throws -> URL {
+        try Task.checkCancellation()
+        guard let jid = XMPPJID(string: owner), jid.user != nil else { throw RoutingError.invalidOwner }
+        guard Self.isHTTPImageURL(url) else { throw RoutingError.invalidSource }
+        let current = context(jid.bare)
+        guard current.usesProxy else { return url }
+        return try await resolveUsingProxy(url, jid: jid, current: current, allowTrustedDirect: false)
     }
 
-    func resolveImage(_ url: URL, owner: String, installedStickerPack: URL? = nil) async throws -> URL {
-        try await resolveImage(url, owner: owner, allowsConsent: true, installedStickerPack: installedStickerPack)
+    func resolveImage(_ url: URL, owner: String) async throws -> URL {
+        try await resolveImage(url, owner: owner, allowsConsent: true)
     }
 
     func resolveAutomaticImage(_ url: URL, owner: String) async throws -> URL {
         try await resolveImage(url, owner: owner, allowsConsent: false)
     }
 
-    private func resolveImage(
-        _ url: URL, owner: String, allowsConsent: Bool, installedStickerPack: URL? = nil
-    ) async throws -> URL {
+    private func resolveImage(_ url: URL, owner: String, allowsConsent: Bool) async throws -> URL {
         try Task.checkCancellation()
         if url.isFileURL || url.scheme?.lowercased() == "data" { return url }
         guard let jid = XMPPJID(string: owner), jid.user != nil else { throw RoutingError.invalidOwner }
@@ -165,13 +166,7 @@ final class PrivacyProxyMediaRouter {
         let current = context(jid.bare)
         if isTrustedImage(url, jid: jid, context: current) { return url }
         if current.policy != .always, allowsConsent, hasImageConsent(url, owner: jid.bare) { return url }
-        guard current.usesProxy else {
-            // Installing a pack requests content from its HTTPS origin.
-            if allowsConsent, Self.matchesInstalledStickerOrigin(url, manifest: installedStickerPack) {
-                return url
-            }
-            throw RoutingError.imageConsentRequired
-        }
+        guard current.usesProxy else { throw RoutingError.imageConsentRequired }
         do {
             return try await resolveUsingProxy(url, jid: jid, current: current)
         } catch {
@@ -193,19 +188,23 @@ final class PrivacyProxyMediaRouter {
         return try await resolveUsingProxy(url, jid: jid, current: current)
     }
 
-    private func resolveUsingProxy(_ url: URL, jid: XMPPJID, current: Context) async throws -> URL {
+    private func resolveUsingProxy(
+        _ url: URL, jid: XMPPJID, current: Context, allowTrustedDirect: Bool = true
+    ) async throws -> URL {
         let owner = jid.bare
         if current.policy == .payed {
             pushRouting?.publishPremiumExpiration(current.premiumExpires, owner: owner)
         }
         pushRouting?.publish(endpoint: current.endpoint, trustedHosts: current.trustedHosts, owner: owner)
         let trustedHosts = current.trustedHosts + [jid.domain]
-        if PrivacyProxyPushRouting.matchesTrustedHost(url, trustedHosts: trustedHosts) {
+        if allowTrustedDirect, PrivacyProxyPushRouting.matchesTrustedHost(url, trustedHosts: trustedHosts) {
             return url
         }
         guard let endpoint = current.endpoint else { throw RoutingError.unavailable }
         if PrivacyProxyClient.isProxiedFileURL(url, endpoint: endpoint) { return url }
-        if let cached = pushRouting?.route(url, owner: owner, requiresPremium: current.policy == .payed) { return cached }
+        if let cached = pushRouting?.route(url, owner: owner, requiresPremium: current.policy == .payed,
+                                          allowTrustedDirect: allowTrustedDirect),
+           PrivacyProxyClient.isProxiedFileURL(cached, endpoint: endpoint) { return cached }
 
         let resolved = try await resolveExternal(url, owner)
         try Task.checkCancellation()
@@ -266,6 +265,11 @@ final class PrivacyProxyMediaRouter {
 
     func downloadImage(_ url: URL, owner: String) async throws -> URL {
         let resolved = try await resolveImage(url, owner: owner)
+        return try await download(from: resolved, originalURL: url)
+    }
+
+    func downloadSticker(_ url: URL, owner: String) async throws -> URL {
+        let resolved = try await resolveSticker(url, owner: owner)
         return try await download(from: resolved, originalURL: url)
     }
 

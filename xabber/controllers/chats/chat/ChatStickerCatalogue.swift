@@ -140,7 +140,6 @@ final class ChatStickerCatalogue {
     private let defaults: UserDefaults
     private let readManifest: (URL, String) async throws -> Data
     private var requests: [String: UUID] = [:]
-    private var stickerSources: [String: [URL: Set<URL>]] = [:]
 
     init(defaults: UserDefaults, readManifest: @escaping (URL, String) async throws -> Data = {
         url, owner in
@@ -158,17 +157,6 @@ final class ChatStickerCatalogue {
         guard let key = Self.key(for: owner), let data = defaults.data(forKey: key),
               let result = try? JSONDecoder().decode([ChatStickerPack].self, from: data) else { return [] }
         return result
-    }
-
-    func installedManifest(for attachment: ImageAttachment, owner: String) -> URL? {
-        guard let manifest = attachment.outgoingStickerPackURL, let imageURL = attachment.url,
-              attachment.encryptedAttachment == nil, let key = Self.key(for: owner) else { return nil }
-        if stickerSources[key] == nil {
-            stickerSources[key] = installed(for: owner).reduce(into: [:]) { sources, pack in
-                sources[pack.manifestURL] = Set(pack.stickers.map(\.imageURL))
-            }
-        }
-        return stickerSources[key]?[manifest]?.contains(imageURL) == true ? manifest : nil
     }
 
     @discardableResult
@@ -208,7 +196,6 @@ final class ChatStickerCatalogue {
     func removeAccount(_ owner: String) {
         guard let key = Self.key(for: owner) else { return }
         requests = requests.filter { !$0.key.hasPrefix(key + "|") }
-        stickerSources.removeValue(forKey: key)
         defaults.removeObject(forKey: key)
         NotificationCenter.default.post(name: Self.changed, object: owner)
     }
@@ -219,7 +206,6 @@ final class ChatStickerCatalogue {
             throw ChatStickerPackManifest.Failure.capacity
         }
         defaults.set(data, forKey: key)
-        stickerSources.removeValue(forKey: key)
         NotificationCenter.default.post(name: Self.changed, object: owner)
     }
 

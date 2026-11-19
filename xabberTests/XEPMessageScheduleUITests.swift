@@ -74,6 +74,19 @@ final class XEPMessageScheduleUITests: XCTestCase {
         XCTAssertNil(ScheduledMessageAttachmentPresentation(reference: reference).url)
     }
 
+    @MainActor
+    func testScheduledStickerPreviewUsesStickerKindWithoutManifest() {
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .sticker
+        reference.url = "https://stickers.example.test/party.webp"
+        reference.metadata = ["media-type": "image/webp"]
+
+        let preview = ScheduledMessageAttachmentPresentation(reference: reference)
+
+        XCTAssertEqual(preview.kind, .sticker)
+        XCTAssertEqual(preview.url?.absoluteString, reference.url)
+    }
+
     private func richScheduledItem() -> ScheduledMessageListItem {
         let uri = "https://example.test/report.pdf"
         return ScheduledMessageListItem(

@@ -27,7 +27,7 @@ struct ChatThumbnailRequest: Hashable {
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     let owner: String
     let allowsImageConsent: Bool
-    let installedStickerPack: URL?
+    let isSticker: Bool
 
     init(
         url: URL,
@@ -37,7 +37,7 @@ struct ChatThumbnailRequest: Hashable {
         encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
         owner: String = "",
         allowsImageConsent: Bool = true,
-        installedStickerPack: URL? = nil
+        isSticker: Bool = false
     ) {
         self.url = url
         self.displaySize = ChatCollectionPrefetchSize(
@@ -49,7 +49,7 @@ struct ChatThumbnailRequest: Hashable {
         self.encryptedAttachment = encryptedAttachment
         self.owner = owner
         self.allowsImageConsent = allowsImageConsent
-        self.installedStickerPack = installedStickerPack
+        self.isSticker = isSticker
     }
 
     var pixelSize: ChatCollectionPrefetchSize {
@@ -69,8 +69,8 @@ struct ChatThumbnailRequest: Hashable {
         let resource: String
         if let descriptor = encryptedAttachment, descriptor.requiresAuthentication {
             resource = "\(descriptor.state):\(descriptor.cacheIdentity)"
-        } else if let manifest = installedStickerPack?.absoluteString {
-            resource = "installed-sticker:\(owner.utf8.count):\(owner):\(manifest.utf8.count):\(manifest):\(url.absoluteString)"
+        } else if isSticker {
+            resource = "sticker:\(owner.utf8.count):\(owner):\(url.absoluteString)"
         } else {
             resource = url.absoluteString
         }
@@ -655,7 +655,7 @@ final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
             let modifier = PrivacyProxyImageRequestModifier(
                 owner: request.owner,
                 allowsConsent: request.allowsImageConsent,
-                installedStickerPack: request.installedStickerPack,
+                isSticker: request.isSticker,
                 onResolution: token.updateResolution,
                 onDownloadTaskStarted: token.update
             )
@@ -695,20 +695,20 @@ final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
 final class PrivacyProxyImageRequestModifier: AsyncImageDownloadRequestModifier {
     private let owner: String
     private let allowsConsent: Bool
-    private let installedStickerPack: URL?
+    private let isSticker: Bool
     private let onResolution: ((Task<Void, Never>) -> Void)?
     let onDownloadTaskStarted: ((DownloadTask?) -> Void)?
 
     init(
         owner: String,
         allowsConsent: Bool = true,
-        installedStickerPack: URL? = nil,
+        isSticker: Bool = false,
         onResolution: ((Task<Void, Never>) -> Void)? = nil,
         onDownloadTaskStarted: ((DownloadTask?) -> Void)? = nil
     ) {
         self.owner = owner
         self.allowsConsent = allowsConsent
-        self.installedStickerPack = installedStickerPack
+        self.isSticker = isSticker
         self.onResolution = onResolution
         self.onDownloadTaskStarted = onDownloadTaskStarted
     }
@@ -730,12 +730,17 @@ final class PrivacyProxyImageRequestModifier: AsyncImageDownloadRequestModifier 
 
     func modified(for request: URLRequest, reportModified: @escaping (URLRequest?) -> Void) {
         guard let url = request.url else { reportModified(nil); return }
-        let resolution = Task { [owner, allowsConsent, installedStickerPack] in
+        let resolution = Task { [owner, allowsConsent, isSticker] in
             do {
                 let router = PrivacyProxyMediaRouter.shared
-                let resolved = try await (allowsConsent
-                    ? router.resolveImage(url, owner: owner, installedStickerPack: installedStickerPack)
-                    : router.resolveAutomaticImage(url, owner: owner))
+                let resolved: URL
+                if isSticker {
+                    resolved = try await router.resolveSticker(url, owner: owner)
+                } else if allowsConsent {
+                    resolved = try await router.resolveImage(url, owner: owner)
+                } else {
+                    resolved = try await router.resolveAutomaticImage(url, owner: owner)
+                }
                 try Task.checkCancellation()
                 var routedRequest = request
                 routedRequest.url = resolved

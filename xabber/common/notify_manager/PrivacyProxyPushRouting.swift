@@ -79,8 +79,12 @@ struct PrivacyProxyPushRouting {
         }
     }
 
-    func route(_ url: URL, owner: String, requiresPremium: Bool = false, now: Date = Date()) -> URL? {
-        route(url, owner: owner, allowsMapping: true, requiresPremium: requiresPremium, now: now)
+    func route(
+        _ url: URL, owner: String, requiresPremium: Bool = false,
+        allowTrustedDirect: Bool = true, now: Date = Date()
+    ) -> URL? {
+        route(url, owner: owner, allowsMapping: true, requiresPremium: requiresPremium,
+              allowTrustedDirect: allowTrustedDirect, now: now)
     }
 
     func routeImage(
@@ -93,12 +97,13 @@ struct PrivacyProxyPushRouting {
     }
 
     private func route(
-        _ url: URL, owner: String, allowsMapping: Bool, requiresPremium: Bool, now: Date
+        _ url: URL, owner: String, allowsMapping: Bool, requiresPremium: Bool,
+        allowTrustedDirect: Bool = true, now: Date
     ) -> URL? {
         let snapshot = read(owner: owner)
         let domain = owner.split(separator: "@", maxSplits: 1).dropFirst().first.map(String.init)
         let trustedHosts = (snapshot?.trustedHosts ?? []) + [domain].compactMap { $0 }
-        if Self.matchesTrustedHost(url, trustedHosts: trustedHosts) {
+        if allowTrustedDirect, Self.matchesTrustedHost(url, trustedHosts: trustedHosts) {
             return url
         }
         guard allowsMapping,

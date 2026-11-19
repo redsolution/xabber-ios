@@ -43,11 +43,11 @@ struct ScheduledMessageDisplayContent {
 
 struct ScheduledMessageAttachmentPresentation: Equatable {
     enum Kind: Equatable {
-        case image, video, audio, voice, file
+        case image, sticker, video, audio, voice, file
 
         var symbol: String {
             switch self {
-            case .image: return "photo"
+            case .image, .sticker: return "photo"
             case .video: return "play.rectangle"
             case .audio, .voice: return "waveform"
             case .file: return "doc"
@@ -79,6 +79,7 @@ struct ScheduledMessageAttachmentPresentation: Equatable {
         encryptedAttachment = url != nil && descriptor.state == .encrypted ? descriptor : nil
         switch (reference.kind, mediaType.split(separator: "/").first) {
         case (.voice, _): kind = .voice
+        case (.sticker, _): kind = .sticker
         case (_, "image"): kind = .image
         case (_, "video"): kind = .video
         case (_, "audio"): kind = .audio
@@ -230,6 +231,8 @@ final class ScheduledAttachmentPreviewCoordinator: NSObject, QLPreviewController
                 if let descriptor = attachment.encryptedAttachment {
                     if attachment.kind == .image { _ = try await router.resolveImage(url, owner: owner) }
                     file = try await self.downloadProtected(descriptor, image: attachment.kind == .image)
+                } else if attachment.kind == .sticker {
+                    file = try await router.downloadSticker(url, owner: owner)
                 } else if attachment.kind == .image {
                     file = try await router.downloadImage(url, owner: owner)
                 } else {
@@ -287,7 +290,7 @@ final class ScheduledAttachmentPreviewCoordinator: NSObject, QLPreviewController
         switch kind {
         case .video, .audio, .voice:
             AVPlayerChatAttachmentPreviewVideoPresenter().presentVideo(playerItem: AVPlayerItem(url: url), from: presenter)
-        case .image, .file:
+        case .image, .sticker, .file:
             guard QLPreviewController.canPreview(url as NSURL) else {
                 presentUnavailable(from: presenter)
                 return

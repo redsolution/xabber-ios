@@ -248,11 +248,6 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
                 self?.choose(sticker, from: cell, schedules: true)
             })
         }
-        if cell.thumbnail.canRevealImage {
-            actions.append(UIAction(title: ExternalImageConsent.title, image: UIImage(systemName: "photo")) { [weak cell] _ in
-                cell?.thumbnail.reveal(sticker: sticker)
-            })
-        }
         return actions.isEmpty ? nil : UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: actions) }
     }
 
@@ -312,9 +307,6 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
                 return true
             })
         }
-        actions.append(UIAccessibilityCustomAction(name: ExternalImageConsent.title) { [weak self] _ in
-            self?.thumbnail.reveal(sticker: sticker) ?? false
-        })
         accessibilityCustomActions = actions
         thumbnail.load(sticker, owner: owner, size: 72)
     }
@@ -390,8 +382,6 @@ final class ChatStickerThumbnailView: UIView {
     private let placeholder = UILabel()
     private var subscription: ChatThumbnailSubscription?
     private var entry: ChatStickerEntry?
-    private var owner = ""
-    private var displaySize: CGFloat = 1
     private var binding = UUID()
 
     init(thumbnails: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared) {
@@ -418,24 +408,6 @@ final class ChatStickerThumbnailView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     deinit { subscription?.cancel() }
 
-    var canRevealImage: Bool {
-        guard let entry, imageView.image == nil else { return false }
-        return PrivacyProxyMediaRouter.shared.canRequestDirectImage(entry.imageURL, owner: owner)
-    }
-
-    @discardableResult
-    func reveal(sticker: ChatStickerEntry) -> Bool {
-        guard entry == sticker, canRevealImage else { return false }
-        let owner = owner
-        let binding = binding
-        ExternalImageConsent.present(for: sticker.imageURL, owner: owner, from: self,
-                                     shouldGrant: { [weak self] in self?.binding == binding }) { [weak self] in
-            guard let self, self.binding == binding else { return }
-            self.load(sticker, owner: owner, size: self.displaySize)
-        }
-        return true
-    }
-
     func inlineThumbnail(for sticker: ChatStickerEntry) -> Data? {
         guard entry == sticker, let image = imageView.image else { return nil }
         return ChatStickerWireCodec.thumbnail(from: image)
@@ -454,15 +426,13 @@ final class ChatStickerThumbnailView: UIView {
     func load(_ sticker: ChatStickerEntry, owner: String, size: CGFloat) {
         reset()
         entry = sticker
-        self.owner = owner
-        displaySize = size
         placeholder.text = sticker.emojis.first ?? "🖼️"
         let id = binding
         let request = ChatThumbnailRequest(
             url: sticker.imageURL, displaySize: ChatCollectionPrefetchSize(width: Double(size), height: Double(size)),
             scale: Double(window?.screen.scale ?? UIScreen.main.scale),
             traitStyle: ChatThumbnailTraitStyle(traitCollection.userInterfaceStyle), owner: owner,
-            installedStickerPack: sticker.packURL
+            isSticker: true
         )
         let consumer = ChatThumbnailConsumer(
             identity: ChatCollectionPrefetchIdentity(kind: .sticker, messagePrimary: owner,

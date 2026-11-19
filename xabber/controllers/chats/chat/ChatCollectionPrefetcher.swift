@@ -65,22 +65,19 @@ struct ChatCollectionPrefetchImageReference: Hashable {
     let previewURL: URL?
     let size: ChatCollectionPrefetchSize?
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
-    let installedStickerPack: URL?
 
     init(
         primary: String,
         url: URL?,
         previewURL: URL? = nil,
         size: ChatCollectionPrefetchSize? = nil,
-        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
-        installedStickerPack: URL? = nil
+        encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil
     ) {
         self.primary = primary
         self.url = url
         self.previewURL = previewURL
         self.size = size
         self.encryptedAttachment = encryptedAttachment
-        self.installedStickerPack = installedStickerPack
     }
 }
 
@@ -375,7 +372,7 @@ enum ChatCollectionPrefetchPlanner {
                     context: context,
                     encryptedAttachment: sticker.encryptedAttachment,
                     owner: item.owner,
-                    installedStickerPack: sticker.installedStickerPack
+                    isSticker: true
                 )
             ))
         }
@@ -463,7 +460,7 @@ enum ChatCollectionPrefetchPlanner {
         context: ChatCollectionPrefetchContext,
         encryptedAttachment: ChatEncryptedAttachmentDescriptor? = nil,
         owner: String,
-        installedStickerPack: URL? = nil
+        isSticker: Bool = false
     ) -> ChatCollectionPrefetchImageRequest {
         ChatCollectionPrefetchImageRequest(
             url: url,
@@ -472,7 +469,7 @@ enum ChatCollectionPrefetchPlanner {
             traitStyle: context.traitStyle,
             encryptedAttachment: encryptedAttachment,
             owner: owner,
-            installedStickerPack: installedStickerPack
+            isSticker: isSticker
         )
     }
 
@@ -689,7 +686,6 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
 }
 
 extension ChatViewController.Datasource {
-    @MainActor
     var collectionPrefetchItem: ChatCollectionPrefetchItem {
         let sticker: ChatCollectionPrefetchImageReference?
         if case .sticker(let attachment) = kind {
@@ -700,8 +696,7 @@ extension ChatViewController.Datasource {
                     width: Double(attachment.size.width),
                     height: Double(attachment.size.height)
                 ),
-                encryptedAttachment: attachment.encryptedAttachment,
-                installedStickerPack: ChatStickerCatalogue.shared.installedManifest(for: attachment, owner: owner)
+                encryptedAttachment: attachment.encryptedAttachment
             )
         } else {
             sticker = nil

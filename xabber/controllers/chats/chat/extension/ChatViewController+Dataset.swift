@@ -4425,7 +4425,6 @@ struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
     let isSensitiveRevealed: Bool
     let encryptedAttachment: ChatEncryptedAttachmentDescriptor?
     let inlineThumbnail: Data?
-    let outgoingStickerPackURL: URL?
 
     init(_ attachment: ImageAttachment) {
         self.primary = attachment.primary
@@ -4436,7 +4435,6 @@ struct ChatImageAttachmentSignature: Equatable, CustomStringConvertible {
         self.isSensitiveRevealed = attachment.isSensitiveRevealed
         self.encryptedAttachment = attachment.encryptedAttachment
         self.inlineThumbnail = attachment.inlineThumbnail
-        self.outgoingStickerPackURL = attachment.outgoingStickerPackURL
     }
 
     var description: String {
@@ -6582,8 +6580,7 @@ extension ChatViewController {
     }
 
     internal static func stickerAttachment(
-        from references: [ChatMessageReferenceSnapshot],
-        ownOriginalSticker: Bool = false
+        from references: [ChatMessageReferenceSnapshot]
     ) -> ImageAttachment? {
         guard let reference = references.first(where: {
             !$0.isLocallyHiddenByReport &&
@@ -6602,10 +6599,7 @@ extension ChatViewController {
             size: reference.sizeInPx ?? CGSize(square: 128),
             isSensitive: reference.isSensitive,
             encryptedAttachment: reference.encryptedAttachment,
-            inlineThumbnail: ChatStickerWireCodec.inlineThumbnail(metadata: reference.metadata),
-            outgoingStickerPackURL: ownOriginalSticker && reference.kind == .sticker
-                ? (reference.metadata?[ChatStickerWireCodec.packMetadataKey] as? String).flatMap(ChatStickerPackManifest.manifestURL)
-                : nil
+            inlineThumbnail: ChatStickerWireCodec.inlineThumbnail(metadata: reference.metadata)
         )
     }
 
@@ -6916,8 +6910,7 @@ extension ChatViewController {
             )
         case .sticker:
             guard let attachment = Self.stickerAttachment(
-                from: snapshot.presentation.visibleReferences,
-                ownOriginalSticker: snapshot.outgoing && !snapshot.presentation.isSavedForward
+                from: snapshot.presentation.visibleReferences
             ) else {
                 return .attributedText(NSAttributedString())
             }
