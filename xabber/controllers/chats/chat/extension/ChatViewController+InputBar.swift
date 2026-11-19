@@ -257,6 +257,10 @@ extension ChatViewController {
         inlineStickerPanelHeightConstraint = height
         inlineStickerPanel = panel
         panel.didMove(toParent: self)
+        UIView.performWithoutAnimation {
+            view.layoutIfNeeded()
+            panelView.layoutIfNeeded()
+        }
     }
 
     func setInlineStickerPanelVisible(
@@ -273,8 +277,14 @@ extension ChatViewController {
         height.constant = inlineStickerPanelContentHeight + view.safeAreaInsets.bottom
         let offscreen = CGAffineTransform(translationX: 0, y: height.constant)
         if visible && panelView.isHidden {
-            panelView.transform = offscreen
-            panelView.isHidden = false
+            // Settle the geometry before moving the panel, including after a resize while closed.
+            UIView.performWithoutAnimation {
+                panelView.transform = .identity
+                view.layoutIfNeeded()
+                panelView.layoutIfNeeded()
+                panelView.transform = offscreen
+                panelView.isHidden = false
+            }
         }
         isInlineStickerPanelVisible = visible
         panelView.isUserInteractionEnabled = visible

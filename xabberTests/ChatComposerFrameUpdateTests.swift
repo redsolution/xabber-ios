@@ -72,6 +72,25 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
     }
 
     @MainActor
+    func testFirstStickerPanelInstallSettlesRestingFrameBeforeAnimation() throws {
+        let chat = makeStickerChat()
+        defer { chat.performTerminalChatResourceTeardownForTesting() }
+        let panel = ChatStickerPickerViewController(
+            owner: chat.owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        let height = chat.inlineStickerPanelContentHeight + chat.view.safeAreaInsets.bottom
+
+        chat.installInlineStickerPanel(panel)
+
+        let panelView = try XCTUnwrap(panel.viewIfLoaded)
+        XCTAssertTrue(panelView.isHidden)
+        XCTAssertEqual(panelView.frame.minX, chat.view.bounds.minX, accuracy: 0.5)
+        XCTAssertEqual(panelView.frame.width, chat.view.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(panelView.frame.height, height, accuracy: 0.5)
+        XCTAssertEqual(panelView.frame.maxY, chat.view.bounds.maxY, accuracy: 0.5)
+    }
+
+    @MainActor
     func testChatEmbedsStickerPanelAndPreservesDraftAcrossToggle() throws {
         let chat = makeStickerChat()
         defer { chat.performTerminalChatResourceTeardownForTesting() }

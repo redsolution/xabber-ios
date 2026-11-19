@@ -28,6 +28,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     private var installTasks: [URL: Task<Void, Never>] = [:]
     private var installStates: [URL: StarterInstallState] = [:]
 
+    private let panelSurface = UIVisualEffectView()
     private let layout = UICollectionViewFlowLayout()
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private lazy var packStrip = UICollectionView(frame: .zero, collectionViewLayout: makePackStripLayout())
@@ -72,8 +73,19 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .secondarySystemBackground
+        view.backgroundColor = .clear
+        view.isOpaque = false
         view.accessibilityIdentifier = "chat.stickers.panel"
+
+        panelSurface.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(panelSurface)
+        NSLayoutConstraint.activate([
+            panelSurface.topAnchor.constraint(equalTo: view.topAnchor),
+            panelSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            panelSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panelSurface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        updatePanelSurface(reduceTransparency: UIAccessibility.isReduceTransparencyEnabled)
 
         layout.sectionInset = UIEdgeInsets(top: 8, left: 12, bottom: 12, right: 12)
         layout.minimumInteritemSpacing = 6
@@ -95,7 +107,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         let safeArea = view.safeAreaLayoutGuide
         for child in [toolbar, collection, starterScroll] {
             child.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(child)
+            panelSurface.contentView.addSubview(child)
             NSLayoutConstraint.activate([
                 child.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
                 child.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor)
@@ -112,7 +124,35 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
 
         NotificationCenter.default.addObserver(self, selector: #selector(catalogueChanged(_:)),
                                                name: ChatStickerCatalogue.changed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(reduceTransparencyDidChange),
+                                               name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+                                               object: nil)
         reloadCatalogue()
+    }
+
+    @objc private func reduceTransparencyDidChange() {
+        updatePanelSurface(reduceTransparency: UIAccessibility.isReduceTransparencyEnabled)
+    }
+
+    func updatePanelSurface(reduceTransparency: Bool) {
+        NativeGlassBarStyle.applySurface(
+            to: panelSurface,
+            role: .sheet,
+            interactive: false,
+            prefersNativeGlass: !reduceTransparency,
+            nativeGlassStyle: .clear,
+            maskedCorners: [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        )
+        if #available(iOS 26.0, *) {
+            panelSurface.cornerConfiguration = .uniformEdges(
+                topRadius: .fixed(Double(NativeGlassBarStyle.cornerRadius)),
+                bottomRadius: .fixed(0)
+            )
+        }
+        if reduceTransparency {
+            panelSurface.backgroundColor = .secondarySystemBackground
+            panelSurface.contentView.backgroundColor = .secondarySystemBackground
+        }
     }
 
     private var selectedPack: ChatStickerPack? { packs.first { $0.manifestURL == selectedPackURL } }

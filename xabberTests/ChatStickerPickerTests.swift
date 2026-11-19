@@ -7,6 +7,44 @@ final class ChatStickerPickerTests: XCTestCase {
     private let manifestURL = URL(string: "https://stickers.example.com/owls/pack.xml")!
     private let owner = "first@example.com"
 
+    func testInlinePickerUsesSystemGlassForItsToolbarAndGrid() throws {
+        let panel = ChatStickerPickerViewController(
+            owner: owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        panel.loadViewIfNeeded()
+        panel.updatePanelSurface(reduceTransparency: false)
+
+        let surface = try XCTUnwrap(panel.view.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        if #available(iOS 26.0, *) {
+            XCTAssertTrue(surface.effect is UIGlassEffect)
+        } else {
+            XCTAssertTrue(surface.effect is UIBlurEffect)
+        }
+        XCTAssertEqual(panel.view.backgroundColor, UIColor.clear)
+        XCTAssertEqual(surface.backgroundColor, UIColor.clear)
+        XCTAssertNotNil(viewWithIdentifier("chat.stickers.keyboard", in: surface.contentView))
+        XCTAssertNotNil(viewWithIdentifier("chat.stickers.picker", in: surface.contentView))
+    }
+
+    func testInlinePickerBecomesOpaqueWhenTransparencyIsReduced() throws {
+        let panel = ChatStickerPickerViewController(
+            owner: owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        panel.loadViewIfNeeded()
+
+        panel.updatePanelSurface(reduceTransparency: true)
+
+        let surface = try XCTUnwrap(panel.view.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        XCTAssertEqual(surface.backgroundColor, UIColor.secondarySystemBackground)
+        XCTAssertEqual(surface.contentView.backgroundColor, UIColor.secondarySystemBackground)
+
+        panel.updatePanelSurface(reduceTransparency: false)
+
+        XCTAssertNotNil(surface.effect)
+        XCTAssertEqual(surface.backgroundColor, UIColor.clear)
+        XCTAssertEqual(surface.contentView.backgroundColor, UIColor.clear)
+    }
+
     func testManifestPreservesEmojiMetadataAndEscapesFilenames() throws {
         let pack = try ChatStickerPackManifest.parse(Data(xml(version: 2).utf8), url: manifestURL)
         let entry = try XCTUnwrap(pack.stickers.first)
