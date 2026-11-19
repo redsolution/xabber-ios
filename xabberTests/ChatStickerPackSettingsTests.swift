@@ -126,7 +126,7 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         XCTAssertTrue(preloader.requests.allSatisfy { $0.owner == owner })
     }
 
-    func testRecentStickersRankByFrequencyThenRecencyAcrossCatalogueReload() async throws {
+    func testRecentStickersSortByLastUseAcrossCatalogueReload() async throws {
         let suite = "ChatStickerUsageTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -142,7 +142,7 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         }
 
         let reloaded = ChatStickerCatalogue(defaults: defaults)
-        XCTAssertEqual(reloaded.recentStickers(for: owner).map(\.name), ["Second", "First", "Fourth", "Third"])
+        XCTAssertEqual(reloaded.recentStickers(for: owner).map(\.name), ["Fourth", "Second", "Third", "First"])
     }
 
     func testRecentStickerUsageIsAccountScopedAndClearedOnAccountRemoval() async throws {
@@ -184,17 +184,25 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         XCTAssertTrue(catalogue.recentStickers(for: owner).isEmpty)
     }
 
-    func testRecentStickersLimitsDisplayedEntriesToTheTopTwentyFour() async throws {
+    func testRecentStickersShowsOnlySixAndMovesAResentStickerToTheFront() async throws {
         let suite = "ChatStickerUsageTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let names = (0..<27).map { "Sticker\($0)" }
+        let names = (0..<8).map { "Sticker\($0)" }
         let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in Self.usageManifest(names) }
         let pack = try await catalogue.install(ChatStickerStarterPack.all[0].manifestURL, owner: owner)
 
         pack.stickers.forEach { catalogue.recordStickerUse($0.descriptor(), owner: owner) }
 
-        XCTAssertEqual(catalogue.recentStickers(for: owner).map(\.name), Array(names.suffix(24).reversed()))
+        XCTAssertEqual(catalogue.recentStickers(for: owner).map(\.name), Array(names.suffix(6).reversed()))
+
+        catalogue.recordStickerUse(pack.stickers[0].descriptor(), owner: owner)
+        catalogue.recordStickerUse(pack.stickers[0].descriptor(), owner: owner)
+
+        XCTAssertEqual(
+            catalogue.recentStickers(for: owner).map(\.name),
+            [names[0]] + Array(names.suffix(5).reversed())
+        )
     }
 
     private static func usageManifest(_ names: [String], version: Int = 1, labelPrefix: String = "") -> Data {

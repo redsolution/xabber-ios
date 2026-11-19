@@ -42,11 +42,37 @@ final class ChatStickerKeyboardInputView: UIInputView {
     }
 }
 
-final class ChatStickerKeyboardResponder: UIView, UIKeyInput {
+final class ChatStickerKeyboardInputController: UIInputViewController {
     let keyboard: ChatStickerKeyboardInputView
 
     init(keyboard: ChatStickerKeyboardInputView) {
         self.keyboard = keyboard
+        super.init(nibName: nil, bundle: nil)
+        inputView = keyboard
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func embed(_ panel: ChatStickerPickerViewController) {
+        addChild(panel)
+        let panelView = panel.view!
+        panelView.translatesAutoresizingMaskIntoConstraints = false
+        keyboard.addSubview(panelView)
+        NSLayoutConstraint.activate([
+            panelView.leadingAnchor.constraint(equalTo: keyboard.leadingAnchor),
+            panelView.trailingAnchor.constraint(equalTo: keyboard.trailingAnchor),
+            panelView.topAnchor.constraint(equalTo: keyboard.topAnchor),
+            panelView.bottomAnchor.constraint(equalTo: keyboard.bottomAnchor)
+        ])
+        panel.didMove(toParent: self)
+    }
+}
+
+final class ChatStickerKeyboardResponder: UIView, UIKeyInput {
+    let keyboardController: ChatStickerKeyboardInputController
+
+    init(keyboardController: ChatStickerKeyboardInputController) {
+        self.keyboardController = keyboardController
         super.init(frame: .zero)
         accessibilityElementsHidden = true
     }
@@ -54,7 +80,7 @@ final class ChatStickerKeyboardResponder: UIView, UIKeyInput {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var canBecomeFirstResponder: Bool { true }
-    override var inputView: UIView? { keyboard }
+    override var inputViewController: UIInputViewController? { keyboardController }
 
     var hasText: Bool { false }
     func insertText(_ text: String) {}
@@ -280,33 +306,26 @@ extension ChatViewController {
     }
 
     func installInlineStickerPanel(_ panel: ChatStickerPickerViewController) {
-        addChild(panel)
         inlineStickerPanel = panel
         if #available(iOS 26.0, *),
            traitCollection.userInterfaceIdiom == .phone,
            view.window != nil {
             let height = inlineStickerPanelContentHeight + view.safeAreaInsets.bottom
             let keyboard = ChatStickerKeyboardInputView(width: view.bounds.width, height: height)
-            let responder = ChatStickerKeyboardResponder(keyboard: keyboard)
+            // Keep the picker in the keyboard's controller hierarchy when UIKit moves it to its input window.
+            let keyboardController = ChatStickerKeyboardInputController(keyboard: keyboard)
+            let responder = ChatStickerKeyboardResponder(keyboardController: keyboardController)
             view.addSubview(responder)
             stickerKeyboardResponder = responder
             panel.setKeyboardHostBottomInset(view.safeAreaInsets.bottom)
-            let panelView = panel.view!
-            panelView.translatesAutoresizingMaskIntoConstraints = false
-            keyboard.addSubview(panelView)
-            NSLayoutConstraint.activate([
-                panelView.leadingAnchor.constraint(equalTo: keyboard.leadingAnchor),
-                panelView.trailingAnchor.constraint(equalTo: keyboard.trailingAnchor),
-                panelView.topAnchor.constraint(equalTo: keyboard.topAnchor),
-                panelView.bottomAnchor.constraint(equalTo: keyboard.bottomAnchor)
-            ])
+            keyboardController.embed(panel)
         } else {
             attachStickerPanelToChat(panel)
         }
-        panel.didMove(toParent: self)
     }
 
     private func attachStickerPanelToChat(_ panel: ChatStickerPickerViewController) {
+        addChild(panel)
         panel.setKeyboardHostBottomInset(nil)
         let panelView = panel.view!
         panelView.isHidden = true
@@ -322,6 +341,7 @@ extension ChatViewController {
             height
         ])
         inlineStickerPanelHeightConstraint = height
+        panel.didMove(toParent: self)
         UIView.performWithoutAnimation {
             view.layoutIfNeeded()
             panelView.layoutIfNeeded()
@@ -362,9 +382,11 @@ extension ChatViewController {
             lastAppliedChatKeyboardLayoutSignature = nil
             currentChatKeyboardVisibleHeight = 0
             if let responder = stickerKeyboardResponder, !responder.becomeFirstResponder() {
+                panel.willMove(toParent: nil)
+                panelView.removeFromSuperview()
+                panel.removeFromParent()
                 responder.removeFromSuperview()
                 stickerKeyboardResponder = nil
-                panelView.removeFromSuperview()
                 attachStickerPanelToChat(panel)
             }
             if stickerKeyboardInputView == nil {
@@ -459,14 +481,14 @@ extension ChatViewController {
         let wasVisible = isInlineStickerPanelVisible
         isInlineStickerPanelVisible = false
         suspendStickerKeyboard()
+        panel.willMove(toParent: nil)
+        panel.viewIfLoaded?.removeFromSuperview()
+        panel.removeFromParent()
         stickerKeyboardResponder?.removeFromSuperview()
         stickerKeyboardResponder = nil
         inlineStickerPanel = nil
         inlineStickerPanelHeightConstraint = nil
         stickerPackSettingsController = nil
-        panel.willMove(toParent: nil)
-        panel.viewIfLoaded?.removeFromSuperview()
-        panel.removeFromParent()
         messagesCollectionView.keyboardDismissMode = .interactive
         xabberInputView?.isHidden = false
         if wasVisible {

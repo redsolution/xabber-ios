@@ -4606,7 +4606,7 @@ class ChatViewController: MessagesViewController {
     internal var inlineStickerPanelHeightConstraint: NSLayoutConstraint?
     internal var stickerKeyboardResponder: ChatStickerKeyboardResponder?
     internal var stickerKeyboardInputView: ChatStickerKeyboardInputView? {
-        stickerKeyboardResponder?.keyboard
+        stickerKeyboardResponder?.keyboardController.keyboard
     }
     internal var isInlineStickerPanelVisible = false
     internal weak var stickerPackSettingsController: ChatStickerPackSettingsViewController?

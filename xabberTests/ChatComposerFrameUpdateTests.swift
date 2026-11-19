@@ -85,7 +85,7 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
     }
 
     @MainActor
-    func testVisiblePhoneChatOpensStickerPanelAsResponderInputAndClosesIt() async throws {
+    func testVisiblePhoneChatReopensStickerPanelAfterSwitchingToSystemKeyboard() async throws {
         guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone else {
             throw XCTSkip("The phone uses the native sticker keyboard on iOS 26.")
         }
@@ -106,13 +106,20 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         let panel = ChatStickerPickerViewController(
             owner: chat.owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
         )
+        let textField = chat.xabberInputView.textField
+        let selection = NSRange(location: 2, length: 0)
+        textField.text = "Draft"
+        textField.selectedRange = selection
         chat.installInlineStickerPanel(panel)
         let responder = try XCTUnwrap(chat.stickerKeyboardResponder)
         chat.setInlineStickerPanelVisible(true)
 
-        let input = try XCTUnwrap(responder.inputView as? UIInputView)
+        let keyboardController = try XCTUnwrap(responder.inputViewController)
+        let input = try XCTUnwrap(keyboardController.inputView)
         XCTAssertEqual(input.inputViewStyle, .keyboard)
+        XCTAssertTrue(keyboardController.view === input)
         XCTAssertTrue(responder.isFirstResponder)
+        XCTAssertTrue(panel.parent === keyboardController)
         XCTAssertTrue(chat.inlineStickerPanel?.viewIfLoaded?.superview === input)
         XCTAssertTrue(chat.xabberInputView.isHidden)
         let attached = expectation(for: NSPredicate { _, _ in
@@ -120,9 +127,37 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
         }, evaluatedWith: nil)
         await fulfillment(of: [attached], timeout: 3)
 
+        chat.setInlineStickerPanelVisible(false, focusComposer: true)
+
+        let composerKeyboardVisible = expectation(for: NSPredicate { _, _ in
+            MainActor.assumeIsolated {
+                textField.isFirstResponder && chat.currentChatKeyboardVisibleHeight > 0
+            }
+        }, evaluatedWith: nil)
+        await fulfillment(of: [composerKeyboardVisible], timeout: 3)
+        XCTAssertFalse(responder.isFirstResponder)
+        XCTAssertFalse(chat.xabberInputView.isHidden)
+        XCTAssertEqual(textField.text, "Draft")
+        XCTAssertEqual(textField.selectedRange, selection)
+
+        chat.setInlineStickerPanelVisible(true)
+
+        let reopenedResponder = try XCTUnwrap(chat.stickerKeyboardResponder)
+        let reopenedController = try XCTUnwrap(reopenedResponder.inputViewController)
+        let reopenedInput = try XCTUnwrap(reopenedController.inputView)
+        let reattached = expectation(for: NSPredicate { _, _ in
+            MainActor.assumeIsolated { reopenedInput.window != nil && reopenedInput.bounds.height > 0 }
+        }, evaluatedWith: nil)
+        await fulfillment(of: [reattached], timeout: 3)
+        XCTAssertTrue(reopenedResponder.isFirstResponder)
+        XCTAssertFalse(textField.isFirstResponder)
+        XCTAssertTrue(panel.parent === reopenedController)
+        XCTAssertTrue(panel.viewIfLoaded?.superview === reopenedInput)
+        XCTAssertTrue(chat.xabberInputView.isHidden)
+
         chat.setInlineStickerPanelVisible(false, animated: false)
 
-        XCTAssertFalse(responder.isFirstResponder)
+        XCTAssertFalse(reopenedResponder.isFirstResponder)
         XCTAssertFalse(chat.xabberInputView.isHidden)
     }
 

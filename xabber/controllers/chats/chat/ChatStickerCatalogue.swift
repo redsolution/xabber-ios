@@ -164,10 +164,11 @@ final class ChatStickerCatalogue {
     static let recentlyUsedChanged = Notification.Name("chat.stickerCatalogue.recentlyUsedChanged")
     private static let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()) ?? .standard
     private static let recentUsagePrefix = "chat.stickerUsage.v1."
-    private static let recentStickerLimit = 24
+    private static let recentStickerLimit = 6
     static let shared = ChatStickerCatalogue(defaults: defaults, imagePreloader: ChatStickerPackImagePreloader())
 
     private struct StickerUse: Codable {
+        // Retain the persisted v1 format for older builds that also read this history.
         let count: Int
         let sequence: Int
     }
@@ -209,16 +210,13 @@ final class ChatStickerCatalogue {
             .filter { usage[$0.imageURL.absoluteString] != nil }
             .map { ($0.imageURL.absoluteString, $0) }
         let entriesByURL = Dictionary(usedEntries, uniquingKeysWith: { first, _ in first })
-        let rankedUsage = usage.sorted { lhs, rhs in
-            if lhs.value.count != rhs.value.count {
-                return lhs.value.count > rhs.value.count
-            }
+        let newestFirst = usage.sorted { lhs, rhs in
             if lhs.value.sequence != rhs.value.sequence {
                 return lhs.value.sequence > rhs.value.sequence
             }
             return lhs.key < rhs.key
         }
-        return Array(rankedUsage.lazy.compactMap { entriesByURL[$0.key] }.prefix(Self.recentStickerLimit))
+        return Array(newestFirst.lazy.compactMap { entriesByURL[$0.key] }.prefix(Self.recentStickerLimit))
     }
 
     func recordStickerUse(_ sticker: ChatStickerDescriptor, owner: String) {
