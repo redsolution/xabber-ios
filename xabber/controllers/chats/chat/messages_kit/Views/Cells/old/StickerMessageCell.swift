@@ -50,6 +50,7 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     private var representedThumbnailConsumer: ChatThumbnailConsumer?
     private var thumbnailSubscription: ChatThumbnailSubscription?
     private var deliveryState: DeliveryState = .idle
+    private var timeMarkerHasContent = false
     private let visibleConsumerID = UUID()
 
     override func didMoveToWindow() {
@@ -92,14 +93,16 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             let warningSize = attributes.warningInlineViewSize
             warningLabel.frame = CGRect(x: alignedX(for: warningSize.width), y: stickerSize.height,
                                          width: warningSize.width, height: warningSize.height)
-            timeMarker.isHidden = markerSize == .zero
-            if !timeMarker.isHidden {
+            if markerSize.width > 0, markerSize.height > 0 {
                 let markerFrame = CGRect(x: stickerX + stickerSize.width - markerSize.width - markerInsets.right,
                                          y: stickerSize.height - markerSize.height - markerInsets.bottom,
                                          width: markerSize.width, height: markerSize.height)
                 timeMarker.updateImageStyle(frame: markerFrame, indicator: attributes.timeMarkerIndicator,
                                             tail: attributes.tail, cornerRadius: attributes.cornerRadius)
+            } else {
+                timeMarker.frame = .zero
             }
+            updateTimeMarkerVisibility()
             refreshStickerBinding()
         }
     }
@@ -116,7 +119,9 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         imageView.image = nil
         warningLabel.text = nil
         warningLabel.isHidden = true
-        timeMarker.isHidden = true
+        timeMarkerHasContent = false
+        timeMarker.configure(text: NSAttributedString(string: ""), indicator: .none, withBackplate: false)
+        updateTimeMarkerVisibility()
     }
 
     func cancelOffscreenWork() {
@@ -164,9 +169,15 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         warningLabel.text = message.messageWarningText
         warningLabel.isHidden = message.messageWarningText == nil
         guard case .sticker(let attachment) = message.kind else { return }
+        timeMarkerHasContent = message.timeMarkerText.length > 0 || message.indicator != .none
         timeMarker.configure(text: message.timeMarkerText, indicator: message.indicator, withBackplate: true)
+        updateTimeMarkerVisibility()
         represent(attachment, messagePrimary: message.primary, owner: message.owner)
         refreshStickerBinding()
+    }
+
+    private func updateTimeMarkerVisibility() {
+        timeMarker.isHidden = !timeMarkerHasContent || timeMarker.frame.isEmpty
     }
 
     func bindSticker(

@@ -436,6 +436,86 @@ final class ChatStickerPipelineTests: XCTestCase {
         assertStickerSurfaceIsTransparent(cell)
     }
 
+    func testStickerTimeMarkerReappearsAfterReuseWithoutFreshLayout() throws {
+        let size = CGSize(width: 120, height: 120)
+        var first = datasource(sticker: ImageAttachment(primary: "first-sticker", size: size))
+        first.outgoing = true
+        first.isOutgoing = true
+        first.indicator = .sending
+        var next = datasource(
+            sticker: ImageAttachment(primary: "next-sticker", size: size), messagePrimary: "next-message"
+        )
+        next.outgoing = true
+        next.isOutgoing = true
+        next.timeMarkerText = NSAttributedString(string: "12:01")
+        next.indicator = .read
+        let controller = ChatViewController()
+        defer { _ = controller }
+        controller.owner = first.owner
+        controller.jid = first.jid
+        let collection = MessagesCollectionView()
+        collection.messagesDataSource = controller
+        let indexPath = IndexPath(item: 0, section: 0)
+        let layout = ChatMessageLayoutCalculator.measure(first, stickerLayoutContext)
+        let attributes = MessagesCollectionViewLayoutAttributes(forCellWith: indexPath)
+        layout.apply(to: attributes)
+        let cell = StickerMessageCell(frame: CGRect(origin: .zero, size: layout.cellSize))
+
+        cell.configure(with: first, at: indexPath, and: collection)
+        cell.apply(attributes)
+        let originalFrame = cell.timeMarker.frame
+        let firstIndicator = try XCTUnwrap(cell.timeMarker.indicatorView.image(for: .normal))
+        XCTAssertFalse(cell.timeMarker.isHidden)
+        XCTAssertTrue(cell.imageView.frame.contains(originalFrame))
+
+        cell.cancelOffscreenWork()
+        cell.prepareForReuse()
+        XCTAssertTrue(cell.timeMarker.isHidden)
+        XCTAssertEqual(cell.timeMarker.textLabel.attributedText?.string, "")
+        XCTAssertNil(cell.timeMarker.indicatorView.image(for: .normal))
+
+        cell.configure(with: next, at: indexPath, and: collection)
+        cell.resumeOnscreenWork()
+
+        XCTAssertFalse(cell.timeMarker.isHidden)
+        XCTAssertEqual(cell.timeMarker.frame, originalFrame)
+        XCTAssertEqual(cell.timeMarker.textLabel.attributedText?.string, "12:01")
+        let nextIndicator = try XCTUnwrap(cell.timeMarker.indicatorView.image(for: .normal))
+        XCTAssertFalse(nextIndicator.isEqual(firstIndicator))
+    }
+
+    func testStickerMarkerWaitsForContentWhenLayoutIsAppliedFirst() {
+        let message = datasource(sticker: ImageAttachment(primary: "sticker", size: CGSize(width: 120, height: 120)))
+        let controller = ChatViewController()
+        defer { _ = controller }
+        controller.owner = message.owner
+        controller.jid = message.jid
+        let collection = MessagesCollectionView()
+        collection.messagesDataSource = controller
+        let indexPath = IndexPath(item: 0, section: 0)
+        let layout = ChatMessageLayoutCalculator.measure(message, stickerLayoutContext)
+        let attributes = MessagesCollectionViewLayoutAttributes(forCellWith: indexPath)
+        layout.apply(to: attributes)
+        let cell = StickerMessageCell(frame: CGRect(origin: .zero, size: layout.cellSize))
+
+        cell.apply(attributes)
+        XCTAssertTrue(cell.timeMarker.isHidden)
+
+        cell.configure(with: message, at: indexPath, and: collection)
+
+        XCTAssertFalse(cell.timeMarker.isHidden)
+        XCTAssertEqual(cell.timeMarker.textLabel.attributedText?.string, "12:00")
+        XCTAssertTrue(cell.imageView.frame.contains(cell.timeMarker.frame))
+
+        let fallback = MessagesCollectionViewLayoutAttributes(forCellWith: indexPath)
+        ChatMessageLayout.fallback(for: message, width: layout.cellSize.width).apply(to: fallback)
+        cell.apply(fallback)
+        cell.reconfigureContent(with: message, at: indexPath, and: collection, changeMask: [.chrome])
+        XCTAssertTrue(cell.timeMarker.isHidden)
+        cell.apply(attributes)
+        XCTAssertFalse(cell.timeMarker.isHidden)
+    }
+
     func testStickerBindingCancelsOldRequestAndRejectsDelayedReuseCompletion() throws {
         let serving = RecordingStickerThumbnailServing()
         let cell = StickerMessageCell(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
@@ -688,14 +768,14 @@ final class ChatStickerPipelineTests: XCTestCase {
         )
     }
 
-    private func datasource(sticker: ImageAttachment) -> ChatViewController.Datasource {
+    private func datasource(sticker: ImageAttachment, messagePrimary: String = "message") -> ChatViewController.Datasource {
         ChatViewController.Datasource(
-            primary: "message",
+            primary: messagePrimary,
             jid: "alexey@example.com",
             owner: "owner@example.com",
             outgoing: false,
             sender: Sender(id: "alexey@example.com", displayName: "Alexey"),
-            messageId: "message-id",
+            messageId: messagePrimary + "-id",
             sentDate: Date(timeIntervalSince1970: 100),
             editDate: nil,
             kind: .sticker(sticker),
