@@ -916,13 +916,14 @@ struct ChatMessageDisplaySnapshot {
     let presentation: Presentation
 
     init(item: MessageStorageItem, presentation: SavedMessageDisplayPolicy.Presentation) {
+        let storedSticker = item.recoverStoredStickerReference()
         self.primary = item.primary
         self.owner = item.owner
         self.opponent = item.opponent
         self.conversationType = item.conversationType
         self.outgoing = item.outgoing
         self.messageId = item.messageId
-        self.displayAs = item.displayAs
+        self.displayAs = storedSticker == nil ? item.displayAs : .sticker
         self.body = item.body
         self.legacyBody = item.legacyBody
         self.bodyForAttachmentRendering = item.bodyForAttachmentRendering
@@ -941,7 +942,10 @@ struct ChatMessageDisplaySnapshot {
         self.groupchatAuthorBadge = item.groupchatAuthorBadge
         self.groupchatMetadata = item.groupchatMetadata
         self.isHasAttachedMessages = item.isHasAttachedMessages
-        let visibleReferences = presentation.visibleReferences.map(ChatMessageReferenceSnapshot.init)
+        var visibleReferences = presentation.visibleReferences.map(ChatMessageReferenceSnapshot.init)
+        if let storedSticker {
+            visibleReferences.append(ChatMessageReferenceSnapshot(storedSticker))
+        }
         let visibleForwards = presentation.visibleForwards.map { ChatMessageForwardSnapshot($0) }
         self.presentation = Presentation(
             isSavedMessage: presentation.isSavedMessage,

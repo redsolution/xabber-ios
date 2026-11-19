@@ -1725,6 +1725,32 @@ class MessageStorageItem: Object {
         }
     }
     
+    /// Older clients could store a sticker as its emoji fallback while retaining
+    /// the original plaintext stanza. Rebuild only the display reference.
+    func recoverStoredStickerReference() -> MessageReferenceStorageItem? {
+        guard displayAs == .text, conversationType == .regular,
+              !isDeleted, deleteState == .visible, !isLocallyHiddenByReport, editDate == nil,
+              references.isEmpty, inlineForwards.isEmpty,
+              body.trimmingCharacters(in: .whitespacesAndNewlines).count == 1,
+              primary.isNotEmpty, messageId.isNotEmpty, let realm,
+              let stored = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: primary + "_stanza"),
+              stored.owner == owner, stored.messageId == messageId,
+              stored.stanza.contains(ChatStickerWireCodec.namespace),
+              let stanza = try? XMPPMessage(xmlString: stored.stanza),
+              stanza.attributeStringValue(forName: "type") == "chat",
+              stanza.from?.bare == (outgoing ? owner : opponent),
+              stanza.to?.bare == (outgoing ? opponent : owner),
+              SCEReceivePolicy.children(of: stanza, named: "body", xmlns: SCEReceivePolicy.client).first?.stringValue == body,
+              stanza.element(forName: "encrypted") == nil,
+              !SCEReceivePolicy.containsOMEMO2(stanza) else { return nil }
+
+        let recovered = parseReferences(stanza, primary: primary, jid: opponent, owner: owner, sourceDate: sentDate)
+        guard recovered.count == 1, let sticker = recovered.first, sticker.kind == .sticker else { return nil }
+        sticker.messageId = primary
+        sticker.primary = primary + "_stored_sticker"
+        return sticker
+    }
+
     internal func updateDisplayMode() {
         let contentReferences = references.filter { $0.kind != .groupchat }
         displayAs = contentReferences.count == 1 && contentReferences.first?.kind == .sticker

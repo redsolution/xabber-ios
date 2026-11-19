@@ -1,3 +1,4 @@
+import RealmSwift
 import XCTest
 import XMPPFramework
 @testable import xabber
@@ -54,6 +55,58 @@ final class ChatStickerPipelineTests: XCTestCase {
         XCTAssertEqual(request.owner, owner)
         try XCTUnwrap(serving.subscriptions.first).emit(.success(delivery(color: .green, size: 64)))
         XCTAssertNotNil(cell.imageView.image)
+    }
+
+    func testHistoricalPlaintextStickerUsesStoredXMLInChatWithoutChangingStoredRow() throws {
+        try withStoredPlaintextSticker { row in
+            let recovered = try XCTUnwrap(row.recoverStoredStickerReference())
+            XCTAssertEqual(recovered.kind, .sticker)
+            XCTAssertEqual(recovered.fileSharingURI, "https://files.example.test/party/party.webp")
+            XCTAssertEqual(recovered.messageId, row.primary)
+            XCTAssertEqual(ChatStickerWireCodec.inlineThumbnail(metadata: recovered.metadata), thumbnailData)
+
+            let presentation = SavedMessageDisplayPolicy.presentation(for: row, currentUserJid: row.owner)
+            let snapshot = ChatMessageDisplaySnapshot(item: row, presentation: presentation)
+            XCTAssertEqual(snapshot.displayAs, .sticker)
+            XCTAssertEqual(snapshot.presentation.visibleReferences.map(\.kind), [.sticker])
+            XCTAssertEqual(snapshot.presentation.visibleBody, "🥳")
+            XCTAssertEqual(snapshot.presentation.visibleDate, row.date)
+
+            XCTAssertEqual(row.displayAs, .text)
+            XCTAssertEqual(row.body, "🥳")
+            XCTAssertTrue(row.references.isEmpty)
+            XCTAssertTrue(row.isRead)
+            XCTAssertEqual(row.state, .deliver)
+            XCTAssertEqual(row.archivedId, "stored-sticker-archive")
+        }
+    }
+
+    func testHistoricalStickerRefusesForeignStanzaOwner() throws {
+        try withStoredPlaintextSticker(stanzaOwner: "other@example.test") { row in
+            XCTAssertNil(row.recoverStoredStickerReference())
+        }
+    }
+
+    func testHistoricalStickerRefusesAChangedBodyOrPeer() throws {
+        try withStoredPlaintextSticker(body: "🙂") { row in
+            XCTAssertNil(row.recoverStoredStickerReference())
+        }
+        try withStoredPlaintextSticker(wireChange: {
+            $0.replacingOccurrences(of: "from='sender@example.test'", with: "from='other@example.test'")
+        }) { row in
+            XCTAssertNil(row.recoverStoredStickerReference())
+        }
+    }
+
+    func testHistoricalStickerRefusesEncryptedXMLWithoutLocalProof() throws {
+        try withStoredPlaintextSticker(wireChange: {
+            $0.replacingOccurrences(of: "<body>", with: """
+                <encrypted xmlns='urn:xmpp:omemo:2'><header sid='1'/><payload>YQ==</payload></encrypted>
+                <body>
+                """)
+        }) { row in
+            XCTAssertNil(row.recoverStoredStickerReference())
+        }
     }
 
     func testStickerPayloadRoundTripsThroughOneDecorationForRegularAndEncryptedPreparation() throws {
@@ -196,6 +249,48 @@ final class ChatStickerPipelineTests: XCTestCase {
           <deferred xmlns='https://xabber.com/protocol/schedule' id='schedule' deliver-at='2033-05-18T03:33:20Z'/>
         </message>
         """
+    }
+
+    private func withStoredPlaintextSticker(
+        stanzaOwner: String = "receiver@example.test",
+        body: String = "🥳",
+        wireChange: (String) -> String = { $0 },
+        verify: (MessageStorageItem) throws -> Void
+    ) throws {
+        let oldConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = .init(inMemoryIdentifier: UUID().uuidString)
+        defer { Realm.Configuration.defaultConfiguration = oldConfiguration }
+        let realm = try WRealm.safe()
+        let row = MessageStorageItem()
+        row.owner = "receiver@example.test"
+        row.opponent = "sender@example.test"
+        row.conversationType = .regular
+        row.messageId = "sticker"
+        row.archivedId = "stored-sticker-archive"
+        row.date = Date(timeIntervalSince1970: 2_000_000_000)
+        row.sentDate = row.date
+        row.body = body
+        row.legacyBody = body
+        row.displayAs = .text
+        row.isRead = true
+        row.state = .deliver
+        row.updatePrimary()
+
+        let wire = webScheduledStickerXML.replacingOccurrences(
+            of: "<deferred xmlns='https://xabber.com/protocol/schedule' id='schedule' deliver-at='2033-05-18T03:33:20Z'/>",
+            with: """
+            <origin-id xmlns='urn:xmpp:sid:0' id='sticker'/>
+            <stanza-id xmlns='urn:xmpp:sid:0' id='stored-sticker-archive' by='receiver@example.test'/>
+            <time xmlns='https://xabber.com/protocol/delivery' stamp='2033-05-18T03:33:20Z' by='receiver@example.test'/>
+            """
+        )
+        let stanza = MessageStanzaStorageItem()
+        stanza.set(row.messageId, for: stanzaOwner, with: wireChange(wire), at: row.date, primary: row.primary)
+        try realm.write {
+            realm.add(row)
+            realm.add(stanza)
+        }
+        try verify(row)
     }
 
     func testLargeStickerUsesBoundedImmutableLayoutAndDownsampleRequest() throws {
