@@ -652,12 +652,23 @@ struct ArchiveLiveEdgeAdmission: Hashable, Codable, Sendable {
     let presentationIntent: ArchiveIntentDescriptor
 }
 
-/// Presentation-only proof that an outgoing row was durably created by the
-/// local sender. Unlike `ArchiveLiveEdgeAdmission`, this value does not extend
-/// archive coverage; the later numeric receipt reconciles the same primary.
+/// Presents a committed outgoing row while the archive still lacks proof for it.
+/// A subsequent verified archive result promotes the same primary.
 struct ChatTimelineLocalOutgoingAdmission: Hashable, Sendable {
+    enum Source: Hashable, Sendable {
+        case localSend
+        case scheduledDelivery(id: String)
+    }
+
     let conversation: ArchiveConversationKey
     let primaryID: String
+    let source: Source
+
+    init(conversation: ArchiveConversationKey, primaryID: String, source: Source = .localSend) {
+        self.conversation = conversation
+        self.primaryID = primaryID
+        self.source = source
+    }
 }
 
 enum ArchiveSkeletonReason: Hashable, Codable, Sendable {

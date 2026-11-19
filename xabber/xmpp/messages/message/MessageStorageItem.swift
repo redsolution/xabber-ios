@@ -932,6 +932,7 @@ class MessageStorageItem: Object {
     var shouldPersistArchiveQueryId: Bool = false
     var shouldReconcileMAMArchiveIdentity: Bool = false
     var countsAsRuntimeUnread: Bool = false
+    var authenticatedScheduledDeliveryID: String?
 
     /// New rows use the outer MAM result ID. Legacy rows intentionally fall
     /// back to their protocol stanza ID until a MAM replay repairs them,

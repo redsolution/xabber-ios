@@ -110,6 +110,7 @@ extension MessageManager {
         let archiveCursorID: String
         let isDeleted: Bool
         let outcome: ArchivePersistenceOutcome
+        var scheduledDeliveryID: String? = nil
         var logicalDuplicateProof: ArchiveLogicalDuplicateProof? = nil
     }
 
@@ -178,12 +179,10 @@ extension MessageManager {
                 }
             }
         }
-        guard let account = AccountManager.shared.find(for: owner) else { return }
         let liveRows = outcomes.filter {
             $0.queryIds.isEmpty &&
                 ($0.outcome == .savedNew || $0.outcome == .updatedExisting) &&
-                !$0.isDeleted &&
-                ArchiveCursor(rawValue: $0.archiveCursorID) != nil
+                !$0.isDeleted
         }
         liveRows.forEach { row in
             let conversation = ArchiveConversationKey(
@@ -191,6 +190,14 @@ extension MessageManager {
                 jid: row.opponent,
                 conversationType: row.conversationType
             )
+            if let id = row.scheduledDeliveryID {
+                localOutgoingAdmissionPublisher(.init(
+                    conversation: conversation, primaryID: row.primaryID,
+                    source: .scheduledDelivery(id: id)
+                ))
+            }
+            guard ArchiveCursor(rawValue: row.archiveCursorID) != nil,
+                  let account = AccountManager.shared.find(for: owner) else { return }
             Task { [archiveEngine = account.archiveEngine] in
                 await archiveEngine.liveMessageDidPersist(
                     conversation: conversation,
@@ -1247,6 +1254,7 @@ extension MessageManager {
                 lhs.queryId == rhs.queryId &&
                 lhs.mamResultID == rhs.mamResultID &&
                 lhs.isMAMArchiveResult == rhs.isMAMArchiveResult &&
+                lhs.scheduledDeliveryID == rhs.scheduledDeliveryID &&
                 lhs.encryption == rhs.encryption &&
                 lhs.authenticatedSender == rhs.authenticatedSender
         }
@@ -1256,6 +1264,7 @@ extension MessageManager {
         var message: XMPPMessage
         let encryption: MessageEncryptionProvenance
         let authenticatedSender: OMEMOAuthenticatedSender?
+        let scheduledDeliveryID: String?
         var state: MessageStorageItem.MessageSendingState = MessageStorageItem.MessageSendingState.none
         var originalFrom: String = ""
         var archivedFrom: String? = nil
@@ -1271,7 +1280,7 @@ extension MessageManager {
         var shouldPersistArchiveQueryId: Bool = false
         var countsAsRuntimeUnread: Bool = false
         
-        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, mamResultID: String? = nil, isMAMArchiveResult: Bool = false, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
+        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, mamResultID: String? = nil, isMAMArchiveResult: Bool = false, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil, scheduledDeliveryID: String? = nil) {
             if SCEReceivePolicy.hasOMEMO2(message), !encryption.isAuthenticated {
                 self.message = XMPPMessage(from: SCEReceivePolicy.sanitized(message, content: nil))
                 self.encryption = encryption.isEncrypted ? encryption : .unverifiedOMEMO
@@ -1280,6 +1289,7 @@ extension MessageManager {
                 self.encryption = encryption
             }
             self.authenticatedSender = self.encryption == .authenticatedSCE(profile: .omemo2) ? authenticatedSender : nil
+            self.scheduledDeliveryID = scheduledDeliveryID
             self.archivedFrom = archivedFrom
             self.isRead = isRead
             self.date = date
@@ -1302,6 +1312,7 @@ extension MessageManager {
             hasher.combine(queryId)
             hasher.combine(mamResultID)
             hasher.combine(isMAMArchiveResult)
+            hasher.combine(scheduledDeliveryID)
             hasher.combine(encryption)
             hasher.combine(authenticatedSender)
         }
@@ -1641,11 +1652,23 @@ extension MessageManager {
         }
     }
     
-    public func receiveCarbon(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
+    public func receiveCarbon(
+        _ message: XMPPMessage,
+        encryption: MessageEncryptionProvenance = .plaintext,
+        authenticatedSender: OMEMOAuthenticatedSender? = nil,
+        authenticatedScheduleDelivery: Bool = false
+    ) {
         if let messageBare = getCarbonCopyMessageContainer(message) {
             if (encryption.isAuthenticated || !SCEReceivePolicy.hasOMEMO2(messageBare)),
                routeCanonicalGroupMessage(message) == .consumed { return }
             guard let receivedDate = getReceivedMessageDate(message, owner: owner) else { return }
+            let scheduledDeliveryID: String?
+            if authenticatedScheduleDelivery, message.from?.full == owner,
+               messageBare.from?.full == owner, let peer = messageBare.to?.bare, peer != owner {
+                scheduledDeliveryID = XMPPMessageScheduleManager.deliveredMarker(from: messageBare)?.id
+            } else {
+                scheduledDeliveryID = nil
+            }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: messageBare.from?.bare,
@@ -1654,7 +1677,8 @@ extension MessageManager {
                                      state: .sended,
                                      queryId: getMAMQueryId(message),
                                      encryption: encryption,
-                                     authenticatedSender: authenticatedSender))
+                                     authenticatedSender: authenticatedSender,
+                                     scheduledDeliveryID: scheduledDeliveryID))
 //            do {
 //                let conversationType = conversationTypeByMessage(message)
 //                let realm = try WRealm.safe()
@@ -2292,6 +2316,7 @@ extension MessageManager {
             
             instance.previousId = getPreviousId(item.message)
             XMPPMessageScheduleManager.applyDeferredMetadata(to: instance, source: item.message)
+            instance.authenticatedScheduledDeliveryID = item.scheduledDeliveryID
 //            print("PIPELINED", item.message)
             
             
@@ -2741,6 +2766,16 @@ extension MessageManager {
                 ])
                 return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
             }
+            let scheduledDeliveryID: String?
+            if let id = message.authenticatedScheduledDeliveryID, durable.outgoing,
+               durable.owner == message.owner, durable.opponent == message.opponent,
+               durable.conversationType == message.conversationType,
+               !durable.isLocallyHiddenByReport,
+               XMPPMessageScheduleManager.deliveredScheduleID(in: durable) == id {
+                scheduledDeliveryID = id
+            } else {
+                scheduledDeliveryID = nil
+            }
             return (
                 ArchivePersistenceOutcomeItem(
                     queryIds: queryIds,
@@ -2750,7 +2785,8 @@ extension MessageManager {
                     conversationType: durable.conversationType,
                     archiveCursorID: durable.mamArchiveCursorID,
                     isDeleted: durable.isDeleted,
-                    outcome: outcome
+                    outcome: outcome,
+                    scheduledDeliveryID: scheduledDeliveryID
                 ),
                 sideEffects
             )

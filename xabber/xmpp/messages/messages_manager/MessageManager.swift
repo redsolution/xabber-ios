@@ -513,9 +513,8 @@ class MessageManager: AbstractXMPPManager {
     
     internal var senderBag: DisposeBag = DisposeBag()
 
-    /// Injectable presentation handoff used immediately after the sender's
-    /// initial Realm transaction. It is intentionally separate from archive
-    /// proof and from generic Realm observation.
+    /// Presentation handoff after an outgoing row commits, including scheduled
+    /// sent carbons waiting for archive proof.
     internal var localOutgoingAdmissionPublisher:
         (ChatTimelineLocalOutgoingAdmission) -> Void = { admission in
             guard let account = AccountManager.shared.find(

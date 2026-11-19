@@ -2025,12 +2025,12 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
             "presentationCommitMode: .atomicInitialFrame"
         ))
         XCTAssertTrue(apply.contains("transactionCommitAuthorization:"))
-        XCTAssertTrue(apply.contains("introducesLocalOutgoing"))
+        XCTAssertTrue(apply.contains("let shouldAlignToNewest"))
         XCTAssertTrue(apply.contains(
             "snapshot.provisionalLocalOutgoingPrimaryIDs"
         ))
         XCTAssertTrue(apply.contains(
-            "forceBottomAlignmentTarget: introducesLocalOutgoing"
+            "forceBottomAlignmentTarget: shouldAlignToNewest"
         ))
         XCTAssertTrue(apply.contains(
             "session.reprepareLocalOutgoingPresentation("

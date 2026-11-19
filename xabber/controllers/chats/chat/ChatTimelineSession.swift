@@ -1296,7 +1296,7 @@ final class ChatTimelineSession {
         }
     }
 
-    /// Admits exactly one locally-authored row after its initial durable save.
+    /// Admits one outgoing row after its durable save.
     /// This is a presentation overlay: the archive proof remains unchanged
     /// until a verified delivery receipt extends the live-edge scope.
     @discardableResult
@@ -1333,6 +1333,12 @@ final class ChatTimelineSession {
             let base = snapshot
             if base.item(primary: item.primary) != nil {
                 return base
+            }
+            if case .scheduledDelivery(let id) = admission.source {
+                guard base.state.isResidentAtLiveTail,
+                      XMPPMessageScheduleManager.deliveredScheduleID(in: item) == id else {
+                    return nil
+                }
             }
 
             let tailItems: [MessageStorageItem]

@@ -820,7 +820,9 @@ extension Account: XMPPStreamDelegate {
                 didRouteArchiveResultToPersistence = true
                 self.messages.receiveArchived(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else if isCarbonCopy(message) {
-                self.messages.receiveCarbon(message, encryption: encryption, authenticatedSender: authenticatedSender)
+                self.messages.receiveCarbon(message, encryption: encryption,
+                    authenticatedSender: authenticatedSender,
+                    authenticatedScheduleDelivery: authenticatedScheduleDelivery)
             } else if isCarbonForwarded(message) {
                 self.messages.receiveCarbonForwarded(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else {
@@ -919,7 +921,9 @@ extension Account: XMPPStreamDelegate {
                 if self.chatMarkers.read(withMessage: message) {
                     return
                 } else {
-                    self.messages.receiveCarbon(message, encryption: encryption, authenticatedSender: authenticatedSender)
+                    self.messages.receiveCarbon(message, encryption: encryption,
+                        authenticatedSender: authenticatedSender,
+                        authenticatedScheduleDelivery: authenticatedScheduleDelivery)
                 }
                 
             } else if isCarbonForwarded(message) {

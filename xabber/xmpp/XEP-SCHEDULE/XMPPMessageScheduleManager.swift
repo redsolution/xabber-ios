@@ -559,18 +559,29 @@ class XMPPMessageScheduleManager: AbstractXMPPManager {
         return recipient.full == ownJID.bare || recipient.full == fullJID
     }
 
-    @discardableResult
-    static func applyDeferredMetadata(to storedMessage: MessageStorageItem, source message: XMPPMessage) -> Bool {
-        guard let deferred = message.element(forName: "deferred", xmlns: namespace),
+    static func deliveredMarker(from message: XMPPMessage) -> (id: String, deliverAt: Date)? {
+        let markers = SCEReceivePolicy.children(of: message, named: "deferred", xmlns: namespace)
+        guard markers.count == 1, let deferred = markers.first,
+              SCEReceivePolicy.isScheduledDeliveryMetadata(deferred),
               let scheduledId = deferred.attributeStringValue(forName: "id"),
               let deliverAtString = deferred.attributeStringValue(forName: "deliver-at"),
               let deliverAt = parseTimestamp(deliverAtString) else {
-            return false
+            return nil
         }
+        return (scheduledId, deliverAt)
+    }
+
+    static func deliveredScheduleID(in message: MessageStorageItem) -> String? {
+        (message.systemMetadata?[metadataKey] as? [String: String])?["id"]
+    }
+
+    @discardableResult
+    static func applyDeferredMetadata(to storedMessage: MessageStorageItem, source message: XMPPMessage) -> Bool {
+        guard let marker = deliveredMarker(from: message) else { return false }
         var metadata = storedMessage.systemMetadata ?? [:]
         metadata[metadataKey] = [
-            "id": scheduledId,
-            "deliverAt": formatTimestamp(deliverAt)
+            "id": marker.id,
+            "deliverAt": formatTimestamp(marker.deliverAt)
         ]
         storedMessage.systemMetadata = metadata
         return true

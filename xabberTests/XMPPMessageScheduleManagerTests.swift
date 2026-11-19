@@ -396,6 +396,75 @@ final class XMPPMessageScheduleManagerTests: XCTestCase {
         ))
     }
 
+    func testAuthenticatedScheduledCarbonPublishesOnlyAfterTheOutgoingRowIsSaved() throws {
+        let realm = try WRealm.safe()
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        manager.unsubscribeReceiver()
+        var admissions: [ChatTimelineLocalOutgoingAdmission] = []
+        manager.localOutgoingAdmissionPublisher = { admission in
+            XCTAssertFalse(realm.isInWriteTransaction)
+            let row = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: admission.primaryID)
+            XCTAssertEqual(row?.messageId, "scheduled-wire-message")
+            XCTAssertEqual(row?.state, .sended)
+            XCTAssertEqual(row?.date, XMPPMessageScheduleManager.parseTimestamp("2026-06-10T10:00:02Z"))
+            XCTAssertEqual(row?.mamArchiveId, "")
+            admissions.append(admission)
+        }
+
+        manager.receiveCarbon(try scheduledDeliveryCarbon(), authenticatedScheduleDelivery: true)
+        manager.processQueue([try XCTUnwrap(manager.performMessageQueueSync { manager.queuedMessages.first })]) {
+            if let batch = $0 {
+                XCTAssertEqual(manager.save(batch, silentNotifications: true).savedNew, 1)
+            }
+        }
+
+        let admission = try XCTUnwrap(admissions.first)
+        XCTAssertEqual(admissions.count, 1)
+        XCTAssertEqual(admission.source, .scheduledDelivery(id: "scheduled-entry"))
+        XCTAssertEqual(admission.conversation, .init(owner: owner, jid: "juliet@example.com", conversationType: .regular))
+    }
+
+    func testScheduledHistoryAdmissionRequiresAuthenticatedServerDelivery() throws {
+        let realm = try WRealm.safe()
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.localOutgoingAdmissionPublisher = { _ in
+            XCTFail("The outgoing history admission requires a trusted stream")
+        }
+
+        manager.receiveCarbon(try scheduledDeliveryCarbon())
+        manager.receiveCarbon(try scheduledDeliveryCarbon(
+            from: "\(owner!)/web", messageID: "resource-authored"
+        ), authenticatedScheduleDelivery: true)
+        let queued = manager.performMessageQueueSync { manager.queuedMessages }
+        XCTAssertEqual(queued.count, 2)
+        manager.processQueue(queued) {
+            if let batch = $0 {
+                XCTAssertEqual(manager.save(batch, silentNotifications: true).savedNew, 2)
+            }
+        }
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 2)
+    }
+
+    private func scheduledDeliveryCarbon(
+        from sender: String? = nil, messageID: String = "scheduled-wire-message"
+    ) throws -> XMPPMessage {
+        try makeMessage("""
+        <message xmlns='jabber:client' type='chat' from='\(owner!)' to='\(owner!)/ios'>
+          <sent xmlns='urn:xmpp:carbons:2'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' type='chat' from='\(sender ?? owner!)' to='juliet@example.com' id='\(messageID)'>
+                <body>Delivered</body>
+                <time xmlns='https://xabber.com/protocol/delivery' by='\(owner!)' stamp='2026-06-10T10:00:02Z'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner!)' id='delivery-stanza-id'/>
+                <deferred xmlns='\(XMPPMessageScheduleManager.namespace)' id='scheduled-entry' deliver-at='2026-06-10T10:00:00Z'/>
+              </message>
+            </forwarded>
+          </sent>
+        </message>
+        """)
+    }
+
     func testScheduleTimestampParserAcceptsLiteralZAndFractionalForms() throws {
         XCTAssertEqual(
             XMPPMessageScheduleManager.parseTimestamp("2026-06-10T10:00:00Z")?.XMPPFormattedDate,

@@ -2493,6 +2493,9 @@ extension ChatViewController {
                 if self.pendingOpenMessageRequest != nil {
                     self.performPendingOpenMessageRequestIfNeeded()
                 }
+                if committed.state.isResidentAtLiveTail {
+                    self.drainPendingLocalOutgoingAdmissions()
+                }
                 self.drainTimelinePresentationLanesAfterAnchorTerminal()
             }
         )
@@ -3056,10 +3059,15 @@ extension ChatViewController {
                 session.snapshot.authoritativeEmptyLiveTailAuthority != nil else {
             return
         }
-        let pending = archivePendingLocalOutgoingAdmissions.values.filter {
-            !archiveLocalOutgoingAdmissionInFlightPrimaryIDs.contains(
-                $0.primaryID
-            )
+        let isAtLiveTail = session.snapshot.state.isResidentAtLiveTail
+        let pending = archivePendingLocalOutgoingAdmissions.values.filter { admission in
+            guard !archiveLocalOutgoingAdmissionInFlightPrimaryIDs.contains(admission.primaryID) else {
+                return false
+            }
+            if case .scheduledDelivery = admission.source {
+                return isAtLiveTail
+            }
+            return true
         }
         for admission in pending {
             archiveLocalOutgoingAdmissionInFlightPrimaryIDs.insert(
@@ -3068,6 +3076,7 @@ extension ChatViewController {
             archiveLocalOutgoingAdmissionQueue.async {
                 [weak self, weak session] in
                 guard let self, let session else { return }
+                let attemptedGeneration = session.snapshot.generation
                 let admitted = session.admitLocalOutgoing(admission)
                 DispatchQueue.main.async { [weak self, weak session] in
                     guard let self, let session else { return }
@@ -3082,6 +3091,10 @@ extension ChatViewController {
                         self.archivePendingLocalOutgoingAdmissions.removeValue(
                             forKey: admission.primaryID
                         )
+                    } else if case .scheduledDelivery = admission.source,
+                              session.snapshot.generation != attemptedGeneration,
+                              session.snapshot.state.isResidentAtLiveTail {
+                        self.drainPendingLocalOutgoingAdmissions()
                     }
                 }
             }

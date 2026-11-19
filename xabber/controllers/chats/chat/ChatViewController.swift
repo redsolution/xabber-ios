@@ -5978,10 +5978,16 @@ class ChatViewController: MessagesViewController {
         let insertedPrimaryIDs = mappedPrimaryIDs.subtracting(
             presentedPrimaryIDs
         )
-        let introducesLocalOutgoing = !insertedPrimaryIDs.isDisjoint(
-            with: snapshot.provisionalLocalOutgoingPrimaryIDs
+        let outgoingInsertions = insertedPrimaryIDs.intersection(
+            snapshot.provisionalLocalOutgoingPrimaryIDs
         )
-        let restoreAnchor = introducesLocalOutgoing
+        let shouldAlignToNewest = !outgoingInsertions.isEmpty && (
+            isNearBottom() || outgoingInsertions.contains { primary in
+                guard let item = snapshot.item(primary: primary) else { return false }
+                return XMPPMessageScheduleManager.deliveredScheduleID(in: item) == nil
+            }
+        )
+        let restoreAnchor = shouldAlignToNewest
             ? nil
             : captureTimelineStoreSnapshotAnchor(
                 retainedPrimaryIDs: mappedPrimaryIDs
@@ -6022,7 +6028,7 @@ class ChatViewController: MessagesViewController {
             invalidateLayout: false,
             preparedLayouts: mappingResult.layoutSnapshot,
             suppressDefaultBottomScroll: true,
-            forceBottomAlignmentTarget: introducesLocalOutgoing
+            forceBottomAlignmentTarget: shouldAlignToNewest
                 ? .newestRealMessage
                 : nil,
             anchorRestorePhase: restoreAnchor == nil ? .none : .applyTransaction,

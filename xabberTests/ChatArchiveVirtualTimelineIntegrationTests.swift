@@ -907,6 +907,111 @@ final class ChatArchiveVirtualTimelineIntegrationTests: XCTestCase {
         XCTAssertNotNil(committed.snapshot.item(primary: "primary-1001"))
     }
 
+    func testDeliveredScheduledMessageAppearsAtLiveTailBeforeMAMAndKeepsOneRowAfterProof() throws {
+        let messages = makeMessages(1...1_001)
+        let delivered = try XCTUnwrap(messages.last)
+        delivered.archivedId = "delivery-stanza"
+        delivered.mamArchiveId = ""
+        delivered.outgoing = true
+        delivered.state = .sended
+        delivered.systemMetadata = [
+            XMPPMessageScheduleManager.metadataKey: [
+                "id": "scheduled-id",
+                "deliverAt": "2033-05-18T03:33:20Z"
+            ]
+        ]
+        let store = BlockingVirtualTimelineSessionStore(messages: messages)
+        let session = makeSession(store: store)
+        let initial = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(
+            try makeWindow(primaryIDs: primaryIDs(922...1_000), target: .latest, generation: 1)
+        ))
+        let scope = try XCTUnwrap(session.verifiedScope)
+        let conversation = ArchiveConversationKey(owner: owner, jid: jid, conversationType: .regular)
+        let admission = ChatTimelineLocalOutgoingAdmission(
+            conversation: conversation,
+            primaryID: delivered.primary,
+            source: .scheduledDelivery(id: "scheduled-id")
+        )
+
+        XCTAssertNil(initial.item(primary: delivered.primary))
+        XCTAssertNil(session.admitLocalOutgoing(.init(
+            conversation: conversation,
+            primaryID: delivered.primary,
+            source: .scheduledDelivery(id: "different-schedule")
+        )))
+
+        let presented = try XCTUnwrap(session.admitLocalOutgoing(admission))
+
+        XCTAssertEqual(presented.items.last?.primary, delivered.primary)
+        XCTAssertEqual(presented.item(primary: delivered.primary)?.state, .sended)
+        XCTAssertEqual(presented.item(primary: delivered.primary)?.mamArchiveId, "")
+        XCTAssertEqual(session.verifiedScope, scope)
+        XCTAssertEqual(presented.state.residentPrimaryKeys, initial.state.residentPrimaryKeys)
+        XCTAssertEqual(
+            ChatTimelineStoreSnapshotPresentationPolicy.action(
+                for: presented,
+                currentSessionGeneration: presented.generation,
+                presentedPrimaryIDs: Set(initial.items.map(\.primary)),
+                hasCommittedArchivePresentation: true,
+                isShowingSkeleton: false,
+                hasPendingArchiveApply: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(session.admitLocalOutgoing(admission)?.generation, presented.generation)
+
+        let archived = makeMessages(1_001...1_001)[0]
+        archived.archivedId = delivered.archivedId
+        archived.outgoing = true
+        archived.state = .sended
+        archived.systemMetadata = delivered.systemMetadata
+        store.replaceMessage(archived)
+        let prepared = try XCTUnwrap(session.prepareArchiveLiveEdgeAdmission(
+            try makeLiveEdgeAdmission(primaryID: delivered.primary, presentationTarget: .latest, generation: 2)
+        ))
+        let proved = try XCTUnwrap(session.commitPreparedArchiveLiveEdgeAdmission(prepared))
+
+        XCTAssertEqual(proved.snapshot.items.filter { $0.primary == delivered.primary }.count, 1)
+        XCTAssertEqual(proved.snapshot.item(primary: delivered.primary)?.mamArchiveId, "1001")
+        XCTAssertEqual(session.verifiedScope?.coverageGeneration, 2)
+    }
+
+    func testDeliveredScheduledMessageWaitsForLiveTailWithoutMovingOlderHistory() throws {
+        let messages = makeMessages(1...1_001)
+        let delivered = try XCTUnwrap(messages.last)
+        delivered.mamArchiveId = ""
+        delivered.outgoing = true
+        delivered.state = .sended
+        delivered.systemMetadata = [
+            XMPPMessageScheduleManager.metadataKey: [
+                "id": "scheduled-id",
+                "deliverAt": "2033-05-18T03:33:20Z"
+            ]
+        ]
+        let session = makeSession(store: BlockingVirtualTimelineSessionStore(messages: messages))
+        let window = try makeWindow(primaryIDs: primaryIDs(922...1_000), target: .latest, generation: 1)
+        _ = try XCTUnwrap(session.installArchiveEngineVerifiedWindow(window))
+        for _ in 0..<6 {
+            _ = try localSessionSnapshot(session.loadVerifiedLocalBoundary(.older))
+        }
+        let older = session.snapshot
+        XCTAssertFalse(older.state.isResidentAtLiveTail)
+        let admission = ChatTimelineLocalOutgoingAdmission(
+            conversation: ArchiveConversationKey(owner: owner, jid: jid, conversationType: .regular),
+            primaryID: delivered.primary,
+            source: .scheduledDelivery(id: "scheduled-id")
+        )
+
+        XCTAssertNil(session.admitLocalOutgoing(admission))
+        XCTAssertEqual(session.snapshot.generation, older.generation)
+        XCTAssertEqual(session.snapshot.items.map(\.primary), older.items.map(\.primary))
+
+        _ = try localSessionSnapshot(session.loadVerifiedLocalBoundary(.newer))
+        XCTAssertTrue(session.snapshot.state.isResidentAtLiveTail)
+        let presented = try XCTUnwrap(session.admitLocalOutgoing(admission))
+        XCTAssertEqual(presented.items.last?.primary, delivered.primary)
+    }
+
     func testLocalOutgoingAdmissionIsImmediateUnprovedAndReceiptProofDoesNotDuplicate() throws {
         let messages = makeMessages(1...1_003)
         let localOutgoing = messages[1_000]
