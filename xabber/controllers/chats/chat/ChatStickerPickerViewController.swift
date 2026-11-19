@@ -13,6 +13,37 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         let button: UIButton
     }
 
+    private enum SectionID: Equatable {
+        case recentlyUsed
+        case pack(URL)
+    }
+
+    private enum StickerSection: Equatable {
+        case recentlyUsed([ChatStickerEntry])
+        case pack(ChatStickerPack)
+
+        var id: SectionID {
+            switch self {
+            case .recentlyUsed: .recentlyUsed
+            case .pack(let pack): .pack(pack.manifestURL)
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .recentlyUsed: L10n.text("chat__stickers__recently_used", fallback: "Recently Used")
+            case .pack(let pack): pack.displayName
+            }
+        }
+
+        var entries: [ChatStickerEntry] {
+            switch self {
+            case .recentlyUsed(let entries): entries
+            case .pack(let pack): pack.stickers
+            }
+        }
+    }
+
     private let owner: String
     private let catalogue: ChatStickerCatalogue
     private let canSchedule: () -> Bool
@@ -23,12 +54,18 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     private let onSettings: () -> Void
 
     private var packs: [ChatStickerPack] = []
-    private var selectedPackURL: URL?
+    private var sections: [StickerSection] = []
+    private var selectedSection: SectionID?
+    private var isJumpingToSection = false
+    private var isReloadingSections = false
     private var showingStarterPacks = false
     private var installTasks: [URL: Task<Void, Never>] = [:]
     private var installStates: [URL: StarterInstallState] = [:]
 
     private let panelSurface = UIVisualEffectView()
+    private let controlsView = UIView()
+    private var controlsConstraints: [NSLayoutConstraint] = []
+    private var keyboardHostBottomInset: CGFloat?
     private let layout = UICollectionViewFlowLayout()
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private lazy var packStrip = UICollectionView(frame: .zero, collectionViewLayout: makePackStripLayout())
@@ -86,12 +123,17 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
             panelSurface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         updatePanelSurface(reduceTransparency: UIAccessibility.isReduceTransparencyEnabled)
+        attachControlsView()
 
         layout.sectionInset = UIEdgeInsets(top: 8, left: 12, bottom: 12, right: 12)
         layout.minimumInteritemSpacing = 6
         layout.minimumLineSpacing = 6
         collection.alwaysBounceVertical = true
+        collection.automaticallyAdjustsScrollIndicatorInsets = false
         collection.accessibilityIdentifier = "chat.stickers.picker"
+        collection.register(ChatStickerSectionHeader.self,
+                            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+                            withReuseIdentifier: ChatStickerSectionHeader.identifier)
         packStrip.showsHorizontalScrollIndicator = false
         packStrip.accessibilityIdentifier = "chat.stickers.packs"
         for grid in [collection, packStrip] {
@@ -104,10 +146,10 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
 
         configureStarterPacks()
         let toolbar = makeToolbar()
-        let safeArea = view.safeAreaLayoutGuide
+        let safeArea = controlsView.safeAreaLayoutGuide
         for child in [toolbar, collection, starterScroll] {
             child.translatesAutoresizingMaskIntoConstraints = false
-            panelSurface.contentView.addSubview(child)
+            controlsView.addSubview(child)
             NSLayoutConstraint.activate([
                 child.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
                 child.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor)
@@ -117,17 +159,60 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
             toolbar.topAnchor.constraint(equalTo: safeArea.topAnchor),
             toolbar.heightAnchor.constraint(equalToConstant: 48),
             collection.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-            collection.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor),
+            collection.bottomAnchor.constraint(equalTo: controlsView.bottomAnchor),
             starterScroll.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-            starterScroll.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor)
+            starterScroll.bottomAnchor.constraint(equalTo: controlsView.bottomAnchor)
         ])
 
         NotificationCenter.default.addObserver(self, selector: #selector(catalogueChanged(_:)),
                                                name: ChatStickerCatalogue.changed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(catalogueChanged(_:)),
+                                               name: ChatStickerCatalogue.recentlyUsedChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(reduceTransparencyDidChange),
                                                name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
                                                object: nil)
         reloadCatalogue()
+        updateScrollBottomInsets()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateScrollBottomInsets()
+    }
+
+    func setKeyboardHostBottomInset(_ inset: CGFloat?) {
+        guard keyboardHostBottomInset != inset else { return }
+        let hostChanged = (keyboardHostBottomInset == nil) != (inset == nil)
+        keyboardHostBottomInset = inset
+        guard isViewLoaded else { return }
+        if hostChanged {
+            attachControlsView()
+        }
+        updateScrollBottomInsets()
+    }
+
+    private func attachControlsView() {
+        let hostedByKeyboard = keyboardHostBottomInset != nil
+        panelSurface.isHidden = hostedByKeyboard
+        let host = hostedByKeyboard ? view! : panelSurface.contentView
+        NSLayoutConstraint.deactivate(controlsConstraints)
+        controlsView.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(controlsView)
+        controlsConstraints = [
+            controlsView.topAnchor.constraint(equalTo: host.topAnchor),
+            controlsView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            controlsView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            controlsView.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+        ]
+        NSLayoutConstraint.activate(controlsConstraints)
+    }
+
+    private func updateScrollBottomInsets() {
+        let bottom = max(view.safeAreaInsets.bottom, keyboardHostBottomInset ?? 0)
+        for scrollView in [collection, starterScroll] {
+            scrollView.contentInset.bottom = bottom
+            scrollView.verticalScrollIndicatorInsets.bottom = bottom
+        }
     }
 
     @objc private func reduceTransparencyDidChange() {
@@ -138,25 +223,16 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         NativeGlassBarStyle.applySurface(
             to: panelSurface,
             role: .sheet,
+            cornerStyle: .fixed(32),
             interactive: false,
             prefersNativeGlass: !reduceTransparency,
-            nativeGlassStyle: .clear,
-            maskedCorners: [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            nativeGlassStyle: .regular
         )
-        if #available(iOS 26.0, *) {
-            panelSurface.cornerConfiguration = .uniformEdges(
-                topRadius: .fixed(Double(NativeGlassBarStyle.cornerRadius)),
-                bottomRadius: .fixed(0)
-            )
-        }
         if reduceTransparency {
             panelSurface.backgroundColor = .secondarySystemBackground
             panelSurface.contentView.backgroundColor = .secondarySystemBackground
         }
     }
-
-    private var selectedPack: ChatStickerPack? { packs.first { $0.manifestURL == selectedPackURL } }
-    private var stickers: [ChatStickerEntry] { selectedPack?.stickers ?? [] }
 
     private func makeToolbar() -> UIStackView {
         let settings = makePanelButton(
@@ -209,6 +285,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         rows.spacing = 8
         rows.translatesAutoresizingMaskIntoConstraints = false
         starterScroll.contentInsetAdjustmentBehavior = .never
+        starterScroll.automaticallyAdjustsScrollIndicatorInsets = false
         starterScroll.addSubview(rows)
         NSLayoutConstraint.activate([
             rows.leadingAnchor.constraint(equalTo: starterScroll.contentLayoutGuide.leadingAnchor, constant: 16),
@@ -265,20 +342,34 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     }
 
     private func reloadCatalogue() {
-        let previousPack = selectedPack
-        let previousIndex = packs.firstIndex { $0.manifestURL == selectedPackURL } ?? 0
         let installed = catalogue.installed(for: owner)
-        if packs != installed {
+        let recent = catalogue.recentStickers(for: owner)
+        var updatedSections: [StickerSection] = recent.isEmpty ? [] : [.recentlyUsed(recent)]
+        updatedSections.append(contentsOf: installed.map(StickerSection.pack))
+        if sections != updatedSections {
+            let previousSelection = selectedSection
+            let previousIndex = sections.firstIndex { $0.id == previousSelection } ?? 0
+            let headerY = previousSelection.flatMap { gridHeaderY(for: $0) }
+            let offsetInSection = headerY.map { collection.contentOffset.y - $0 } ?? 0
+            let wasEmpty = sections.isEmpty
             packs = installed
-            packStrip.reloadData()
-        }
-        if selectedPack == nil {
-            selectedPackURL = packs.isEmpty ? nil : packs[min(previousIndex, packs.count - 1)].manifestURL
-            showingStarterPacks = selectedPackURL == nil
-        }
+            sections = updatedSections
+            if !sections.contains(where: { $0.id == previousSelection }) {
+                selectedSection = sections.isEmpty ? nil : sections[min(previousIndex, sections.count - 1)].id
+            }
+            if wasEmpty { showingStarterPacks = sections.isEmpty }
 
-        if previousPack != selectedPack {
-            reloadGrid(keepingOffset: previousPack?.manifestURL == selectedPackURL)
+            isJumpingToSection = false
+            isReloadingSections = true
+            packStrip.reloadData()
+            collection.reloadData()
+            collection.layoutIfNeeded()
+            if let selectedSection, let headerY = gridHeaderY(for: selectedSection) {
+                let offset = selectedSection == previousSelection ? offsetInSection : 0
+                let y = clampedGridOffsetY(headerY + offset)
+                collection.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+            }
+            isReloadingSections = false
         }
         updateVisibleContent()
     }
@@ -286,7 +377,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     private func updateVisibleContent() {
         let installedURLs = Set(packs.map(\.manifestURL))
         let hasAvailableStarterPack = ChatStickerStarterPack.all.contains { !installedURLs.contains($0.manifestURL) }
-        showingStarterPacks = selectedPack == nil || (showingStarterPacks && hasAvailableStarterPack)
+        showingStarterPacks = sections.isEmpty || (showingStarterPacks && hasAvailableStarterPack)
         for pack in ChatStickerStarterPack.all {
             guard let row = starterRows[pack.manifestURL] else { continue }
             let isInstalled = installedURLs.contains(pack.manifestURL)
@@ -297,15 +388,19 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
             updateStarterButton(pack)
         }
 
-        addButton.isHidden = selectedPack == nil || !hasAvailableStarterPack
+        addButton.isHidden = sections.isEmpty || !hasAvailableStarterPack
         addButton.isSelected = showingStarterPacks
         addButton.accessibilityTraits = showingStarterPacks ? [.button, .selected] : [.button]
         starterScroll.isHidden = !showingStarterPacks
         collection.isHidden = showingStarterPacks
 
-        for indexPath in packStrip.indexPathsForVisibleItems where packs.indices.contains(indexPath.item) {
+        updateRibbonSelection()
+    }
+
+    private func updateRibbonSelection() {
+        for indexPath in packStrip.indexPathsForVisibleItems where sections.indices.contains(indexPath.item) {
             let cell = packStrip.cellForItem(at: indexPath) as? ChatStickerPickerCell
-            cell?.setPackSelected(!showingStarterPacks && packs[indexPath.item].manifestURL == selectedPackURL)
+            cell?.setPackSelected(!showingStarterPacks && sections[indexPath.item].id == selectedSection)
         }
     }
 
@@ -330,22 +425,73 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         button.accessibilityHint = state == .failed ? row.status.text : nil
     }
 
-    private func selectPack(_ url: URL) {
-        guard packs.contains(where: { $0.manifestURL == url }) else { return }
-        let alreadySelected = selectedPackURL == url
-        selectedPackURL = url
+    private func jumpToSection(_ id: SectionID) {
+        guard sections.contains(where: { $0.id == id }) else { return }
         showingStarterPacks = false
-        if !alreadySelected { reloadGrid(keepingOffset: false) }
+        selectedSection = id
         updateVisibleContent()
+        collection.layoutIfNeeded()
+        guard let headerY = gridHeaderY(for: id) else { return }
+        let y = clampedGridOffsetY(headerY - collection.adjustedContentInset.top)
+        let animated = view.window != nil && abs(collection.contentOffset.y - y) > 0.5
+        isJumpingToSection = true
+        collection.setContentOffset(CGPoint(x: 0, y: y), animated: animated)
+        if !animated { isJumpingToSection = false }
+        revealSelectedRibbonItem()
     }
 
-    private func reloadGrid(keepingOffset: Bool) {
-        let previousOffset = collection.contentOffset
-        collection.reloadData()
-        collection.layoutIfNeeded()
-        let maxY = max(0, collection.contentSize.height - collection.bounds.height)
-        let offset = keepingOffset ? CGPoint(x: 0, y: min(previousOffset.y, maxY)) : .zero
-        collection.setContentOffset(offset, animated: false)
+    private func gridHeaderY(for id: SectionID) -> CGFloat? {
+        guard collection.bounds.width > 0,
+              let index = sections.firstIndex(where: { $0.id == id }) else { return nil }
+        let path = IndexPath(item: 0, section: index)
+        return layout.layoutAttributesForSupplementaryView(ofKind: UICollectionView.elementKindSectionHeader, at: path)?
+            .frame.minY
+    }
+
+    private func clampedGridOffsetY(_ proposed: CGFloat) -> CGFloat {
+        min(max(proposed, -collection.adjustedContentInset.top), maximumGridOffsetY)
+    }
+
+    private var maximumGridOffsetY: CGFloat {
+        max(-collection.adjustedContentInset.top,
+            collection.contentSize.height - collection.bounds.height + collection.adjustedContentInset.bottom)
+    }
+
+    private func revealSelectedRibbonItem() {
+        guard view.window != nil, packStrip.bounds.width > 0,
+              let index = sections.firstIndex(where: { $0.id == selectedSection }),
+              index < packStrip.numberOfItems(inSection: 0) else { return }
+        let path = IndexPath(item: index, section: 0)
+        guard !packStrip.indexPathsForVisibleItems.contains(path) else { return }
+        packStrip.scrollToItem(at: path, at: .centeredHorizontally, animated: true)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === collection, !showingStarterPacks, !isJumpingToSection, !isReloadingSections,
+              !sections.isEmpty else { return }
+        let top = collection.contentOffset.y + collection.adjustedContentInset.top
+        let height = max(0, collection.bounds.height - collection.adjustedContentInset.top - collection.adjustedContentInset.bottom)
+        let viewport = CGRect(x: 0, y: top, width: collection.bounds.width, height: height)
+        let maximum = maximumGridOffsetY
+        let currentIndex: Int?
+        if maximum > 0.5, collection.contentOffset.y >= maximum - 0.5 {
+            currentIndex = sections.indices.last
+        } else {
+            currentIndex = layout.layoutAttributesForElements(in: viewport)?.map(\.indexPath.section).min()
+        }
+        guard let currentIndex, sections.indices.contains(currentIndex),
+              sections[currentIndex].id != selectedSection else { return }
+        selectedSection = sections[currentIndex].id
+        updateRibbonSelection()
+        revealSelectedRibbonItem()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if scrollView === collection { isJumpingToSection = false }
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        if scrollView === collection { isJumpingToSection = false }
     }
 
     private func installStarterPack(_ pack: ChatStickerStarterPack) {
@@ -360,12 +506,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
                 self.installTasks[url] = nil
                 self.installStates[url] = nil
                 self.reloadCatalogue()
-                self.selectPack(installed.manifestURL)
-                if self.view.window != nil, let index = self.packs.firstIndex(where: { $0.manifestURL == url }) {
-                    self.packStrip.layoutIfNeeded()
-                    self.packStrip.scrollToItem(at: IndexPath(item: index, section: 0),
-                                                at: .centeredHorizontally, animated: true)
-                }
+                self.jumpToSection(.pack(installed.manifestURL))
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 self.installTasks[url] = nil
@@ -375,21 +516,31 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         }
     }
 
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        collectionView === packStrip ? 1 : sections.count
+    }
+
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        collectionView === packStrip ? packs.count : stickers.count
+        collectionView === packStrip ? sections.count : sections[section].entries.count
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ChatStickerPickerCell.identifier, for: indexPath) as! ChatStickerPickerCell
         if collectionView === packStrip {
-            let pack = packs[indexPath.item]
-            cell.configurePack(pack, owner: owner, selected: !showingStarterPacks && pack.manifestURL == selectedPackURL) { [weak self] in
-                self?.selectPack(pack.manifestURL)
+            let section = sections[indexPath.item]
+            let id = section.id
+            let selected = !showingStarterPacks && id == selectedSection
+            let activate: () -> Void = { [weak self] in self?.jumpToSection(id) }
+            switch section {
+            case .recentlyUsed:
+                cell.configureRecents(title: section.title, selected: selected, activate: activate)
+            case .pack(let pack):
+                cell.configurePack(pack, owner: owner, selected: selected, activate: activate)
             }
             return cell
         }
 
-        let sticker = stickers[indexPath.item]
+        let sticker = sections[indexPath.section].entries[indexPath.item]
         cell.configure(sticker: sticker, owner: owner, send: { [weak self, weak cell] in
             self?.choose(sticker, from: cell, schedules: false)
         }, schedule: canSchedule() ? { [weak self, weak cell] in
@@ -405,20 +556,37 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: false)
         if collectionView === packStrip {
-            guard packs.indices.contains(indexPath.item) else { return }
-            selectPack(packs[indexPath.item].manifestURL)
-        } else if stickers.indices.contains(indexPath.item) {
+            guard sections.indices.contains(indexPath.item) else { return }
+            jumpToSection(sections[indexPath.item].id)
+        } else if let sticker = sticker(at: indexPath) {
             let cell = collectionView.cellForItem(at: indexPath) as? ChatStickerPickerCell
-            choose(stickers[indexPath.item], from: cell, schedules: false)
+            choose(sticker, from: cell, schedules: false)
         }
+    }
+
+    func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String,
+                        at indexPath: IndexPath) -> UICollectionReusableView {
+        let header = collectionView.dequeueReusableSupplementaryView(
+            ofKind: kind, withReuseIdentifier: ChatStickerSectionHeader.identifier, for: indexPath
+        ) as! ChatStickerSectionHeader
+        header.setTitle(sections[indexPath.section].title)
+        return header
+    }
+
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
+                        referenceSizeForHeaderInSection section: Int) -> CGSize {
+        guard collectionView === collection else { return .zero }
+        let font = UIFont.preferredFont(forTextStyle: .headline, compatibleWith: traitCollection)
+        return CGSize(width: collectionView.bounds.width, height: ceil(font.lineHeight) + 12)
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
         if collectionView === packStrip { return CGSize(width: 44, height: 42) }
-        let columns = max(3, Int(collectionView.bounds.width / 84))
         let available = collectionView.bounds.width - layout.sectionInset.left - layout.sectionInset.right
-        let size = max(1, floor((available - CGFloat(columns - 1) * layout.minimumInteritemSpacing) / CGFloat(columns)))
+        let spacing = layout.minimumInteritemSpacing
+        let columns = max(3, Int((available + spacing) / (104 + spacing)))
+        let size = max(1, floor((available - CGFloat(columns - 1) * spacing) / CGFloat(columns)))
         return CGSize(width: size, height: size)
     }
 
@@ -427,8 +595,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         contextMenuConfigurationForItemAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard collectionView === collection, stickers.indices.contains(indexPath.item), canSchedule() else { return nil }
-        let sticker = stickers[indexPath.item]
+        guard collectionView === collection, let sticker = sticker(at: indexPath), canSchedule() else { return nil }
         let cell = collectionView.cellForItem(at: indexPath) as? ChatStickerPickerCell
         let action = UIAction(title: L10n.text("schedule_message_action", fallback: "Schedule Message"),
                               image: UIImage(systemName: "calendar.badge.clock")) { [weak self, weak cell] _ in
@@ -439,17 +606,52 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         }
     }
 
+    private func sticker(at indexPath: IndexPath) -> ChatStickerEntry? {
+        guard sections.indices.contains(indexPath.section) else { return nil }
+        let entries = sections[indexPath.section].entries
+        return entries.indices.contains(indexPath.item) ? entries[indexPath.item] : nil
+    }
+
     private func choose(_ entry: ChatStickerEntry, from cell: ChatStickerPickerCell?, schedules: Bool) {
-        guard !showingStarterPacks, stickers.contains(entry), !schedules || canSchedule() else { return }
+        guard !showingStarterPacks, sections.contains(where: { $0.entries.contains(entry) }),
+              !schedules || canSchedule() else { return }
         let thumbnail = cell?.thumbnail.inlineThumbnail(for: entry)
         let handler = schedules ? onSchedule : onSend
         handler(entry.descriptor(thumbnail: thumbnail))
     }
 }
 
+private final class ChatStickerSectionHeader: UICollectionReusableView {
+    static let identifier = "ChatStickerSectionHeader"
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        label.font = .preferredFont(forTextStyle: .headline)
+        label.adjustsFontForContentSizeCategory = true
+        label.accessibilityTraits.insert(.header)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setTitle(_ title: String) {
+        label.text = title
+    }
+}
+
 private final class ChatStickerPickerCell: UICollectionViewCell {
     static let identifier = "ChatStickerPickerCell"
     let thumbnail = ChatStickerThumbnailView()
+    private let clock = UIImageView(image: UIImage(
+        systemName: "clock", withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+    ))
     private var activate: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -460,11 +662,17 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         contentView.layer.cornerCurve = .continuous
         thumbnail.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(thumbnail)
+        clock.isHidden = true
+        clock.tintColor = .label
+        clock.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(clock)
         NSLayoutConstraint.activate([
             thumbnail.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 5),
             thumbnail.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -5),
             thumbnail.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5),
-            thumbnail.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5)
+            thumbnail.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5),
+            clock.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            clock.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
         ])
     }
 
@@ -473,6 +681,7 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         thumbnail.reset()
+        clock.isHidden = true
         activate = nil
         accessibilityCustomActions = nil
     }
@@ -497,7 +706,7 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
             })
         }
         accessibilityCustomActions = actions
-        thumbnail.load(sticker, owner: owner, size: 72)
+        thumbnail.load(sticker, owner: owner, size: 128)
     }
 
     func configurePack(_ pack: ChatStickerPack, owner: String, selected: Bool, activate: @escaping () -> Void) {
@@ -510,6 +719,17 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         let first = pack.stickers.first
         thumbnail.loadPackPreview(pack.coverURL ?? first?.imageURL, owner: owner, size: 36,
                                   placeholderText: first?.emojis.first ?? "🖼️")
+    }
+
+    func configureRecents(title: String, selected: Bool, activate: @escaping () -> Void) {
+        self.activate = activate
+        accessibilityIdentifier = "chat.stickers.recently_used"
+        accessibilityLabel = title
+        accessibilityHint = nil
+        accessibilityCustomActions = nil
+        setPackSelected(selected)
+        thumbnail.reset()
+        clock.isHidden = false
     }
 
     func setPackSelected(_ selected: Bool) {

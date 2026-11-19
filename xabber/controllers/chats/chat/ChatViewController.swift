@@ -4604,8 +4604,13 @@ class ChatViewController: MessagesViewController {
     internal var lastDockedStickerPanelKeyboardHeight: CGFloat?
     internal var inlineStickerPanel: ChatStickerPickerViewController?
     internal var inlineStickerPanelHeightConstraint: NSLayoutConstraint?
+    internal var stickerKeyboardResponder: ChatStickerKeyboardResponder?
+    internal var stickerKeyboardInputView: ChatStickerKeyboardInputView? {
+        stickerKeyboardResponder?.keyboard
+    }
     internal var isInlineStickerPanelVisible = false
     internal weak var stickerPackSettingsController: ChatStickerPackSettingsViewController?
+
     private var isReconcilingFocusedComposerLayout = false
     internal var composerFirstFocusRecoveryState =
         ChatComposerFirstFocusRecoveryState()
@@ -8732,6 +8737,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        restoreStickerKeyboardIfNeeded()
         ChatComposerFirstFocusDiagnostics.shared.noteChatViewDidAppear()
         if self.isHandlingCancelledInteractiveReappearance {
             self.isHandlingCancelledInteractiveReappearance = false

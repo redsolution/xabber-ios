@@ -161,8 +161,16 @@ enum ChatStickerPackManifest {
 @MainActor
 final class ChatStickerCatalogue {
     static let changed = Notification.Name("chat.stickerCatalogue.changed")
+    static let recentlyUsedChanged = Notification.Name("chat.stickerCatalogue.recentlyUsedChanged")
     private static let defaults = UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup()) ?? .standard
+    private static let recentUsagePrefix = "chat.stickerUsage.v1."
+    private static let recentStickerLimit = 24
     static let shared = ChatStickerCatalogue(defaults: defaults)
+
+    private struct StickerUse: Codable {
+        let count: Int
+        let sequence: Int
+    }
 
     private let defaults: UserDefaults
     private let readManifest: (URL, String) async throws -> Data
@@ -184,6 +192,42 @@ final class ChatStickerCatalogue {
         guard let key = Self.key(for: owner), let data = defaults.data(forKey: key),
               let result = try? JSONDecoder().decode([ChatStickerPack].self, from: data) else { return [] }
         return result
+    }
+
+    func recentStickers(for owner: String) -> [ChatStickerEntry] {
+        guard Self.key(for: owner) != nil else { return [] }
+        let usage = stickerUsage(for: owner)
+        guard !usage.isEmpty else { return [] }
+
+        let usedEntries = installed(for: owner).lazy.flatMap(\.stickers)
+            .filter { usage[$0.imageURL.absoluteString] != nil }
+            .map { ($0.imageURL.absoluteString, $0) }
+        let entriesByURL = Dictionary(usedEntries, uniquingKeysWith: { first, _ in first })
+        let rankedUsage = usage.sorted { lhs, rhs in
+            if lhs.value.count != rhs.value.count {
+                return lhs.value.count > rhs.value.count
+            }
+            if lhs.value.sequence != rhs.value.sequence {
+                return lhs.value.sequence > rhs.value.sequence
+            }
+            return lhs.key < rhs.key
+        }
+        return Array(rankedUsage.lazy.compactMap { entriesByURL[$0.key] }.prefix(Self.recentStickerLimit))
+    }
+
+    func recordStickerUse(_ sticker: ChatStickerDescriptor, owner: String) {
+        guard installed(for: owner).lazy.flatMap(\.stickers).contains(where: { $0.imageURL == sticker.imageURL }) else {
+            return
+        }
+        var usage = stickerUsage(for: owner)
+        let url = sticker.imageURL.absoluteString
+        let sequence = usage.values.lazy.map(\.sequence).max() ?? 0
+        let count = usage[url]?.count ?? 0
+        usage[url] = StickerUse(count: min(count, Int.max - 1) + 1,
+                                sequence: min(sequence, Int.max - 1) + 1)
+        if saveStickerUsage(usage, owner: owner) {
+            NotificationCenter.default.post(name: Self.recentlyUsedChanged, object: owner)
+        }
     }
 
     @discardableResult
@@ -224,6 +268,7 @@ final class ChatStickerCatalogue {
         guard let key = Self.key(for: owner) else { return }
         requests = requests.filter { !$0.key.hasPrefix(key + "|") }
         defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: Self.recentUsagePrefix + owner)
         NotificationCenter.default.post(name: Self.changed, object: owner)
     }
 
@@ -233,7 +278,32 @@ final class ChatStickerCatalogue {
             throw ChatStickerPackManifest.Failure.capacity
         }
         defaults.set(data, forKey: key)
+        let usage = stickerUsage(for: owner)
+        if !usage.isEmpty {
+            let installedURLs = Set(packs.lazy.flatMap(\.stickers).map { $0.imageURL.absoluteString })
+            let preserved = usage.filter { installedURLs.contains($0.key) }
+            if preserved.count != usage.count {
+                saveStickerUsage(preserved, owner: owner)
+            }
+        }
         NotificationCenter.default.post(name: Self.changed, object: owner)
+    }
+
+    private func stickerUsage(for owner: String) -> [String: StickerUse] {
+        guard let data = defaults.data(forKey: Self.recentUsagePrefix + owner) else { return [:] }
+        return (try? JSONDecoder().decode([String: StickerUse].self, from: data)) ?? [:]
+    }
+
+    @discardableResult
+    private func saveStickerUsage(_ usage: [String: StickerUse], owner: String) -> Bool {
+        let key = Self.recentUsagePrefix + owner
+        if usage.isEmpty {
+            defaults.removeObject(forKey: key)
+            return true
+        }
+        guard let data = try? JSONEncoder().encode(usage) else { return false }
+        defaults.set(data, forKey: key)
+        return true
     }
 
     private static func key(for owner: String) -> String? {

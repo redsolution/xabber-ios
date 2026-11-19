@@ -1032,6 +1032,8 @@ extension ChatViewController: XabberInputBarDelegate {
                     guard let self, self.canScheduleSticker(in: context) else { return }
                     self.sendScheduledSticker(sticker, deliverAt: date)
                 }
+                self.suspendStickerKeyboard()
+                datePicker.onDismiss = { [weak self] in self?.restoreStickerKeyboardIfNeeded() }
                 self.present(datePicker, animated: true)
             },
             onKeyboard: { [weak self] in
@@ -1046,6 +1048,7 @@ extension ChatViewController: XabberInputBarDelegate {
                       navigation.topViewController === self else { return }
                 let settings = ChatStickerPackSettingsViewController(owner: context.owner)
                 self.stickerPackSettingsController = settings
+                self.suspendStickerKeyboard()
                 navigation.pushViewController(settings, animated: true)
             }
         )
@@ -1076,6 +1079,9 @@ extension ChatViewController: XabberInputBarDelegate {
             sticker, owner: context.owner, conversation: context.jid, conversationType: context.conversationType
         ) { [weak self] accepted in
             DispatchQueue.main.async {
+                if accepted {
+                    ChatStickerCatalogue.shared.recordStickerUse(sticker, owner: context.owner)
+                }
                 guard let self, self.isCurrentStickerContext(context) else { return }
                 if accepted {
                     if let sentEmoji, self.xabberInputView.currentPayload().body == sentEmoji {

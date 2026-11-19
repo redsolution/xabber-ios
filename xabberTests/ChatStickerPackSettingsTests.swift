@@ -71,6 +71,84 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         XCTAssertTrue(catalogue.installed(for: otherOwner).isEmpty)
     }
 
+    func testRecentStickersRankByFrequencyThenRecencyAcrossCatalogueReload() async throws {
+        let suite = "ChatStickerUsageTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in
+            Self.usageManifest(["First", "Second", "Third", "Fourth"])
+        }
+        let url = ChatStickerStarterPack.all[0].manifestURL
+        let pack = try await catalogue.install(url, owner: owner)
+        XCTAssertTrue(catalogue.recentStickers(for: owner).isEmpty)
+
+        for index in [0, 1, 0, 2, 1, 3] {
+            catalogue.recordStickerUse(pack.stickers[index].descriptor(), owner: owner)
+        }
+
+        let reloaded = ChatStickerCatalogue(defaults: defaults)
+        XCTAssertEqual(reloaded.recentStickers(for: owner).map(\.name), ["Second", "First", "Fourth", "Third"])
+    }
+
+    func testRecentStickerUsageIsAccountScopedAndClearedOnAccountRemoval() async throws {
+        let suite = "ChatStickerUsageTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in Self.usageManifest(["First", "Second"]) }
+        let url = ChatStickerStarterPack.all[0].manifestURL
+        let pack = try await catalogue.install(url, owner: owner)
+        catalogue.recordStickerUse(pack.stickers[0].descriptor(), owner: owner)
+        catalogue.recordStickerUse(pack.stickers[0].descriptor(), owner: otherOwner)
+        try await catalogue.install(url, owner: otherOwner)
+        XCTAssertTrue(catalogue.recentStickers(for: otherOwner).isEmpty)
+        catalogue.recordStickerUse(pack.stickers[1].descriptor(), owner: otherOwner)
+
+        catalogue.removeAccount(owner)
+        try await catalogue.install(url, owner: owner)
+
+        XCTAssertTrue(catalogue.recentStickers(for: owner).isEmpty)
+        XCTAssertEqual(catalogue.recentStickers(for: otherOwner).map(\.name), ["Second"])
+    }
+
+    func testRecentStickersUseUpdatedMetadataAndDropUninstalledImages() async throws {
+        let suite = "ChatStickerUsageTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var manifest = Self.usageManifest(["First", "Second"])
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in manifest }
+        let url = ChatStickerStarterPack.all[0].manifestURL
+        let pack = try await catalogue.install(url, owner: owner)
+        pack.stickers.forEach { catalogue.recordStickerUse($0.descriptor(), owner: owner) }
+
+        manifest = Self.usageManifest(["Second"], version: 2, labelPrefix: "Updated ")
+        try await catalogue.install(url, owner: owner)
+
+        XCTAssertEqual(catalogue.recentStickers(for: owner).map(\.name), ["Updated Second"])
+        try catalogue.remove(url, owner: owner)
+        try await catalogue.install(url, owner: owner)
+        XCTAssertTrue(catalogue.recentStickers(for: owner).isEmpty)
+    }
+
+    func testRecentStickersLimitsDisplayedEntriesToTheTopTwentyFour() async throws {
+        let suite = "ChatStickerUsageTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let names = (0..<27).map { "Sticker\($0)" }
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in Self.usageManifest(names) }
+        let pack = try await catalogue.install(ChatStickerStarterPack.all[0].manifestURL, owner: owner)
+
+        pack.stickers.forEach { catalogue.recordStickerUse($0.descriptor(), owner: owner) }
+
+        XCTAssertEqual(catalogue.recentStickers(for: owner).map(\.name), Array(names.suffix(24).reversed()))
+    }
+
+    private static func usageManifest(_ names: [String], version: Int = 1, labelPrefix: String = "") -> Data {
+        let stickers = names.map { name in
+            "<sticker name=\"\(labelPrefix)\(name)\"><file id=\"\(name)\"><name>\(name).webp</name></file></sticker>"
+        }.joined()
+        return Data("<sticker-pack name=\"Usage\" version=\"\(version)\"><stickers>\(stickers)</stickers></sticker-pack>".utf8)
+    }
+
     private static func manifest(for url: URL) -> Data {
         Data("""
         <sticker-pack name="\(url.deletingLastPathComponent().lastPathComponent)">

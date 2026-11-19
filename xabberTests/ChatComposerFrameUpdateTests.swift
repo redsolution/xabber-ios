@@ -72,6 +72,61 @@ final class ChatComposerFrameUpdateTests: XCTestCase {
     }
 
     @MainActor
+    func testStickerKeyboardRequestsTheSystemKeyboardMaterialAndPanelHeight() {
+        let keyboard = ChatStickerKeyboardInputView(width: 390, height: 335)
+
+        XCTAssertEqual(keyboard.inputViewStyle, .keyboard)
+        XCTAssertTrue(keyboard.allowsSelfSizing)
+        XCTAssertEqual(keyboard.intrinsicContentSize.height, 335)
+
+        keyboard.panelHeight = 180
+
+        XCTAssertEqual(keyboard.intrinsicContentSize.height, 180)
+    }
+
+    @MainActor
+    func testVisiblePhoneChatOpensStickerPanelAsResponderInputAndClosesIt() async throws {
+        guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone else {
+            throw XCTSkip("The phone uses the native sticker keyboard on iOS 26.")
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let chat = makeStickerChat()
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = chat
+        window.makeKeyAndVisible()
+        defer {
+            chat.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        let panel = ChatStickerPickerViewController(
+            owner: chat.owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        chat.installInlineStickerPanel(panel)
+        let responder = try XCTUnwrap(chat.stickerKeyboardResponder)
+        chat.setInlineStickerPanelVisible(true)
+
+        let input = try XCTUnwrap(responder.inputView as? UIInputView)
+        XCTAssertEqual(input.inputViewStyle, .keyboard)
+        XCTAssertTrue(responder.isFirstResponder)
+        XCTAssertTrue(chat.inlineStickerPanel?.viewIfLoaded?.superview === input)
+        XCTAssertTrue(chat.xabberInputView.isHidden)
+        let attached = expectation(for: NSPredicate { _, _ in
+            MainActor.assumeIsolated { input.window != nil && input.bounds.height > 0 }
+        }, evaluatedWith: nil)
+        await fulfillment(of: [attached], timeout: 3)
+
+        chat.setInlineStickerPanelVisible(false, animated: false)
+
+        XCTAssertFalse(responder.isFirstResponder)
+        XCTAssertFalse(chat.xabberInputView.isHidden)
+    }
+
+    @MainActor
     func testFirstStickerPanelInstallSettlesRestingFrameBeforeAnimation() throws {
         let chat = makeStickerChat()
         defer { chat.performTerminalChatResourceTeardownForTesting() }

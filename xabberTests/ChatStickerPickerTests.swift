@@ -59,6 +59,45 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertEqual(entry.descriptor(preferredEmoji: "💐").emoji, "💐")
     }
 
+    func testStickerGridExtendsToPanelBottomWithSafeAreaAsScrollInset() throws {
+        let panel = ChatStickerPickerViewController(
+            owner: owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        panel.additionalSafeAreaInsets.bottom = 34
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 344))
+        window.rootViewController = panel
+        window.isHidden = false
+        defer { window.isHidden = true }
+        window.layoutIfNeeded()
+        panel.view.layoutIfNeeded()
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let bottomSafeArea = panel.view.safeAreaInsets.bottom
+
+        XCTAssertGreaterThan(bottomSafeArea, 0)
+        XCTAssertEqual(grid.convert(grid.bounds, to: panel.view).maxY, panel.view.bounds.maxY, accuracy: 0.5)
+        XCTAssertEqual(grid.adjustedContentInset.bottom, bottomSafeArea)
+        XCTAssertEqual(grid.verticalScrollIndicatorInsets.bottom, bottomSafeArea)
+    }
+
+    func testStickerGridShowsLargerTilesOnPhoneAndFitsMoreTilesOnTablet() throws {
+        let panel = ChatStickerPickerViewController(
+            owner: owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let layout = try XCTUnwrap(grid.collectionViewLayout as? UICollectionViewFlowLayout)
+
+        func visibleColumns(at width: CGFloat) -> Int {
+            grid.bounds.size.width = width
+            let tile = panel.collectionView(grid, layout: layout, sizeForItemAt: IndexPath(item: 0, section: 0))
+            XCTAssertGreaterThan(tile.width, 100)
+            let available = width - layout.sectionInset.left - layout.sectionInset.right
+            return Int((available + layout.minimumInteritemSpacing) / (tile.width + layout.minimumInteritemSpacing))
+        }
+
+        XCTAssertEqual(visibleColumns(at: 390), 3)
+        XCTAssertGreaterThan(visibleColumns(at: 768), 3)
+    }
+
     func testManifestRejectsExternalEntitiesAndUnsafeMediaURLs() {
         let externalEntity = """
         <!DOCTYPE sticker-pack [<!ENTITY content SYSTEM 'file:///private/stickers'>]>
@@ -205,6 +244,69 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 2)
     }
 
+    func testInlinePickerKeepsAllPacksInTheGridAndRibbonScrollsToASection() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let otherURL = manifestURL.deletingLastPathComponent().appendingPathComponent("another.xml")
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { url, _ in
+            Data(self.xml(version: 1, secondSticker: url == otherURL).utf8)
+        }
+        try await catalogue.install(manifestURL, owner: owner)
+        try await catalogue.install(otherURL, owner: owner)
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { false },
+                                                    onSend: { _ in }, onSchedule: { _ in })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let ribbon = try XCTUnwrap(viewWithIdentifier("chat.stickers.packs", in: panel.view) as? UICollectionView)
+        panel.view.frame = CGRect(x: 0, y: 0, width: 390, height: 176)
+        panel.view.layoutIfNeeded()
+
+        XCTAssertEqual(panel.numberOfSections(in: grid), 2)
+        XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 1)
+        XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 1), 2)
+
+        panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 1, section: 0))
+
+        XCTAssertGreaterThan(grid.contentOffset.y, 0)
+        XCTAssertEqual(panel.numberOfSections(in: grid), 2)
+    }
+
+    func testAddingARecentSectionPreservesTheVisiblePackPosition() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let otherURL = manifestURL.deletingLastPathComponent().appendingPathComponent("other/pack.xml")
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in Data(self.xml(version: 1).utf8) }
+        let first = try await catalogue.install(manifestURL, owner: owner)
+        try await catalogue.install(otherURL, owner: owner)
+        let panel = ChatStickerPickerViewController(owner: owner, catalogue: catalogue, canSchedule: { false },
+                                                    onSend: { _ in }, onSchedule: { _ in })
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let ribbon = try XCTUnwrap(viewWithIdentifier("chat.stickers.packs", in: panel.view) as? UICollectionView)
+        panel.view.frame = CGRect(x: 0, y: 0, width: 390, height: 176)
+        panel.view.layoutIfNeeded()
+        panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 1, section: 0))
+
+        func headerY(in section: Int) throws -> CGFloat {
+            try XCTUnwrap(grid.collectionViewLayout.layoutAttributesForSupplementaryView(
+                ofKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: section)
+            )).frame.minY
+        }
+
+        let offsetInPack = grid.contentOffset.y - (try headerY(in: 1))
+        let sticker = try XCTUnwrap(first.stickers.first)
+
+        catalogue.recordStickerUse(sticker.descriptor(), owner: owner)
+
+        XCTAssertEqual(panel.numberOfSections(in: grid), 3)
+        XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 1)
+        XCTAssertEqual(grid.contentOffset.y - (try headerY(in: 2)), offsetInPack, accuracy: 0.5)
+
+        panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 0, section: 0))
+
+        XCTAssertEqual(grid.contentOffset.y, 0, accuracy: 0.5)
+    }
+
     func testInlinePickerScheduleMenuDoesNotTriggerImmediateSend() async throws {
         let key = "ChatStickerPickerTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
@@ -259,7 +361,7 @@ final class ChatStickerPickerTests: XCTestCase {
         let installOther = try XCTUnwrap(viewWithIdentifier("chat.stickers.install.\(other.id)", in: panel.view) as? UIButton)
         installOther.sendActions(for: .touchUpInside)
         try await waitFor { !grid.isHidden }
-        panel.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 0))
+        panel.collectionView(grid, didSelectItemAt: IndexPath(item: 0, section: 1))
 
         XCTAssertEqual(attempts, [starter.manifestURL, starter.manifestURL, other.manifestURL])
         XCTAssertEqual(catalogue.installed(for: owner).map(\.manifestURL), starters.map(\.manifestURL))

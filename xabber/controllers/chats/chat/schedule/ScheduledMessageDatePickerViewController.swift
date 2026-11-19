@@ -18,6 +18,7 @@ final class ScheduledMessageDatePickerViewController: UIViewController {
     private let nowProvider: () -> Date
     private let initialDate: Date?
     private let onConfirm: (Date) -> Void
+    var onDismiss: (() -> Void)?
     private let dimView = UIView()
     private let sheetView = UIView()
     private let titleLabel = UILabel()
@@ -175,14 +176,15 @@ final class ScheduledMessageDatePickerViewController: UIViewController {
             updateConfirmButton()
             return
         }
-        dismiss(animated: true) { [onConfirm] in
+        dismiss(animated: true) { [onConfirm, onDismiss] in
             onConfirm(selectedDate)
+            onDismiss?()
         }
     }
 
     @objc
     private func close() {
-        dismiss(animated: true)
+        dismiss(animated: true, completion: onDismiss)
     }
 
     override func accessibilityPerformEscape() -> Bool {
