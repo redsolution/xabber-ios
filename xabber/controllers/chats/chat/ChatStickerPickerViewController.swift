@@ -551,8 +551,13 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         return cell
     }
 
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? ChatStickerPickerCell)?.thumbnail.resumeThumbnailLoad()
+    }
+
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        (cell as? ChatStickerPickerCell)?.thumbnail.reset()
+        // UIKit can display this prepared cell again without reconfiguring it.
+        (cell as? ChatStickerPickerCell)?.thumbnail.pauseThumbnailLoad()
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -817,6 +822,7 @@ final class ChatStickerThumbnailView: UIView {
     private let imageView = UIImageView()
     private let placeholder = UILabel()
     private var subscription: ChatThumbnailSubscription?
+    private var thumbnailRequest: ChatThumbnailRequest?
     private var entry: ChatStickerEntry?
     private var binding = UUID()
 
@@ -850,13 +856,37 @@ final class ChatStickerThumbnailView: UIView {
     }
 
     func reset() {
-        subscription?.cancel()
-        subscription = nil
+        pauseThumbnailLoad()
+        thumbnailRequest = nil
         entry = nil
-        binding = UUID()
         imageView.image = nil
         placeholder.text = nil
         placeholder.isHidden = false
+    }
+
+    func pauseThumbnailLoad() {
+        binding = UUID()
+        subscription?.cancel()
+        subscription = nil
+    }
+
+    func resumeThumbnailLoad() {
+        guard let request = thumbnailRequest, imageView.image == nil, subscription == nil else { return }
+        let id = binding
+        let consumer = ChatThumbnailConsumer(
+            identity: ChatCollectionPrefetchIdentity(kind: .sticker, messagePrimary: request.owner,
+                                                     referencePrimary: request.url.absoluteString),
+            role: .visible(id)
+        )
+        subscription = thumbnails.acquire(request, consumer: consumer) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.binding == id else { return }
+                self.subscription = nil
+                guard case .success(let thumbnail) = result else { return }
+                self.imageView.image = thumbnail.image
+                self.placeholder.isHidden = true
+            }
+        }
     }
 
     func load(_ sticker: ChatStickerEntry, owner: String, size: CGFloat, profile: ChatStickerImageProfile? = nil) {
@@ -876,19 +906,8 @@ final class ChatStickerThumbnailView: UIView {
     }
 
     private func requestImage(_ url: URL, owner: String, size: CGFloat, profile: ChatStickerImageProfile?) {
-        let id = binding
-        let request = (profile ?? ChatStickerImageProfile(view: self)).request(url: url, owner: owner, size: size)
-        let consumer = ChatThumbnailConsumer(
-            identity: ChatCollectionPrefetchIdentity(kind: .sticker, messagePrimary: owner,
-                                                     referencePrimary: url.absoluteString),
-            role: .visible(id)
-        )
-        subscription = thumbnails.acquire(request, consumer: consumer) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self, self.binding == id, case .success(let thumbnail) = result else { return }
-                self.imageView.image = thumbnail.image
-                self.placeholder.isHidden = true
-            }
-        }
+        thumbnailRequest = (profile ?? ChatStickerImageProfile(view: self))
+            .request(url: url, owner: owner, size: size)
+        resumeThumbnailLoad()
     }
 }

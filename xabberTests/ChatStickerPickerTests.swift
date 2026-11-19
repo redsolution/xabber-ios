@@ -137,6 +137,41 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertTrue(ChatStickerSuggestion.matches(text: "x", packs: [pack]).isEmpty)
     }
 
+    func testStickerThumbnailResumesCancelledRequestAndRetainsRenderedImage() async throws {
+        let pack = try ChatStickerPackManifest.parse(Data(xml(version: 1).utf8), url: manifestURL)
+        let sticker = try XCTUnwrap(pack.stickers.first)
+        let pipeline = PickerThumbnailPipeline()
+        let view = ChatStickerThumbnailView(thumbnails: pipeline)
+        let imageSize = CGSize(width: 8, height: 8)
+        let image = UIGraphicsImageRenderer(size: imageSize).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(origin: .zero, size: imageSize))
+        }
+        view.load(sticker, owner: owner, size: 72)
+        let original = pipeline.request
+
+        view.pauseThumbnailLoad()
+        pipeline.complete(image)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        XCTAssertNil(view.inlineThumbnail(for: sticker), "A cancelled request must not change the binding")
+
+        view.resumeThumbnailLoad()
+        view.resumeThumbnailLoad()
+        XCTAssertEqual(pipeline.acquisitionCount, 2)
+        XCTAssertEqual(pipeline.request, original)
+        pipeline.complete(image)
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+
+        view.pauseThumbnailLoad()
+        view.resumeThumbnailLoad()
+        XCTAssertNotNil(view.inlineThumbnail(for: sticker))
+        XCTAssertEqual(pipeline.acquisitionCount, 2)
+    }
+
     func testInstalledStickerThumbnailReplacesEmojiUsingStickerRoute() async throws {
         let pack = try ChatStickerPackManifest.parse(Data(xml(version: 1).utf8), url: manifestURL)
         let entry = try XCTUnwrap(pack.stickers.first)
@@ -270,6 +305,41 @@ final class ChatStickerPickerTests: XCTestCase {
 
         XCTAssertGreaterThan(grid.contentOffset.y, 0)
         XCTAssertEqual(panel.numberOfSections(in: grid), 2)
+    }
+
+    func testStickerCellBelowRecentsKeepsItsPlaceholderWhenRedisplayed() async throws {
+        let key = "ChatStickerPickerTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: key))
+        defer { defaults.removePersistentDomain(forName: key) }
+        let catalogue = ChatStickerCatalogue(defaults: defaults) { _, _ in
+            Data(self.xml(version: 1, secondSticker: true).utf8)
+        }
+        let pack = try await catalogue.install(manifestURL, owner: owner)
+        let recent = try XCTUnwrap(pack.stickers.first)
+        catalogue.recordStickerUse(recent.descriptor(), owner: owner)
+        let panel = ChatStickerPickerViewController(
+            owner: owner, catalogue: catalogue, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        panel.setKeyboardHostBottomInset(34)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 344))
+        window.rootViewController = panel
+        window.isHidden = false
+        defer { window.isHidden = true }
+        window.layoutIfNeeded()
+        panel.view.layoutIfNeeded()
+        let grid = try XCTUnwrap(viewWithIdentifier("chat.stickers.picker", in: panel.view) as? UICollectionView)
+        let path = IndexPath(item: 0, section: 1)
+        let cell = try XCTUnwrap(grid.cellForItem(at: path))
+        let thumbnail = try XCTUnwrap(cell.contentView.subviews.compactMap { $0 as? ChatStickerThumbnailView }.first)
+        let placeholder = try XCTUnwrap(thumbnail.subviews.compactMap { $0 as? UILabel }.first)
+        let emoji = try XCTUnwrap(recent.emojis.first)
+        XCTAssertEqual(placeholder.text, emoji)
+
+        grid.delegate?.collectionView?(grid, didEndDisplaying: cell, forItemAt: path)
+        grid.delegate?.collectionView?(grid, willDisplay: cell, forItemAt: path)
+
+        XCTAssertEqual(placeholder.text, emoji)
+        XCTAssertFalse(placeholder.isHidden)
     }
 
     func testAddingARecentSectionPreservesTheVisiblePackPosition() async throws {
@@ -450,6 +520,7 @@ final class ChatStickerPickerTests: XCTestCase {
 
     private final class PickerThumbnailPipeline: ChatThumbnailServing {
         private(set) var request: ChatThumbnailRequest?
+        private(set) var acquisitionCount = 0
         private var completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
 
         func acquire(
@@ -457,6 +528,7 @@ final class ChatStickerPickerTests: XCTestCase {
             consumer: ChatThumbnailConsumer,
             completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
         ) -> ChatThumbnailSubscription {
+            acquisitionCount += 1
             self.request = request
             self.completion = completion
             return Subscription()
