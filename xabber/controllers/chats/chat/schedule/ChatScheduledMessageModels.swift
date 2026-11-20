@@ -95,6 +95,7 @@ enum ChatSendOptionsContextMenuBuilder {
         menu.MenuConstants.BlurEffectEnabled = true
         menu.MenuConstants.BlurEffectDefault = UIBlurEffect(style: .regular)
         menu.MenuConstants.targetedViewShadowEnabled = false
+        menu.MenuConstants.roundedTargetSnapshotRadius = NativeGlassBarStyle.cornerRadius
     }
 
     static func makeItems(menuState: ChatSendOptionsMenuState) -> [[ContextMenuItem]] {

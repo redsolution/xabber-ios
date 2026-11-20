@@ -279,6 +279,54 @@ final class XEPMessageScheduleUITests: XCTestCase {
         XCTAssertTrue(sourceFrame.contains(sendFrame))
     }
 
+    @MainActor
+    func testSendOptionsMenuPreviewKeepsTheComposerGlassCorners() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        let inputView = ModernXabberInputView(frame: CGRect(x: 16, y: 460, width: window.bounds.width - 32, height: 49))
+        host.view.addSubview(inputView)
+        inputView.setComposerText("Scheduled text")
+        inputView.textViewDidChange(force: true)
+        inputView.layoutIfNeeded()
+        let sourceView = inputView.sendOptionsMenuSourceView
+        let glassView = try XCTUnwrap(sourceView.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        let menu = ContextMenu(window: window)
+        ChatSendOptionsContextMenuBuilder.configure(menu)
+        let state = ChatSendOptionsMenuPolicy.makeMenuState(scheduleContext: ChatScheduleActionContext(
+            scheduleAvailable: true,
+            isEditingMessage: false,
+            hasRecordedAudio: false,
+            hasUnsupportedMediaAttachment: false,
+            conversationType: .regular
+        ))
+        menu.items = ChatSendOptionsContextMenuBuilder.makeItems(menuState: state)
+        let delegate = ContextMenuDelegateSpy()
+        let didAppear = expectation(description: "Send options preview appeared")
+        menu.onViewAppear = { _ in didAppear.fulfill() }
+
+        menu.showMenu(viewTargeted: sourceView, delegate: delegate, animated: false)
+        wait(for: [didAppear], timeout: 1)
+        defer { menu.closeMenu(withAnimation: false) }
+
+        let preview = try XCTUnwrap(window.subviews.compactMap { $0 as? UIImageView }.first)
+        XCTAssertEqual(preview.image?.size, sourceView.bounds.size)
+        XCTAssertGreaterThan(glassView.layer.cornerRadius, 0)
+        XCTAssertEqual(preview.layer.cornerRadius, glassView.layer.cornerRadius)
+        XCTAssertEqual(preview.layer.cornerCurve, glassView.layer.cornerCurve)
+        XCTAssertTrue(preview.clipsToBounds)
+    }
+
     func testContextMenuDisabledRowsCannotBeSelectedOrInvokeTap() {
         let menu = ContextMenu(window: UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844)))
         menu.items = [[

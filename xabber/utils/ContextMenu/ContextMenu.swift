@@ -132,6 +132,7 @@ public class ContextMenuConstants {
     public var horizontalDirection: HorizontalDirection = .left
     public var verticalPlacement: VerticalPlacement = .automatic
     public var targetedViewShadowEnabled: Bool = true
+    var roundedTargetSnapshotRadius: CGFloat?
 }
 
 open class ContextMenu: NSObject {
@@ -238,9 +239,10 @@ open class ContextMenu: NSObject {
             } else {
                 self.menuHeight = self.MenuConstants.MenuDefaultHeight
             }
+            let targetImage = self.getRenderedImage()
             self.addBlurEffectView()
             self.addMenuView()
-            self.addTargetedImageView()
+            self.addTargetedImageView(image: targetImage)
             self.openAllViews()
         }
     }
@@ -293,11 +295,17 @@ open class ContextMenu: NSObject {
     // MARK:- Get Rendered Image Functions
     func getRenderedImage(afterScreenUpdates: Bool = false) -> UIImage{
         let renderer = UIGraphicsImageRenderer(size: viewTargeted.bounds.size)
-        let viewSnapShotImage = renderer.image { ctx in
-            viewTargeted.contentScaleFactor = 3
-            viewTargeted.drawHierarchy(in: viewTargeted.bounds, afterScreenUpdates: afterScreenUpdates)
+        return renderer.image { context in
+            if MenuConstants.roundedTargetSnapshotRadius != nil, let window = viewTargeted.window {
+                // Capture the window so glass is composited with its backdrop.
+                let frameInWindow = viewTargeted.convert(viewTargeted.bounds, to: window)
+                context.cgContext.translateBy(x: -frameInWindow.minX, y: -frameInWindow.minY)
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: afterScreenUpdates)
+            } else {
+                viewTargeted.contentScaleFactor = 3
+                viewTargeted.drawHierarchy(in: viewTargeted.bounds, afterScreenUpdates: afterScreenUpdates)
+            }
         }
-        return viewSnapShotImage
     }
     
     func addBlurEffectView() {
@@ -337,7 +345,7 @@ open class ContextMenu: NSObject {
         }
     }
     
-    func addTargetedImageView() {
+    func addTargetedImageView(image: UIImage) {
         
         if !customView.subviews.contains(targetedImageView) {
             customView.addSubview(targetedImageView)
@@ -345,7 +353,10 @@ open class ContextMenu: NSObject {
         
         let rect = viewTargeted.convert(mainViewRect.origin, to: nil)
         
-        targetedImageView.image = self.getRenderedImage()
+        targetedImageView.image = image
+        targetedImageView.layer.cornerRadius = MenuConstants.roundedTargetSnapshotRadius ?? 0
+        targetedImageView.layer.cornerCurve = .continuous
+        targetedImageView.clipsToBounds = MenuConstants.roundedTargetSnapshotRadius != nil
         targetedImageView.frame = CGRect(x: rect.x,
                                          y: rect.y,
                                          width: viewTargeted.frame.width,
