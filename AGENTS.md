@@ -195,6 +195,8 @@ Rules for imported markdown:
 
 ## Build and test policy
 
+- Before committing directly to `develop` or `master`, or completing a merge into either branch, run the full localization checks against the contents that will land on the branch. This applies to every change.
+- Run `python3 -B -m unittest discover -s tools/tests -p 'test_localization_*.py'`, the manifest and catalog validation steps in the `localization` job, and the complete XCTest selection from `Test compiled localization catalog` in [the build and test workflow](.github/workflows/build-and-test.yml).
 - After Swift or Objective-C changes, prefer running the narrowest relevant verification first.
 - For code changes, follow TDD by default: add or update the focused XCTest first, then make the implementation pass.
 - Prefer one dedicated XCTest file per task when practical, especially for new behavior or regressions; reuse an existing file only when that keeps the scenario clearer.
