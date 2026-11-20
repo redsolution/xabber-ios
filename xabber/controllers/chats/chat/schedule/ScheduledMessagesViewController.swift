@@ -9,7 +9,7 @@
 import RealmSwift
 import UIKit
 
-struct ScheduledMessageDaySection {
+struct ScheduledMessageDaySection: Equatable {
     let day: Date
     let items: [ScheduledMessageListItem]
 
@@ -41,6 +41,7 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
     private let banner = UIStackView()
     private let statusLabel = UILabel()
     private let activity = UIActivityIndicatorView(style: .medium)
+    private let rescheduleActivity = UIActivityIndicatorView(style: .medium)
     private let retryButton = UIButton(type: .system)
     private let recoveryButton = UIButton(type: .system)
     private let refreshControl = UIRefreshControl()
@@ -52,6 +53,7 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
     private var activeIDs: Set<String> = []
     private var editDrafts: [String: ScheduledMessageEditDraft] = [:]
     private var isRefreshing = false
+    private var isRescheduling = false
     private var refreshFailed = false
     private var actionNotice: String?
     private var notificationToken: NotificationToken?
@@ -97,6 +99,10 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
         banner.alignment = .center
         banner.spacing = 4
         activity.hidesWhenStopped = true
+        rescheduleActivity.isAccessibilityElement = true
+        rescheduleActivity.accessibilityLabel = L10n.text(
+            "scheduled_messages_working", fallback: "Updating scheduled messages…"
+        )
         for label in [emptyLabel, statusLabel] {
             label.font = .preferredFont(forTextStyle: .subheadline)
             label.adjustsFontForContentSizeCategory = true
@@ -180,6 +186,9 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
     }
 
     private func reloadLocalRows() {
+        // Rescheduling persists a cancellation and a replacement separately.
+        // Keep the current rows visible until both steps have settled.
+        guard !isRescheduling else { return }
         guard let realm = try? WRealm.safe(),
               let loaded = try? ScheduledMessagesListModel.items(
                 owner: owner,
@@ -191,10 +200,17 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
             updateControls()
             return
         }
-        sections = ScheduledMessageDaySection.make(from: loaded, calendar: L10n.formatters.calendar)
+        let updatedSections = ScheduledMessageDaySection.make(from: loaded, calendar: L10n.formatters.calendar)
+        let rowsChanged = sections != updatedSections
+        sections = updatedSections
         itemsByID = Dictionary(uniqueKeysWithValues: loaded.map { ($0.scheduledId, $0) })
         selectedIDs.formIntersection(itemsByID.keys)
         editDrafts = editDrafts.filter { itemsByID[$0.key] != nil || activeIDs.contains($0.key) }
+        guard rowsChanged else {
+            updateVisibleAccessibilityActions()
+            updateControls()
+            return
+        }
         tableView.reloadData()
         if tableView.isEditing {
             for (section, day) in sections.enumerated() {
@@ -246,7 +262,10 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
         isModalInPresentation = isBusy
         navigationController?.isModalInPresentation = isBusy
 
-        if isEditing {
+        if isRescheduling {
+            rescheduleActivity.startAnimating()
+            navigationItem.rightBarButtonItem = UIBarButtonItem(customView: rescheduleActivity)
+        } else if isEditing {
             let endSelection = UIBarButtonItem(
                 systemItem: .cancel,
                 primaryAction: UIAction { [weak self] _ in self?.finishSelection() }
@@ -278,6 +297,11 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
             navigationItem.rightBarButtonItems = [select]
         }
 
+        retryButton.isEnabled = !isRescheduling
+        recoveryButton.isEnabled = !isRescheduling
+        // Progress in the navigation bar leaves the table and any existing banner in place.
+        guard !isRescheduling else { return }
+        rescheduleActivity.stopAnimating()
         if isBusy || (isRefreshing && itemsByID.isEmpty) { activity.startAnimating() } else { activity.stopAnimating() }
         if isBusy {
             statusLabel.text = L10n.text("scheduled_messages_working", fallback: "Updating scheduled messages…")
@@ -373,6 +397,7 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
             return
         }
         activeIDs = Set(items.map(\.scheduledId))
+        if case .reschedule = action { isRescheduling = true }
         actionNotice = nil
         if tableView.isEditing { finishSelection() }
         updateVisibleAccessibilityActions()
@@ -394,6 +419,13 @@ final class ScheduledMessagesViewController: SimpleBaseViewController {
                 actionNotice = L10n.text("scheduled_messages_batch_error", fallback: "Some actions could not be completed.")
             } else if let failure = failures.first {
                 actionNotice = notice(for: failure)
+            }
+            if isRescheduling {
+                // Advance the main-thread Realm while observation is still deferred.
+                if let realm = try? WRealm.safe() {
+                    await realm.asyncRefresh()
+                }
+                isRescheduling = false
             }
             activeIDs.removeAll()
             reloadLocalRows()

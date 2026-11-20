@@ -8,6 +8,7 @@
 
 import XCTest
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 final class XEPMessageScheduleUITests: XCTestCase {
@@ -599,6 +600,114 @@ final class XEPMessageScheduleUITests: XCTestCase {
         ))
     }
 
+    @MainActor
+    func testRescheduleKeepsTheVisibleRowInPlaceUntilItsReplacementIsConfirmed() async throws {
+        let owner = "alice@example.test"
+        let conversation = "bob@example.test"
+        let calendar = L10n.formatters.calendar
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: Date()))
+        let oldDate = try XCTUnwrap(calendar.date(bySettingHour: 12, minute: 0, second: 0, of: tomorrow))
+        let newDate = oldDate.addingTimeInterval(180)
+        let messageXML = "<message xmlns='jabber:client' to='\(conversation)' type='chat'><body>Draft</body></message>"
+        let realm = try WRealm.safe()
+        func store(_ id: String, date: Date) throws {
+            let row = XMPPMessageScheduleStorageItem()
+            row.configure(
+                owner: owner, scheduledId: id, conversation: conversation, conversationType: .regular,
+                deliverAt: date, status: .pending, messageXML: messageXML
+            )
+            try realm.write { realm.add(row) }
+        }
+        try store("original", date: oldDate)
+        let rows = realm.objects(XMPPMessageScheduleStorageItem.self)
+        let originalWasRemoved = expectation(description: "Realm published the cancel")
+        let token = rows.observe { change in
+            if case .update(let rows, let deletions, _, _) = change, rows.isEmpty, !deletions.isEmpty {
+                originalWasRemoved.fulfill()
+            }
+        }
+        defer { token.invalidate() }
+
+        let service = FakeScheduledMessageService()
+        let cancelRequested = expectation(description: "Cancel requested")
+        let replacementRequested = expectation(description: "Replacement requested")
+        service.onCancelRequest = { cancelRequested.fulfill() }
+        service.onPreparedScheduleRequest = { replacementRequested.fulfill() }
+        defer {
+            service.cancelCallback?(.failure(.sendRejected))
+            service.preparedScheduleCallback?(.failure(.sendRejected))
+        }
+        let journalDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: journalDirectory) }
+        let list = ScheduledMessagesViewController()
+        list.owner = owner
+        list.jid = conversation
+        list.scheduledMessageService = service
+        list.actionCoordinator = ScheduledMessageActionCoordinator(
+            service: service, journal: ScheduledMessageActionJournal(directory: journalDirectory)
+        )
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = UINavigationController(rootViewController: list)
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+        window.layoutIfNeeded()
+        let table = try XCTUnwrap(list.view.subviews.compactMap { $0 as? UITableView }.first)
+        let indexPath = IndexPath(row: 0, section: 0)
+        let originalCell = try XCTUnwrap(table.cellForRow(at: indexPath))
+        let originalFrame = originalCell.convert(originalCell.bounds, to: list.view)
+        let originalLabel = originalCell.accessibilityLabel
+        let originalValue = originalCell.accessibilityValue
+        let reschedule = try XCTUnwrap(originalCell.accessibilityCustomActions?.first {
+            $0.name == L10n.text("scheduled_message_reschedule", fallback: "Reschedule")
+        })
+        XCTAssertTrue(reschedule.actionHandler?(reschedule) == true)
+        let picker = try XCTUnwrap(list.presentedViewController as? ScheduledMessageDatePickerViewController)
+        let pickerControls = picker.view.subviews.flatMap(\.subviews)
+        let wheel = try XCTUnwrap(pickerControls.compactMap { $0 as? UIDatePicker }.first)
+        let confirm = try XCTUnwrap(pickerControls.first {
+            $0.accessibilityIdentifier == ScheduledMessageDatePickerViewController.confirmButtonIdentifier
+        } as? UIButton)
+        wheel.date = newDate
+        confirm.sendActions(for: .touchUpInside)
+
+        await fulfillment(of: [cancelRequested], timeout: 3)
+        window.layoutIfNeeded()
+        XCTAssertEqual(originalCell.convert(originalCell.bounds, to: list.view), originalFrame)
+        let cancelled = try XCTUnwrap(service.cancelCallback)
+        let original = try XCTUnwrap(rows.first)
+        try realm.write { realm.delete(original) }
+        cancelled(.success("original"))
+        await fulfillment(of: [originalWasRemoved, replacementRequested], timeout: 3)
+        window.layoutIfNeeded()
+        XCTAssertEqual(table.numberOfSections, 1)
+        XCTAssertTrue(table.cellForRow(at: indexPath) === originalCell)
+        XCTAssertEqual(originalCell.accessibilityValue, originalValue)
+        XCTAssertEqual(originalCell.convert(originalCell.bounds, to: list.view), originalFrame)
+
+        let replacement = try XCTUnwrap(service.preparedScheduleCallback)
+        try store("replacement", date: newDate)
+        replacement(.success(.init(
+            scheduledId: "replacement", conversation: conversation, conversationType: .regular,
+            deliverAt: newDate, status: .pending, messageXML: messageXML
+        )))
+        let time = L10n.formatters.dateFormatter(timeStyle: .short).string(from: newDate)
+        let updated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            window.layoutIfNeeded()
+            return table.cellForRow(at: indexPath)?.accessibilityValue?.hasPrefix(time) == true
+        }, object: nil)
+        await fulfillment(of: [updated], timeout: 3)
+        let newCell = try XCTUnwrap(table.cellForRow(at: indexPath))
+        XCTAssertEqual(newCell.convert(newCell.bounds, to: list.view), originalFrame)
+        XCTAssertEqual(newCell.accessibilityLabel, originalLabel)
+    }
+
     func testChatControllerRefreshShowsScheduledMessagesButtonAfterScheduleRowExists() throws {
         let owner = "alice@example.com"
         let conversation = "bob@example.com"
@@ -1095,7 +1204,11 @@ private final class FakeScheduledMessageService: ChatScheduledMessageServicing {
     var nextQueryId: String? = "query-1"
     var scheduleRequests: [ChatScheduledMessageSendRequest] = []
     var scheduleCallback: XMPPMessageScheduleManager.ScheduleCallback?
+    var preparedScheduleCallback: XMPPMessageScheduleManager.ScheduleCallback?
     var cancelledIds: [String] = []
+    var cancelCallback: XMPPMessageScheduleManager.CancelCallback?
+    var onCancelRequest: (() -> Void)?
+    var onPreparedScheduleRequest: (() -> Void)?
     var sendSimpleMessageCallCount = 0
 
     func isScheduleAvailable(owner: String) -> Bool {
@@ -1130,7 +1243,20 @@ private final class FakeScheduledMessageService: ChatScheduledMessageServicing {
         callback: XMPPMessageScheduleManager.CancelCallback?
     ) -> String? {
         cancelledIds.append(scheduledId)
+        cancelCallback = callback
+        onCancelRequest?()
         return "cancel-1"
+    }
+
+    func schedulePreparedMessage(
+        _ payload: XMPPMessage,
+        for item: ScheduledMessageListItem,
+        deliverAt: Date,
+        callback: XMPPMessageScheduleManager.ScheduleCallback?
+    ) -> String? {
+        preparedScheduleCallback = callback
+        onPreparedScheduleRequest?()
+        return "prepared-1"
     }
 }
 
