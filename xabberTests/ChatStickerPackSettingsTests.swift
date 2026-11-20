@@ -20,6 +20,19 @@ final class ChatStickerPackSettingsTests: XCTestCase {
         }
     }
 
+    func testBuiltInPackNamesFollowTheCurrentAppLanguage() {
+        let runtime = LocalizationRuntime.shared
+        let previousContext = runtime.context
+        defer { runtime.replaceContext(previousContext) }
+        let packs = ChatStickerStarterPack.all
+
+        runtime.replaceContext(selection: .fixed(.english))
+        XCTAssertEqual(packs.map(\.name), ["Owls", "Monsters"])
+
+        runtime.replaceContext(selection: .fixed(.russian))
+        XCTAssertEqual(packs.map(\.name), ["Совы", "Монстры"])
+    }
+
     func testSettingsShowOnlyCurrentAccountsPacksAndRefreshAfterRemoval() async throws {
         let key = "ChatStickerPackSettingsTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: key))

@@ -386,14 +386,22 @@ chat__self_destruct_timer__off,Off,Выключено,Désactivé,Desactivado,م
 chat__self_destruct_timer__seconds_count,"{""one"":""%lld second"",""other"":""%lld seconds""}","{""few"":""%lld секунды"",""many"":""%lld секунд"",""one"":""%lld секунда"",""other"":""%lld секунды""}","{""one"":""%lld seconde"",""other"":""%lld secondes""}","{""one"":""%lld segundo"",""other"":""%lld segundos""}","{""few"":""%lld ثوانٍ"",""many"":""%lld ثانية"",""one"":""%lld ثانية"",""other"":""%lld ثانية"",""two"":""%lld ثانيتان"",""zero"":""%lld ثانية""}","{""other"":""%lld 秒""}"
 chat__signature__update_signature,Update signature,Обновить подпись,Mettre à jour la signature,Actualizar firma,تحديث التوقيع,更新签名
 chat__stickers__add_packs,Add sticker packs,Добавить наборы,Ajouter des packs,Añadir packs,إضافة حزم ملصقات,添加贴纸包
+chat__stickers__collapse,Hide sticker panel,Свернуть панель стикеров,Masquer le panneau d’autocollants,Ocultar panel de stickers,إخفاء لوحة الملصقات,隐藏贴纸面板
 chat__stickers__install,Install,Установить,Installer,Instalar,تثبيت,安装
 chat__stickers__install_link,Install by link,Установить по ссылке,Installer via un lien,Instalar por enlace,التثبيت عبر رابط,通过链接安装
-chat__stickers__install_monsters,Install Monsters,Установить «Монстры»,Installer Monstres,Instalar Monstruos,تثبيت الوحوش,安装怪兽贴纸包
-chat__stickers__install_owls,Install Owls,Установить «Совы»,Installer Hiboux,Instalar Búhos,تثبيت البوم,安装猫头鹰贴纸包
+chat__stickers__installed,Installed,Установлен,Installé,Instalado,مثبّت,已安装
+chat__stickers__installed_packs,Installed packs,Установленные наборы,Packs installés,Packs instalados,الحزم المثبّتة,已安装的贴纸包
+chat__stickers__installing,Installing…,Установка…,Installation…,Instalando…,جارٍ التثبيت…,正在安装…
+chat__stickers__keyboard,Keyboard,Клавиатура,Clavier,Teclado,لوحة المفاتيح,键盘
 chat__stickers__manifest_url,Sticker pack URL,Ссылка на набор стикеров,URL du pack d’autocollants,URL del pack de stickers,رابط حزمة الملصقات,贴纸包链接
+chat__stickers__media_forbidden,Stickers are unavailable in this chat.,В этом чате стикеры недоступны.,Les autocollants ne sont pas disponibles dans cette conversation.,Los stickers no están disponibles en este chat.,الملصقات غير متاحة في هذه المحادثة.,此聊天中无法使用贴纸。
+chat__stickers__pack_monsters,Monsters,Монстры,Monstres,Monstruos,الوحوش,怪兽
+chat__stickers__pack_owls,Owls,Совы,Hiboux,Búhos,البوم,猫头鹰
 chat__stickers__packs,Sticker packs,Наборы стикеров,Packs d’autocollants,Packs de stickers,حزم الملصقات,贴纸包
+chat__stickers__recently_used,Recently used,Недавние,Utilisés récemment,Usados recientemente,المستخدمة مؤخرًا,最近使用
 chat__stickers__refresh_pack,Refresh pack,Обновить набор,Actualiser le pack,Actualizar pack,تحديث الحزمة,刷新贴纸包
 chat__stickers__remove_pack,Remove pack,Удалить набор,Supprimer le pack,Eliminar pack,إزالة الحزمة,移除贴纸包
+chat__stickers__starter_packs,Starter packs,Базовые наборы,Packs de base,Packs básicos,الحزم الأساسية,基础贴纸包
 chat__stickers__title,Stickers,Стикеры,Autocollants,Stickers,الملصقات,贴纸
 chat__stickers__unavailable,Sticker pack unavailable,Набор стикеров недоступен,Pack d’autocollants indisponible,Pack de stickers no disponible,حزمة الملصقات غير متاحة,贴纸包不可用
 chat__system_message__self_destruct_timer_disabled,Self-destruct timer was disabled,Таймер самоуничтожения отключён,Le minuteur d’autodestruction a été désactivé,El temporizador de autodestrucción se desactivó,تم تعطيل مؤقت التدمير الذاتي,自毁计时器已关闭

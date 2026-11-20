@@ -1,27 +1,27 @@
 import Foundation
 import XMPPFramework
 
-struct ChatStickerStarterPack {
-    static let all = [
-        ChatStickerStarterPack(id: "owls", fallbackName: "Owls"),
-        ChatStickerStarterPack(id: "monsters", fallbackName: "Monsters")
-    ]
+enum ChatStickerStarterPack: String, CaseIterable {
+    case owls
+    case monsters
 
-    let id: String
-    let manifestURL: URL
-    let previewURL: URL?
-    private let fallbackName: String
+    static let all = allCases
+    private static let baseURL = URL(string: "https://cdn.jsdelivr.net/gh/redsolution/xabber-stickers@adf96ab")!
 
-    var name: String { L10n.text("chat__stickers__pack_\(id)", fallback: fallbackName) }
+    var id: String { rawValue }
+    var manifestURL: URL { directory.appendingPathComponent("pack.xml") }
+    var previewURL: URL? { directory.appendingPathComponent("cover.webp") }
 
-    private init(id: String, fallbackName: String) {
-        let base = URL(string: "https://cdn.jsdelivr.net/gh/redsolution/xabber-stickers@adf96ab")!
-        let directory = base.appendingPathComponent(id)
-        self.id = id
-        self.fallbackName = fallbackName
-        manifestURL = directory.appendingPathComponent("pack.xml")
-        previewURL = directory.appendingPathComponent("cover.webp")
+    var name: String {
+        switch self {
+        case .owls:
+            return L10n.text("chat__stickers__pack_owls", fallback: "Owls")
+        case .monsters:
+            return L10n.text("chat__stickers__pack_monsters", fallback: "Monsters")
+        }
     }
+
+    private var directory: URL { Self.baseURL.appendingPathComponent(id) }
 }
 
 struct ChatStickerPack: Codable, Equatable, Sendable {

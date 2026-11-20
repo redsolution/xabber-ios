@@ -74,7 +74,7 @@
           "argumentCount": 0,
           "fallback": "Connection error",
           "formatSignature": [],
-          "line": 828,
+          "line": 827,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -11907,7 +11907,7 @@
           "argumentCount": 0,
           "fallback": "Unable to record sound because the permission has not been granted. This can be changed in your settings.",
           "formatSignature": [],
-          "line": 523,
+          "line": 524,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -12007,7 +12007,7 @@
           "argumentCount": 0,
           "fallback": "Unable to play sound at the moment, please try again",
           "formatSignature": [],
-          "line": 143,
+          "line": 144,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -12057,7 +12057,7 @@
           "argumentCount": 0,
           "fallback": "Unable to record sound at the moment, please try again",
           "formatSignature": [],
-          "line": 205,
+          "line": 206,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -12071,7 +12071,7 @@
           "argumentCount": 0,
           "fallback": "Unable to record sound at the moment, please try again",
           "formatSignature": [],
-          "line": 336,
+          "line": 337,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -12085,7 +12085,7 @@
           "argumentCount": 0,
           "fallback": "Unable to record sound at the moment, please try again",
           "formatSignature": [],
-          "line": 394,
+          "line": 395,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -12099,7 +12099,7 @@
           "argumentCount": 0,
           "fallback": "Unable to record sound at the moment, please try again",
           "formatSignature": [],
-          "line": 436,
+          "line": 437,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -14939,7 +14939,7 @@
           "argumentCount": 0,
           "fallback": "Server",
           "formatSignature": [],
-          "line": 5394,
+          "line": 5423,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -15231,7 +15231,7 @@
           "argumentCount": 0,
           "fallback": "Messages couldn’t be loaded.",
           "formatSignature": [],
-          "line": 3745,
+          "line": 3758,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/extension/ChatViewController+ArchiveEngine.swift",
           "surfaces": [
@@ -15267,7 +15267,7 @@
           "argumentCount": 0,
           "fallback": "Messages aren’t loaded yet",
           "formatSignature": [],
-          "line": 4280,
+          "line": 4287,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -15339,7 +15339,7 @@
           "argumentCount": 0,
           "fallback": "Burn message after",
           "formatSignature": [],
-          "line": 603,
+          "line": 604,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -15353,7 +15353,7 @@
           "argumentCount": 0,
           "fallback": "Burn message after",
           "formatSignature": [],
-          "line": 689,
+          "line": 690,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -15389,7 +15389,7 @@
           "argumentCount": 0,
           "fallback": "Check contact’s devices",
           "formatSignature": [],
-          "line": 3419,
+          "line": 3424,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -15425,7 +15425,7 @@
           "argumentCount": 0,
           "fallback": "Check my devices",
           "formatSignature": [],
-          "line": 3421,
+          "line": 3426,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -15461,7 +15461,7 @@
           "argumentCount": 0,
           "fallback": "Identity verification",
           "formatSignature": [],
-          "line": 3403,
+          "line": 3408,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -15619,7 +15619,7 @@
           "argumentCount": 0,
           "fallback": "Update signature",
           "formatSignature": [],
-          "line": 3388,
+          "line": 3393,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -16101,7 +16101,7 @@
           "argumentCount": 0,
           "fallback": "Generate digital signature for message",
           "formatSignature": [],
-          "line": 550,
+          "line": 551,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -16567,27 +16567,13 @@
           "argumentCount": 0,
           "fallback": "Add sticker packs",
           "formatSignature": [],
-          "line": 57,
+          "line": 76,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "viewDidLoad",
-          "typeSafety": "typed"
-        },
-        {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Add sticker packs",
-          "formatSignature": [],
-          "line": 103,
-          "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
-          "surfaces": [
-            "app"
-          ],
-          "symbol": "reloadCatalogue",
+          "symbol": "StickerSection",
           "typeSafety": "typed"
         }
       ],
@@ -16615,11 +16601,47 @@
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Install",
+          "fallback": "Hide sticker panel",
           "formatSignature": [],
-          "line": 160,
+          "line": 247,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "makeToolbar",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Hide sticker panel"
+      },
+      "fallbacks": [
+        "Hide sticker panel"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__collapse",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Install",
+          "formatSignature": [],
+          "line": 151,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
@@ -16653,13 +16675,13 @@
           "argumentCount": 0,
           "fallback": "Install by link",
           "formatSignature": [],
-          "line": 121,
+          "line": 88,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "managementMenu",
+          "symbol": "tableView",
           "typeSafety": "typed"
         },
         {
@@ -16667,9 +16689,9 @@
           "argumentCount": 0,
           "fallback": "Install by link",
           "formatSignature": [],
-          "line": 149,
+          "line": 147,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
@@ -16701,27 +16723,27 @@
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Install Monsters",
+          "fallback": "Installed",
           "formatSignature": [],
-          "line": 119,
+          "line": 85,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "managementMenu",
+          "symbol": "tableView",
           "typeSafety": "typed"
         }
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Install Monsters"
+        "value": "Installed"
       },
       "fallbacks": [
-        "Install Monsters"
+        "Installed"
       ],
       "formatSignature": [],
-      "key": "chat__stickers__install_monsters",
+      "key": "chat__stickers__installed",
       "origins": [
         "sourceLiteral"
       ],
@@ -16737,27 +16759,113 @@
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Install Owls",
+          "fallback": "Installed packs",
           "formatSignature": [],
-          "line": 120,
+          "line": 60,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "managementMenu",
+          "symbol": "tableView",
           "typeSafety": "typed"
         }
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Install Owls"
+        "value": "Installed packs"
       },
       "fallbacks": [
-        "Install Owls"
+        "Installed packs"
       ],
       "formatSignature": [],
-      "key": "chat__stickers__install_owls",
+      "key": "chat__stickers__installed_packs",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Installing…",
+          "formatSignature": [],
+          "line": 93,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Installing…",
+          "formatSignature": [],
+          "line": 414,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updateStarterButton",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Installing…"
+      },
+      "fallbacks": [
+        "Installing…"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__installing",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Keyboard",
+          "formatSignature": [],
+          "line": 243,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "makeToolbar",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Keyboard"
+      },
+      "fallbacks": [
+        "Keyboard"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__keyboard",
       "origins": [
         "sourceLiteral"
       ],
@@ -16775,9 +16883,9 @@
           "argumentCount": 0,
           "fallback": "Sticker pack URL",
           "formatSignature": [],
-          "line": 153,
+          "line": 159,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
@@ -16809,15 +16917,137 @@
         {
           "api": "text",
           "argumentCount": 0,
+          "fallback": "Stickers are unavailable in this chat.",
+          "formatSignature": [],
+          "line": 1012,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "stickerPickerButtonTouchUp",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Stickers are unavailable in this chat."
+      },
+      "fallbacks": [
+        "Stickers are unavailable in this chat."
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__media_forbidden",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Monsters",
+          "formatSignature": [],
+          "line": 20,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerCatalogue.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "ChatStickerStarterPack",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Monsters"
+      },
+      "fallbacks": [
+        "Monsters"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__pack_monsters",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Owls",
+          "formatSignature": [],
+          "line": 18,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerCatalogue.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "ChatStickerStarterPack",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Owls"
+      },
+      "fallbacks": [
+        "Owls"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__pack_owls",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
           "fallback": "Sticker packs",
           "formatSignature": [],
-          "line": 112,
+          "line": 29,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "viewDidLoad",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Sticker packs",
+          "formatSignature": [],
+          "line": 239,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "reloadCatalogue",
+          "symbol": "makeToolbar",
           "typeSafety": "typed"
         }
       ],
@@ -16845,15 +17075,51 @@
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Refresh pack",
+          "fallback": "Recently Used",
           "formatSignature": [],
-          "line": 125,
+          "line": 34,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "managementMenu",
+          "symbol": "StickerSection",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "catalogWins",
+        "value": "Recently used"
+      },
+      "fallbacks": [
+        "Recently Used"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__recently_used",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Refresh pack",
+          "formatSignature": [],
+          "line": 123,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showPackActions",
           "typeSafety": "typed"
         }
       ],
@@ -16883,13 +17149,13 @@
           "argumentCount": 0,
           "fallback": "Remove pack",
           "formatSignature": [],
-          "line": 129,
+          "line": 127,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "managementMenu",
+          "symbol": "showPackActions",
           "typeSafety": "typed"
         }
       ],
@@ -16917,31 +17183,53 @@
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Stickers",
+          "fallback": "Starter packs",
           "formatSignature": [],
-          "line": 43,
+          "line": 62,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "viewDidLoad",
+          "symbol": "tableView",
           "typeSafety": "typed"
         },
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Stickers",
+          "fallback": "Starter packs",
           "formatSignature": [],
-          "line": 97,
+          "line": 279,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "reloadCatalogue",
+          "symbol": "configureStarterPacks",
           "typeSafety": "typed"
-        },
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Starter packs"
+      },
+      "fallbacks": [
+        "Starter packs"
+      ],
+      "formatSignature": [],
+      "key": "chat__stickers__starter_packs",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
         {
           "api": "text",
           "argumentCount": 0,
@@ -16983,13 +17271,27 @@
           "argumentCount": 0,
           "fallback": "Sticker pack unavailable",
           "formatSignature": [],
-          "line": 199,
+          "line": 135,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showPackActions",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Sticker pack unavailable",
+          "formatSignature": [],
+          "line": 312,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "presentFailure",
+          "symbol": "configureStarterPacks",
           "typeSafety": "typed"
         }
       ],
@@ -17430,7 +17732,7 @@
           "argumentCount": 0,
           "fallback": "Open application settings",
           "formatSignature": [],
-          "line": 524,
+          "line": 525,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -17516,7 +17818,7 @@
           "argumentCount": 0,
           "fallback": "Loading earlier messages",
           "formatSignature": [],
-          "line": 8519,
+          "line": 8586,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -18178,7 +18480,7 @@
           "argumentCount": 0,
           "fallback": "Remove",
           "formatSignature": [],
-          "line": 444,
+          "line": 447,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -20685,7 +20987,7 @@
           "argumentCount": 0,
           "fallback": "File transfer unavailable",
           "formatSignature": [],
-          "line": 304,
+          "line": 307,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -20699,7 +21001,7 @@
           "argumentCount": 0,
           "fallback": "File transfer unavailable",
           "formatSignature": [],
-          "line": 485,
+          "line": 488,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -20713,7 +21015,7 @@
           "argumentCount": 0,
           "fallback": "File transfer unavailable",
           "formatSignature": [],
-          "line": 546,
+          "line": 549,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -21511,7 +21813,7 @@
           "argumentCount": 0,
           "fallback": "Everyone",
           "formatSignature": [],
-          "line": 5423,
+          "line": 5428,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21685,7 +21987,7 @@
           "argumentCount": 0,
           "fallback": "Lock recording",
           "formatSignature": [],
-          "line": 4817,
+          "line": 4822,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21736,7 +22038,7 @@
           "argumentCount": 0,
           "fallback": "Record voice message",
           "formatSignature": [],
-          "line": 4535,
+          "line": 4540,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21751,7 +22053,7 @@
           "domain": "chatComposerVoiceAction",
           "fallback": "Record voice message",
           "formatSignature": [],
-          "line": 4536,
+          "line": 4541,
           "origin": "generatedPattern",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21802,7 +22104,7 @@
           "argumentCount": 0,
           "fallback": "Hold to record, slide left to cancel, or slide up to lock",
           "formatSignature": [],
-          "line": 4543,
+          "line": 4548,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21838,7 +22140,7 @@
           "argumentCount": 0,
           "fallback": "Slide up to lock recording",
           "formatSignature": [],
-          "line": 4825,
+          "line": 4830,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21874,7 +22176,7 @@
           "argumentCount": 0,
           "fallback": "Recording locked",
           "formatSignature": [],
-          "line": 4802,
+          "line": 4807,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21910,7 +22212,7 @@
           "argumentCount": 0,
           "fallback": "Locked",
           "formatSignature": [],
-          "line": 4806,
+          "line": 4811,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21946,7 +22248,7 @@
           "argumentCount": 0,
           "fallback": "Double-tap to stop recording",
           "formatSignature": [],
-          "line": 4811,
+          "line": 4816,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -21982,7 +22284,7 @@
           "argumentCount": 0,
           "fallback": "Unlocked",
           "formatSignature": [],
-          "line": 4821,
+          "line": 4826,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -22056,7 +22358,7 @@
           "domain": "chatComposerVoiceAction",
           "fallback": "Send voice message",
           "formatSignature": [],
-          "line": 4536,
+          "line": 4541,
           "origin": "generatedPattern",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -22070,7 +22372,7 @@
           "argumentCount": 0,
           "fallback": "Send voice message",
           "formatSignature": [],
-          "line": 4536,
+          "line": 4541,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -22674,7 +22976,7 @@
           "argumentCount": 0,
           "fallback": "Voice message",
           "formatSignature": [],
-          "line": 90,
+          "line": 91,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -23138,7 +23440,7 @@
           "argumentCount": 0,
           "fallback": "Call",
           "formatSignature": [],
-          "line": 1607,
+          "line": 1608,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23210,7 +23512,7 @@
           "argumentCount": 0,
           "fallback": "Contact",
           "formatSignature": [],
-          "line": 1595,
+          "line": 1596,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23288,7 +23590,7 @@
           "argumentCount": 0,
           "fallback": "File",
           "formatSignature": [],
-          "line": 1582,
+          "line": 1583,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23332,7 +23634,7 @@
               "width": null
             }
           ],
-          "line": 1584,
+          "line": 1585,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23478,7 +23780,7 @@
           "argumentCount": 0,
           "fallback": "Forwarded message",
           "formatSignature": [],
-          "line": 1599,
+          "line": 1600,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23562,7 +23864,7 @@
           "argumentCount": 0,
           "fallback": "Image",
           "formatSignature": [],
-          "line": 1564,
+          "line": 1565,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23608,7 +23910,7 @@
               "width": null
             }
           ],
-          "line": 1566,
+          "line": 1567,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24101,7 +24403,7 @@
               "width": null
             }
           ],
-          "line": 1601,
+          "line": 1602,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24405,7 +24707,7 @@
           "argumentCount": 0,
           "fallback": "Sticker",
           "formatSignature": [],
-          "line": 1609,
+          "line": 1610,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24583,7 +24885,7 @@
           "argumentCount": 0,
           "fallback": "Video",
           "formatSignature": [],
-          "line": 1576,
+          "line": 1577,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24677,7 +24979,7 @@
               "width": null
             }
           ],
-          "line": 1578,
+          "line": 1579,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24723,7 +25025,7 @@
           "argumentCount": 0,
           "fallback": "Voice message",
           "formatSignature": [],
-          "line": 1570,
+          "line": 1571,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24815,7 +25117,7 @@
               "width": null
             }
           ],
-          "line": 1572,
+          "line": 1573,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -25012,7 +25314,7 @@
           "argumentCount": 0,
           "fallback": "This message was not sent to one or more untrusted devices.",
           "formatSignature": [],
-          "line": 1065,
+          "line": 1066,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -25048,7 +25350,7 @@
           "argumentCount": 0,
           "fallback": "This message was received from an untrusted device.",
           "formatSignature": [],
-          "line": 1069,
+          "line": 1070,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -30396,6 +30698,34 @@
           "argumentCount": 0,
           "fallback": "Add",
           "formatSignature": [],
+          "line": 84,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Add",
+          "formatSignature": [],
+          "line": 418,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updateStarterButton",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Add",
+          "formatSignature": [],
           "line": 158,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/create_new_entity/AddNewContactViewController.swift",
@@ -30460,9 +30790,23 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 159,
+          "line": 139,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showPackActions",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Cancel",
+          "formatSignature": [],
+          "line": 170,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
           "surfaces": [
             "app"
           ],
@@ -30474,7 +30818,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 5217,
+          "line": 5245,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -30530,7 +30874,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 527,
+          "line": 528,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -30544,7 +30888,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 605,
+          "line": 606,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -31182,7 +31526,7 @@
           "argumentCount": 0,
           "fallback": "Close",
           "formatSignature": [],
-          "line": 6415,
+          "line": 6452,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -31502,7 +31846,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 4218,
+          "line": 4225,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -31846,7 +32190,7 @@
           "argumentCount": 0,
           "fallback": "Done",
           "formatSignature": [],
-          "line": 722,
+          "line": 723,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -31910,7 +32254,7 @@
           "argumentCount": 0,
           "fallback": "Edit",
           "formatSignature": [],
-          "line": 354,
+          "line": 357,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -32115,20 +32459,6 @@
             "app"
           ],
           "symbol": "presentCleanupFailure",
-          "typeSafety": "typed"
-        },
-        {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "OK",
-          "formatSignature": [],
-          "line": 202,
-          "origin": "sourceLiteral",
-          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
-          "surfaces": [
-            "app"
-          ],
-          "symbol": "presentFailure",
           "typeSafety": "typed"
         },
         {
@@ -32518,6 +32848,34 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
+          "line": 96,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPackSettingsViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Retry",
+          "formatSignature": [],
+          "line": 416,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updateStarterButton",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Retry",
+          "formatSignature": [],
           "line": 482,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
@@ -32532,7 +32890,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 3760,
+          "line": 3773,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/extension/ChatViewController+ArchiveEngine.swift",
           "surfaces": [
@@ -33186,7 +33544,7 @@
               "width": null
             }
           ],
-          "line": 1242,
+          "line": 1246,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
           "surfaces": [
@@ -33230,7 +33588,7 @@
           "argumentCount": 0,
           "fallback": "SM session not found",
           "formatSignature": [],
-          "line": 1238,
+          "line": 1242,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
           "surfaces": [
@@ -57471,7 +57829,7 @@
           "argumentCount": 0,
           "fallback": "last seen recently",
           "formatSignature": [],
-          "line": 4047,
+          "line": 4054,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -57921,7 +58279,7 @@
           "argumentCount": 0,
           "fallback": "Unable to open attachment picker.",
           "formatSignature": [],
-          "line": 465,
+          "line": 775,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/extension/ChatViewController+InputBar.swift",
           "surfaces": [
@@ -58065,7 +58423,7 @@
           "argumentCount": 0,
           "fallback": "File transfer is unavailable for this account.",
           "formatSignature": [],
-          "line": 125,
+          "line": 193,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/extension/ChatViewController+InputBar.swift",
           "surfaces": [
@@ -58165,7 +58523,7 @@
           "argumentCount": 0,
           "fallback": "Bad request",
           "formatSignature": [],
-          "line": 855,
+          "line": 854,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58215,7 +58573,7 @@
           "argumentCount": 0,
           "fallback": "Conflict",
           "formatSignature": [],
-          "line": 854,
+          "line": 853,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58251,7 +58609,7 @@
           "argumentCount": 0,
           "fallback": "Contact unavailable",
           "formatSignature": [],
-          "line": 851,
+          "line": 850,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58287,7 +58645,7 @@
           "argumentCount": 0,
           "fallback": "Forbidden",
           "formatSignature": [],
-          "line": 852,
+          "line": 851,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58632,7 +58990,7 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
-          "line": 849,
+          "line": 848,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58646,7 +59004,7 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
-          "line": 868,
+          "line": 867,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58682,7 +59040,7 @@
           "argumentCount": 0,
           "fallback": "Internal server error",
           "formatSignature": [],
-          "line": 856,
+          "line": 855,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58718,7 +59076,7 @@
           "argumentCount": 0,
           "fallback": "JID mailformed",
           "formatSignature": [],
-          "line": 858,
+          "line": 857,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58754,7 +59112,7 @@
           "argumentCount": 0,
           "fallback": "Item not found",
           "formatSignature": [],
-          "line": 857,
+          "line": 856,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58868,7 +59226,7 @@
           "argumentCount": 0,
           "fallback": "Remote server not found",
           "formatSignature": [],
-          "line": 865,
+          "line": 864,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58904,7 +59262,7 @@
           "argumentCount": 0,
           "fallback": "Subscription required",
           "formatSignature": [],
-          "line": 867,
+          "line": 866,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58940,7 +59298,7 @@
           "argumentCount": 0,
           "fallback": "Feature not implemented",
           "formatSignature": [],
-          "line": 853,
+          "line": 852,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -58976,7 +59334,7 @@
           "argumentCount": 0,
           "fallback": "Policy violation",
           "formatSignature": [],
-          "line": 862,
+          "line": 861,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -59012,7 +59370,7 @@
           "argumentCount": 0,
           "fallback": "Recipient unavailable",
           "formatSignature": [],
-          "line": 863,
+          "line": 862,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -59048,7 +59406,7 @@
           "argumentCount": 0,
           "fallback": "Redirect",
           "formatSignature": [],
-          "line": 864,
+          "line": 863,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -59084,7 +59442,7 @@
           "argumentCount": 0,
           "fallback": "Remote server timeout",
           "formatSignature": [],
-          "line": 866,
+          "line": 865,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -59120,7 +59478,7 @@
           "argumentCount": 0,
           "fallback": "Not acceptable",
           "formatSignature": [],
-          "line": 859,
+          "line": 858,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -59184,7 +59542,7 @@
           "argumentCount": 0,
           "fallback": "Not allowed",
           "formatSignature": [],
-          "line": 860,
+          "line": 859,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -59220,7 +59578,7 @@
           "argumentCount": 0,
           "fallback": "Not authorized",
           "formatSignature": [],
-          "line": 861,
+          "line": 860,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -63786,7 +64144,7 @@
           "argumentCount": 0,
           "fallback": "Review encryption request",
           "formatSignature": [],
-          "line": 3360,
+          "line": 3365,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
           "surfaces": [
@@ -65296,7 +65654,7 @@
           "argumentCount": 0,
           "fallback": "Location",
           "formatSignature": [],
-          "line": 1317,
+          "line": 1318,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -69365,7 +69723,7 @@
           "argumentCount": 0,
           "fallback": "This media was hidden after your report.",
           "formatSignature": [],
-          "line": 1060,
+          "line": 1061,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -69401,7 +69759,7 @@
           "argumentCount": 0,
           "fallback": "This message was hidden after your report.",
           "formatSignature": [],
-          "line": 1055,
+          "line": 1056,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -71638,7 +71996,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled editing is not supported.",
           "formatSignature": [],
-          "line": 1129,
+          "line": 1170,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -71674,7 +72032,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled messages are unavailable in encrypted chats.",
           "formatSignature": [],
-          "line": 1136,
+          "line": 1177,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -71710,7 +72068,7 @@
           "argumentCount": 0,
           "fallback": "Only text messages can be scheduled right now.",
           "formatSignature": [],
-          "line": 1131,
+          "line": 1172,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -71761,7 +72119,7 @@
           "argumentCount": 0,
           "fallback": "Schedule Message",
           "formatSignature": [],
-          "line": 246,
+          "line": 607,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -71775,7 +72133,7 @@
           "argumentCount": 0,
           "fallback": "Schedule Message",
           "formatSignature": [],
-          "line": 310,
+          "line": 713,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -71803,7 +72161,7 @@
           "argumentCount": 0,
           "fallback": "Schedule Message",
           "formatSignature": [],
-          "line": 90,
+          "line": 91,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageDatePickerViewController.swift",
           "surfaces": [
@@ -71854,7 +72212,7 @@
           "argumentCount": 0,
           "fallback": "Could not schedule message.",
           "formatSignature": [],
-          "line": 1138,
+          "line": 1179,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -71868,7 +72226,7 @@
           "argumentCount": 0,
           "fallback": "Could not schedule message.",
           "formatSignature": [],
-          "line": 1152,
+          "line": 1193,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -72060,7 +72418,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled messages are unavailable on this server.",
           "formatSignature": [],
-          "line": 1127,
+          "line": 1168,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -72074,7 +72432,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled messages are unavailable on this server.",
           "formatSignature": [],
-          "line": 1145,
+          "line": 1186,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -72110,7 +72468,7 @@
           "argumentCount": 0,
           "fallback": "Add Attachments",
           "formatSignature": [],
-          "line": 406,
+          "line": 409,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -72146,7 +72504,7 @@
           "argumentCount": 0,
           "fallback": "Attachment",
           "formatSignature": [],
-          "line": 92,
+          "line": 93,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -72218,7 +72576,7 @@
           "argumentCount": 0,
           "fallback": "Message text",
           "formatSignature": [],
-          "line": 397,
+          "line": 400,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -72392,7 +72750,7 @@
           "argumentCount": 0,
           "fallback": "Replace Attachment",
           "formatSignature": [],
-          "line": 443,
+          "line": 446,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -72428,7 +72786,7 @@
           "argumentCount": 0,
           "fallback": "Reschedule",
           "formatSignature": [],
-          "line": 91,
+          "line": 92,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageDatePickerViewController.swift",
           "surfaces": [
@@ -72442,7 +72800,7 @@
           "argumentCount": 0,
           "fallback": "Reschedule",
           "formatSignature": [],
-          "line": 164,
+          "line": 165,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageDatePickerViewController.swift",
           "surfaces": [
@@ -72578,7 +72936,7 @@
           "argumentCount": 0,
           "fallback": "Could not send sticker.",
           "formatSignature": [],
-          "line": 1060,
+          "line": 1096,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -72700,7 +73058,7 @@
           "argumentCount": 0,
           "fallback": "The server may have accepted the message. Check Scheduled Messages before trying again.",
           "formatSignature": [],
-          "line": 1147,
+          "line": 1188,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -73491,7 +73849,7 @@
           "argumentCount": 0,
           "fallback": "Updating scheduled messages…",
           "formatSignature": [],
-          "line": 501,
+          "line": 504,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessageManagementViews.swift",
           "surfaces": [
@@ -73570,7 +73928,7 @@
           "argumentCount": 0,
           "fallback": "Search",
           "formatSignature": [],
-          "line": 6530,
+          "line": 6567,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -73784,7 +74142,7 @@
           "argumentCount": 0,
           "fallback": "Search this chat",
           "formatSignature": [],
-          "line": 4274,
+          "line": 4281,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatViewController.swift",
           "surfaces": [
@@ -81875,7 +82233,7 @@
           "argumentCount": 0,
           "fallback": "Stream was disconnected",
           "formatSignature": [],
-          "line": 613,
+          "line": 612,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/messages_manager/MessageManager.swift",
           "surfaces": [
@@ -87486,7 +87844,7 @@
           "argumentCount": 0,
           "fallback": "Voice message",
           "formatSignature": [],
-          "line": 105,
+          "line": 106,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
           "surfaces": [
@@ -90236,6 +90594,14 @@
     {
       "classification": "reviewCandidate",
       "key": "chat__placeholder_participant_messages__messages_by"
+    },
+    {
+      "classification": "reviewCandidate",
+      "key": "chat__stickers__install_monsters"
+    },
+    {
+      "classification": "reviewCandidate",
+      "key": "chat__stickers__install_owls"
     },
     {
       "classification": "reviewCandidate",
@@ -97844,10 +98210,10 @@
   "schemaVersion": 1,
   "sourceLanguage": "en",
   "summary": {
-    "activeKeys": 1900,
+    "activeKeys": 1908,
     "activeWithoutEnglish": 0,
-    "catalogKeys": 3435,
-    "catalogOnlyKeys": 1535,
+    "catalogKeys": 3445,
+    "catalogOnlyKeys": 1537,
     "computedFallbacks": 12,
     "directLookups": 0,
     "domainReservedKeys": 9,
