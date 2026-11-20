@@ -16567,7 +16567,7 @@
           "argumentCount": 0,
           "fallback": "Add sticker packs",
           "formatSignature": [],
-          "line": 76,
+          "line": 77,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -16603,7 +16603,7 @@
           "argumentCount": 0,
           "fallback": "Hide sticker panel",
           "formatSignature": [],
-          "line": 247,
+          "line": 264,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -16811,7 +16811,7 @@
           "argumentCount": 0,
           "fallback": "Installing…",
           "formatSignature": [],
-          "line": 414,
+          "line": 431,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -16847,7 +16847,7 @@
           "argumentCount": 0,
           "fallback": "Keyboard",
           "formatSignature": [],
-          "line": 243,
+          "line": 260,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -17041,7 +17041,7 @@
           "argumentCount": 0,
           "fallback": "Sticker packs",
           "formatSignature": [],
-          "line": 239,
+          "line": 256,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -17199,7 +17199,7 @@
           "argumentCount": 0,
           "fallback": "Starter packs",
           "formatSignature": [],
-          "line": 279,
+          "line": 296,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -17285,7 +17285,7 @@
           "argumentCount": 0,
           "fallback": "Sticker pack unavailable",
           "formatSignature": [],
-          "line": 312,
+          "line": 329,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -30712,7 +30712,7 @@
           "argumentCount": 0,
           "fallback": "Add",
           "formatSignature": [],
-          "line": 418,
+          "line": 435,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -30916,7 +30916,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 480,
+          "line": 512,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -30930,7 +30930,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 525,
+          "line": 557,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -31732,7 +31732,7 @@
           "argumentCount": 0,
           "fallback": "Copy",
           "formatSignature": [],
-          "line": 517,
+          "line": 549,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -31746,7 +31746,7 @@
           "argumentCount": 0,
           "fallback": "Copy",
           "formatSignature": [],
-          "line": 565,
+          "line": 597,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -31944,7 +31944,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 266,
+          "line": 285,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -31958,7 +31958,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 584,
+          "line": 616,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -31972,7 +31972,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 694,
+          "line": 726,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -32268,7 +32268,7 @@
           "argumentCount": 0,
           "fallback": "Edit",
           "formatSignature": [],
-          "line": 560,
+          "line": 592,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -32862,7 +32862,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 416,
+          "line": 433,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -32904,7 +32904,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 108,
+          "line": 114,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -32918,7 +32918,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 513,
+          "line": 545,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -33130,7 +33130,7 @@
           "argumentCount": 0,
           "fallback": "Select",
           "formatSignature": [],
-          "line": 273,
+          "line": 292,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -33144,7 +33144,7 @@
           "argumentCount": 0,
           "fallback": "Select",
           "formatSignature": [],
-          "line": 579,
+          "line": 611,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72119,7 +72119,7 @@
           "argumentCount": 0,
           "fallback": "Schedule Message",
           "formatSignature": [],
-          "line": 607,
+          "line": 624,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -72133,7 +72133,7 @@
           "argumentCount": 0,
           "fallback": "Schedule Message",
           "formatSignature": [],
-          "line": 713,
+          "line": 736,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/ChatStickerPickerViewController.swift",
           "surfaces": [
@@ -72147,7 +72147,7 @@
           "argumentCount": 0,
           "fallback": "Schedule Message",
           "formatSignature": [],
-          "line": 110,
+          "line": 111,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -72270,7 +72270,7 @@
               "width": null
             }
           ],
-          "line": 203,
+          "line": 204,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -72322,7 +72322,7 @@
               "width": null
             }
           ],
-          "line": 191,
+          "line": 192,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -72374,7 +72374,7 @@
               "width": null
             }
           ],
-          "line": 198,
+          "line": 199,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -72540,7 +72540,7 @@
           "argumentCount": 0,
           "fallback": "Due now",
           "formatSignature": [],
-          "line": 168,
+          "line": 169,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -72612,7 +72612,7 @@
           "argumentCount": 0,
           "fallback": "Preview unavailable on this device",
           "formatSignature": [],
-          "line": 756,
+          "line": 788,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72656,7 +72656,7 @@
               "width": null
             }
           ],
-          "line": 612,
+          "line": 644,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72700,7 +72700,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled message",
           "formatSignature": [],
-          "line": 495,
+          "line": 527,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72714,7 +72714,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled message",
           "formatSignature": [],
-          "line": 758,
+          "line": 790,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72814,7 +72814,7 @@
           "argumentCount": 0,
           "fallback": "Reschedule",
           "formatSignature": [],
-          "line": 575,
+          "line": 607,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72850,7 +72850,7 @@
           "argumentCount": 0,
           "fallback": "Send Now",
           "formatSignature": [],
-          "line": 258,
+          "line": 277,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72864,7 +72864,7 @@
           "argumentCount": 0,
           "fallback": "Send Now",
           "formatSignature": [],
-          "line": 570,
+          "line": 602,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72900,7 +72900,7 @@
           "argumentCount": 0,
           "fallback": "Failed",
           "formatSignature": [],
-          "line": 788,
+          "line": 820,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -72972,7 +72972,7 @@
           "argumentCount": 0,
           "fallback": "Tomorrow",
           "formatSignature": [],
-          "line": 307,
+          "line": 331,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73008,7 +73008,7 @@
           "argumentCount": 0,
           "fallback": "In less than a minute",
           "formatSignature": [],
-          "line": 172,
+          "line": 173,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -73130,7 +73130,7 @@
           "argumentCount": 0,
           "fallback": "Could not update the scheduled message.",
           "formatSignature": [],
-          "line": 421,
+          "line": 453,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73144,7 +73144,7 @@
           "argumentCount": 0,
           "fallback": "Could not update the scheduled message.",
           "formatSignature": [],
-          "line": 435,
+          "line": 467,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73180,7 +73180,7 @@
           "argumentCount": 0,
           "fallback": "Some actions could not be completed.",
           "formatSignature": [],
-          "line": 394,
+          "line": 419,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73216,7 +73216,7 @@
           "argumentCount": 0,
           "fallback": "The scheduled message changed. Review the updated list.",
           "formatSignature": [],
-          "line": 405,
+          "line": 437,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73230,7 +73230,7 @@
           "argumentCount": 0,
           "fallback": "The scheduled message changed. Review the updated list.",
           "formatSignature": [],
-          "line": 413,
+          "line": 445,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73266,7 +73266,7 @@
           "argumentCount": 0,
           "fallback": "Discard Action",
           "formatSignature": [],
-          "line": 521,
+          "line": 553,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73302,7 +73302,7 @@
           "argumentCount": 0,
           "fallback": "No scheduled messages",
           "formatSignature": [],
-          "line": 107,
+          "line": 113,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73338,7 +73338,7 @@
           "argumentCount": 0,
           "fallback": "The server limit for scheduled messages was reached.",
           "formatSignature": [],
-          "line": 417,
+          "line": 449,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73374,7 +73374,7 @@
           "argumentCount": 0,
           "fallback": "Could not load scheduled messages.",
           "formatSignature": [],
-          "line": 287,
+          "line": 311,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73410,7 +73410,7 @@
           "argumentCount": 0,
           "fallback": "Loading scheduled messages…",
           "formatSignature": [],
-          "line": 285,
+          "line": 309,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73446,7 +73446,7 @@
           "argumentCount": 0,
           "fallback": "You do not have permission for this action.",
           "formatSignature": [],
-          "line": 419,
+          "line": 451,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73482,7 +73482,7 @@
           "argumentCount": 0,
           "fallback": "The original was canceled. You can continue the pending action.",
           "formatSignature": [],
-          "line": 502,
+          "line": 534,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73518,7 +73518,7 @@
           "argumentCount": 0,
           "fallback": "Refresh",
           "formatSignature": [],
-          "line": 509,
+          "line": 541,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73568,7 +73568,7 @@
           "argumentCount": 0,
           "fallback": "Review pending actions",
           "formatSignature": [],
-          "line": 111,
+          "line": 117,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73582,7 +73582,7 @@
           "argumentCount": 0,
           "fallback": "Review pending actions",
           "formatSignature": [],
-          "line": 471,
+          "line": 503,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73596,7 +73596,7 @@
           "argumentCount": 0,
           "fallback": "Review pending actions",
           "formatSignature": [],
-          "line": 504,
+          "line": 536,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73640,7 +73640,7 @@
               "width": null
             }
           ],
-          "line": 239,
+          "line": 255,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73698,7 +73698,7 @@
           "argumentCount": 0,
           "fallback": "Choose a valid future send time.",
           "formatSignature": [],
-          "line": 415,
+          "line": 447,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73749,7 +73749,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled Messages",
           "formatSignature": [],
-          "line": 77,
+          "line": 79,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73763,7 +73763,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled Messages",
           "formatSignature": [],
-          "line": 244,
+          "line": 260,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73799,7 +73799,7 @@
           "argumentCount": 0,
           "fallback": "The server did not confirm the result. Refresh and review the list.",
           "formatSignature": [],
-          "line": 501,
+          "line": 533,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -73863,7 +73863,21 @@
           "argumentCount": 0,
           "fallback": "Updating scheduled messages…",
           "formatSignature": [],
-          "line": 283,
+          "line": 103,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "configure",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Updating scheduled messages…",
+          "formatSignature": [],
+          "line": 307,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
@@ -74373,7 +74387,7 @@
           "argumentCount": 0,
           "fallback": "Send Without Sound",
           "formatSignature": [],
-          "line": 103,
+          "line": 104,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ChatScheduledMessageModels.swift",
           "surfaces": [
@@ -83567,7 +83581,7 @@
           "argumentCount": 0,
           "fallback": "Today",
           "formatSignature": [],
-          "line": 303,
+          "line": 327,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/schedule/ScheduledMessagesViewController.swift",
           "surfaces": [
