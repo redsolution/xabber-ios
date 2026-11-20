@@ -45,6 +45,31 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertEqual(surface.contentView.backgroundColor, UIColor.clear)
     }
 
+    func testInlinePickerButtonsUseApplicationColorInBothHosts() throws {
+        let panel = ChatStickerPickerViewController(
+            owner: owner, canSchedule: { false }, onSend: { _ in }, onSchedule: { _ in }
+        )
+        let host = UIView()
+        host.tintColor = .secondaryLabel
+        host.addSubview(panel.view)
+        let appTint = AppearanceCoordinator.shared.snapshot(for: panel.traitCollection).accent.uiColor
+        let buttonIDs = [
+            "chat.stickers.add_packs",
+            "chat.stickers.settings",
+            "chat.stickers.keyboard",
+            "chat.stickers.collapse"
+        ] + ChatStickerStarterPack.all.map { "chat.stickers.install.\($0.id)" }
+
+        for keyboardBottomInset in [nil, CGFloat(34)] {
+            panel.setKeyboardHostBottomInset(keyboardBottomInset)
+            for id in buttonIDs {
+                let button = try XCTUnwrap(viewWithIdentifier(id, in: panel.view) as? UIButton)
+                XCTAssertEqual(button.tintColor.resolvedColor(with: button.traitCollection), appTint, id)
+                XCTAssertEqual(button.configuration?.baseForegroundColor?.resolvedColor(with: button.traitCollection), appTint, id)
+            }
+        }
+    }
+
     func testManifestPreservesEmojiMetadataAndEscapesFilenames() throws {
         let pack = try ChatStickerPackManifest.parse(Data(xml(version: 2).utf8), url: manifestURL)
         let entry = try XCTUnwrap(pack.stickers.first)
@@ -301,10 +326,20 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 1), 2)
         XCTAssertEqual(ribbon.numberOfItems(inSection: 0), 2)
 
-        panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 1, section: 0))
+        let first = IndexPath(item: 0, section: 0)
+        let second = IndexPath(item: 1, section: 0)
+        let firstCategory = try XCTUnwrap(ribbon.cellForItem(at: first))
+        let secondCategory = try XCTUnwrap(ribbon.cellForItem(at: second))
+        try assertCategorySelection(firstCategory, selected: true)
+        try assertCategorySelection(secondCategory, selected: false)
+
+        panel.collectionView(ribbon, didSelectItemAt: second)
+        ribbon.layoutIfNeeded()
 
         XCTAssertGreaterThan(grid.contentOffset.y, 0)
         XCTAssertEqual(panel.numberOfSections(in: grid), 2)
+        try assertCategorySelection(firstCategory, selected: false)
+        try assertCategorySelection(secondCategory, selected: true)
     }
 
     func testStickerCellBelowRecentsKeepsItsPlaceholderWhenRedisplayed() async throws {
@@ -373,9 +408,16 @@ final class ChatStickerPickerTests: XCTestCase {
         XCTAssertEqual(panel.collectionView(grid, numberOfItemsInSection: 0), 1)
         XCTAssertEqual(grid.contentOffset.y - (try headerY(in: 2)), offsetInPack, accuracy: 0.5)
 
-        panel.collectionView(ribbon, didSelectItemAt: IndexPath(item: 0, section: 0))
+        let recentIndex = IndexPath(item: 0, section: 0)
+        panel.collectionView(ribbon, didSelectItemAt: recentIndex)
+        ribbon.layoutIfNeeded()
 
         XCTAssertEqual(grid.contentOffset.y, 0, accuracy: 0.5)
+        let recentCategory = try XCTUnwrap(ribbon.cellForItem(at: recentIndex))
+        try assertCategorySelection(recentCategory, selected: true)
+        let clock = try XCTUnwrap(recentCategory.contentView.subviews.compactMap { $0 as? UIImageView }.first)
+        let accent = AppearanceCoordinator.shared.snapshot(for: clock.traitCollection).accent.uiColor
+        XCTAssertEqual(clock.tintColor.resolvedColor(with: clock.traitCollection), accent)
     }
 
     func testRecentlyUsedDisappearsFromGridAndRibbonAfterRemovingItsLastSticker() async throws {
@@ -508,6 +550,23 @@ final class ChatStickerPickerTests: XCTestCase {
             if let result = viewWithIdentifier(identifier, in: child) { return result }
         }
         return nil
+    }
+
+    private func assertCategorySelection(
+        _ cell: UICollectionViewCell, selected: Bool, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        XCTAssertEqual(cell.accessibilityTraits.contains(.selected), selected, file: file, line: line)
+        XCTAssertEqual(cell.contentView.backgroundColor ?? .clear, .clear, file: file, line: line)
+        let underline = cell.contentView.subviews.first { $0.isMember(of: UIView.self) && !$0.isHidden }
+        guard selected else {
+            XCTAssertNil(underline, file: file, line: line)
+            return
+        }
+        let lineView = try XCTUnwrap(underline, file: file, line: line)
+        let accent = AppearanceCoordinator.shared.snapshot(for: cell.traitCollection).accent.uiColor
+        XCTAssertEqual(lineView.backgroundColor?.resolvedColor(with: cell.traitCollection), accent, file: file, line: line)
+        XCTAssertGreaterThan(lineView.frame.width, lineView.frame.height, file: file, line: line)
+        XCTAssertEqual(lineView.frame.maxY, cell.contentView.bounds.maxY, accuracy: 0.5, file: file, line: line)
     }
 
     private func waitFor(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async throws {

@@ -69,6 +69,7 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
     private let layout = UICollectionViewFlowLayout()
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private lazy var packStrip = UICollectionView(frame: .zero, collectionViewLayout: makePackStripLayout())
+    private lazy var toolbar = makeToolbar()
     private let starterScroll = UIScrollView()
     private var starterRows: [URL: StarterRow] = [:]
     private var loadedStarterPreviews: Set<URL> = []
@@ -145,7 +146,6 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         }
 
         configureStarterPacks()
-        let toolbar = makeToolbar()
         let safeArea = controlsView.safeAreaLayoutGuide
         for child in [toolbar, collection, starterScroll] {
             child.translatesAutoresizingMaskIntoConstraints = false
@@ -171,6 +171,9 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         NotificationCenter.default.addObserver(self, selector: #selector(reduceTransparencyDidChange),
                                                name: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
                                                object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateApplicationTint),
+                                               name: .appearanceDidChange, object: AppearanceCoordinator.shared)
+        updateApplicationTint()
         reloadCatalogue()
         updateScrollBottomInsets()
     }
@@ -231,6 +234,20 @@ final class ChatStickerPickerViewController: UIViewController, UICollectionViewD
         if reduceTransparency {
             panelSurface.backgroundColor = .secondarySystemBackground
             panelSurface.contentView.backgroundColor = .secondarySystemBackground
+        }
+    }
+
+    @objc private func updateApplicationTint() {
+        // The system keyboard host may be outside the application's tinted window.
+        let appearance = AppearanceCoordinator.shared
+        let light = appearance.snapshot(for: UITraitCollection(userInterfaceStyle: .light)).accent.uiColor
+        let dark = appearance.snapshot(for: UITraitCollection(userInterfaceStyle: .dark)).accent.uiColor
+        let tint = light == dark ? light : UIColor { $0.userInterfaceStyle == .dark ? dark : light }
+        view.tintColor = tint
+        let buttons = toolbar.arrangedSubviews.compactMap { $0 as? UIButton } + starterRows.values.map(\.button)
+        for button in buttons {
+            button.tintColor = tint
+            button.configuration?.baseForegroundColor = tint
         }
     }
 
@@ -659,6 +676,7 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
     private let clock = UIImageView(image: UIImage(
         systemName: "clock", withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
     ))
+    private var selectionUnderline: UIView?
     private var activate: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -670,7 +688,6 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         thumbnail.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(thumbnail)
         clock.isHidden = true
-        clock.tintColor = .label
         clock.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(clock)
         NSLayoutConstraint.activate([
@@ -689,8 +706,14 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
         super.prepareForReuse()
         thumbnail.reset()
         clock.isHidden = true
+        setPackSelected(false)
         activate = nil
         accessibilityCustomActions = nil
+    }
+
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        selectionUnderline?.backgroundColor = tintColor
     }
 
     override func accessibilityActivate() -> Bool {
@@ -748,7 +771,22 @@ private final class ChatStickerPickerCell: UICollectionViewCell {
     }
 
     func setPackSelected(_ selected: Bool) {
-        contentView.backgroundColor = selected ? tintColor.withAlphaComponent(0.14) : .clear
+        if selected, selectionUnderline == nil {
+            let underline = UIView()
+            underline.translatesAutoresizingMaskIntoConstraints = false
+            underline.isUserInteractionEnabled = false
+            underline.backgroundColor = tintColor
+            underline.layer.cornerRadius = 1
+            contentView.addSubview(underline)
+            NSLayoutConstraint.activate([
+                underline.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+                underline.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+                underline.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+                underline.heightAnchor.constraint(equalToConstant: 2)
+            ])
+            selectionUnderline = underline
+        }
+        selectionUnderline?.isHidden = !selected
         accessibilityTraits = selected ? [.button, .selected] : [.button]
     }
 }
